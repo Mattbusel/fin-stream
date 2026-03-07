@@ -1,7 +1,11 @@
-[package]
+﻿[package]
 name = "fin-stream"
 version = "0.1.0"
 edition = "2021"
+license = "MIT"
+repository = "https://github.com/Mattbusel/fin-stream"
+keywords = ["finance", "streaming", "market-data", "high-performance", "trading"]
+categories = ["finance", "asynchronous", "data-structures"]
 description = "Real-time market data streaming primitives — 100K+ ticks/second ingestion pipeline"
 
 [lints.clippy]
@@ -35,7 +39,7 @@ uuid = { version = "1.6", features = ["v4", "fast-rng", "serde"] }
 # tracing: pipeline observability
 tracing = "0.1"
 # fin-primitives: tick, orderbook, ohlcv, signals integration
-fin-primitives = { path = "../fin-primitives" }
+fin-primitives = "0.1.0"
 
 [dev-dependencies]
 tokio-test = "0.4"
