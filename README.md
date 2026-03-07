@@ -31,6 +31,12 @@ let out = ring.pop().unwrap();
 fin-stream = { git = "https://github.com/Mattbusel/fin-stream" }
 ```
 
+Or one-liner:
+
+```ash
+cargo add --git https://github.com/Mattbusel/fin-stream
+```
+
 ## Test coverage
 
 ```bash
