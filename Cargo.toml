@@ -1,0 +1,48 @@
+[package]
+name = "fin-stream"
+version = "0.1.0"
+edition = "2021"
+description = "Real-time market data streaming primitives — 100K+ ticks/second ingestion pipeline"
+
+[lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+todo = "deny"
+
+[dependencies]
+# tokio: async runtime, channels, timers
+tokio = { version = "1.40", features = ["full"] }
+# serde: tick normalization, order book serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+# thiserror: typed streaming errors
+thiserror = "1.0"
+# async-trait: trait objects for feed adapters
+async-trait = "0.1"
+# tokio-tungstenite: async WebSocket
+tokio-tungstenite = { version = "0.24", features = ["native-tls"] }
+# futures: stream combinators
+futures-util = "0.3"
+# rust_decimal: exact price arithmetic — never use f64 for prices
+rust_decimal = { version = "1.35", features = ["serde-with-str"] }
+# chrono: timestamp handling
+chrono = { version = "0.4", features = ["serde"] }
+# dashmap: concurrent order book / health state
+dashmap = "5.5"
+# uuid: feed/subscription identifiers
+uuid = { version = "1.6", features = ["v4", "fast-rng", "serde"] }
+# tracing: pipeline observability
+tracing = "0.1"
+# fin-primitives: tick, orderbook, ohlcv, signals integration
+fin-primitives = { path = "../fin-primitives" }
+
+[dev-dependencies]
+tokio-test = "0.4"
+criterion = { version = "0.5", features = ["async_tokio"] }
+# rust_decimal_macros: dec!() macro for test literals
+rust_decimal_macros = "1.35"
+
+[[bench]]
+name = "tick_hot_path"
+harness = false
