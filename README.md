@@ -1,14 +1,14 @@
 # fin-stream
 
-Real-time market data streaming primitives — 100K+ ticks/second ingestion pipeline built on Tokio.
+Real-time market data streaming primitives -- 100K+ ticks/second ingestion pipeline built on Tokio.
 
 ## What's inside
 
-- **SPSC ring buffer** — lock-free single-producer/single-consumer queue for zero-allocation tick ingestion
-- **OHLCV aggregation pipeline** — streaming bar construction at any timeframe from raw tick data
-- **Coordinate normalization** — rolling-window min-max normalization for ML feature pipelines
-- **Spacetime transforms** — special-relativistic Lorentz transforms applied to financial time series
-- **Stream engine** — composable pipeline stages: ingest → normalize → transform → emit
+- **SPSC ring buffer** -- lock-free single-producer/single-consumer queue for zero-allocation tick ingestion
+- **OHLCV aggregation pipeline** -- streaming bar construction at any timeframe from raw tick data
+- **Coordinate normalization** -- rolling-window min-max normalization for ML feature pipelines
+- **Spacetime transforms** -- special-relativistic Lorentz transforms applied to financial time series
+- **Stream engine** -- composable pipeline stages: ingest → normalize → transform → emit
 
 ## Performance
 
