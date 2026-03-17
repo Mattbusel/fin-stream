@@ -50,9 +50,14 @@ impl ReconnectPolicy {
     /// Backoff duration for attempt N (0-indexed).
     pub fn backoff_for_attempt(&self, attempt: u32) -> Duration {
         let factor = self.multiplier.powi(attempt as i32);
-        let ms = (self.initial_backoff.as_millis() as f64 * factor) as u64;
-        let capped = ms.min(self.max_backoff.as_millis() as u64);
-        Duration::from_millis(capped)
+        // Cap the f64 value *before* casting to u64.  When `attempt` is large
+        // (e.g. 63 with multiplier=2.0), `factor` becomes f64::INFINITY.
+        // Casting f64::INFINITY as u64 is undefined behaviour in Rust — it
+        // saturates to 0 on some targets and panics in debug builds.  Clamping
+        // to max_backoff in floating-point space first avoids the UB entirely.
+        let max_ms = self.max_backoff.as_millis() as f64;
+        let ms = (self.initial_backoff.as_millis() as f64 * factor).min(max_ms);
+        Duration::from_millis(ms as u64)
     }
 }
 
