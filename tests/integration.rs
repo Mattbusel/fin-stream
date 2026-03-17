@@ -106,7 +106,9 @@ fn test_ohlcv_multi_bar_sequence() {
     agg.feed(&make_tick("BTC-USD", dec!(50000), dec!(1), 60_000)).unwrap();
     agg.feed(&make_tick("BTC-USD", dec!(50500), dec!(2), 60_500)).unwrap();
     // Bar 2: tick in minute 2 closes bar 1
-    let completed = agg.feed(&make_tick("BTC-USD", dec!(51000), dec!(1), 120_000)).unwrap().unwrap();
+    let mut bars = agg.feed(&make_tick("BTC-USD", dec!(51000), dec!(1), 120_000)).unwrap();
+    assert_eq!(bars.len(), 1);
+    let completed = bars.remove(0);
     assert!(completed.is_complete);
     assert_eq!(completed.open, dec!(50000));
     assert_eq!(completed.close, dec!(50500));

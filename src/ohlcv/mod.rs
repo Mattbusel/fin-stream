@@ -57,6 +57,10 @@ pub struct OhlcvAggregator {
     symbol: String,
     timeframe: Timeframe,
     current_bar: Option<OhlcvBar>,
+    /// When true, `feed` returns synthetic zero-volume bars for any bar windows
+    /// that were skipped between the previous tick and the current one.
+    /// The synthetic bars use the last known close price for all OHLC fields.
+    emit_empty_bars: bool,
 }
 
 impl OhlcvAggregator {
@@ -72,11 +76,20 @@ impl OhlcvAggregator {
             symbol: symbol.into(),
             timeframe,
             current_bar: None,
+            emit_empty_bars: false,
         })
     }
 
-    /// Feed a tick. Returns a completed bar if this tick closed the previous bar.
-    pub fn feed(&mut self, tick: &NormalizedTick) -> Result<Option<OhlcvBar>, StreamError> {
+    /// Enable emission of synthetic zero-volume bars for skipped bar windows.
+    pub fn with_emit_empty_bars(mut self, enabled: bool) -> Self {
+        self.emit_empty_bars = enabled;
+        self
+    }
+
+    /// Feed a tick. Returns completed bars (including any empty gap bars when
+    /// `emit_empty_bars` is true). At most one real completed bar plus zero or
+    /// more empty bars can be returned per call.
+    pub fn feed(&mut self, tick: &NormalizedTick) -> Result<Vec<OhlcvBar>, StreamError> {
         if tick.symbol != self.symbol {
             return Err(StreamError::ParseError {
                 exchange: tick.exchange.to_string(),
@@ -84,18 +97,41 @@ impl OhlcvAggregator {
             });
         }
         let bar_start = self.timeframe.bar_start_ms(tick.received_at_ms);
-        let completed = match &self.current_bar {
-            Some(bar) if bar.bar_start_ms != bar_start => {
-                // New bar window — complete the old one
-                let mut completed = bar.clone();
+        let mut emitted: Vec<OhlcvBar> = Vec::new();
+
+        if let Some(prev) = &self.current_bar {
+            if prev.bar_start_ms != bar_start {
+                // Complete the previous bar.
+                let mut completed = prev.clone();
                 completed.is_complete = true;
-                Some(completed)
+                let prev_close = completed.close;
+                let prev_start = completed.bar_start_ms;
+                emitted.push(completed);
+                self.current_bar = None;
+
+                // Optionally fill any empty bar windows between prev_start and bar_start.
+                if self.emit_empty_bars {
+                    let dur = self.timeframe.duration_ms();
+                    let mut gap_start = prev_start + dur;
+                    while gap_start < bar_start {
+                        emitted.push(OhlcvBar {
+                            symbol: self.symbol.clone(),
+                            timeframe: self.timeframe,
+                            bar_start_ms: gap_start,
+                            open: prev_close,
+                            high: prev_close,
+                            low: prev_close,
+                            close: prev_close,
+                            volume: Decimal::ZERO,
+                            trade_count: 0,
+                            is_complete: true,
+                        });
+                        gap_start += dur;
+                    }
+                }
             }
-            _ => None,
-        };
-        if completed.is_some() {
-            self.current_bar = None;
         }
+
         match &mut self.current_bar {
             Some(bar) => {
                 if tick.price > bar.high { bar.high = tick.price; }
@@ -119,7 +155,7 @@ impl OhlcvAggregator {
                 });
             }
         }
-        Ok(completed)
+        Ok(emitted)
     }
 
     /// Current partial bar (if any).
@@ -188,7 +224,7 @@ mod tests {
         let mut agg = agg("BTC-USD", Timeframe::Minutes(1));
         let tick = make_tick("BTC-USD", dec!(50000), dec!(1), 60_000);
         let result = agg.feed(&tick).unwrap();
-        assert!(result.is_none()); // no completed bar yet
+        assert!(result.is_empty()); // no completed bar yet
         let bar = agg.current_bar().unwrap();
         assert_eq!(bar.open, dec!(50000));
         assert_eq!(bar.high, dec!(50000));
@@ -217,8 +253,9 @@ mod tests {
         agg.feed(&make_tick("BTC-USD", dec!(50000), dec!(1), 60_000)).unwrap();
         agg.feed(&make_tick("BTC-USD", dec!(50100), dec!(2), 60_500)).unwrap();
         // Tick in next minute window closes previous bar
-        let completed = agg.feed(&make_tick("BTC-USD", dec!(50200), dec!(1), 120_000)).unwrap();
-        let bar = completed.unwrap();
+        let mut bars = agg.feed(&make_tick("BTC-USD", dec!(50200), dec!(1), 120_000)).unwrap();
+        assert_eq!(bars.len(), 1);
+        let bar = bars.remove(0);
         assert!(bar.is_complete);
         assert_eq!(bar.open, dec!(50000));
         assert_eq!(bar.close, dec!(50100));
@@ -282,5 +319,64 @@ mod tests {
         let agg = agg("ETH-USD", Timeframe::Hours(1));
         assert_eq!(agg.symbol(), "ETH-USD");
         assert_eq!(agg.timeframe(), Timeframe::Hours(1));
+    }
+
+    // --- emit_empty_bars tests ---
+
+    #[test]
+    fn test_emit_empty_bars_no_gap_no_empties() {
+        // Consecutive bars — no gap — should not produce empty bars.
+        let mut agg = OhlcvAggregator::new("BTC-USD", Timeframe::Minutes(1))
+            .unwrap()
+            .with_emit_empty_bars(true);
+        agg.feed(&make_tick("BTC-USD", dec!(50000), dec!(1), 60_000)).unwrap();
+        let bars = agg.feed(&make_tick("BTC-USD", dec!(50100), dec!(1), 120_000)).unwrap();
+        // Only the completed bar for the first minute; no empties.
+        assert_eq!(bars.len(), 1);
+        assert_eq!(bars[0].bar_start_ms, 60_000);
+        assert_eq!(bars[0].volume, dec!(1));
+    }
+
+    #[test]
+    fn test_emit_empty_bars_two_skipped_windows() {
+        // Gap of 3 minutes: complete bar at 60s, then two empty bars at 120s and 180s,
+        // then the 240s tick starts a new bar.
+        let mut agg = OhlcvAggregator::new("BTC-USD", Timeframe::Minutes(1))
+            .unwrap()
+            .with_emit_empty_bars(true);
+        agg.feed(&make_tick("BTC-USD", dec!(50000), dec!(1), 60_000)).unwrap();
+        let bars = agg.feed(&make_tick("BTC-USD", dec!(51000), dec!(1), 240_000)).unwrap();
+        // 1 real completed bar + 2 empty gap bars (120_000, 180_000)
+        assert_eq!(bars.len(), 3);
+        assert_eq!(bars[0].bar_start_ms, 60_000);
+        assert!(!bars[0].volume.is_zero()); // real bar
+        assert_eq!(bars[1].bar_start_ms, 120_000);
+        assert!(bars[1].volume.is_zero()); // empty
+        assert_eq!(bars[1].trade_count, 0);
+        assert_eq!(bars[1].open, dec!(50000)); // last close carried forward
+        assert_eq!(bars[2].bar_start_ms, 180_000);
+        assert!(bars[2].volume.is_zero()); // empty
+    }
+
+    #[test]
+    fn test_emit_empty_bars_disabled_no_empties_on_gap() {
+        let mut agg = OhlcvAggregator::new("BTC-USD", Timeframe::Minutes(1))
+            .unwrap()
+            .with_emit_empty_bars(false);
+        agg.feed(&make_tick("BTC-USD", dec!(50000), dec!(1), 60_000)).unwrap();
+        let bars = agg.feed(&make_tick("BTC-USD", dec!(51000), dec!(1), 240_000)).unwrap();
+        assert_eq!(bars.len(), 1); // only real completed bar, no empties
+    }
+
+    #[test]
+    fn test_emit_empty_bars_is_complete_true() {
+        let mut agg = OhlcvAggregator::new("BTC-USD", Timeframe::Minutes(1))
+            .unwrap()
+            .with_emit_empty_bars(true);
+        agg.feed(&make_tick("BTC-USD", dec!(50000), dec!(1), 60_000)).unwrap();
+        let bars = agg.feed(&make_tick("BTC-USD", dec!(51000), dec!(1), 240_000)).unwrap();
+        for bar in &bars {
+            assert!(bar.is_complete, "all emitted bars must be marked complete");
+        }
     }
 }

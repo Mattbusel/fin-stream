@@ -264,6 +264,7 @@ fn test_feed_health_serde_roundtrip() {
         last_tick_ms: Some(1_000_000),
         stale_threshold_ms: 5_000,
         tick_count: 42,
+        consecutive_stale: 0,
     };
     let json = serde_json::to_string(&h).unwrap();
     let back: FeedHealth = serde_json::from_str(&json).unwrap();

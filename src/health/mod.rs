@@ -31,6 +31,8 @@ pub struct FeedHealth {
     pub last_tick_ms: Option<u64>,
     pub stale_threshold_ms: u64,
     pub tick_count: u64,
+    /// Number of consecutive stale checks. Resets to 0 on heartbeat.
+    pub consecutive_stale: u32,
 }
 
 impl FeedHealth {
@@ -44,6 +46,8 @@ impl FeedHealth {
 pub struct HealthMonitor {
     feeds: Arc<DashMap<String, FeedHealth>>,
     default_stale_threshold_ms: u64,
+    /// Number of consecutive stale checks before the circuit opens. 0 = disabled.
+    circuit_breaker_threshold: u32,
 }
 
 impl HealthMonitor {
@@ -51,7 +55,27 @@ impl HealthMonitor {
         Self {
             feeds: Arc::new(DashMap::new()),
             default_stale_threshold_ms,
+            circuit_breaker_threshold: 3,
         }
+    }
+
+    /// Configure how many consecutive stale checks open the circuit (default: 3).
+    /// Set to 0 to disable circuit-breaking.
+    pub fn with_circuit_breaker_threshold(mut self, threshold: u32) -> Self {
+        self.circuit_breaker_threshold = threshold;
+        self
+    }
+
+    /// Returns true if the feed's circuit is open (too many consecutive stale checks).
+    /// An open circuit means callers should stop routing work to this feed.
+    pub fn is_circuit_open(&self, feed_id: &str) -> bool {
+        if self.circuit_breaker_threshold == 0 {
+            return false;
+        }
+        self.feeds
+            .get(feed_id)
+            .map(|e| e.consecutive_stale >= self.circuit_breaker_threshold)
+            .unwrap_or(false)
     }
 
     /// Register a feed with optional custom staleness threshold.
@@ -64,6 +88,7 @@ impl HealthMonitor {
             last_tick_ms: None,
             stale_threshold_ms: threshold,
             tick_count: 0,
+            consecutive_stale: 0,
         });
     }
 
@@ -77,6 +102,7 @@ impl HealthMonitor {
         entry.last_tick_ms = Some(ts_ms);
         entry.tick_count += 1;
         entry.status = HealthStatus::Healthy;
+        entry.consecutive_stale = 0;
         Ok(())
     }
 
@@ -89,6 +115,7 @@ impl HealthMonitor {
             if let Some(elapsed) = elapsed {
                 if elapsed > entry.stale_threshold_ms {
                     entry.status = HealthStatus::Stale;
+                    entry.consecutive_stale += 1;
                     errors.push(StreamError::StaleFeed {
                         feed_id: entry.feed_id.clone(),
                         elapsed_ms: elapsed,
@@ -239,6 +266,7 @@ mod tests {
             last_tick_ms: Some(1_000_000),
             stale_threshold_ms: 5_000,
             tick_count: 1,
+            consecutive_stale: 0,
         };
         assert_eq!(h.elapsed_ms(1_003_000), Some(3_000));
     }
@@ -251,6 +279,7 @@ mod tests {
             last_tick_ms: None,
             stale_threshold_ms: 5_000,
             tick_count: 0,
+            consecutive_stale: 0,
         };
         assert!(h.elapsed_ms(9_999_999).is_none());
     }
@@ -262,5 +291,56 @@ mod tests {
         m.register("B", None);
         let feeds = m.all_feeds();
         assert_eq!(feeds.len(), 2);
+    }
+
+    #[test]
+    fn test_circuit_not_open_before_threshold() {
+        let m = monitor(); // threshold = 3
+        m.register("BTC-USD", None);
+        m.heartbeat("BTC-USD", 1_000_000).unwrap();
+        m.check_all(1_010_000); // 1 stale
+        m.check_all(1_020_000); // 2 stale
+        assert!(!m.is_circuit_open("BTC-USD"));
+    }
+
+    #[test]
+    fn test_circuit_opens_at_threshold() {
+        let m = monitor(); // threshold = 3
+        m.register("BTC-USD", None);
+        m.heartbeat("BTC-USD", 1_000_000).unwrap();
+        m.check_all(1_010_000); // 1
+        m.check_all(1_020_000); // 2
+        m.check_all(1_030_000); // 3 — circuit opens
+        assert!(m.is_circuit_open("BTC-USD"));
+    }
+
+    #[test]
+    fn test_circuit_resets_on_heartbeat() {
+        let m = monitor();
+        m.register("BTC-USD", None);
+        m.heartbeat("BTC-USD", 1_000_000).unwrap();
+        m.check_all(1_010_000);
+        m.check_all(1_020_000);
+        m.check_all(1_030_000);
+        assert!(m.is_circuit_open("BTC-USD"));
+        m.heartbeat("BTC-USD", 1_040_000).unwrap();
+        assert!(!m.is_circuit_open("BTC-USD"));
+    }
+
+    #[test]
+    fn test_circuit_disabled_when_threshold_zero() {
+        let m = HealthMonitor::new(5_000).with_circuit_breaker_threshold(0);
+        m.register("BTC-USD", None);
+        m.heartbeat("BTC-USD", 1_000_000).unwrap();
+        for i in 0..10 {
+            m.check_all(1_010_000 + i * 10_000);
+        }
+        assert!(!m.is_circuit_open("BTC-USD"));
+    }
+
+    #[test]
+    fn test_circuit_open_returns_false_for_unknown_feed() {
+        let m = monitor();
+        assert!(!m.is_circuit_open("ghost"));
     }
 }
