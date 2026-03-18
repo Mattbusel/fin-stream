@@ -57,6 +57,7 @@ pub struct RawTick {
 }
 
 impl RawTick {
+    /// Construct a new [`RawTick`], stamping `received_at_ms` from the system clock.
     pub fn new(exchange: Exchange, symbol: impl Into<String>, payload: serde_json::Value) -> Self {
         Self {
             exchange,
@@ -87,10 +88,14 @@ pub enum TradeSide {
     Sell,
 }
 
-/// Normalizes raw ticks from any supported exchange.
+/// Normalizes raw ticks from any supported exchange into [`NormalizedTick`] form.
+///
+/// `TickNormalizer` is stateless and cheap to clone; a single instance can be
+/// shared across threads via `Arc` or constructed per-task.
 pub struct TickNormalizer;
 
 impl TickNormalizer {
+    /// Create a new normalizer. This is a zero-cost constructor.
     pub fn new() -> Self {
         Self
     }

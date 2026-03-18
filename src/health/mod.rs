@@ -51,6 +51,10 @@ pub struct HealthMonitor {
 }
 
 impl HealthMonitor {
+    /// Create a monitor with a default staleness threshold (milliseconds).
+    ///
+    /// Individual feeds can override this with a custom threshold via
+    /// [`HealthMonitor::register`].
     pub fn new(default_stale_threshold_ms: u64) -> Self {
         Self {
             feeds: Arc::new(DashMap::new()),
@@ -138,6 +142,7 @@ impl HealthMonitor {
     }
 
     /// Number of registered feeds.
+    /// Total number of registered feeds.
     pub fn feed_count(&self) -> usize { self.feeds.len() }
 
     /// Count of feeds by status.
@@ -145,6 +150,7 @@ impl HealthMonitor {
         self.feeds.iter().filter(|e| e.status == HealthStatus::Healthy).count()
     }
 
+    /// Number of feeds currently in the [`HealthStatus::Stale`] state.
     pub fn stale_count(&self) -> usize {
         self.feeds.iter().filter(|e| e.status == HealthStatus::Stale).count()
     }

@@ -38,6 +38,7 @@ pub struct SessionAwareness {
 }
 
 impl SessionAwareness {
+    /// Create a session classifier for the given market.
     pub fn new(session: MarketSession) -> Self {
         Self { session }
     }
@@ -51,6 +52,7 @@ impl SessionAwareness {
         }
     }
 
+    /// The market session this classifier was constructed for.
     pub fn session(&self) -> MarketSession { self.session }
 
     fn us_equity_status(&self, utc_ms: u64) -> Result<TradingStatus, StreamError> {

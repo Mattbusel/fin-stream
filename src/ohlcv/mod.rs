@@ -64,6 +64,10 @@ pub struct OhlcvAggregator {
 }
 
 impl OhlcvAggregator {
+    /// Create a new aggregator for `symbol` at `timeframe`.
+    ///
+    /// Returns an error if `timeframe.duration_ms()` is zero, which would make
+    /// bar boundary alignment undefined.
     pub fn new(symbol: impl Into<String>, timeframe: Timeframe) -> Result<Self, StreamError> {
         let tf_dur = timeframe.duration_ms();
         if tf_dur == 0 {
@@ -170,7 +174,10 @@ impl OhlcvAggregator {
         Some(bar)
     }
 
+    /// The symbol this aggregator tracks.
     pub fn symbol(&self) -> &str { &self.symbol }
+
+    /// The timeframe used for bar alignment.
     pub fn timeframe(&self) -> Timeframe { self.timeframe }
 }
 

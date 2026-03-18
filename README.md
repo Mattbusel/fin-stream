@@ -1,49 +1,187 @@
+[![CI](https://github.com/Mattbusel/fin-stream/actions/workflows/ci.yml/badge.svg)](https://github.com/Mattbusel/fin-stream/actions/workflows/ci.yml)
+[![Crates.io](https://img.shields.io/crates/v/fin-stream.svg)](https://crates.io/crates/fin-stream)
+[![docs.rs](https://img.shields.io/docsrs/fin-stream)](https://docs.rs/fin-stream)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 # fin-stream
 
-Real-time market data streaming primitives -- 100K+ ticks/second ingestion pipeline built on Tokio.
+Lock-free streaming primitives for real-time financial market data. Provides a
+composable ingestion pipeline from raw exchange ticks to normalized, transformed
+features ready for downstream models or trade execution. Built on Tokio. Targets
+100 K+ ticks/second throughput with zero heap allocation on the fast path.
 
-## What's inside
+## What it does
 
-- **SPSC ring buffer** -- lock-free single-producer/single-consumer queue for zero-allocation tick ingestion
-- **OHLCV aggregation pipeline** -- streaming bar construction at any timeframe from raw tick data
-- **Coordinate normalization** -- rolling-window min-max normalization for ML feature pipelines
-- **Spacetime transforms** -- special-relativistic Lorentz transforms applied to financial time series
-- **Stream engine** -- composable pipeline stages: ingest → normalize → transform → emit
+fin-stream handles the ingestion layer of a quantitative trading stack:
 
-## Performance
+- Normalizes heterogeneous exchange tick formats (Binance, Coinbase, Alpaca, Polygon)
+  into a single canonical `NormalizedTick` type.
+- Routes ticks through a lock-free SPSC ring buffer with zero heap allocation on the
+  fast path.
+- Aggregates normalized ticks into OHLCV bars at arbitrary timeframes, with optional
+  synthetic gap-fill bars for missing windows.
+- Maintains a rolling min-max normalizer that maps price coordinates into [0, 1]
+  without buffering the full history.
+- Applies Lorentz spacetime transforms to the price-time plane as a feature
+  engineering step for ML pipelines.
+- Maintains live order books through incremental delta streaming with crossed-book
+  detection.
+- Monitors feed staleness per symbol and opens circuit breakers on consistently
+  stale feeds.
+- Classifies timestamps into market session windows (equity, crypto, forex).
 
-Designed for sub-microsecond hot-path latency. The SPSC ring buffer sustains 100K+ ticks/second with no heap allocation on the fast path.
+All fallible operations return `Result<_, StreamError>`. The library never panics
+in release builds.
 
-## Quick start
+## Architecture
+
+```
+Tick Source (WebSocket / simulation)
+            |
+            v
+   [ WsManager ]           -- connection lifecycle, exponential-backoff reconnect
+            |
+            v
+   [ TickNormalizer ]      -- raw JSON payload -> NormalizedTick (all exchanges)
+            |
+            v
+   [ SPSC Ring Buffer ]    -- lock-free O(1) push/pop, zero allocation hot path
+            |
+            v
+   [ OHLCV Aggregator ]    -- streaming bar construction at any timeframe
+            |
+            v
+   [ MinMax Normalizer ]   -- rolling-window coordinate normalization to [0, 1]
+            |
+            +---> [ Lorentz Transform ]   -- relativistic spacetime boost for features
+            |
+            v
+   Downstream (ML model | trade signal engine | order management)
+
+   Parallel paths:
+   [ OrderBook ]           -- delta streaming, snapshot reset, crossed-book guard
+   [ HealthMonitor ]       -- per-feed staleness detection, circuit-breaker
+   [ SessionAwareness ]    -- Open / Extended / Closed classification
+```
+
+## Performance characteristics
+
+| Metric                  | Value                                      |
+|-------------------------|--------------------------------------------|
+| SPSC push/pop latency   | O(1), single cache-line access             |
+| SPSC throughput         | >100 K ticks/second (zero allocation)      |
+| OHLCV feed per tick     | O(1)                                       |
+| Normalization update    | O(1) amortized; O(W) after window eviction |
+| Lorentz transform       | O(1), two multiplications per coordinate   |
+| Ring buffer memory      | N * sizeof(T) bytes (N is const generic)   |
+
+## Quickstart
 
 ```rust
-use fin_stream::{SPSCRing, StreamEngine, OHLCVTick};
+use fin_stream::tick::{Exchange, RawTick, TickNormalizer};
+use fin_stream::ring::SpscRing;
+use fin_stream::ohlcv::{OhlcvAggregator, Timeframe};
+use fin_stream::norm::MinMaxNormalizer;
+use serde_json::json;
 
-let mut ring: SPSCRing<OHLCVTick, 1024> = SPSCRing::new();
-ring.push_copy(tick)?;
-let out = ring.pop().unwrap();
+fn main() -> Result<(), fin_stream::StreamError> {
+    let normalizer = TickNormalizer::new();
+    let ring: SpscRing<_, 1024> = SpscRing::new();
+    let (prod, cons) = ring.split();
+    let mut agg = OhlcvAggregator::new("BTCUSDT", Timeframe::Minutes(1))?;
+    let mut norm = MinMaxNormalizer::new(60);
+
+    // Producer side: normalize and enqueue.
+    let raw = RawTick::new(
+        Exchange::Binance,
+        "BTCUSDT",
+        json!({ "p": "65000.50", "q": "0.002", "m": false, "t": 1u64 }),
+    );
+    let tick = normalizer.normalize(raw)?;
+    prod.push(tick)?;
+
+    // Consumer side: aggregate and normalize closes.
+    while let Ok(tick) = cons.pop() {
+        let completed_bars = agg.feed(&tick)?;
+        for bar in &completed_bars {
+            let close: f64 = bar.close.to_string().parse().unwrap_or(0.0);
+            norm.update(close);
+            if let Ok(v) = norm.normalize(close) {
+                println!("normalized close: {v:.4}");
+            }
+        }
+    }
+    Ok(())
+}
 ```
 
-## Add to your project
+## Lorentz transform -- mathematical notes
 
-```toml
-[dependencies]
-fin-stream = { git = "https://github.com/Mattbusel/fin-stream" }
+The `LorentzTransform` applies the special-relativistic boost to a (time, price)
+coordinate pair:
+
+```
+t' = gamma * (t - beta * x)
+x' = gamma * (x - beta * t)
+
+where  beta  = v/c    (0 <= beta < 1, dimensionless drift velocity parameter)
+       gamma = 1 / sqrt(1 - beta^2)   (Lorentz factor, >= 1)
 ```
 
-Or one-liner:
+In the financial interpretation, `t` is elapsed time normalized to a convenient
+scale and `x` is a normalized log-price or price coordinate. The boost maps the
+price-time plane along Lorentz hyperbolas. The spacetime interval
+`s^2 = t^2 - x^2` is preserved under the transform. Setting `beta = 0` gives
+the identity (gamma = 1). `beta >= 1` is invalid (division by zero in gamma) and
+is rejected at construction time with `StreamError::LorentzConfigError`.
 
-```ash
-cargo add --git https://github.com/Mattbusel/fin-stream
-```
+The motivation for applying this transform as a feature engineering step is that
+certain microstructure signals (momentum, mean-reversion) that appear curved in
+the untransformed frame can appear as straight lines in a suitably boosted frame,
+simplifying downstream linear models.
 
-## Test coverage
+## Integration with fin-primitives
+
+fin-stream is the ingestion and transformation layer designed to sit above the
+`fin-primitives` crate, which provides the canonical `Tick`, `OrderBook`,
+`OhlcvBar`, and signal types. fin-stream imports `fin-primitives` for shared type
+definitions and re-exports the types needed by downstream consumers.
+
+## Module map
+
+| Module    | Public types |
+|-----------|--------------|
+| `tick`    | `RawTick`, `NormalizedTick`, `Exchange`, `TradeSide`, `TickNormalizer` |
+| `ring`    | `SpscRing`, `SpscProducer`, `SpscConsumer` |
+| `ohlcv`   | `OhlcvAggregator`, `OhlcvBar`, `Timeframe` |
+| `norm`    | `MinMaxNormalizer` |
+| `lorentz` | `LorentzTransform`, `SpacetimePoint` |
+| `book`    | `OrderBook`, `BookDelta`, `BookSide`, `PriceLevel` |
+| `health`  | `HealthMonitor`, `FeedHealth`, `HealthStatus` |
+| `session` | `SessionAwareness`, `MarketSession`, `TradingStatus` |
+| `ws`      | `WsManager`, `ConnectionConfig`, `ReconnectPolicy` |
+| `error`   | `StreamError` |
+
+## Running tests and benchmarks
 
 ```bash
-cargo test
-cargo bench
+cargo test                          # unit and integration tests
+cargo test --release                # release-mode correctness check
+cargo clippy --all-features -- -D warnings
+cargo fmt --all -- --check
+cargo doc --no-deps --all-features --open
+cargo bench                         # criterion microbenchmarks
 ```
 
----
+## Contributing
 
-> Used inside [tokio-prompt-orchestrator](https://github.com/Mattbusel/tokio-prompt-orchestrator) -- a production Rust orchestration layer for LLM pipelines. See the full [primitive library collection](https://github.com/Mattbusel/rust-crates).
+1. Fork the repository and create a feature branch.
+2. Add or update tests for any changed behaviour. The CI gate requires all tests
+   to pass and Clippy to report no warnings.
+3. Run `cargo fmt` before opening a pull request.
+4. Keep public APIs documented with `///` doc comments; undocumented public items
+   will fail `cargo doc`.
+5. Open a pull request against `main`. The CI pipeline (fmt, clippy, test, release
+   test, doc) must be green before merge.
+
+All contributions are licensed under MIT.

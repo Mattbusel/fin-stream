@@ -26,6 +26,10 @@ pub struct ReconnectPolicy {
 }
 
 impl ReconnectPolicy {
+    /// Build a reconnect policy with explicit parameters.
+    ///
+    /// Returns an error if `multiplier < 1.0` (which would cause backoff to
+    /// shrink over time) or if `max_attempts == 0`.
     pub fn new(
         max_attempts: u32,
         initial_backoff: Duration,
@@ -83,6 +87,10 @@ pub struct ConnectionConfig {
 }
 
 impl ConnectionConfig {
+    /// Build a connection configuration for `url` with the given downstream
+    /// channel capacity.
+    ///
+    /// Returns an error if `url` is empty or `channel_capacity` is zero.
     pub fn new(url: impl Into<String>, channel_capacity: usize) -> Result<Self, StreamError> {
         let url = url.into();
         if url.is_empty() {
@@ -106,11 +114,13 @@ impl ConnectionConfig {
         })
     }
 
+    /// Override the default reconnect policy.
     pub fn with_reconnect(mut self, policy: ReconnectPolicy) -> Self {
         self.reconnect = policy;
         self
     }
 
+    /// Override the keepalive ping interval (default: 20 s).
     pub fn with_ping_interval(mut self, interval: Duration) -> Self {
         self.ping_interval = interval;
         self
@@ -128,6 +138,7 @@ pub struct WsManager {
 }
 
 impl WsManager {
+    /// Create a new manager from a validated [`ConnectionConfig`].
     pub fn new(config: ConnectionConfig) -> Self {
         Self { config, connect_attempts: 0, is_connected: false }
     }
@@ -144,8 +155,13 @@ impl WsManager {
         self.is_connected = false;
     }
 
+    /// Whether the managed connection is currently in the connected state.
     pub fn is_connected(&self) -> bool { self.is_connected }
+
+    /// Total connection attempts made so far (including the initial connect).
     pub fn connect_attempts(&self) -> u32 { self.connect_attempts }
+
+    /// The configuration this manager was created with.
     pub fn config(&self) -> &ConnectionConfig { &self.config }
 
     /// Check whether the next reconnect attempt is allowed.

@@ -8,17 +8,36 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  RUSTDOCFLAGS: "-D warnings"
 
 jobs:
   test:
+    name: Build, test, lint
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install stable toolchain with rustfmt and clippy
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
       - uses: Swatinem/rust-cache@v2
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
       - name: Build
         run: cargo build --all-features
+
+      - name: Clippy (deny warnings)
+        run: cargo clippy --all-features -- -D warnings
+
       - name: Test
         run: cargo test --all-features
-      - name: Clippy
-        run: cargo clippy --all-features -- -D warnings
+
+      - name: Test (release -- performance-sensitive correctness)
+        run: cargo test --release --all-features
+
+      - name: Build documentation
+        run: cargo doc --no-deps --all-features

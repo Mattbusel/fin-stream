@@ -29,6 +29,7 @@ pub struct PriceLevel {
 }
 
 impl PriceLevel {
+    /// Construct a price level from a price and resting quantity.
     pub fn new(price: Decimal, quantity: Decimal) -> Self {
         Self { price, quantity }
     }
@@ -46,10 +47,15 @@ pub struct BookDelta {
 }
 
 impl BookDelta {
+    /// Construct a delta without a sequence number.
+    ///
+    /// Use [`BookDelta::with_sequence`] to attach the exchange sequence number
+    /// when available; sequenced deltas enable gap detection.
     pub fn new(symbol: impl Into<String>, side: BookSide, price: Decimal, quantity: Decimal) -> Self {
         Self { symbol: symbol.into(), side, price, quantity, sequence: None }
     }
 
+    /// Attach an exchange sequence number to this delta.
     pub fn with_sequence(mut self, seq: u64) -> Self {
         self.sequence = Some(seq);
         self
@@ -65,6 +71,7 @@ pub struct OrderBook {
 }
 
 impl OrderBook {
+    /// Create an empty order book for the given symbol.
     pub fn new(symbol: impl Into<String>) -> Self {
         Self {
             symbol: symbol.into(),
@@ -148,7 +155,10 @@ impl OrderBook {
     /// Number of ask levels.
     pub fn ask_depth(&self) -> usize { self.asks.len() }
 
+    /// The symbol this order book tracks.
     pub fn symbol(&self) -> &str { &self.symbol }
+
+    /// The sequence number of the most recently applied delta, if any.
     pub fn last_sequence(&self) -> Option<u64> { self.last_sequence }
 
     /// Top N bids (descending by price).

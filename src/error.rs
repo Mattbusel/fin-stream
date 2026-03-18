@@ -1,5 +1,15 @@
 //! Typed error hierarchy for fin-stream.
+//!
+//! All fallible operations in the pipeline return `StreamError`. Variants are
+//! grouped by subsystem: connection/WebSocket, tick parsing, order book,
+//! backpressure, and the streaming pipeline internals (ring buffer, aggregation,
+//! normalization, transforms).
 
+/// Unified error type for all fin-stream pipeline operations.
+///
+/// Each variant carries enough context to reconstruct the failure site without
+/// inspecting internal state. The `Display` impl is machine-parseable: field
+/// values never contain the literal substring used as a delimiter.
 #[derive(Debug, thiserror::Error)]
 pub enum StreamError {
     /// WebSocket connection failed.
@@ -18,7 +28,7 @@ pub enum StreamError {
     #[error("Tick parse error from {exchange}: {reason}")]
     ParseError { exchange: String, reason: String },
 
-    /// Feed is stale — no data received within staleness threshold.
+    /// Feed is stale -- no data received within staleness threshold.
     #[error("Feed '{feed_id}' is stale: last tick was {elapsed_ms}ms ago (threshold: {threshold_ms}ms)")]
     StaleFeed { feed_id: String, elapsed_ms: u64, threshold_ms: u64 },
 
@@ -45,6 +55,54 @@ pub enum StreamError {
     /// WebSocket protocol error.
     #[error("WebSocket error: {0}")]
     WebSocket(String),
+
+    // ── Pipeline-internal errors ─────────────────────────────────────────────
+
+    /// SPSC ring buffer is full; the producer must back off or drop the item.
+    ///
+    /// This variant is returned by [`crate::ring::SpscRing::push`] when the
+    /// buffer has no free slots. It never panics.
+    #[error("SPSC ring buffer is full (capacity: {capacity})")]
+    RingBufferFull {
+        /// Configured capacity of the ring buffer.
+        capacity: usize,
+    },
+
+    /// SPSC ring buffer is empty; no item is available for the consumer.
+    ///
+    /// This variant is returned by [`crate::ring::SpscRing::pop`] when there
+    /// are no pending items. Callers should retry or park the consumer thread.
+    #[error("SPSC ring buffer is empty")]
+    RingBufferEmpty,
+
+    /// An error occurred during OHLCV bar aggregation.
+    ///
+    /// Wraps structural errors such as receiving a tick for the wrong symbol or
+    /// a timeframe with a zero-duration period.
+    #[error("OHLCV aggregation error: {reason}")]
+    AggregationError { reason: String },
+
+    /// An error occurred during coordinate normalization.
+    ///
+    /// Typically indicates that the normalizer received a value outside the
+    /// expected numeric range, or that the rolling window is not yet seeded.
+    #[error("Normalization error: {reason}")]
+    NormalizationError { reason: String },
+
+    /// A tick failed structural validation before entering the pipeline.
+    ///
+    /// Examples: negative price, zero quantity, timestamp in the past beyond
+    /// the configured tolerance.
+    #[error("Invalid tick: {reason}")]
+    InvalidTick { reason: String },
+
+    /// The Lorentz transform configuration is invalid.
+    ///
+    /// The relativistic velocity parameter beta (v/c) must satisfy 0 <= beta < 1.
+    /// A beta of exactly 1 (or above) would produce a division by zero in the
+    /// Lorentz factor gamma = 1 / sqrt(1 - beta^2).
+    #[error("Lorentz config error: {reason}")]
+    LorentzConfigError { reason: String },
 }
 
 #[cfg(test)]
@@ -119,5 +177,42 @@ mod tests {
     fn test_unknown_exchange_display() {
         let e = StreamError::UnknownExchange("Kraken".into());
         assert!(e.to_string().contains("Kraken"));
+    }
+
+    #[test]
+    fn test_ring_buffer_full_display() {
+        let e = StreamError::RingBufferFull { capacity: 1024 };
+        assert!(e.to_string().contains("1024"));
+        assert!(e.to_string().contains("full"));
+    }
+
+    #[test]
+    fn test_ring_buffer_empty_display() {
+        let e = StreamError::RingBufferEmpty;
+        assert!(e.to_string().contains("empty"));
+    }
+
+    #[test]
+    fn test_aggregation_error_display() {
+        let e = StreamError::AggregationError { reason: "wrong symbol".into() };
+        assert!(e.to_string().contains("wrong symbol"));
+    }
+
+    #[test]
+    fn test_normalization_error_display() {
+        let e = StreamError::NormalizationError { reason: "window not seeded".into() };
+        assert!(e.to_string().contains("window not seeded"));
+    }
+
+    #[test]
+    fn test_invalid_tick_display() {
+        let e = StreamError::InvalidTick { reason: "negative price".into() };
+        assert!(e.to_string().contains("negative price"));
+    }
+
+    #[test]
+    fn test_lorentz_config_error_display() {
+        let e = StreamError::LorentzConfigError { reason: "beta >= 1".into() };
+        assert!(e.to_string().contains("beta >= 1"));
     }
 }

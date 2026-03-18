@@ -1,13 +1,20 @@
+//! Integration tests: cross-module pipelines and end-to-end scenarios.
+
 use fin_stream::book::{BookDelta, BookSide, OrderBook};
 use fin_stream::health::HealthMonitor;
+use fin_stream::lorentz::{LorentzTransform, SpacetimePoint};
+use fin_stream::norm::MinMaxNormalizer;
 use fin_stream::ohlcv::{OhlcvAggregator, Timeframe};
+use fin_stream::ring::SpscRing;
 use fin_stream::session::{MarketSession, SessionAwareness, TradingStatus};
 use fin_stream::tick::{Exchange, NormalizedTick, RawTick, TickNormalizer, TradeSide};
 use fin_stream::ws::{ConnectionConfig, ReconnectPolicy, WsManager};
+use fin_stream::StreamError;
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 use serde_json::json;
 use std::str::FromStr;
+use std::thread;
 use std::time::Duration;
 
 // ── Tick normalizer end-to-end ───────────────────────────────────────────────
@@ -47,7 +54,6 @@ fn test_all_exchanges_normalize_successfully() {
 #[test]
 fn test_order_book_full_lifecycle() {
     let mut book = OrderBook::new("BTC-USD");
-    // Initial snapshot
     book.reset(
         vec![
             fin_stream::book::PriceLevel::new(dec!(50000), dec!(5)),
@@ -60,13 +66,10 @@ fn test_order_book_full_lifecycle() {
     ).unwrap();
     assert_eq!(book.bid_depth(), 2);
     assert_eq!(book.ask_depth(), 2);
-    // Delta update
     book.apply(BookDelta::new("BTC-USD", BookSide::Bid, dec!(50000), dec!(10))).unwrap();
     assert_eq!(book.best_bid().unwrap().quantity, dec!(10));
-    // Remove a level
     book.apply(BookDelta::new("BTC-USD", BookSide::Ask, dec!(50200), dec!(0))).unwrap();
     assert_eq!(book.ask_depth(), 1);
-    // Check spread
     assert_eq!(book.spread().unwrap(), dec!(100));
 }
 
@@ -102,10 +105,8 @@ fn make_tick(symbol: &str, price: Decimal, qty: Decimal, ts_ms: u64) -> Normaliz
 #[test]
 fn test_ohlcv_multi_bar_sequence() {
     let mut agg = OhlcvAggregator::new("BTC-USD", Timeframe::Minutes(1)).unwrap();
-    // Bar 1: ticks in minute 1
     agg.feed(&make_tick("BTC-USD", dec!(50000), dec!(1), 60_000)).unwrap();
     agg.feed(&make_tick("BTC-USD", dec!(50500), dec!(2), 60_500)).unwrap();
-    // Bar 2: tick in minute 2 closes bar 1
     let mut bars = agg.feed(&make_tick("BTC-USD", dec!(51000), dec!(1), 120_000)).unwrap();
     assert_eq!(bars.len(), 1);
     let completed = bars.remove(0);
@@ -114,7 +115,6 @@ fn test_ohlcv_multi_bar_sequence() {
     assert_eq!(completed.close, dec!(50500));
     assert_eq!(completed.high, dec!(50500));
     assert_eq!(completed.volume, dec!(3));
-    // Current bar should be bar 2
     let current = agg.current_bar().unwrap();
     assert_eq!(current.open, dec!(51000));
 }
@@ -141,8 +141,6 @@ fn test_health_monitor_multi_feed_scenario() {
     monitor.heartbeat("BTC-USD", 1_000_000).unwrap();
     monitor.heartbeat("ETH-USD", 1_000_000).unwrap();
 
-    // BTC-USD healthy (3s elapsed vs 5s threshold)
-    // ETH-USD stale (3s elapsed vs 2s threshold)
     let errors = monitor.check_all(1_003_000);
     assert_eq!(errors.len(), 1);
     assert!(errors[0].to_string().contains("ETH-USD"));
@@ -153,17 +151,16 @@ fn test_health_monitor_multi_feed_scenario() {
 
 // ── Session awareness ────────────────────────────────────────────────────────
 
+const SAT_UTC_MS: u64 = 1705104000000;
+const MON_OPEN_UTC_MS: u64 = 1704724200000; // Mon Jan 08 2024 14:30 UTC = 09:30 ET
+
 #[test]
 fn test_session_crypto_always_open_any_time() {
     let sa = SessionAwareness::new(MarketSession::Crypto);
-    // Various times including weekends, nights, etc.
     for ts in [0u64, 1_000_000, 1_700_000_000_000, SAT_UTC_MS] {
         assert_eq!(sa.status(ts).unwrap(), TradingStatus::Open);
     }
 }
-
-const SAT_UTC_MS: u64 = 1705104000000;
-const MON_OPEN_UTC_MS: u64 = 1704724200000; // Mon Jan 08 2024 14:30 UTC = 09:30 ET
 
 #[test]
 fn test_session_us_equity_weekend_closed() {
@@ -204,12 +201,11 @@ fn test_ws_manager_reconnect_policy_integration() {
     assert!(b1 >= b0);
     assert!(b2 >= b1);
 
-    // Now exhausted
     let result = mgr.next_reconnect_backoff();
-    assert!(matches!(result, Err(fin_stream::StreamError::ReconnectExhausted { .. })));
+    assert!(matches!(result, Err(StreamError::ReconnectExhausted { .. })));
 }
 
-// ── Cross-module: tick → ohlcv pipeline ─────────────────────────────────────
+// ── Cross-module: tick -> OHLCV pipeline ────────────────────────────────────
 
 #[test]
 fn test_tick_to_ohlcv_end_to_end() {
@@ -240,4 +236,164 @@ fn test_tick_to_ohlcv_end_to_end() {
     assert_eq!(bar.low, dec!(49900));
     assert_eq!(bar.close, dec!(49900));
     assert_eq!(bar.trade_count, 3);
+}
+
+// ── SPSC ring buffer pipeline tests ─────────────────────────────────────────
+
+/// Feed ticks through an SPSC ring buffer and verify no items are lost.
+#[test]
+fn test_ring_buffer_tick_pipeline() {
+    let ring: SpscRing<NormalizedTick, 64> = SpscRing::new();
+    let normalizer = TickNormalizer::new();
+
+    for i in 0..10u64 {
+        let raw = RawTick {
+            exchange: Exchange::Binance,
+            symbol: "BTCUSDT".into(),
+            payload: json!({ "p": "50000", "q": "1", "m": false }),
+            received_at_ms: i * 100,
+        };
+        let tick = normalizer.normalize(raw).unwrap();
+        ring.push(tick).unwrap();
+    }
+
+    let mut count = 0;
+    while let Ok(_tick) = ring.pop() {
+        count += 1;
+    }
+    assert_eq!(count, 10);
+}
+
+/// Ring buffer full condition: pushing beyond capacity returns RingBufferFull.
+#[test]
+fn test_ring_buffer_full_error_propagation() {
+    let ring: SpscRing<u32, 4> = SpscRing::new(); // capacity = 3
+    ring.push(1).unwrap();
+    ring.push(2).unwrap();
+    ring.push(3).unwrap();
+    let err = ring.push(4).unwrap_err();
+    assert!(matches!(err, StreamError::RingBufferFull { .. }));
+}
+
+/// Ring buffer empty condition: popping from empty returns RingBufferEmpty.
+#[test]
+fn test_ring_buffer_empty_error_propagation() {
+    let ring: SpscRing<u32, 8> = SpscRing::new();
+    let err = ring.pop().unwrap_err();
+    assert!(matches!(err, StreamError::RingBufferEmpty));
+}
+
+// ── End-to-end: tick -> OHLCV -> normalized pipeline ─────────────────────────
+
+/// Full pipeline: ingest ticks via the ring buffer, aggregate to OHLCV, then
+/// normalize the close price with a rolling window.
+#[test]
+fn test_tick_to_ohlcv_to_normalized_pipeline() {
+    let ring: SpscRing<NormalizedTick, 32> = SpscRing::new();
+    let (prod, cons) = ring.split();
+
+    // Produce 5 ticks in the same 1-minute window.
+    let prices: &[f64] = &[100.0, 102.0, 98.0, 103.0, 101.0];
+    for (i, &p) in prices.iter().enumerate() {
+        let tick = NormalizedTick {
+            exchange: Exchange::Binance,
+            symbol: "BTC-USD".into(),
+            price: Decimal::try_from(p).unwrap(),
+            quantity: dec!(1),
+            side: None,
+            trade_id: None,
+            exchange_ts_ms: None,
+            received_at_ms: 60_000 + i as u64 * 100,
+        };
+        prod.push(tick).unwrap();
+    }
+
+    // Consume and aggregate.
+    let mut agg = OhlcvAggregator::new("BTC-USD", Timeframe::Minutes(1)).unwrap();
+    while let Ok(tick) = cons.pop() {
+        agg.feed(&tick).unwrap();
+    }
+
+    let bar = agg.current_bar().unwrap();
+    assert_eq!(bar.trade_count, 5);
+
+    // Normalize the close price.
+    let mut norm = MinMaxNormalizer::new(10);
+    for &p in prices {
+        norm.update(p);
+    }
+    let close_f64: f64 = bar.close.to_string().parse().unwrap();
+    let normalized = norm.normalize(close_f64).unwrap();
+    assert!((0.0..=1.0).contains(&normalized));
+}
+
+// ── Lorentz transform pipeline integration ───────────────────────────────────
+
+/// Verify that Lorentz-transformed OHLCV timestamps round-trip correctly.
+#[test]
+fn test_lorentz_transform_on_ohlcv_timestamps() {
+    let lt = LorentzTransform::new(0.5).unwrap();
+    let bar_starts: &[f64] = &[60_000.0, 120_000.0, 180_000.0];
+
+    for &t in bar_starts {
+        let p = SpacetimePoint::new(t, 50_000.0);
+        let transformed = lt.transform(p);
+        let recovered = lt.inverse_transform(transformed);
+        assert!((recovered.t - t).abs() < 1e-6, "round-trip failed for t={t}");
+    }
+}
+
+/// Pipeline: normalize prices, then apply Lorentz transform to (time, price).
+#[test]
+fn test_normalize_then_lorentz_pipeline() {
+    let mut norm = MinMaxNormalizer::new(5);
+    let prices: &[f64] = &[100.0, 105.0, 95.0, 110.0, 90.0];
+    for &p in prices {
+        norm.update(p);
+    }
+
+    let lt = LorentzTransform::new(0.3).unwrap();
+
+    for (i, &p) in prices.iter().enumerate() {
+        let x = norm.normalize(p).unwrap(); // in [0, 1]
+        let t = i as f64;
+        let pt = SpacetimePoint::new(t, x);
+        let transformed = lt.transform(pt);
+        // Transformed point should be finite and well-defined.
+        assert!(transformed.t.is_finite());
+        assert!(transformed.x.is_finite());
+    }
+}
+
+// ── Concurrent SPSC ring buffer ───────────────────────────────────────────────
+
+/// Concurrent producer/consumer with 50 000 ticks -- integration smoke test.
+#[test]
+fn test_concurrent_tick_ring_buffer_integration() {
+    const N: usize = 50_000;
+    let ring: SpscRing<u64, 512> = SpscRing::new();
+    let (prod, cons) = ring.split();
+
+    let producer = thread::spawn(move || {
+        let mut sent = 0;
+        while sent < N {
+            if prod.push(sent as u64).is_ok() {
+                sent += 1;
+            }
+        }
+    });
+
+    let consumer = thread::spawn(move || {
+        let mut received = 0usize;
+        while received < N {
+            if cons.pop().is_ok() {
+                received += 1;
+            }
+        }
+        received
+    });
+
+    producer.join().unwrap();
+    let count = consumer.join().unwrap();
+    assert_eq!(count, N);
 }

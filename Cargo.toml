@@ -4,6 +4,8 @@ version = "0.1.0"
 edition = "2021"
 license = "MIT"
 repository = "https://github.com/Mattbusel/fin-stream"
+documentation = "https://docs.rs/fin-stream"
+homepage = "https://github.com/Mattbusel/fin-stream"
 keywords = ["finance", "streaming", "market-data", "high-performance", "trading"]
 categories = ["finance", "asynchronous", "data-structures"]
 description = "Real-time market data streaming primitives — 100K+ ticks/second ingestion pipeline"
@@ -46,6 +48,8 @@ tokio-test = "0.4"
 criterion = { version = "0.5", features = ["async_tokio"] }
 # rust_decimal_macros: dec!() macro for test literals
 rust_decimal_macros = "1.35"
+# proptest: property-based tests for FIFO ordering, normalization monotonicity
+proptest = "1.4"
 
 [[bench]]
 name = "tick_hot_path"
