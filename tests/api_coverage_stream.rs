@@ -169,6 +169,7 @@ fn test_ohlcv_aggregator_with_emit_empty_bars_flag() {
     // Constructing with emit_empty_bars should not panic; the flag is tested
     // separately in integration tests. Here we just verify the builder works.
     let _agg = OhlcvAggregator::new("BTC-USD", Timeframe::Minutes(1))
+        .expect("valid aggregator")
         .with_emit_empty_bars(true);
 }
 
