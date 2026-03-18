@@ -31,13 +31,6 @@ unwrap_used = "deny"
 expect_used = "deny"
 panic = "deny"
 todo = "deny"
-# Style
-pedantic = "warn"
-# Allow common false-positive pedantic lints
-module_name_repetitions = "allow"
-must_use_candidate = "allow"
-missing_errors_doc = "allow"
-missing_panics_doc = "allow"
 
 [dependencies]
 # tokio: async runtime, channels, timers
