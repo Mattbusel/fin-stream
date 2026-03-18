@@ -61,11 +61,8 @@ fn test_session_crypto_always_open() {
 
 #[test]
 fn test_session_forex_open_on_weekday() {
-    // Monday 2026-03-16 12:00 UTC — Forex is open (Mon–Fri 22:00 UTC).
-    // 2026-03-16 00:00 UTC in ms:
-    // Days since epoch: (56 years + leap years) ≈ calculated via known reference.
-    // Use a safe known reference: 2026-01-05 00:00 UTC (Monday) = 1_735_948_800_000 ms
-    let mon_noon_utc_ms: u64 = 1_735_948_800_000 + 12 * 3600 * 1000;
+    // Monday 2026-03-16 12:00 UTC = 1_773_662_400_000 ms — Forex is open Mon-Fri.
+    let mon_noon_utc_ms: u64 = 1_773_662_400_000;
     let sa = SessionAwareness::new(MarketSession::Forex);
     let status = sa.status(mon_noon_utc_ms).unwrap();
     assert_ne!(status, TradingStatus::Closed);
@@ -73,8 +70,8 @@ fn test_session_forex_open_on_weekday() {
 
 #[test]
 fn test_session_us_equity_closed_on_weekend() {
-    // Saturday 2026-01-03 12:00 UTC
-    let sat_noon_utc_ms: u64 = 1_735_862_400_000 + 12 * 3600 * 1000;
+    // Saturday 2026-03-14 12:00 UTC = 1_773_489_600_000 ms
+    let sat_noon_utc_ms: u64 = 1_773_489_600_000;
     let sa = SessionAwareness::new(MarketSession::UsEquity);
     let status = sa.status(sat_noon_utc_ms).unwrap();
     assert_eq!(status, TradingStatus::Closed);
