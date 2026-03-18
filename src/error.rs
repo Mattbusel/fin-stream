@@ -14,35 +14,79 @@
 pub enum StreamError {
     /// WebSocket connection failed.
     #[error("WebSocket connection failed to '{url}': {reason}")]
-    ConnectionFailed { url: String, reason: String },
+    ConnectionFailed {
+        /// The WebSocket URL that could not be reached.
+        url: String,
+        /// Human-readable description of the failure.
+        reason: String,
+    },
 
     /// WebSocket disconnected unexpectedly.
     #[error("WebSocket disconnected from '{url}'")]
-    Disconnected { url: String },
+    Disconnected {
+        /// The WebSocket URL that was disconnected.
+        url: String,
+    },
 
     /// Reconnection attempts exhausted.
     #[error("Reconnection exhausted after {attempts} attempts to '{url}'")]
-    ReconnectExhausted { url: String, attempts: u32 },
+    ReconnectExhausted {
+        /// The target URL for reconnection.
+        url: String,
+        /// Total number of reconnect attempts made.
+        attempts: u32,
+    },
 
     /// Tick deserialization failed.
     #[error("Tick parse error from {exchange}: {reason}")]
-    ParseError { exchange: String, reason: String },
+    ParseError {
+        /// Name of the exchange that sent the unparseable tick.
+        exchange: String,
+        /// Description of the parse failure.
+        reason: String,
+    },
 
     /// Feed is stale -- no data received within staleness threshold.
     #[error("Feed '{feed_id}' is stale: last tick was {elapsed_ms}ms ago (threshold: {threshold_ms}ms)")]
-    StaleFeed { feed_id: String, elapsed_ms: u64, threshold_ms: u64 },
+    StaleFeed {
+        /// Identifier of the stale feed.
+        feed_id: String,
+        /// Milliseconds since the last tick was received.
+        elapsed_ms: u64,
+        /// Configured staleness threshold in milliseconds.
+        threshold_ms: u64,
+    },
 
     /// Order book reconstruction failed.
     #[error("Order book reconstruction failed for '{symbol}': {reason}")]
-    BookReconstructionFailed { symbol: String, reason: String },
+    BookReconstructionFailed {
+        /// Symbol whose order book could not be reconstructed.
+        symbol: String,
+        /// Description of the reconstruction failure.
+        reason: String,
+    },
 
     /// Order book is crossed (bid >= ask).
     #[error("Order book crossed for '{symbol}': best bid {bid} >= best ask {ask}")]
-    BookCrossed { symbol: String, bid: String, ask: String },
+    BookCrossed {
+        /// Symbol with the crossed book.
+        symbol: String,
+        /// Best bid price as a string.
+        bid: String,
+        /// Best ask price as a string.
+        ask: String,
+    },
 
     /// Backpressure: the downstream channel is full.
     #[error("Backpressure on channel '{channel}': {depth}/{capacity} slots used")]
-    Backpressure { channel: String, depth: usize, capacity: usize },
+    Backpressure {
+        /// Name or URL of the backpressured channel.
+        channel: String,
+        /// Current number of items queued.
+        depth: usize,
+        /// Maximum capacity of the channel.
+        capacity: usize,
+    },
 
     /// Invalid exchange format.
     #[error("Unknown exchange format: '{0}'")]
@@ -64,7 +108,7 @@ pub enum StreamError {
     /// buffer has no free slots. It never panics.
     #[error("SPSC ring buffer is full (capacity: {capacity})")]
     RingBufferFull {
-        /// Configured capacity of the ring buffer.
+        /// Configured usable capacity of the ring buffer (N - 1 slots).
         capacity: usize,
     },
 
@@ -80,21 +124,30 @@ pub enum StreamError {
     /// Wraps structural errors such as receiving a tick for the wrong symbol or
     /// a timeframe with a zero-duration period.
     #[error("OHLCV aggregation error: {reason}")]
-    AggregationError { reason: String },
+    AggregationError {
+        /// Description of the aggregation failure.
+        reason: String,
+    },
 
     /// An error occurred during coordinate normalization.
     ///
     /// Typically indicates that the normalizer received a value outside the
     /// expected numeric range, or that the rolling window is not yet seeded.
     #[error("Normalization error: {reason}")]
-    NormalizationError { reason: String },
+    NormalizationError {
+        /// Description of the normalization failure.
+        reason: String,
+    },
 
     /// A tick failed structural validation before entering the pipeline.
     ///
     /// Examples: negative price, zero quantity, timestamp in the past beyond
     /// the configured tolerance.
     #[error("Invalid tick: {reason}")]
-    InvalidTick { reason: String },
+    InvalidTick {
+        /// Description of the validation failure.
+        reason: String,
+    },
 
     /// The Lorentz transform configuration is invalid.
     ///
@@ -102,7 +155,10 @@ pub enum StreamError {
     /// A beta of exactly 1 (or above) would produce a division by zero in the
     /// Lorentz factor gamma = 1 / sqrt(1 - beta^2).
     #[error("Lorentz config error: {reason}")]
-    LorentzConfigError { reason: String },
+    LorentzConfigError {
+        /// Description of the configuration error.
+        reason: String,
+    },
 }
 
 #[cfg(test)]
