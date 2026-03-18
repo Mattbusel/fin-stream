@@ -5,9 +5,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          path: fin-stream
       - uses: actions/checkout@v4
         with:
           repository: Mattbusel/fin-primitives
-          path: ../fin-primitives
+          path: fin-primitives
       - uses: dtolnay/rust-toolchain@stable
-      - run: cargo check
+      - run: cd fin-stream && cargo check
