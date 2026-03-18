@@ -25,7 +25,10 @@ fn health_check_marks_feed_stale_after_threshold() {
     // 1.5 s elapsed — within threshold, should be healthy.
     let errors = monitor.check_all(1_001_500);
     assert!(errors.is_empty(), "feed should still be healthy at 1.5 s");
-    assert_eq!(monitor.get("BTC-USD").unwrap().status, HealthStatus::Healthy);
+    assert_eq!(
+        monitor.get("BTC-USD").unwrap().status,
+        HealthStatus::Healthy
+    );
 
     // 3 s elapsed — past threshold, should be stale.
     let errors = monitor.check_all(1_003_000);
@@ -67,9 +70,15 @@ fn health_check_unknown_feed_never_flagged_stale() {
 
     for t in 0..10u64 {
         let errors = monitor.check_all(1_000_000 + t * 1_000);
-        assert!(errors.is_empty(), "unheartbeated feed must not be stale (t={t})");
+        assert!(
+            errors.is_empty(),
+            "unheartbeated feed must not be stale (t={t})"
+        );
     }
-    assert_eq!(monitor.get("SOL-USD").unwrap().status, HealthStatus::Unknown);
+    assert_eq!(
+        monitor.get("SOL-USD").unwrap().status,
+        HealthStatus::Unknown
+    );
 }
 
 /// Circuit breaker opens at the configured consecutive-stale threshold.
@@ -95,7 +104,7 @@ fn health_circuit_breaker_opens_at_threshold_and_closes_on_heartbeat() {
 #[test]
 fn health_per_feed_threshold_independent() {
     let monitor = HealthMonitor::new(10_000);
-    monitor.register("FAST", Some(500));  // 0.5 s threshold
+    monitor.register("FAST", Some(500)); // 0.5 s threshold
     monitor.register("SLOW", Some(10_000)); // 10 s threshold
 
     let base = 2_000_000u64;
@@ -289,19 +298,13 @@ fn book_out_of_order_sequence_numbers_applied_regardless() {
     let mut book = OrderBook::new("BTC-USD");
 
     // Apply seq=3 first.
-    book.apply(
-        BookDelta::new("BTC-USD", BookSide::Bid, dec!(49900), dec!(2))
-            .with_sequence(3),
-    )
-    .unwrap();
+    book.apply(BookDelta::new("BTC-USD", BookSide::Bid, dec!(49900), dec!(2)).with_sequence(3))
+        .unwrap();
     assert_eq!(book.last_sequence(), Some(3));
 
     // Apply seq=1 (out of order, lower sequence number).
-    book.apply(
-        BookDelta::new("BTC-USD", BookSide::Bid, dec!(49800), dec!(1))
-            .with_sequence(1),
-    )
-    .unwrap();
+    book.apply(BookDelta::new("BTC-USD", BookSide::Bid, dec!(49800), dec!(1)).with_sequence(1))
+        .unwrap();
     // last_sequence tracks the last applied, not the highest seen.
     assert_eq!(book.last_sequence(), Some(1));
 
@@ -316,19 +319,13 @@ fn book_duplicate_sequence_numbers_last_write_wins() {
     let mut book = OrderBook::new("ETH-USD");
 
     // First delta: add 5 units at 3000 with seq=10.
-    book.apply(
-        BookDelta::new("ETH-USD", BookSide::Ask, dec!(3000), dec!(5))
-            .with_sequence(10),
-    )
-    .unwrap();
+    book.apply(BookDelta::new("ETH-USD", BookSide::Ask, dec!(3000), dec!(5)).with_sequence(10))
+        .unwrap();
     assert_eq!(book.best_ask().unwrap().quantity, dec!(5));
 
     // Duplicate seq=10 with different quantity — last write wins.
-    book.apply(
-        BookDelta::new("ETH-USD", BookSide::Ask, dec!(3000), dec!(8))
-            .with_sequence(10),
-    )
-    .unwrap();
+    book.apply(BookDelta::new("ETH-USD", BookSide::Ask, dec!(3000), dec!(8)).with_sequence(10))
+        .unwrap();
     assert_eq!(book.best_ask().unwrap().quantity, dec!(8));
     assert_eq!(book.ask_depth(), 1);
 }
@@ -340,20 +337,17 @@ fn book_duplicate_sequence_numbers_last_write_wins() {
 fn book_zero_qty_delta_removes_level_across_sequence_gap() {
     let mut book = OrderBook::new("BTC-USD");
 
-    book.apply(
-        BookDelta::new("BTC-USD", BookSide::Ask, dec!(50100), dec!(3))
-            .with_sequence(5),
-    )
-    .unwrap();
+    book.apply(BookDelta::new("BTC-USD", BookSide::Ask, dec!(50100), dec!(3)).with_sequence(5))
+        .unwrap();
 
     // Gap: sequence jumps from 5 to 10.
-    book.apply(
-        BookDelta::new("BTC-USD", BookSide::Ask, dec!(50100), dec!(0))
-            .with_sequence(10),
-    )
-    .unwrap();
+    book.apply(BookDelta::new("BTC-USD", BookSide::Ask, dec!(50100), dec!(0)).with_sequence(10))
+        .unwrap();
 
-    assert!(book.best_ask().is_none(), "level must be removed by zero-qty delta");
+    assert!(
+        book.best_ask().is_none(),
+        "level must be removed by zero-qty delta"
+    );
     assert_eq!(book.ask_depth(), 0);
 }
 
@@ -362,8 +356,20 @@ fn book_zero_qty_delta_removes_level_across_sequence_gap() {
 #[test]
 fn book_deltas_without_sequence_leave_last_sequence_none() {
     let mut book = OrderBook::new("BTC-USD");
-    book.apply(BookDelta::new("BTC-USD", BookSide::Bid, dec!(49000), dec!(1))).unwrap();
-    book.apply(BookDelta::new("BTC-USD", BookSide::Bid, dec!(48900), dec!(2))).unwrap();
+    book.apply(BookDelta::new(
+        "BTC-USD",
+        BookSide::Bid,
+        dec!(49000),
+        dec!(1),
+    ))
+    .unwrap();
+    book.apply(BookDelta::new(
+        "BTC-USD",
+        BookSide::Bid,
+        dec!(48900),
+        dec!(2),
+    ))
+    .unwrap();
     assert!(book.last_sequence().is_none());
 }
 
@@ -374,11 +380,8 @@ fn book_reset_replaces_levels_and_accepts_subsequent_deltas() {
     let mut book = OrderBook::new("BTC-USD");
 
     // Populate and advance sequence.
-    book.apply(
-        BookDelta::new("BTC-USD", BookSide::Bid, dec!(49000), dec!(5))
-            .with_sequence(100),
-    )
-    .unwrap();
+    book.apply(BookDelta::new("BTC-USD", BookSide::Bid, dec!(49000), dec!(5)).with_sequence(100))
+        .unwrap();
 
     // Reset (full snapshot) — this replaces all levels.
     book.reset(
@@ -392,11 +395,8 @@ fn book_reset_replaces_levels_and_accepts_subsequent_deltas() {
     assert_eq!(book.best_bid().unwrap().price, dec!(50000));
 
     // Apply a delta with a low sequence number — must succeed regardless.
-    book.apply(
-        BookDelta::new("BTC-USD", BookSide::Bid, dec!(50000), dec!(10))
-            .with_sequence(1),
-    )
-    .unwrap();
+    book.apply(BookDelta::new("BTC-USD", BookSide::Bid, dec!(50000), dec!(10)).with_sequence(1))
+        .unwrap();
     assert_eq!(book.best_bid().unwrap().quantity, dec!(10));
     assert_eq!(book.last_sequence(), Some(1));
 }
@@ -408,25 +408,16 @@ fn book_interleaved_bid_ask_deltas_with_gaps_produce_correct_book() {
     let mut book = OrderBook::new("BTC-USD");
 
     // Seq 1: add bid at 49000.
-    book.apply(
-        BookDelta::new("BTC-USD", BookSide::Bid, dec!(49000), dec!(3))
-            .with_sequence(1),
-    )
-    .unwrap();
+    book.apply(BookDelta::new("BTC-USD", BookSide::Bid, dec!(49000), dec!(3)).with_sequence(1))
+        .unwrap();
 
     // Seq 5 (gap of 3): add ask at 51000.
-    book.apply(
-        BookDelta::new("BTC-USD", BookSide::Ask, dec!(51000), dec!(2))
-            .with_sequence(5),
-    )
-    .unwrap();
+    book.apply(BookDelta::new("BTC-USD", BookSide::Ask, dec!(51000), dec!(2)).with_sequence(5))
+        .unwrap();
 
     // Seq 2 (backfill): add another bid at 48900.
-    book.apply(
-        BookDelta::new("BTC-USD", BookSide::Bid, dec!(48900), dec!(1))
-            .with_sequence(2),
-    )
-    .unwrap();
+    book.apply(BookDelta::new("BTC-USD", BookSide::Bid, dec!(48900), dec!(1)).with_sequence(2))
+        .unwrap();
 
     assert_eq!(book.best_bid().unwrap().price, dec!(49000));
     assert_eq!(book.best_ask().unwrap().price, dec!(51000));

@@ -133,7 +133,11 @@ impl TickNormalizer {
         let price = parse_decimal_field(p, "p", &raw.exchange.to_string())?;
         let qty = parse_decimal_field(p, "q", &raw.exchange.to_string())?;
         let side = p.get("m").and_then(|v| v.as_bool()).map(|maker| {
-            if maker { TradeSide::Sell } else { TradeSide::Buy }
+            if maker {
+                TradeSide::Sell
+            } else {
+                TradeSide::Buy
+            }
         });
         let trade_id = p.get("t").and_then(|v| v.as_u64()).map(|id| id.to_string());
         let exchange_ts = p.get("T").and_then(|v| v.as_u64());
@@ -154,9 +158,16 @@ impl TickNormalizer {
         let price = parse_decimal_field(p, "price", &raw.exchange.to_string())?;
         let qty = parse_decimal_field(p, "size", &raw.exchange.to_string())?;
         let side = p.get("side").and_then(|v| v.as_str()).map(|s| {
-            if s == "buy" { TradeSide::Buy } else { TradeSide::Sell }
+            if s == "buy" {
+                TradeSide::Buy
+            } else {
+                TradeSide::Sell
+            }
         });
-        let trade_id = p.get("trade_id").and_then(|v| v.as_str()).map(str::to_string);
+        let trade_id = p
+            .get("trade_id")
+            .and_then(|v| v.as_str())
+            .map(str::to_string);
         Ok(NormalizedTick {
             exchange: raw.exchange,
             symbol: raw.symbol,
@@ -211,7 +222,11 @@ impl Default for TickNormalizer {
     }
 }
 
-fn parse_decimal_field(v: &serde_json::Value, field: &str, exchange: &str) -> Result<Decimal, StreamError> {
+fn parse_decimal_field(
+    v: &serde_json::Value,
+    field: &str,
+    exchange: &str,
+) -> Result<Decimal, StreamError> {
     let raw = v.get(field).ok_or_else(|| StreamError::ParseError {
         exchange: exchange.to_string(),
         reason: format!("missing field '{}'", field),
@@ -244,7 +259,9 @@ mod tests {
     use super::*;
     use serde_json::json;
 
-    fn normalizer() -> TickNormalizer { TickNormalizer::new() }
+    fn normalizer() -> TickNormalizer {
+        TickNormalizer::new()
+    }
 
     fn binance_tick(symbol: &str) -> RawTick {
         RawTick {

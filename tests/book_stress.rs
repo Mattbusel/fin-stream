@@ -14,14 +14,16 @@ fn test_book_stress_insert_1000_levels_sorted() {
     for i in 1u32..=1000 {
         let price = Decimal::from(i);
         let qty = Decimal::from(i);
-        book.apply(BookDelta::new("BTC-USD", BookSide::Bid, price, qty)).unwrap();
+        book.apply(BookDelta::new("BTC-USD", BookSide::Bid, price, qty))
+            .unwrap();
     }
 
     // Insert 1000 ask levels at prices 1001..=2000 (all above 1000)
     for i in 1001u32..=2000 {
         let price = Decimal::from(i);
         let qty = Decimal::from(i);
-        book.apply(BookDelta::new("BTC-USD", BookSide::Ask, price, qty)).unwrap();
+        book.apply(BookDelta::new("BTC-USD", BookSide::Ask, price, qty))
+            .unwrap();
     }
 
     assert_eq!(book.bid_depth(), 1000);
@@ -36,7 +38,10 @@ fn test_book_stress_insert_1000_levels_sorted() {
     // Invariant: best_bid < best_ask (must never be crossed)
     let best_bid = book.best_bid().unwrap().price;
     let best_ask = book.best_ask().unwrap().price;
-    assert!(best_bid < best_ask, "best_bid ({best_bid}) must be < best_ask ({best_ask})");
+    assert!(
+        best_bid < best_ask,
+        "best_bid ({best_bid}) must be < best_ask ({best_ask})"
+    );
 }
 
 /// Verify that top_bids returns levels in strictly descending order.
@@ -47,12 +52,14 @@ fn test_book_stress_top_bids_descending_order() {
     // Insert 500 bid levels in random-ish order (reverse here for variety)
     for i in (1u32..=500).rev() {
         let price = Decimal::from(i * 10);
-        book.apply(BookDelta::new("ETH-USD", BookSide::Bid, price, dec!(1))).unwrap();
+        book.apply(BookDelta::new("ETH-USD", BookSide::Bid, price, dec!(1)))
+            .unwrap();
     }
     // Add ask levels so the book is not crossed
     for i in 501u32..=510 {
         let price = Decimal::from(i * 10);
-        book.apply(BookDelta::new("ETH-USD", BookSide::Ask, price, dec!(1))).unwrap();
+        book.apply(BookDelta::new("ETH-USD", BookSide::Ask, price, dec!(1)))
+            .unwrap();
     }
 
     let top = book.top_bids(100);
@@ -73,12 +80,14 @@ fn test_book_stress_top_asks_ascending_order() {
     let mut book = OrderBook::new("ETH-USD");
 
     // Bid levels below ask range
-    book.apply(BookDelta::new("ETH-USD", BookSide::Bid, dec!(100), dec!(1))).unwrap();
+    book.apply(BookDelta::new("ETH-USD", BookSide::Bid, dec!(100), dec!(1)))
+        .unwrap();
 
     // Insert 500 ask levels in forward order
     for i in 1u32..=500 {
         let price = Decimal::from(1000 + i);
-        book.apply(BookDelta::new("ETH-USD", BookSide::Ask, price, dec!(1))).unwrap();
+        book.apply(BookDelta::new("ETH-USD", BookSide::Ask, price, dec!(1)))
+            .unwrap();
     }
 
     let top = book.top_asks(100);
@@ -99,24 +108,51 @@ fn test_book_stress_remove_alternating_levels_invariant_holds() {
     let mut book = OrderBook::new("BTC-USD");
 
     for i in 1u32..=200 {
-        book.apply(BookDelta::new("BTC-USD", BookSide::Bid, Decimal::from(i), dec!(1))).unwrap();
+        book.apply(BookDelta::new(
+            "BTC-USD",
+            BookSide::Bid,
+            Decimal::from(i),
+            dec!(1),
+        ))
+        .unwrap();
     }
     for i in 201u32..=400 {
-        book.apply(BookDelta::new("BTC-USD", BookSide::Ask, Decimal::from(i), dec!(1))).unwrap();
+        book.apply(BookDelta::new(
+            "BTC-USD",
+            BookSide::Ask,
+            Decimal::from(i),
+            dec!(1),
+        ))
+        .unwrap();
     }
 
     // Remove every even bid level
     for i in (2u32..=200).step_by(2) {
-        book.apply(BookDelta::new("BTC-USD", BookSide::Bid, Decimal::from(i), dec!(0))).unwrap();
+        book.apply(BookDelta::new(
+            "BTC-USD",
+            BookSide::Bid,
+            Decimal::from(i),
+            dec!(0),
+        ))
+        .unwrap();
     }
     // Remove every even ask level
     for i in (202u32..=400).step_by(2) {
-        book.apply(BookDelta::new("BTC-USD", BookSide::Ask, Decimal::from(i), dec!(0))).unwrap();
+        book.apply(BookDelta::new(
+            "BTC-USD",
+            BookSide::Ask,
+            Decimal::from(i),
+            dec!(0),
+        ))
+        .unwrap();
     }
 
     let best_bid = book.best_bid().unwrap().price;
     let best_ask = book.best_ask().unwrap().price;
-    assert!(best_bid < best_ask, "crossed book after removals: {best_bid} >= {best_ask}");
+    assert!(
+        best_bid < best_ask,
+        "crossed book after removals: {best_bid} >= {best_ask}"
+    );
 }
 
 /// Mid-price remains in (best_bid, best_ask) after many updates.
@@ -125,7 +161,13 @@ fn test_book_stress_mid_price_between_bid_and_ask() {
     let mut book = OrderBook::new("BTC-USD");
 
     for i in 1u32..=50 {
-        book.apply(BookDelta::new("BTC-USD", BookSide::Bid, Decimal::from(i * 100), dec!(1))).unwrap();
+        book.apply(BookDelta::new(
+            "BTC-USD",
+            BookSide::Bid,
+            Decimal::from(i * 100),
+            dec!(1),
+        ))
+        .unwrap();
         book.apply(BookDelta::new(
             "BTC-USD",
             BookSide::Ask,
@@ -138,6 +180,12 @@ fn test_book_stress_mid_price_between_bid_and_ask() {
     let mid = book.mid_price().unwrap();
     let best_bid = book.best_bid().unwrap().price;
     let best_ask = book.best_ask().unwrap().price;
-    assert!(mid > best_bid, "mid ({mid}) should be > best_bid ({best_bid})");
-    assert!(mid < best_ask, "mid ({mid}) should be < best_ask ({best_ask})");
+    assert!(
+        mid > best_bid,
+        "mid ({mid}) should be > best_bid ({best_bid})"
+    );
+    assert!(
+        mid < best_ask,
+        "mid ({mid}) should be < best_ask ({best_ask})"
+    );
 }

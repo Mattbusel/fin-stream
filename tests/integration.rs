@@ -37,15 +37,31 @@ fn test_full_binance_pipeline() {
 fn test_all_exchanges_normalize_successfully() {
     let normalizer = TickNormalizer::new();
     let cases = vec![
-        (Exchange::Binance, json!({ "p": "100", "q": "1", "m": true })),
-        (Exchange::Coinbase, json!({ "price": "100", "size": "1", "side": "buy" })),
+        (
+            Exchange::Binance,
+            json!({ "p": "100", "q": "1", "m": true }),
+        ),
+        (
+            Exchange::Coinbase,
+            json!({ "price": "100", "size": "1", "side": "buy" }),
+        ),
         (Exchange::Alpaca, json!({ "p": "100", "s": "1" })),
         (Exchange::Polygon, json!({ "p": "100", "s": "1" })),
     ];
     for (exchange, payload) in cases {
-        let raw = RawTick { exchange, symbol: "SYM".into(), payload, received_at_ms: 0 };
+        let raw = RawTick {
+            exchange,
+            symbol: "SYM".into(),
+            payload,
+            received_at_ms: 0,
+        };
         let result = normalizer.normalize(raw);
-        assert!(result.is_ok(), "exchange {:?} failed: {:?}", exchange, result);
+        assert!(
+            result.is_ok(),
+            "exchange {:?} failed: {:?}",
+            exchange,
+            result
+        );
     }
 }
 
@@ -63,12 +79,25 @@ fn test_order_book_full_lifecycle() {
             fin_stream::book::PriceLevel::new(dec!(50100), dec!(2)),
             fin_stream::book::PriceLevel::new(dec!(50200), dec!(1)),
         ],
-    ).unwrap();
+    )
+    .unwrap();
     assert_eq!(book.bid_depth(), 2);
     assert_eq!(book.ask_depth(), 2);
-    book.apply(BookDelta::new("BTC-USD", BookSide::Bid, dec!(50000), dec!(10))).unwrap();
+    book.apply(BookDelta::new(
+        "BTC-USD",
+        BookSide::Bid,
+        dec!(50000),
+        dec!(10),
+    ))
+    .unwrap();
     assert_eq!(book.best_bid().unwrap().quantity, dec!(10));
-    book.apply(BookDelta::new("BTC-USD", BookSide::Ask, dec!(50200), dec!(0))).unwrap();
+    book.apply(BookDelta::new(
+        "BTC-USD",
+        BookSide::Ask,
+        dec!(50200),
+        dec!(0),
+    ))
+    .unwrap();
     assert_eq!(book.ask_depth(), 1);
     assert_eq!(book.spread().unwrap(), dec!(100));
 }
@@ -78,9 +107,11 @@ fn test_order_book_top_levels() {
     let mut book = OrderBook::new("BTC-USD");
     for i in 0u32..5 {
         let price = dec!(50000) - Decimal::from(i * 100);
-        book.apply(BookDelta::new("BTC-USD", BookSide::Bid, price, dec!(1))).unwrap();
+        book.apply(BookDelta::new("BTC-USD", BookSide::Bid, price, dec!(1)))
+            .unwrap();
         let ask_price = dec!(50100) + Decimal::from(i * 100);
-        book.apply(BookDelta::new("BTC-USD", BookSide::Ask, ask_price, dec!(1))).unwrap();
+        book.apply(BookDelta::new("BTC-USD", BookSide::Ask, ask_price, dec!(1)))
+            .unwrap();
     }
     let top3_bids = book.top_bids(3);
     assert_eq!(top3_bids.len(), 3);
@@ -105,9 +136,13 @@ fn make_tick(symbol: &str, price: Decimal, qty: Decimal, ts_ms: u64) -> Normaliz
 #[test]
 fn test_ohlcv_multi_bar_sequence() {
     let mut agg = OhlcvAggregator::new("BTC-USD", Timeframe::Minutes(1)).unwrap();
-    agg.feed(&make_tick("BTC-USD", dec!(50000), dec!(1), 60_000)).unwrap();
-    agg.feed(&make_tick("BTC-USD", dec!(50500), dec!(2), 60_500)).unwrap();
-    let mut bars = agg.feed(&make_tick("BTC-USD", dec!(51000), dec!(1), 120_000)).unwrap();
+    agg.feed(&make_tick("BTC-USD", dec!(50000), dec!(1), 60_000))
+        .unwrap();
+    agg.feed(&make_tick("BTC-USD", dec!(50500), dec!(2), 60_500))
+        .unwrap();
+    let mut bars = agg
+        .feed(&make_tick("BTC-USD", dec!(51000), dec!(1), 120_000))
+        .unwrap();
     assert_eq!(bars.len(), 1);
     let completed = bars.remove(0);
     assert!(completed.is_complete);
@@ -122,8 +157,10 @@ fn test_ohlcv_multi_bar_sequence() {
 #[test]
 fn test_ohlcv_flush_returns_partial_bar() {
     let mut agg = OhlcvAggregator::new("ETH-USD", Timeframe::Hours(1)).unwrap();
-    agg.feed(&make_tick("ETH-USD", dec!(3000), dec!(5), 3_600_000)).unwrap();
-    agg.feed(&make_tick("ETH-USD", dec!(3100), dec!(3), 3_601_000)).unwrap();
+    agg.feed(&make_tick("ETH-USD", dec!(3000), dec!(5), 3_600_000))
+        .unwrap();
+    agg.feed(&make_tick("ETH-USD", dec!(3100), dec!(3), 3_601_000))
+        .unwrap();
     let flushed = agg.flush().unwrap();
     assert!(flushed.is_complete);
     assert_eq!(flushed.trade_count, 2);
@@ -178,12 +215,8 @@ fn test_session_us_equity_open_during_market_hours() {
 
 #[test]
 fn test_ws_manager_reconnect_policy_integration() {
-    let policy = ReconnectPolicy::new(
-        4,
-        Duration::from_millis(50),
-        Duration::from_secs(5),
-        2.0,
-    ).unwrap();
+    let policy =
+        ReconnectPolicy::new(4, Duration::from_millis(50), Duration::from_secs(5), 2.0).unwrap();
     let config = ConnectionConfig::new("wss://feed.example.com/ws", 512)
         .unwrap()
         .with_reconnect(policy);
@@ -202,7 +235,10 @@ fn test_ws_manager_reconnect_policy_integration() {
     assert!(b2 >= b1);
 
     let result = mgr.next_reconnect_backoff();
-    assert!(matches!(result, Err(StreamError::ReconnectExhausted { .. })));
+    assert!(matches!(
+        result,
+        Err(StreamError::ReconnectExhausted { .. })
+    ));
 }
 
 // ── Cross-module: tick -> OHLCV pipeline ────────────────────────────────────
@@ -339,7 +375,10 @@ fn test_lorentz_transform_on_ohlcv_timestamps() {
         let p = SpacetimePoint::new(t, 50_000.0);
         let transformed = lt.transform(p);
         let recovered = lt.inverse_transform(transformed);
-        assert!((recovered.t - t).abs() < 1e-6, "round-trip failed for t={t}");
+        assert!(
+            (recovered.t - t).abs() < 1e-6,
+            "round-trip failed for t={t}"
+        );
     }
 }
 

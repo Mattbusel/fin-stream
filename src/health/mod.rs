@@ -91,23 +91,29 @@ impl HealthMonitor {
     pub fn register(&self, feed_id: impl Into<String>, stale_threshold_ms: Option<u64>) {
         let id = feed_id.into();
         let threshold = stale_threshold_ms.unwrap_or(self.default_stale_threshold_ms);
-        self.feeds.insert(id.clone(), FeedHealth {
-            feed_id: id,
-            status: HealthStatus::Unknown,
-            last_tick_ms: None,
-            stale_threshold_ms: threshold,
-            tick_count: 0,
-            consecutive_stale: 0,
-        });
+        self.feeds.insert(
+            id.clone(),
+            FeedHealth {
+                feed_id: id,
+                status: HealthStatus::Unknown,
+                last_tick_ms: None,
+                stale_threshold_ms: threshold,
+                tick_count: 0,
+                consecutive_stale: 0,
+            },
+        );
     }
 
     /// Record a tick heartbeat for a feed.
     pub fn heartbeat(&self, feed_id: &str, ts_ms: u64) -> Result<(), StreamError> {
-        let mut entry = self.feeds.get_mut(feed_id).ok_or_else(|| StreamError::StaleFeed {
-            feed_id: feed_id.to_string(),
-            elapsed_ms: 0,
-            threshold_ms: 0,
-        })?;
+        let mut entry = self
+            .feeds
+            .get_mut(feed_id)
+            .ok_or_else(|| StreamError::StaleFeed {
+                feed_id: feed_id.to_string(),
+                elapsed_ms: 0,
+                threshold_ms: 0,
+            })?;
         entry.last_tick_ms = Some(ts_ms);
         entry.tick_count += 1;
         entry.status = HealthStatus::Healthy;
@@ -148,16 +154,24 @@ impl HealthMonitor {
 
     /// Number of registered feeds.
     /// Total number of registered feeds.
-    pub fn feed_count(&self) -> usize { self.feeds.len() }
+    pub fn feed_count(&self) -> usize {
+        self.feeds.len()
+    }
 
     /// Count of feeds by status.
     pub fn healthy_count(&self) -> usize {
-        self.feeds.iter().filter(|e| e.status == HealthStatus::Healthy).count()
+        self.feeds
+            .iter()
+            .filter(|e| e.status == HealthStatus::Healthy)
+            .count()
     }
 
     /// Number of feeds currently in the [`HealthStatus::Stale`] state.
     pub fn stale_count(&self) -> usize {
-        self.feeds.iter().filter(|e| e.status == HealthStatus::Stale).count()
+        self.feeds
+            .iter()
+            .filter(|e| e.status == HealthStatus::Stale)
+            .count()
     }
 }
 
@@ -165,7 +179,9 @@ impl HealthMonitor {
 mod tests {
     use super::*;
 
-    fn monitor() -> HealthMonitor { HealthMonitor::new(5_000) }
+    fn monitor() -> HealthMonitor {
+        HealthMonitor::new(5_000)
+    }
 
     #[test]
     fn test_register_creates_unknown_feed() {
@@ -219,7 +235,9 @@ mod tests {
         m.heartbeat("BTC-USD", 1_000_000).unwrap();
         let errors = m.check_all(1_010_000); // 10s elapsed, threshold 5s
         assert_eq!(errors.len(), 1);
-        assert!(matches!(&errors[0], StreamError::StaleFeed { feed_id, .. } if feed_id == "BTC-USD"));
+        assert!(
+            matches!(&errors[0], StreamError::StaleFeed { feed_id, .. } if feed_id == "BTC-USD")
+        );
     }
 
     #[test]

@@ -87,8 +87,7 @@ impl<T, const N: usize> SpscRing<T, N> {
             panic!("SpscRing capacity N must be > 1 (N={N})");
         }
         // SAFETY: MaybeUninit array initialized element-by-element before use.
-        let buf: Vec<UnsafeCell<Option<T>>> =
-            (0..N).map(|_| UnsafeCell::new(None)).collect();
+        let buf: Vec<UnsafeCell<Option<T>>> = (0..N).map(|_| UnsafeCell::new(None)).collect();
         let buf: Box<[UnsafeCell<Option<T>>; N]> = buf
             .try_into()
             .unwrap_or_else(|_| unreachable!("length is exactly N"));
@@ -207,7 +206,9 @@ impl<T, const N: usize> SpscRing<T, N> {
     pub fn split(self) -> (SpscProducer<T, N>, SpscConsumer<T, N>) {
         let shared = Arc::new(self);
         (
-            SpscProducer { inner: Arc::clone(&shared) },
+            SpscProducer {
+                inner: Arc::clone(&shared),
+            },
             SpscConsumer { inner: shared },
         )
     }
@@ -378,7 +379,7 @@ mod tests {
     #[test]
     fn test_wraparound_correctness() {
         let r: SpscRing<u32, 4> = SpscRing::new(); // capacity = 3
-        // First pass
+                                                   // First pass
         r.push(1).unwrap();
         r.push(2).unwrap();
         r.push(3).unwrap();

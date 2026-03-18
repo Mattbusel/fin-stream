@@ -47,7 +47,9 @@ pub enum StreamError {
     },
 
     /// Feed is stale -- no data received within staleness threshold.
-    #[error("Feed '{feed_id}' is stale: last tick was {elapsed_ms}ms ago (threshold: {threshold_ms}ms)")]
+    #[error(
+        "Feed '{feed_id}' is stale: last tick was {elapsed_ms}ms ago (threshold: {threshold_ms}ms)"
+    )]
     StaleFeed {
         /// Identifier of the stale feed.
         feed_id: String,
@@ -101,7 +103,6 @@ pub enum StreamError {
     WebSocket(String),
 
     // ── Pipeline-internal errors ─────────────────────────────────────────────
-
     /// SPSC ring buffer is full; the producer must back off or drop the item.
     ///
     /// This variant is returned by [`crate::ring::SpscRing::push`] when the
@@ -177,19 +178,27 @@ mod tests {
 
     #[test]
     fn test_disconnected_display() {
-        let e = StreamError::Disconnected { url: "wss://feed.io".into() };
+        let e = StreamError::Disconnected {
+            url: "wss://feed.io".into(),
+        };
         assert!(e.to_string().contains("feed.io"));
     }
 
     #[test]
     fn test_reconnect_exhausted_display() {
-        let e = StreamError::ReconnectExhausted { url: "wss://x.io".into(), attempts: 5 };
+        let e = StreamError::ReconnectExhausted {
+            url: "wss://x.io".into(),
+            attempts: 5,
+        };
         assert!(e.to_string().contains("5"));
     }
 
     #[test]
     fn test_parse_error_display() {
-        let e = StreamError::ParseError { exchange: "Binance".into(), reason: "missing field".into() };
+        let e = StreamError::ParseError {
+            exchange: "Binance".into(),
+            reason: "missing field".into(),
+        };
         assert!(e.to_string().contains("Binance"));
     }
 
@@ -225,7 +234,11 @@ mod tests {
 
     #[test]
     fn test_backpressure_display() {
-        let e = StreamError::Backpressure { channel: "ticks".into(), depth: 1000, capacity: 1000 };
+        let e = StreamError::Backpressure {
+            channel: "ticks".into(),
+            depth: 1000,
+            capacity: 1000,
+        };
         assert!(e.to_string().contains("1000"));
     }
 
@@ -250,25 +263,33 @@ mod tests {
 
     #[test]
     fn test_aggregation_error_display() {
-        let e = StreamError::AggregationError { reason: "wrong symbol".into() };
+        let e = StreamError::AggregationError {
+            reason: "wrong symbol".into(),
+        };
         assert!(e.to_string().contains("wrong symbol"));
     }
 
     #[test]
     fn test_normalization_error_display() {
-        let e = StreamError::NormalizationError { reason: "window not seeded".into() };
+        let e = StreamError::NormalizationError {
+            reason: "window not seeded".into(),
+        };
         assert!(e.to_string().contains("window not seeded"));
     }
 
     #[test]
     fn test_invalid_tick_display() {
-        let e = StreamError::InvalidTick { reason: "negative price".into() };
+        let e = StreamError::InvalidTick {
+            reason: "negative price".into(),
+        };
         assert!(e.to_string().contains("negative price"));
     }
 
     #[test]
     fn test_lorentz_config_error_display() {
-        let e = StreamError::LorentzConfigError { reason: "beta >= 1".into() };
+        let e = StreamError::LorentzConfigError {
+            reason: "beta >= 1".into(),
+        };
         assert!(e.to_string().contains("beta >= 1"));
     }
 }

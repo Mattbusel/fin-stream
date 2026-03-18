@@ -44,11 +44,14 @@ fn bench_tick_normalize_coinbase(c: &mut Criterion) {
 
 fn bench_exchange_parse(c: &mut Criterion) {
     c.bench_function("exchange_from_str", |b| {
-        b.iter(|| {
-            black_box("binance".parse::<fin_stream::tick::Exchange>().unwrap())
-        })
+        b.iter(|| black_box("binance".parse::<fin_stream::tick::Exchange>().unwrap()))
     });
 }
 
-criterion_group!(benches, bench_tick_normalize_binance, bench_tick_normalize_coinbase, bench_exchange_parse);
+criterion_group!(
+    benches,
+    bench_tick_normalize_binance,
+    bench_tick_normalize_coinbase,
+    bench_exchange_parse
+);
 criterion_main!(benches);

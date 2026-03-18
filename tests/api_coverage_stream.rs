@@ -18,8 +18,8 @@ use fin_stream::lorentz::{LorentzTransform, SpacetimePoint};
 use fin_stream::norm::MinMaxNormalizer;
 use fin_stream::ohlcv::{OhlcvAggregator, Timeframe};
 use fin_stream::session::{MarketSession, SessionAwareness, TradingStatus};
-use fin_stream::ws::ReconnectPolicy;
 use fin_stream::tick::Exchange;
+use fin_stream::ws::ReconnectPolicy;
 use rust_decimal_macros::dec;
 use std::str::FromStr;
 use std::time::Duration;
@@ -174,13 +174,8 @@ fn test_ohlcv_aggregator_with_emit_empty_bars_flag() {
 
 #[test]
 fn test_reconnect_policy_backoff_grows_exponentially() {
-    let p = ReconnectPolicy::new(
-        10,
-        Duration::from_millis(100),
-        Duration::from_secs(60),
-        2.0,
-    )
-    .unwrap();
+    let p =
+        ReconnectPolicy::new(10, Duration::from_millis(100), Duration::from_secs(60), 2.0).unwrap();
     let b0 = p.backoff_for_attempt(0);
     let b1 = p.backoff_for_attempt(1);
     let b2 = p.backoff_for_attempt(2);
@@ -205,32 +200,23 @@ fn test_reconnect_policy_backoff_capped_at_max() {
 
 #[test]
 fn test_reconnect_policy_invalid_multiplier_rejected() {
-    assert!(ReconnectPolicy::new(
-        5,
-        Duration::from_millis(100),
-        Duration::from_secs(10),
-        0.5,
-    )
-    .is_err());
+    assert!(
+        ReconnectPolicy::new(5, Duration::from_millis(100), Duration::from_secs(10), 0.5,).is_err()
+    );
 }
 
 #[test]
 fn test_reconnect_policy_zero_max_attempts_rejected() {
-    assert!(ReconnectPolicy::new(
-        0,
-        Duration::from_millis(100),
-        Duration::from_secs(10),
-        2.0,
-    )
-    .is_err());
+    assert!(
+        ReconnectPolicy::new(0, Duration::from_millis(100), Duration::from_secs(10), 2.0,).is_err()
+    );
 }
 
 // ── BookDelta ──────────────────────────────────────────────────────────────
 
 #[test]
 fn test_book_delta_with_sequence_attaches_sequence_number() {
-    let d = BookDelta::new("BTC-USD", BookSide::Bid, dec!(50000), dec!(1))
-        .with_sequence(42);
+    let d = BookDelta::new("BTC-USD", BookSide::Bid, dec!(50000), dec!(1)).with_sequence(42);
     assert_eq!(d.sequence, Some(42));
 }
 
@@ -244,7 +230,12 @@ fn test_book_delta_without_sequence_is_none() {
 
 #[test]
 fn test_exchange_display_round_trips_from_str() {
-    for ex in [Exchange::Binance, Exchange::Coinbase, Exchange::Alpaca, Exchange::Polygon] {
+    for ex in [
+        Exchange::Binance,
+        Exchange::Coinbase,
+        Exchange::Alpaca,
+        Exchange::Polygon,
+    ] {
         let s = ex.to_string();
         let parsed = Exchange::from_str(&s).unwrap();
         assert_eq!(parsed, ex);

@@ -53,7 +53,9 @@ impl SessionAwareness {
     }
 
     /// The market session this classifier was constructed for.
-    pub fn session(&self) -> MarketSession { self.session }
+    pub fn session(&self) -> MarketSession {
+        self.session
+    }
 
     fn us_equity_status(&self, utc_ms: u64) -> Result<TradingStatus, StreamError> {
         // ET = UTC - 5h (EST). Compute time-of-day in ET by taking UTC time-within-day
@@ -70,14 +72,15 @@ impl SessionAwareness {
             return Ok(TradingStatus::Closed);
         }
 
-        let open_ms = (9 * 3600 + 30 * 60) * 1000;   // 9:30 ET
-        let close_ms = 16 * 3600 * 1000;              // 16:00 ET
-        let pre_ms = 4 * 3600 * 1000;                 // 4:00 ET
-        let post_ms = 20 * 3600 * 1000;               // 20:00 ET
+        let open_ms = (9 * 3600 + 30 * 60) * 1000; // 9:30 ET
+        let close_ms = 16 * 3600 * 1000; // 16:00 ET
+        let pre_ms = 4 * 3600 * 1000; // 4:00 ET
+        let post_ms = 20 * 3600 * 1000; // 20:00 ET
 
         if day_ms >= open_ms && day_ms < close_ms {
             Ok(TradingStatus::Open)
-        } else if (day_ms >= pre_ms && day_ms < open_ms) || (day_ms >= close_ms && day_ms < post_ms) {
+        } else if (day_ms >= pre_ms && day_ms < open_ms) || (day_ms >= close_ms && day_ms < post_ms)
+        {
             Ok(TradingStatus::Extended)
         } else {
             Ok(TradingStatus::Closed)

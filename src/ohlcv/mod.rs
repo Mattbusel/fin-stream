@@ -110,7 +110,10 @@ impl OhlcvAggregator {
         if tick.symbol != self.symbol {
             return Err(StreamError::ParseError {
                 exchange: tick.exchange.to_string(),
-                reason: format!("tick symbol '{}' does not match aggregator '{}'", tick.symbol, self.symbol),
+                reason: format!(
+                    "tick symbol '{}' does not match aggregator '{}'",
+                    tick.symbol, self.symbol
+                ),
             });
         }
         let bar_start = self.timeframe.bar_start_ms(tick.received_at_ms);
@@ -151,8 +154,12 @@ impl OhlcvAggregator {
 
         match &mut self.current_bar {
             Some(bar) => {
-                if tick.price > bar.high { bar.high = tick.price; }
-                if tick.price < bar.low { bar.low = tick.price; }
+                if tick.price > bar.high {
+                    bar.high = tick.price;
+                }
+                if tick.price < bar.low {
+                    bar.low = tick.price;
+                }
                 bar.close = tick.price;
                 bar.volume += tick.quantity;
                 bar.trade_count += 1;
@@ -188,10 +195,14 @@ impl OhlcvAggregator {
     }
 
     /// The symbol this aggregator tracks.
-    pub fn symbol(&self) -> &str { &self.symbol }
+    pub fn symbol(&self) -> &str {
+        &self.symbol
+    }
 
     /// The timeframe used for bar alignment.
-    pub fn timeframe(&self) -> Timeframe { self.timeframe }
+    pub fn timeframe(&self) -> Timeframe {
+        self.timeframe
+    }
 }
 
 #[cfg(test)]
@@ -257,9 +268,12 @@ mod tests {
     #[test]
     fn test_ohlcv_aggregator_high_low_tracking() {
         let mut agg = agg("BTC-USD", Timeframe::Minutes(1));
-        agg.feed(&make_tick("BTC-USD", dec!(50000), dec!(1), 60_000)).unwrap();
-        agg.feed(&make_tick("BTC-USD", dec!(51000), dec!(1), 60_100)).unwrap();
-        agg.feed(&make_tick("BTC-USD", dec!(49500), dec!(1), 60_200)).unwrap();
+        agg.feed(&make_tick("BTC-USD", dec!(50000), dec!(1), 60_000))
+            .unwrap();
+        agg.feed(&make_tick("BTC-USD", dec!(51000), dec!(1), 60_100))
+            .unwrap();
+        agg.feed(&make_tick("BTC-USD", dec!(49500), dec!(1), 60_200))
+            .unwrap();
         let bar = agg.current_bar().unwrap();
         assert_eq!(bar.high, dec!(51000));
         assert_eq!(bar.low, dec!(49500));
@@ -270,10 +284,14 @@ mod tests {
     #[test]
     fn test_ohlcv_aggregator_bar_completes_on_new_window() {
         let mut agg = agg("BTC-USD", Timeframe::Minutes(1));
-        agg.feed(&make_tick("BTC-USD", dec!(50000), dec!(1), 60_000)).unwrap();
-        agg.feed(&make_tick("BTC-USD", dec!(50100), dec!(2), 60_500)).unwrap();
+        agg.feed(&make_tick("BTC-USD", dec!(50000), dec!(1), 60_000))
+            .unwrap();
+        agg.feed(&make_tick("BTC-USD", dec!(50100), dec!(2), 60_500))
+            .unwrap();
         // Tick in next minute window closes previous bar
-        let mut bars = agg.feed(&make_tick("BTC-USD", dec!(50200), dec!(1), 120_000)).unwrap();
+        let mut bars = agg
+            .feed(&make_tick("BTC-USD", dec!(50200), dec!(1), 120_000))
+            .unwrap();
         assert_eq!(bars.len(), 1);
         let bar = bars.remove(0);
         assert!(bar.is_complete);
@@ -286,8 +304,10 @@ mod tests {
     #[test]
     fn test_ohlcv_aggregator_new_bar_started_after_completion() {
         let mut agg = agg("BTC-USD", Timeframe::Minutes(1));
-        agg.feed(&make_tick("BTC-USD", dec!(50000), dec!(1), 60_000)).unwrap();
-        agg.feed(&make_tick("BTC-USD", dec!(50200), dec!(1), 120_000)).unwrap();
+        agg.feed(&make_tick("BTC-USD", dec!(50000), dec!(1), 60_000))
+            .unwrap();
+        agg.feed(&make_tick("BTC-USD", dec!(50200), dec!(1), 120_000))
+            .unwrap();
         let bar = agg.current_bar().unwrap();
         assert_eq!(bar.open, dec!(50200));
         assert_eq!(bar.bar_start_ms, 120_000);
@@ -296,7 +316,8 @@ mod tests {
     #[test]
     fn test_ohlcv_aggregator_flush_marks_complete() {
         let mut agg = agg("BTC-USD", Timeframe::Minutes(1));
-        agg.feed(&make_tick("BTC-USD", dec!(50000), dec!(1), 60_000)).unwrap();
+        agg.feed(&make_tick("BTC-USD", dec!(50000), dec!(1), 60_000))
+            .unwrap();
         let flushed = agg.flush().unwrap();
         assert!(flushed.is_complete);
         assert!(agg.current_bar().is_none());
@@ -319,8 +340,10 @@ mod tests {
     #[test]
     fn test_ohlcv_aggregator_volume_accumulates() {
         let mut agg = agg("BTC-USD", Timeframe::Minutes(1));
-        agg.feed(&make_tick("BTC-USD", dec!(50000), dec!(1.5), 60_000)).unwrap();
-        agg.feed(&make_tick("BTC-USD", dec!(50100), dec!(2.5), 60_100)).unwrap();
+        agg.feed(&make_tick("BTC-USD", dec!(50000), dec!(1.5), 60_000))
+            .unwrap();
+        agg.feed(&make_tick("BTC-USD", dec!(50100), dec!(2.5), 60_100))
+            .unwrap();
         let bar = agg.current_bar().unwrap();
         assert_eq!(bar.volume, dec!(4));
     }
@@ -328,7 +351,8 @@ mod tests {
     #[test]
     fn test_ohlcv_bar_symbol_and_timeframe() {
         let mut agg = agg("BTC-USD", Timeframe::Minutes(5));
-        agg.feed(&make_tick("BTC-USD", dec!(50000), dec!(1), 300_000)).unwrap();
+        agg.feed(&make_tick("BTC-USD", dec!(50000), dec!(1), 300_000))
+            .unwrap();
         let bar = agg.current_bar().unwrap();
         assert_eq!(bar.symbol, "BTC-USD");
         assert_eq!(bar.timeframe, Timeframe::Minutes(5));
@@ -349,8 +373,11 @@ mod tests {
         let mut agg = OhlcvAggregator::new("BTC-USD", Timeframe::Minutes(1))
             .unwrap()
             .with_emit_empty_bars(true);
-        agg.feed(&make_tick("BTC-USD", dec!(50000), dec!(1), 60_000)).unwrap();
-        let bars = agg.feed(&make_tick("BTC-USD", dec!(50100), dec!(1), 120_000)).unwrap();
+        agg.feed(&make_tick("BTC-USD", dec!(50000), dec!(1), 60_000))
+            .unwrap();
+        let bars = agg
+            .feed(&make_tick("BTC-USD", dec!(50100), dec!(1), 120_000))
+            .unwrap();
         // Only the completed bar for the first minute; no empties.
         assert_eq!(bars.len(), 1);
         assert_eq!(bars[0].bar_start_ms, 60_000);
@@ -364,8 +391,11 @@ mod tests {
         let mut agg = OhlcvAggregator::new("BTC-USD", Timeframe::Minutes(1))
             .unwrap()
             .with_emit_empty_bars(true);
-        agg.feed(&make_tick("BTC-USD", dec!(50000), dec!(1), 60_000)).unwrap();
-        let bars = agg.feed(&make_tick("BTC-USD", dec!(51000), dec!(1), 240_000)).unwrap();
+        agg.feed(&make_tick("BTC-USD", dec!(50000), dec!(1), 60_000))
+            .unwrap();
+        let bars = agg
+            .feed(&make_tick("BTC-USD", dec!(51000), dec!(1), 240_000))
+            .unwrap();
         // 1 real completed bar + 2 empty gap bars (120_000, 180_000)
         assert_eq!(bars.len(), 3);
         assert_eq!(bars[0].bar_start_ms, 60_000);
@@ -383,8 +413,11 @@ mod tests {
         let mut agg = OhlcvAggregator::new("BTC-USD", Timeframe::Minutes(1))
             .unwrap()
             .with_emit_empty_bars(false);
-        agg.feed(&make_tick("BTC-USD", dec!(50000), dec!(1), 60_000)).unwrap();
-        let bars = agg.feed(&make_tick("BTC-USD", dec!(51000), dec!(1), 240_000)).unwrap();
+        agg.feed(&make_tick("BTC-USD", dec!(50000), dec!(1), 60_000))
+            .unwrap();
+        let bars = agg
+            .feed(&make_tick("BTC-USD", dec!(51000), dec!(1), 240_000))
+            .unwrap();
         assert_eq!(bars.len(), 1); // only real completed bar, no empties
     }
 
@@ -393,8 +426,11 @@ mod tests {
         let mut agg = OhlcvAggregator::new("BTC-USD", Timeframe::Minutes(1))
             .unwrap()
             .with_emit_empty_bars(true);
-        agg.feed(&make_tick("BTC-USD", dec!(50000), dec!(1), 60_000)).unwrap();
-        let bars = agg.feed(&make_tick("BTC-USD", dec!(51000), dec!(1), 240_000)).unwrap();
+        agg.feed(&make_tick("BTC-USD", dec!(50000), dec!(1), 60_000))
+            .unwrap();
+        let bars = agg
+            .feed(&make_tick("BTC-USD", dec!(51000), dec!(1), 240_000))
+            .unwrap();
         for bar in &bars {
             assert!(bar.is_complete, "all emitted bars must be marked complete");
         }

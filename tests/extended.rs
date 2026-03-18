@@ -45,25 +45,33 @@ fn test_error_ring_buffer_empty_display() {
 
 #[test]
 fn test_error_aggregation_error_display() {
-    let e = StreamError::AggregationError { reason: "bad symbol".into() };
+    let e = StreamError::AggregationError {
+        reason: "bad symbol".into(),
+    };
     assert!(e.to_string().contains("bad symbol"));
 }
 
 #[test]
 fn test_error_normalization_error_display() {
-    let e = StreamError::NormalizationError { reason: "no data".into() };
+    let e = StreamError::NormalizationError {
+        reason: "no data".into(),
+    };
     assert!(e.to_string().contains("no data"));
 }
 
 #[test]
 fn test_error_invalid_tick_display() {
-    let e = StreamError::InvalidTick { reason: "price <= 0".into() };
+    let e = StreamError::InvalidTick {
+        reason: "price <= 0".into(),
+    };
     assert!(e.to_string().contains("price <= 0"));
 }
 
 #[test]
 fn test_error_lorentz_config_error_display() {
-    let e = StreamError::LorentzConfigError { reason: "beta=1.0".into() };
+    let e = StreamError::LorentzConfigError {
+        reason: "beta=1.0".into(),
+    };
     assert!(e.to_string().contains("beta=1.0"));
 }
 
@@ -71,7 +79,12 @@ fn test_error_lorentz_config_error_display() {
 
 #[test]
 fn test_exchange_serde_roundtrip_all() {
-    for ex in [Exchange::Binance, Exchange::Coinbase, Exchange::Alpaca, Exchange::Polygon] {
+    for ex in [
+        Exchange::Binance,
+        Exchange::Coinbase,
+        Exchange::Alpaca,
+        Exchange::Polygon,
+    ] {
         let json = serde_json::to_string(&ex).unwrap();
         let back: Exchange = serde_json::from_str(&json).unwrap();
         assert_eq!(ex, back);
@@ -97,7 +110,10 @@ fn test_normalize_binance_missing_qty_returns_error() {
         payload: json!({ "p": "50000" }),
         received_at_ms: 0,
     };
-    assert!(matches!(TickNormalizer::new().normalize(raw), Err(StreamError::ParseError { .. })));
+    assert!(matches!(
+        TickNormalizer::new().normalize(raw),
+        Err(StreamError::ParseError { .. })
+    ));
 }
 
 #[test]
@@ -108,7 +124,10 @@ fn test_normalize_coinbase_missing_size_returns_error() {
         payload: json!({ "price": "50000" }),
         received_at_ms: 0,
     };
-    assert!(matches!(TickNormalizer::new().normalize(raw), Err(StreamError::ParseError { .. })));
+    assert!(matches!(
+        TickNormalizer::new().normalize(raw),
+        Err(StreamError::ParseError { .. })
+    ));
 }
 
 #[test]
@@ -119,7 +138,10 @@ fn test_normalize_alpaca_missing_price_returns_error() {
         payload: json!({ "s": "10" }),
         received_at_ms: 0,
     };
-    assert!(matches!(TickNormalizer::new().normalize(raw), Err(StreamError::ParseError { .. })));
+    assert!(matches!(
+        TickNormalizer::new().normalize(raw),
+        Err(StreamError::ParseError { .. })
+    ));
 }
 
 #[test]
@@ -130,7 +152,10 @@ fn test_normalize_polygon_missing_size_returns_error() {
         payload: json!({ "p": "180" }),
         received_at_ms: 0,
     };
-    assert!(matches!(TickNormalizer::new().normalize(raw), Err(StreamError::ParseError { .. })));
+    assert!(matches!(
+        TickNormalizer::new().normalize(raw),
+        Err(StreamError::ParseError { .. })
+    ));
 }
 
 #[test]
@@ -169,8 +194,20 @@ fn test_order_book_empty_spread_is_none() {
 #[test]
 fn test_order_book_update_existing_bid_quantity() {
     let mut b = OrderBook::new("BTC-USD");
-    b.apply(BookDelta::new("BTC-USD", BookSide::Bid, dec!(50000), dec!(5))).unwrap();
-    b.apply(BookDelta::new("BTC-USD", BookSide::Bid, dec!(50000), dec!(10))).unwrap();
+    b.apply(BookDelta::new(
+        "BTC-USD",
+        BookSide::Bid,
+        dec!(50000),
+        dec!(5),
+    ))
+    .unwrap();
+    b.apply(BookDelta::new(
+        "BTC-USD",
+        BookSide::Bid,
+        dec!(50000),
+        dec!(10),
+    ))
+    .unwrap();
     assert_eq!(b.bid_depth(), 1);
     assert_eq!(b.best_bid().unwrap().quantity, dec!(10));
 }
@@ -224,30 +261,36 @@ fn make_tick(symbol: &str, price: Decimal, qty: Decimal, ts_ms: u64) -> Normaliz
 #[test]
 fn test_ohlcv_5min_timeframe_bar_alignment() {
     let mut agg = OhlcvAggregator::new("BTC-USD", Timeframe::Minutes(5)).unwrap();
-    agg.feed(&make_tick("BTC-USD", dec!(50000), dec!(1), 300_000)).unwrap();
-    agg.feed(&make_tick("BTC-USD", dec!(50100), dec!(1), 599_999)).unwrap();
+    agg.feed(&make_tick("BTC-USD", dec!(50000), dec!(1), 300_000))
+        .unwrap();
+    agg.feed(&make_tick("BTC-USD", dec!(50100), dec!(1), 599_999))
+        .unwrap();
     assert_eq!(agg.current_bar().unwrap().bar_start_ms, 300_000);
 }
 
 #[test]
 fn test_ohlcv_1h_timeframe_bar_start_ms() {
     let mut agg = OhlcvAggregator::new("ETH-USD", Timeframe::Hours(1)).unwrap();
-    agg.feed(&make_tick("ETH-USD", dec!(3000), dec!(1), 3_600_000)).unwrap();
+    agg.feed(&make_tick("ETH-USD", dec!(3000), dec!(1), 3_600_000))
+        .unwrap();
     assert_eq!(agg.current_bar().unwrap().bar_start_ms, 3_600_000);
 }
 
 #[test]
 fn test_ohlcv_open_equals_first_tick_price() {
     let mut agg = OhlcvAggregator::new("BTC-USD", Timeframe::Seconds(30)).unwrap();
-    agg.feed(&make_tick("BTC-USD", dec!(65432), dec!(1), 30_000)).unwrap();
-    agg.feed(&make_tick("BTC-USD", dec!(66000), dec!(1), 30_100)).unwrap();
+    agg.feed(&make_tick("BTC-USD", dec!(65432), dec!(1), 30_000))
+        .unwrap();
+    agg.feed(&make_tick("BTC-USD", dec!(66000), dec!(1), 30_100))
+        .unwrap();
     assert_eq!(agg.current_bar().unwrap().open, dec!(65432));
 }
 
 #[test]
 fn test_ohlcv_bar_not_complete_until_new_window() {
     let mut agg = OhlcvAggregator::new("BTC-USD", Timeframe::Minutes(1)).unwrap();
-    agg.feed(&make_tick("BTC-USD", dec!(50000), dec!(1), 60_000)).unwrap();
+    agg.feed(&make_tick("BTC-USD", dec!(50000), dec!(1), 60_000))
+        .unwrap();
     assert!(!agg.current_bar().unwrap().is_complete);
 }
 
@@ -266,8 +309,11 @@ fn test_ohlcv_timeframe_serde() {
 #[test]
 fn test_ohlcv_tick_exactly_on_boundary_completes_bar() {
     let mut agg = OhlcvAggregator::new("BTC-USD", Timeframe::Minutes(1)).unwrap();
-    agg.feed(&make_tick("BTC-USD", dec!(50000), dec!(1), 60_000)).unwrap();
-    let bars = agg.feed(&make_tick("BTC-USD", dec!(51000), dec!(1), 120_000)).unwrap();
+    agg.feed(&make_tick("BTC-USD", dec!(50000), dec!(1), 60_000))
+        .unwrap();
+    let bars = agg
+        .feed(&make_tick("BTC-USD", dec!(51000), dec!(1), 120_000))
+        .unwrap();
     assert_eq!(bars.len(), 1);
     assert!(bars[0].is_complete);
     assert_eq!(bars[0].bar_start_ms, 60_000);
@@ -279,11 +325,16 @@ fn test_ohlcv_tick_exactly_on_boundary_completes_bar() {
 fn test_ohlcv_multiple_bars_in_sequence() {
     let mut agg = OhlcvAggregator::new("BTC-USD", Timeframe::Minutes(1)).unwrap();
     // Tick in window 1
-    agg.feed(&make_tick("BTC-USD", dec!(100), dec!(1), 60_000)).unwrap();
+    agg.feed(&make_tick("BTC-USD", dec!(100), dec!(1), 60_000))
+        .unwrap();
     // Tick in window 2 closes window 1
-    let b1 = agg.feed(&make_tick("BTC-USD", dec!(200), dec!(1), 120_000)).unwrap();
+    let b1 = agg
+        .feed(&make_tick("BTC-USD", dec!(200), dec!(1), 120_000))
+        .unwrap();
     // Tick in window 3 closes window 2
-    let b2 = agg.feed(&make_tick("BTC-USD", dec!(300), dec!(1), 180_000)).unwrap();
+    let b2 = agg
+        .feed(&make_tick("BTC-USD", dec!(300), dec!(1), 180_000))
+        .unwrap();
     // Flush window 3
     let b3 = agg.flush().unwrap();
 
@@ -301,9 +352,12 @@ fn test_ohlcv_gap_detection_emit_empty_bars() {
     let mut agg = OhlcvAggregator::new("BTC-USD", Timeframe::Minutes(1))
         .unwrap()
         .with_emit_empty_bars(true);
-    agg.feed(&make_tick("BTC-USD", dec!(50000), dec!(1), 60_000)).unwrap();
+    agg.feed(&make_tick("BTC-USD", dec!(50000), dec!(1), 60_000))
+        .unwrap();
     // Jump 3 minutes ahead (skipping 120_000 and 180_000 windows)
-    let bars = agg.feed(&make_tick("BTC-USD", dec!(51000), dec!(1), 240_000)).unwrap();
+    let bars = agg
+        .feed(&make_tick("BTC-USD", dec!(51000), dec!(1), 240_000))
+        .unwrap();
     // 1 real + 2 empty gap bars
     assert_eq!(bars.len(), 3);
     assert!(!bars[0].volume.is_zero());
@@ -317,7 +371,13 @@ fn test_ohlcv_volume_accumulation_all_ticks() {
     let mut agg = OhlcvAggregator::new("BTC-USD", Timeframe::Minutes(1)).unwrap();
     let qtys = [dec!(0.5), dec!(1.25), dec!(2.0), dec!(0.75)];
     for (i, &q) in qtys.iter().enumerate() {
-        agg.feed(&make_tick("BTC-USD", dec!(50000), q, 60_000 + i as u64 * 100)).unwrap();
+        agg.feed(&make_tick(
+            "BTC-USD",
+            dec!(50000),
+            q,
+            60_000 + i as u64 * 100,
+        ))
+        .unwrap();
     }
     let bar = agg.current_bar().unwrap();
     assert_eq!(bar.volume, dec!(4.5));
@@ -328,10 +388,14 @@ fn test_ohlcv_volume_accumulation_all_ticks() {
 #[test]
 fn test_ohlcv_all_fields_correct_on_flush() {
     let mut agg = OhlcvAggregator::new("BTC-USD", Timeframe::Seconds(30)).unwrap();
-    agg.feed(&make_tick("BTC-USD", dec!(100), dec!(5), 30_000)).unwrap();
-    agg.feed(&make_tick("BTC-USD", dec!(110), dec!(3), 30_100)).unwrap();
-    agg.feed(&make_tick("BTC-USD", dec!(90),  dec!(2), 30_200)).unwrap();
-    agg.feed(&make_tick("BTC-USD", dec!(105), dec!(4), 30_300)).unwrap();
+    agg.feed(&make_tick("BTC-USD", dec!(100), dec!(5), 30_000))
+        .unwrap();
+    agg.feed(&make_tick("BTC-USD", dec!(110), dec!(3), 30_100))
+        .unwrap();
+    agg.feed(&make_tick("BTC-USD", dec!(90), dec!(2), 30_200))
+        .unwrap();
+    agg.feed(&make_tick("BTC-USD", dec!(105), dec!(4), 30_300))
+        .unwrap();
     let bar = agg.flush().unwrap();
 
     assert_eq!(bar.open, dec!(100));
@@ -369,7 +433,11 @@ fn test_health_monitor_default_threshold_applied() {
 #[test]
 fn test_health_status_serde() {
     use fin_stream::health::HealthStatus;
-    for status in [HealthStatus::Healthy, HealthStatus::Stale, HealthStatus::Unknown] {
+    for status in [
+        HealthStatus::Healthy,
+        HealthStatus::Stale,
+        HealthStatus::Unknown,
+    ] {
         let json = serde_json::to_string(&status).unwrap();
         let back: HealthStatus = serde_json::from_str(&json).unwrap();
         assert_eq!(status, back);
@@ -407,12 +475,19 @@ fn test_session_forex_closed_saturday_any_time() {
     let sa = SessionAwareness::new(MarketSession::Forex);
     let sat: u64 = 1705104000000;
     assert_eq!(sa.status(sat).unwrap(), TradingStatus::Closed);
-    assert_eq!(sa.status(sat + 12 * 3600 * 1000).unwrap(), TradingStatus::Closed);
+    assert_eq!(
+        sa.status(sat + 12 * 3600 * 1000).unwrap(),
+        TradingStatus::Closed
+    );
 }
 
 #[test]
 fn test_trading_status_serde() {
-    for status in [TradingStatus::Open, TradingStatus::Extended, TradingStatus::Closed] {
+    for status in [
+        TradingStatus::Open,
+        TradingStatus::Extended,
+        TradingStatus::Closed,
+    ] {
         let json = serde_json::to_string(&status).unwrap();
         let back: TradingStatus = serde_json::from_str(&json).unwrap();
         assert_eq!(status, back);
@@ -421,7 +496,11 @@ fn test_trading_status_serde() {
 
 #[test]
 fn test_market_session_serde() {
-    for session in [MarketSession::UsEquity, MarketSession::Crypto, MarketSession::Forex] {
+    for session in [
+        MarketSession::UsEquity,
+        MarketSession::Crypto,
+        MarketSession::Forex,
+    ] {
         let json = serde_json::to_string(&session).unwrap();
         let back: MarketSession = serde_json::from_str(&json).unwrap();
         assert_eq!(session, back);
@@ -443,7 +522,8 @@ fn test_ws_manager_multiple_connects_track_attempts() {
 
 #[test]
 fn test_reconnect_policy_backoff_attempt_0() {
-    let p = ReconnectPolicy::new(5, Duration::from_millis(200), Duration::from_secs(30), 3.0).unwrap();
+    let p =
+        ReconnectPolicy::new(5, Duration::from_millis(200), Duration::from_secs(30), 3.0).unwrap();
     assert_eq!(p.backoff_for_attempt(0), Duration::from_millis(200));
 }
 
@@ -471,7 +551,10 @@ fn test_ring_capacity_boundary_n8() {
         r.push(i).unwrap();
     }
     assert!(r.is_full());
-    assert!(matches!(r.push(99).unwrap_err(), StreamError::RingBufferFull { capacity: 7 }));
+    assert!(matches!(
+        r.push(99).unwrap_err(),
+        StreamError::RingBufferFull { capacity: 7 }
+    ));
 }
 
 /// Capacity boundary: ring of N=4 holds exactly 3 items.
@@ -528,7 +611,10 @@ fn test_normalization_range_always_0_to_1() {
     }
     for i in -5i64..55 {
         let v = n.normalize(i as f64).unwrap();
-        assert!((0.0..=1.0).contains(&v), "normalize({i}) = {v} is out of [0,1]");
+        assert!(
+            (0.0..=1.0).contains(&v),
+            "normalize({i}) = {v} is out of [0,1]"
+        );
     }
 }
 
@@ -601,8 +687,14 @@ fn test_lorentz_inverse_roundtrip_various_betas() {
         let p = SpacetimePoint::new(3.0, 1.5);
         let q = lt.transform(p);
         let r = lt.inverse_transform(q);
-        assert!((r.t - p.t).abs() < 1e-9, "t round-trip failed for beta={beta}");
-        assert!((r.x - p.x).abs() < 1e-9, "x round-trip failed for beta={beta}");
+        assert!(
+            (r.t - p.t).abs() < 1e-9,
+            "t round-trip failed for beta={beta}"
+        );
+        assert!(
+            (r.x - p.x).abs() < 1e-9,
+            "x round-trip failed for beta={beta}"
+        );
     }
 }
 
@@ -614,8 +706,10 @@ fn test_lorentz_spacetime_interval_invariant() {
     let q = lt.transform(p);
     let s2_before = p.t * p.t - p.x * p.x;
     let s2_after = q.t * q.t - q.x * q.x;
-    assert!((s2_before - s2_after).abs() < 1e-9,
-        "spacetime interval not preserved: {s2_before} vs {s2_after}");
+    assert!(
+        (s2_before - s2_after).abs() < 1e-9,
+        "spacetime interval not preserved: {s2_before} vs {s2_after}"
+    );
 }
 
 #[test]

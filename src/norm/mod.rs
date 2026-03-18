@@ -98,8 +98,12 @@ impl MinMaxNormalizer {
         self.window.push_back(value);
         // Eager update is cheaper than a full recompute when we don't evict.
         if !self.dirty {
-            if value < self.cached_min { self.cached_min = value; }
-            if value > self.cached_max { self.cached_max = value; }
+            if value < self.cached_min {
+                self.cached_min = value;
+            }
+            if value > self.cached_max {
+                self.cached_max = value;
+            }
         }
     }
 
@@ -110,8 +114,12 @@ impl MinMaxNormalizer {
         self.cached_min = f64::MAX;
         self.cached_max = f64::MIN;
         for &v in &self.window {
-            if v < self.cached_min { self.cached_min = v; }
-            if v > self.cached_max { self.cached_max = v; }
+            if v < self.cached_min {
+                self.cached_min = v;
+            }
+            if v > self.cached_max {
+                self.cached_max = v;
+            }
         }
         self.dirty = false;
     }
@@ -143,9 +151,11 @@ impl MinMaxNormalizer {
     ///
     /// # Complexity: O(1) when cache is clean; O(W) after an eviction.
     pub fn normalize(&mut self, value: f64) -> Result<f64, StreamError> {
-        let (min, max) = self.min_max().ok_or_else(|| StreamError::NormalizationError {
-            reason: "window is empty; call update() before normalize()".into(),
-        })?;
+        let (min, max) = self
+            .min_max()
+            .ok_or_else(|| StreamError::NormalizationError {
+                reason: "window is empty; call update() before normalize()".into(),
+            })?;
         if (max - min).abs() < f64::EPSILON {
             // Degenerate: all values in the window are identical.
             return Ok(0.0);
@@ -202,7 +212,10 @@ mod tests {
         n.update(30.0);
         n.update(40.0);
         let v = n.normalize(10.0).unwrap();
-        assert!((v - 0.0).abs() < 1e-10, "min should normalize to 0.0, got {v}");
+        assert!(
+            (v - 0.0).abs() < 1e-10,
+            "min should normalize to 0.0, got {v}"
+        );
     }
 
     #[test]
@@ -213,7 +226,10 @@ mod tests {
         n.update(30.0);
         n.update(40.0);
         let v = n.normalize(40.0).unwrap();
-        assert!((v - 1.0).abs() < 1e-10, "max should normalize to 1.0, got {v}");
+        assert!(
+            (v - 1.0).abs() < 1e-10,
+            "max should normalize to 1.0, got {v}"
+        );
     }
 
     #[test]

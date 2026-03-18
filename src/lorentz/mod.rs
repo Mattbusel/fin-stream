@@ -141,7 +141,10 @@ impl LorentzTransform {
     pub fn transform(&self, p: SpacetimePoint) -> SpacetimePoint {
         let t_prime = self.gamma * (p.t - self.beta * p.x);
         let x_prime = self.gamma * (p.x - self.beta * p.t);
-        SpacetimePoint { t: t_prime, x: x_prime }
+        SpacetimePoint {
+            t: t_prime,
+            x: x_prime,
+        }
     }
 
     /// Apply the inverse Lorentz boost (boost in the opposite direction).
@@ -159,7 +162,10 @@ impl LorentzTransform {
     pub fn inverse_transform(&self, p: SpacetimePoint) -> SpacetimePoint {
         let t_orig = self.gamma * (p.t + self.beta * p.x);
         let x_orig = self.gamma * (p.x + self.beta * p.t);
-        SpacetimePoint { t: t_orig, x: x_orig }
+        SpacetimePoint {
+            t: t_orig,
+            x: x_orig,
+        }
     }
 
     /// Apply the boost to a batch of points.
@@ -300,7 +306,11 @@ mod tests {
     #[test]
     fn test_known_beta_0_6_gamma_is_1_25() {
         let lt = LorentzTransform::new(0.6).unwrap();
-        assert!((lt.gamma() - 1.25).abs() < 1e-9, "gamma should be 1.25, got {}", lt.gamma());
+        assert!(
+            (lt.gamma() - 1.25).abs() < 1e-9,
+            "gamma should be 1.25, got {}",
+            lt.gamma()
+        );
     }
 
     /// For beta = 0.8, gamma = 5/3 approximately 1.6667.
@@ -339,7 +349,10 @@ mod tests {
         let p = SpacetimePoint::new(3.0, 1.5);
         let q = lt.transform(p);
         let r = lt.inverse_transform(q);
-        assert!(point_approx_eq(r, p), "round-trip failed: expected {p:?}, got {r:?}");
+        assert!(
+            point_approx_eq(r, p),
+            "round-trip failed: expected {p:?}, got {r:?}"
+        );
     }
 
     // ── Batch transform ───────────────────────────────────────────────────────
@@ -359,10 +372,7 @@ mod tests {
     #[test]
     fn test_transform_batch_matches_individual() {
         let lt = LorentzTransform::new(0.4).unwrap();
-        let pts = vec![
-            SpacetimePoint::new(1.0, 0.5),
-            SpacetimePoint::new(2.0, 1.5),
-        ];
+        let pts = vec![SpacetimePoint::new(1.0, 0.5), SpacetimePoint::new(2.0, 1.5)];
         let batch = lt.transform_batch(&pts);
         for (i, &p) in pts.iter().enumerate() {
             let individual = lt.transform(p);

@@ -90,7 +90,7 @@ fn test_rolling_window_reset_then_renormalize_fresh_range() {
 #[test]
 fn test_rolling_window_evicts_and_range_shifts() {
     let mut norm = MinMaxNormalizer::new(3);
-    norm.update(0.0);  // will be evicted on 4th update
+    norm.update(0.0); // will be evicted on 4th update
     norm.update(50.0);
     norm.update(100.0);
 
@@ -121,10 +121,16 @@ fn make_raw_tick(exchange: Exchange, payload: serde_json::Value) -> RawTick {
 fn test_all_exchange_normalized_tick_has_positive_price() {
     let normalizer = TickNormalizer::new();
     let cases = vec![
-        make_raw_tick(Exchange::Binance,  json!({ "p": "65000.50", "q": "0.01", "m": false })),
-        make_raw_tick(Exchange::Coinbase, json!({ "price": "65000.50", "size": "0.01", "side": "buy" })),
-        make_raw_tick(Exchange::Alpaca,   json!({ "p": "180.50", "s": "10" })),
-        make_raw_tick(Exchange::Polygon,  json!({ "p": "180.50", "s": "5" })),
+        make_raw_tick(
+            Exchange::Binance,
+            json!({ "p": "65000.50", "q": "0.01", "m": false }),
+        ),
+        make_raw_tick(
+            Exchange::Coinbase,
+            json!({ "price": "65000.50", "size": "0.01", "side": "buy" }),
+        ),
+        make_raw_tick(Exchange::Alpaca, json!({ "p": "180.50", "s": "10" })),
+        make_raw_tick(Exchange::Polygon, json!({ "p": "180.50", "s": "5" })),
     ];
     for raw in cases {
         let exchange = raw.exchange;
@@ -148,13 +154,17 @@ fn test_normalized_binance_ticks_in_unit_interval_via_min_max() {
     let normalizer = TickNormalizer::new();
     let mut norm = MinMaxNormalizer::new(10);
 
-    let prices = ["50000", "50100", "49900", "50200", "49800",
-                  "50300", "49700", "50400", "49600", "50500"];
+    let prices = [
+        "50000", "50100", "49900", "50200", "49800", "50300", "49700", "50400", "49600", "50500",
+    ];
 
-    let ticks: Vec<NormalizedTick> = prices.iter().map(|&p| {
-        let raw = make_raw_tick(Exchange::Binance, json!({ "p": p, "q": "1", "m": false }));
-        normalizer.normalize(raw).unwrap()
-    }).collect();
+    let ticks: Vec<NormalizedTick> = prices
+        .iter()
+        .map(|&p| {
+            let raw = make_raw_tick(Exchange::Binance, json!({ "p": p, "q": "1", "m": false }));
+            normalizer.normalize(raw).unwrap()
+        })
+        .collect();
 
     // Seed the normalizer with all prices
     for tick in &ticks {
@@ -169,7 +179,8 @@ fn test_normalized_binance_ticks_in_unit_interval_via_min_max() {
         assert!(
             (0.0..=1.0).contains(&v),
             "normalized price {} = {} is out of [0, 1]",
-            tick.price, v
+            tick.price,
+            v
         );
     }
 }
@@ -181,11 +192,23 @@ fn test_normalized_binance_ticks_in_unit_interval_via_min_max() {
 fn test_tick_normalization_binance_side_mapping() {
     let normalizer = TickNormalizer::new();
 
-    let buy_raw = make_raw_tick(Exchange::Binance, json!({ "p": "100", "q": "1", "m": false }));
-    let sell_raw = make_raw_tick(Exchange::Binance, json!({ "p": "100", "q": "1", "m": true }));
+    let buy_raw = make_raw_tick(
+        Exchange::Binance,
+        json!({ "p": "100", "q": "1", "m": false }),
+    );
+    let sell_raw = make_raw_tick(
+        Exchange::Binance,
+        json!({ "p": "100", "q": "1", "m": true }),
+    );
 
-    assert_eq!(normalizer.normalize(buy_raw).unwrap().side,  Some(TradeSide::Buy));
-    assert_eq!(normalizer.normalize(sell_raw).unwrap().side, Some(TradeSide::Sell));
+    assert_eq!(
+        normalizer.normalize(buy_raw).unwrap().side,
+        Some(TradeSide::Buy)
+    );
+    assert_eq!(
+        normalizer.normalize(sell_raw).unwrap().side,
+        Some(TradeSide::Sell)
+    );
 }
 
 /// Coinbase 'side' field maps correctly.
@@ -193,11 +216,23 @@ fn test_tick_normalization_binance_side_mapping() {
 fn test_tick_normalization_coinbase_side_mapping() {
     let normalizer = TickNormalizer::new();
 
-    let buy_raw  = make_raw_tick(Exchange::Coinbase, json!({ "price": "100", "size": "1", "side": "buy"  }));
-    let sell_raw = make_raw_tick(Exchange::Coinbase, json!({ "price": "100", "size": "1", "side": "sell" }));
+    let buy_raw = make_raw_tick(
+        Exchange::Coinbase,
+        json!({ "price": "100", "size": "1", "side": "buy"  }),
+    );
+    let sell_raw = make_raw_tick(
+        Exchange::Coinbase,
+        json!({ "price": "100", "size": "1", "side": "sell" }),
+    );
 
-    assert_eq!(normalizer.normalize(buy_raw).unwrap().side,  Some(TradeSide::Buy));
-    assert_eq!(normalizer.normalize(sell_raw).unwrap().side, Some(TradeSide::Sell));
+    assert_eq!(
+        normalizer.normalize(buy_raw).unwrap().side,
+        Some(TradeSide::Buy)
+    );
+    assert_eq!(
+        normalizer.normalize(sell_raw).unwrap().side,
+        Some(TradeSide::Sell)
+    );
 }
 
 /// Alpaca and Polygon ticks have no side field (None).
@@ -205,10 +240,10 @@ fn test_tick_normalization_coinbase_side_mapping() {
 fn test_tick_normalization_alpaca_polygon_side_is_none() {
     let normalizer = TickNormalizer::new();
 
-    let alpaca  = make_raw_tick(Exchange::Alpaca,  json!({ "p": "100", "s": "1" }));
+    let alpaca = make_raw_tick(Exchange::Alpaca, json!({ "p": "100", "s": "1" }));
     let polygon = make_raw_tick(Exchange::Polygon, json!({ "p": "100", "s": "1" }));
 
-    assert_eq!(normalizer.normalize(alpaca).unwrap().side,  None);
+    assert_eq!(normalizer.normalize(alpaca).unwrap().side, None);
     assert_eq!(normalizer.normalize(polygon).unwrap().side, None);
 }
 

@@ -24,7 +24,10 @@ fn test_ring_full_overwrites_oldest() {
     ring.push(10).unwrap();
     ring.push(20).unwrap();
     ring.push(30).unwrap();
-    assert!(ring.is_full(), "ring should be full after 3 pushes (capacity = 3)");
+    assert!(
+        ring.is_full(),
+        "ring should be full after 3 pushes (capacity = 3)"
+    );
 
     // Push on a full ring must fail with RingBufferFull.
     let err = ring.push(99).unwrap_err();
@@ -85,7 +88,10 @@ fn test_ring_capacity_one() {
 
     // Push the single allowed item.
     ring.push(7).unwrap();
-    assert!(ring.is_full(), "ring of capacity 1 must be full after one push");
+    assert!(
+        ring.is_full(),
+        "ring of capacity 1 must be full after one push"
+    );
     assert_eq!(ring.len(), 1);
 
     // A second push must be rejected.
@@ -160,9 +166,18 @@ fn test_ring_buffer_full_error_capacity_matches() {
 /// Error Display implementations are stable and contain expected substrings.
 #[test]
 fn test_ring_error_display() {
-    let full  = StreamError::RingBufferFull { capacity: 1024 };
+    let full = StreamError::RingBufferFull { capacity: 1024 };
     let empty = StreamError::RingBufferEmpty;
-    assert!(full.to_string().contains("1024"), "full display must include capacity");
-    assert!(full.to_string().contains("full"),  "full display must say 'full'");
-    assert!(empty.to_string().contains("empty"), "empty display must say 'empty'");
+    assert!(
+        full.to_string().contains("1024"),
+        "full display must include capacity"
+    );
+    assert!(
+        full.to_string().contains("full"),
+        "full display must say 'full'"
+    );
+    assert!(
+        empty.to_string().contains("empty"),
+        "empty display must say 'empty'"
+    );
 }

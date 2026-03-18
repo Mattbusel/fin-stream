@@ -22,7 +22,12 @@ use rust_decimal_macros::dec;
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-fn make_tick(symbol: &str, price: rust_decimal::Decimal, qty: rust_decimal::Decimal, ts_ms: u64) -> NormalizedTick {
+fn make_tick(
+    symbol: &str,
+    price: rust_decimal::Decimal,
+    qty: rust_decimal::Decimal,
+    ts_ms: u64,
+) -> NormalizedTick {
     NormalizedTick {
         exchange: Exchange::Binance,
         symbol: symbol.to_string(),
@@ -47,10 +52,14 @@ fn test_pipeline_processes_all_stages() {
 
     // Push three ticks into the same 1-minute bar, then a tick in the next
     // minute to trigger bar completion.
-    ring.push(make_tick("BTC-USD", dec!(50000), dec!(1), 60_000)).unwrap();
-    ring.push(make_tick("BTC-USD", dec!(50100), dec!(2), 60_500)).unwrap();
-    ring.push(make_tick("BTC-USD", dec!(49900), dec!(1), 60_999)).unwrap();
-    ring.push(make_tick("BTC-USD", dec!(50200), dec!(1), 120_000)).unwrap(); // new bar
+    ring.push(make_tick("BTC-USD", dec!(50000), dec!(1), 60_000))
+        .unwrap();
+    ring.push(make_tick("BTC-USD", dec!(50100), dec!(2), 60_500))
+        .unwrap();
+    ring.push(make_tick("BTC-USD", dec!(49900), dec!(1), 60_999))
+        .unwrap();
+    ring.push(make_tick("BTC-USD", dec!(50200), dec!(1), 120_000))
+        .unwrap(); // new bar
 
     // Stage 2: OHLCV aggregator.
     let mut agg = OhlcvAggregator::new("BTC-USD", Timeframe::Minutes(1)).unwrap();
@@ -63,12 +72,16 @@ fn test_pipeline_processes_all_stages() {
 
     // The first three ticks were in minute 1; the fourth (ts 120_000) triggered
     // completion of the minute-1 bar.
-    assert_eq!(completed_bars.len(), 1, "exactly one bar should be completed");
+    assert_eq!(
+        completed_bars.len(),
+        1,
+        "exactly one bar should be completed"
+    );
     let bar = &completed_bars[0];
     assert!(bar.is_complete);
-    assert_eq!(bar.open,  dec!(50000));
-    assert_eq!(bar.high,  dec!(50100));
-    assert_eq!(bar.low,   dec!(49900));
+    assert_eq!(bar.open, dec!(50000));
+    assert_eq!(bar.high, dec!(50100));
+    assert_eq!(bar.low, dec!(49900));
     assert_eq!(bar.close, dec!(49900));
     assert_eq!(bar.trade_count, 3);
     assert_eq!(bar.bar_start_ms, 60_000);
@@ -81,8 +94,10 @@ fn test_pipeline_processes_all_stages() {
 
     let close_f64 = bar.close.to_string().parse::<f64>().unwrap();
     let normalized = normalizer.normalize(close_f64).unwrap();
-    assert!(normalized >= 0.0 && normalized <= 1.0,
-        "normalized close must be in [0, 1], got {normalized}");
+    assert!(
+        normalized >= 0.0 && normalized <= 1.0,
+        "normalized close must be in [0, 1], got {normalized}"
+    );
 
     // Stage 4: Lorentz transform on (time, price) coordinates.
     let transform = LorentzTransform::new(0.1).unwrap();
@@ -108,7 +123,10 @@ fn test_pipeline_empty_input_no_panic() {
 
     // Aggregator with no ticks: flush must return None (not panic).
     let mut agg = OhlcvAggregator::new("ETH-USD", Timeframe::Minutes(1)).unwrap();
-    assert!(agg.flush().is_none(), "flush on empty aggregator must return None");
+    assert!(
+        agg.flush().is_none(),
+        "flush on empty aggregator must return None"
+    );
     assert!(agg.current_bar().is_none());
 
     // Normalizer with empty window: normalize must return an error (not panic).
@@ -132,10 +150,17 @@ fn test_pipeline_ring_to_ohlcv_fifo_ordering() {
     let ring: SpscRing<NormalizedTick, 16> = SpscRing::new();
     // Five ascending-price ticks, all in the same 30-second window.
     for i in 0u64..5 {
-        ring.push(make_tick("ETH-USD", dec!(3000) + rust_decimal::Decimal::from(i * 100), dec!(1), 30_000 + i * 100)).unwrap();
+        ring.push(make_tick(
+            "ETH-USD",
+            dec!(3000) + rust_decimal::Decimal::from(i * 100),
+            dec!(1),
+            30_000 + i * 100,
+        ))
+        .unwrap();
     }
     // Flush tick to complete the bar.
-    ring.push(make_tick("ETH-USD", dec!(3500), dec!(1), 60_000)).unwrap();
+    ring.push(make_tick("ETH-USD", dec!(3500), dec!(1), 60_000))
+        .unwrap();
 
     let mut agg = OhlcvAggregator::new("ETH-USD", Timeframe::Seconds(30)).unwrap();
     let mut bars = Vec::new();
@@ -146,10 +171,14 @@ fn test_pipeline_ring_to_ohlcv_fifo_ordering() {
     assert_eq!(bars.len(), 1);
     let bar = &bars[0];
     // Open must be the first tick's price (3000), close the last tick in the bar (3400).
-    assert_eq!(bar.open,  dec!(3000));
-    assert_eq!(bar.close, dec!(3400), "close should be last tick in the bar");
-    assert_eq!(bar.high,  dec!(3400));
-    assert_eq!(bar.low,   dec!(3000));
+    assert_eq!(bar.open, dec!(3000));
+    assert_eq!(
+        bar.close,
+        dec!(3400),
+        "close should be last tick in the bar"
+    );
+    assert_eq!(bar.high, dec!(3400));
+    assert_eq!(bar.low, dec!(3000));
 }
 
 /// Normalization of a sequence of close prices must produce values in [0, 1].
@@ -179,9 +208,18 @@ fn test_pipeline_lorentz_identity_at_zero_beta() {
 /// The Lorentz transform with beta >= 1 must be rejected (would produce NaN/Inf).
 #[test]
 fn test_pipeline_lorentz_invalid_beta_returns_error() {
-    assert!(LorentzTransform::new(1.0).is_err(), "beta = 1.0 must be rejected");
-    assert!(LorentzTransform::new(1.5).is_err(), "beta > 1.0 must be rejected");
-    assert!(LorentzTransform::new(-0.1).is_err(), "negative beta must be rejected");
+    assert!(
+        LorentzTransform::new(1.0).is_err(),
+        "beta = 1.0 must be rejected"
+    );
+    assert!(
+        LorentzTransform::new(1.5).is_err(),
+        "beta > 1.0 must be rejected"
+    );
+    assert!(
+        LorentzTransform::new(-0.1).is_err(),
+        "negative beta must be rejected"
+    );
 }
 
 /// A multi-bar sequence through the pipeline produces bars in the correct order.

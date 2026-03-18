@@ -51,7 +51,12 @@ impl ReconnectPolicy {
                 reason: "max_attempts must be > 0".into(),
             });
         }
-        Ok(Self { max_attempts, initial_backoff, max_backoff, multiplier })
+        Ok(Self {
+            max_attempts,
+            initial_backoff,
+            max_backoff,
+            multiplier,
+        })
     }
 
     /// Backoff duration for attempt N (0-indexed).
@@ -146,7 +151,11 @@ pub struct WsManager {
 impl WsManager {
     /// Create a new manager from a validated [`ConnectionConfig`].
     pub fn new(config: ConnectionConfig) -> Self {
-        Self { config, connect_attempts: 0, is_connected: false }
+        Self {
+            config,
+            connect_attempts: 0,
+            is_connected: false,
+        }
     }
 
     /// Simulate a connection (for testing without live WebSocket).
@@ -162,13 +171,19 @@ impl WsManager {
     }
 
     /// Whether the managed connection is currently in the connected state.
-    pub fn is_connected(&self) -> bool { self.is_connected }
+    pub fn is_connected(&self) -> bool {
+        self.is_connected
+    }
 
     /// Total connection attempts made so far (including the initial connect).
-    pub fn connect_attempts(&self) -> u32 { self.connect_attempts }
+    pub fn connect_attempts(&self) -> u32 {
+        self.connect_attempts
+    }
 
     /// The configuration this manager was created with.
-    pub fn config(&self) -> &ConnectionConfig { &self.config }
+    pub fn config(&self) -> &ConnectionConfig {
+        &self.config
+    }
 
     /// Check whether the next reconnect attempt is allowed.
     pub fn can_reconnect(&self) -> bool {
@@ -183,7 +198,10 @@ impl WsManager {
                 attempts: self.connect_attempts,
             });
         }
-        let backoff = self.config.reconnect.backoff_for_attempt(self.connect_attempts);
+        let backoff = self
+            .config
+            .reconnect
+            .backoff_for_attempt(self.connect_attempts);
         self.connect_attempts += 1;
         Ok(backoff)
     }
@@ -206,7 +224,8 @@ mod tests {
 
     #[test]
     fn test_reconnect_policy_backoff_exponential() {
-        let p = ReconnectPolicy::new(10, Duration::from_millis(100), Duration::from_secs(30), 2.0).unwrap();
+        let p = ReconnectPolicy::new(10, Duration::from_millis(100), Duration::from_secs(30), 2.0)
+            .unwrap();
         assert_eq!(p.backoff_for_attempt(0), Duration::from_millis(100));
         assert_eq!(p.backoff_for_attempt(1), Duration::from_millis(200));
         assert_eq!(p.backoff_for_attempt(2), Duration::from_millis(400));
@@ -214,20 +233,23 @@ mod tests {
 
     #[test]
     fn test_reconnect_policy_backoff_capped_at_max() {
-        let p = ReconnectPolicy::new(10, Duration::from_millis(1000), Duration::from_secs(5), 2.0).unwrap();
+        let p = ReconnectPolicy::new(10, Duration::from_millis(1000), Duration::from_secs(5), 2.0)
+            .unwrap();
         let backoff = p.backoff_for_attempt(10);
         assert!(backoff <= Duration::from_secs(5));
     }
 
     #[test]
     fn test_reconnect_policy_multiplier_below_1_rejected() {
-        let result = ReconnectPolicy::new(10, Duration::from_millis(100), Duration::from_secs(30), 0.5);
+        let result =
+            ReconnectPolicy::new(10, Duration::from_millis(100), Duration::from_secs(30), 0.5);
         assert!(result.is_err());
     }
 
     #[test]
     fn test_reconnect_policy_zero_attempts_rejected() {
-        let result = ReconnectPolicy::new(0, Duration::from_millis(100), Duration::from_secs(30), 2.0);
+        let result =
+            ReconnectPolicy::new(0, Duration::from_millis(100), Duration::from_secs(30), 2.0);
         assert!(result.is_err());
     }
 
@@ -245,7 +267,9 @@ mod tests {
 
     #[test]
     fn test_connection_config_with_reconnect() {
-        let policy = ReconnectPolicy::new(3, Duration::from_millis(200), Duration::from_secs(10), 2.0).unwrap();
+        let policy =
+            ReconnectPolicy::new(3, Duration::from_millis(200), Duration::from_secs(10), 2.0)
+                .unwrap();
         let config = default_config().with_reconnect(policy);
         assert_eq!(config.reconnect.max_attempts, 3);
     }
@@ -283,8 +307,9 @@ mod tests {
     fn test_ws_manager_can_reconnect_within_limit() {
         let mut mgr = WsManager::new(
             default_config().with_reconnect(
-                ReconnectPolicy::new(3, Duration::from_millis(10), Duration::from_secs(1), 2.0).unwrap()
-            )
+                ReconnectPolicy::new(3, Duration::from_millis(10), Duration::from_secs(1), 2.0)
+                    .unwrap(),
+            ),
         );
         assert!(mgr.can_reconnect());
         mgr.next_reconnect_backoff().unwrap();
@@ -297,20 +322,25 @@ mod tests {
     fn test_ws_manager_reconnect_exhausted_error() {
         let mut mgr = WsManager::new(
             default_config().with_reconnect(
-                ReconnectPolicy::new(1, Duration::from_millis(10), Duration::from_secs(1), 2.0).unwrap()
-            )
+                ReconnectPolicy::new(1, Duration::from_millis(10), Duration::from_secs(1), 2.0)
+                    .unwrap(),
+            ),
         );
         mgr.next_reconnect_backoff().unwrap();
         let result = mgr.next_reconnect_backoff();
-        assert!(matches!(result, Err(StreamError::ReconnectExhausted { .. })));
+        assert!(matches!(
+            result,
+            Err(StreamError::ReconnectExhausted { .. })
+        ));
     }
 
     #[test]
     fn test_ws_manager_backoff_increases() {
         let mut mgr = WsManager::new(
             default_config().with_reconnect(
-                ReconnectPolicy::new(5, Duration::from_millis(100), Duration::from_secs(30), 2.0).unwrap()
-            )
+                ReconnectPolicy::new(5, Duration::from_millis(100), Duration::from_secs(30), 2.0)
+                    .unwrap(),
+            ),
         );
         let b0 = mgr.next_reconnect_backoff().unwrap();
         let b1 = mgr.next_reconnect_backoff().unwrap();
