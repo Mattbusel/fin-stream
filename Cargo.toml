@@ -64,7 +64,7 @@ uuid = { version = "1.6", features = ["v4", "fast-rng", "serde"] }
 # tracing: pipeline observability
 tracing = "0.1"
 # fin-primitives: tick, orderbook, ohlcv, signals integration
-fin-primitives = "0.1.0"
+fin-primitives = "0.2.0"
 
 [dev-dependencies]
 tokio-test = "0.4"
