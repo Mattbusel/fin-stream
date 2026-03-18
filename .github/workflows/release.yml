@@ -60,7 +60,7 @@ jobs:
           fi
 
       - name: Dry-run publish
-        run: cargo publish --dry-run
+        run: cargo publish --dry-run --allow-dirty
 
       - name: Publish to crates.io
         run: cargo publish
