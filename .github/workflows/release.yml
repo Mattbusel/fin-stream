@@ -73,6 +73,6 @@ jobs:
           tag_name: ${{ steps.version.outputs.VERSION }}
           name: fin-stream ${{ steps.version.outputs.VERSION }}
           body: |
-            See [CHANGELOG.md](https://github.com/Mattbusel/fin-stream/blob/main/CHANGELOG.md) for details.
+            See [CHANGELOG.md](${{ github.server_url }}/${{ github.repository }}/blob/main/CHANGELOG.md) for details.
           draft: false
           prerelease: ${{ contains(steps.version.outputs.VERSION, '-') }}
