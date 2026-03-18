@@ -16,6 +16,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Checkout fin-primitives (path dependency)
+        run: git clone https://github.com/Mattbusel/fin-primitives.git ../fin-primitives
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt
@@ -27,6 +29,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Checkout fin-primitives (path dependency)
+        run: git clone https://github.com/Mattbusel/fin-primitives.git ../fin-primitives
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
@@ -43,13 +47,20 @@ jobs:
         os: [ubuntu-latest, windows-latest, macos-latest]
     steps:
       - uses: actions/checkout@v4
+      - name: Checkout fin-primitives (path dependency, Unix)
+        if: runner.os != 'Windows'
+        run: git clone https://github.com/Mattbusel/fin-primitives.git ../fin-primitives
+      - name: Checkout fin-primitives (path dependency, Windows)
+        if: runner.os == 'Windows'
+        run: git clone https://github.com/Mattbusel/fin-primitives.git ..\fin-primitives
+        shell: cmd
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Build
         run: cargo build --all-features
       - name: Test (debug)
         run: cargo test --all-features
-      - name: Test (release — numeric correctness at opt level)
+      - name: Test (release -- numeric correctness at opt level)
         run: cargo test --release --all-features
       - name: Proptest with increased cases
         run: cargo test --all-features
@@ -67,6 +78,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Checkout fin-primitives (path dependency)
+        run: git clone https://github.com/Mattbusel/fin-primitives.git ../fin-primitives
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Compile benchmarks
@@ -79,6 +92,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Checkout fin-primitives (path dependency)
+        run: git clone https://github.com/Mattbusel/fin-primitives.git ../fin-primitives
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Build docs (deny warnings)
@@ -91,6 +106,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Checkout fin-primitives (path dependency)
+        run: git clone https://github.com/Mattbusel/fin-primitives.git ../fin-primitives
       - uses: EmbarkStudios/cargo-deny-action@v2
         with:
           command: check licenses advisories bans sources
@@ -100,6 +117,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Checkout fin-primitives (path dependency)
+        run: git clone https://github.com/Mattbusel/fin-primitives.git ../fin-primitives
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Install cargo-tarpaulin
@@ -110,3 +129,4 @@ jobs:
         uses: codecov/codecov-action@v4
         with:
           fail_ci_if_error: false
+          token: ${{ secrets.CODECOV_TOKEN }}

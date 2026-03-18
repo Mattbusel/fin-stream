@@ -16,6 +16,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Checkout fin-primitives (path dependency)
+        run: git clone https://github.com/Mattbusel/fin-primitives.git ../fin-primitives
+
       - uses: dtolnay/rust-toolchain@stable
 
       - uses: Swatinem/rust-cache@v2

@@ -10,13 +10,18 @@ env:
 
 jobs:
   release:
-    name: Build, test, and publish release
+    name: Build, test, and release
     runs-on: ubuntu-latest
     permissions:
       contents: write
 
     steps:
       - uses: actions/checkout@v4
+
+      # fin-primitives is a path dependency (../fin-primitives).
+      # Clone it into the sibling directory so Cargo can resolve it.
+      - name: Checkout fin-primitives (path dependency)
+        run: git clone https://github.com/Mattbusel/fin-primitives.git ../fin-primitives
 
       - name: Install stable toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -59,13 +64,9 @@ jobs:
             exit 1
           fi
 
-      - name: Dry-run publish
-        run: cargo publish --dry-run --allow-dirty
-
-      - name: Publish to crates.io
-        run: cargo publish
-        env:
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+      # fin-stream cannot be published to crates.io while it uses a path
+      # dependency on fin-primitives. To publish, first release fin-primitives
+      # on crates.io, update Cargo.toml to use the registry version, then tag.
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
