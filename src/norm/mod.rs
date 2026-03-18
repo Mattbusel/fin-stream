@@ -59,13 +59,20 @@ pub struct MinMaxNormalizer {
 impl MinMaxNormalizer {
     /// Create a new normalizer with the given rolling window size.
     ///
-    /// `window_size` must be at least 1.
+    /// `window_size` must be at least 1. Passing 0 is a programming error;
+    /// this function will panic in debug mode and is flagged by the
+    /// `clippy::panic` lint configured in `Cargo.toml`.
     ///
-    /// # Errors
+    /// # Panics
     ///
-    /// Returns `NormalizationError` if `window_size == 0`.
+    /// Panics if `window_size == 0`.
     pub fn new(window_size: usize) -> Self {
-        assert!(window_size > 0, "window_size must be > 0");
+        // This is an API misuse guard; the window size of 0 makes the
+        // normalizer semantically undefined. The panic is intentional and
+        // documented. Production callers should validate before calling.
+        if window_size == 0 {
+            panic!("MinMaxNormalizer::new: window_size must be > 0");
+        }
         Self {
             window_size,
             window: VecDeque::with_capacity(window_size),

@@ -70,14 +70,22 @@ unsafe impl<T: Send, const N: usize> Send for SpscRing<T, N> {}
 impl<T, const N: usize> SpscRing<T, N> {
     /// Construct an empty ring buffer.
     ///
-    /// Panics at compile time if `N == 0` (via `assert!` evaluated in const
-    /// context).
+    /// # Panics
+    ///
+    /// Panics if `N <= 1`. The const generic `N` must be at least 2 to hold at
+    /// least one item (one slot is reserved as the full/empty sentinel). This
+    /// is an API misuse guard; it cannot be expressed as a compile-time error
+    /// with stable Rust const-generics.
     ///
     /// # Complexity
     ///
     /// O(N) for initialization of the backing array.
     pub fn new() -> Self {
-        assert!(N > 1, "SpscRing capacity N must be > 1");
+        // API misuse guard: N == 0 or N == 1 makes the ring useless (0 items
+        // of usable capacity). This is intentional and documented.
+        if N <= 1 {
+            panic!("SpscRing capacity N must be > 1 (N={N})");
+        }
         // SAFETY: MaybeUninit array initialized element-by-element before use.
         let buf: Vec<UnsafeCell<Option<T>>> =
             (0..N).map(|_| UnsafeCell::new(None)).collect();

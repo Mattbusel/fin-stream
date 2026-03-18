@@ -15,7 +15,6 @@ use fin_stream::ws::{ConnectionConfig, ReconnectPolicy, WsManager};
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 use serde_json::json;
-use std::str::FromStr;
 use std::time::Duration;
 
 // ── StreamError display ──────────────────────────────────────────────────────
