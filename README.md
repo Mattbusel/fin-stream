@@ -115,6 +115,18 @@ fn main() -> Result<(), fin_stream::StreamError> {
 }
 ```
 
+## Supported Exchanges
+
+| Exchange  | Adapter module       | Status     | Wire-format fields used            |
+|-----------|----------------------|------------|------------------------------------|
+| Binance   | `tick::Exchange::Binance`   | Stable | `p` (price), `q` (qty), `m` (maker/taker), `t` (trade id), `T` (exchange ts) |
+| Coinbase  | `tick::Exchange::Coinbase`  | Stable | `price`, `size`, `side`, `trade_id` |
+| Alpaca    | `tick::Exchange::Alpaca`    | Stable | `p` (price), `s` (size), `i` (trade id) |
+| Polygon   | `tick::Exchange::Polygon`   | Stable | `p` (price), `s` (size), `i` (trade id), `t` (exchange ts) |
+
+All four adapters are covered by unit and integration tests.
+To add a new exchange, see the **Contributing** section below.
+
 ## Lorentz transform -- mathematical notes
 
 The `LorentzTransform` applies the special-relativistic boost to a (time, price)
@@ -175,13 +187,51 @@ cargo bench                         # criterion microbenchmarks
 
 ## Contributing
 
+### General workflow
+
 1. Fork the repository and create a feature branch.
 2. Add or update tests for any changed behaviour. The CI gate requires all tests
    to pass and Clippy to report no warnings.
 3. Run `cargo fmt` before opening a pull request.
-4. Keep public APIs documented with `///` doc comments; undocumented public items
-   will fail `cargo doc`.
+4. Keep public APIs documented with `///` doc comments; `#![deny(missing_docs)]`
+   is active — undocumented public items will cause a build failure.
 5. Open a pull request against `main`. The CI pipeline (fmt, clippy, test, release
    test, doc) must be green before merge.
+
+### Adding a new exchange adapter
+
+Follow these steps to wire in a new exchange (example: `Kraken`).
+
+1. **Add the variant** to `Exchange` in `src/tick/mod.rs`:
+
+   ```rust
+   pub enum Exchange {
+       // ...existing variants...
+       /// Kraken WebSocket v2 feed.
+       Kraken,
+   }
+   ```
+
+2. **Implement `Display` and `FromStr`** for the new variant in the same file.
+
+3. **Add a normalization method** `normalize_kraken` following the pattern of
+   `normalize_binance`. Extract the price and quantity fields from the raw JSON
+   payload using `parse_decimal_field`, populate optional fields where the exchange
+   provides them (`side`, `trade_id`, `exchange_ts_ms`), and return a
+   `NormalizedTick`.
+
+4. **Wire the method** into `TickNormalizer::normalize`:
+
+   ```rust
+   Exchange::Kraken => self.normalize_kraken(raw),
+   ```
+
+5. **Add unit tests** in the `#[cfg(test)]` block of `src/tick/mod.rs`. Include
+   at minimum: a happy-path normalization test, a test for each required missing
+   field returning `StreamError::ParseError`, and a test for an invalid decimal
+   string.
+
+6. **Update the README** "Supported Exchanges" table and the `CHANGELOG.md`
+   `[Unreleased]` section.
 
 All contributions are licensed under MIT.

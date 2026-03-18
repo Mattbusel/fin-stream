@@ -17,14 +17,18 @@ use std::collections::BTreeMap;
 /// Side of the order book.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum BookSide {
+    /// Bid (buy) side.
     Bid,
+    /// Ask (sell) side.
     Ask,
 }
 
 /// A single price level in the order book.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct PriceLevel {
+    /// Price of this level.
     pub price: Decimal,
+    /// Resting quantity at this price.
     pub quantity: Decimal,
 }
 
@@ -38,11 +42,15 @@ impl PriceLevel {
 /// Incremental order book update.
 #[derive(Debug, Clone)]
 pub struct BookDelta {
+    /// Symbol this delta applies to.
     pub symbol: String,
+    /// Side of the book (bid or ask).
     pub side: BookSide,
-    /// Price level to update. quantity == 0 means remove.
+    /// Price level to update. `quantity == 0` means remove the level.
     pub price: Decimal,
+    /// New resting quantity at this price. Zero removes the level.
     pub quantity: Decimal,
+    /// Optional exchange-assigned sequence number for gap detection.
     pub sequence: Option<u64>,
 }
 

@@ -7,6 +7,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+---
+
+## [0.2.0] - 2026-03-17
+
 ### Added
 - `ring` module: lock-free SPSC ring buffer (`SpscRing<T, N>`) with const-generic
   capacity. `push` returns `Err(StreamError::RingBufferFull)` on overflow (never
@@ -43,6 +47,26 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - CI pipeline extended with `cargo fmt --check`, `cargo test --release`, and
   `cargo doc --no-deps` steps.
 - `WsManager` and `HealthMonitor` accessors carry individual doc comments.
+
+### Added
+- `#![deny(missing_docs)]` in `lib.rs`; all public items now carry `///` doc comments.
+- Doc comments on every public struct field across all modules (`book`, `health`,
+  `ohlcv`, `tick`, `ws`, `session`, `lorentz`).
+- Tests for feed health monitoring: mark feed unhealthy and verify health check behavior.
+- Tests for tick normalization edge cases: malformed messages, missing required fields,
+  null/non-string field types, all exchanges.
+- Tests for order book delta application: out-of-order sequence numbers, duplicate
+  sequence numbers, and sequence gap detection.
+- Release CI workflow (`.github/workflows/release.yml`) that triggers on `v*` tags,
+  builds in release mode, runs full test suite, and publishes a GitHub release with
+  the compiled artifacts.
+
+### Changed
+- Cargo.toml version bumped from `0.1.0` to `0.2.0`.
+- README "Contributing" section expanded with step-by-step guide for adding a new
+  exchange adapter.
+- README "Supported Exchanges" section added, listing all four adapters and their
+  current status.
 
 ---
 
@@ -81,4 +105,5 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - `error` module: `StreamError` enum covering connection, parsing, order book, backpressure, SPSC, aggregation, normalization, and Lorentz-transform failures.
 - Benchmark harness: `benches/tick_hot_path.rs` using Criterion.
 
+[0.2.0]: https://github.com/Mattbusel/fin-stream/releases/tag/v0.2.0
 [0.1.0]: https://github.com/Mattbusel/fin-stream/releases/tag/v0.1.0

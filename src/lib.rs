@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: MIT
+#![deny(missing_docs)]
 //! # fin-stream
 //!
 //! Lock-free streaming primitives for real-time financial market data.

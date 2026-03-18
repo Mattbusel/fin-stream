@@ -1,0 +1,60 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  release:
+    name: Build, test, and publish release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install stable toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+      - name: Clippy (deny warnings)
+        run: cargo clippy --all-features -- -D warnings
+
+      - name: Build (release)
+        run: cargo build --release --all-features
+
+      - name: Test (debug)
+        run: cargo test --all-features
+
+      - name: Test (release)
+        run: cargo test --release --all-features
+
+      - name: Build documentation
+        run: cargo doc --no-deps --all-features
+        env:
+          RUSTDOCFLAGS: "-D warnings"
+
+      - name: Extract tag version
+        id: version
+        run: echo "VERSION=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.VERSION }}
+          name: fin-stream ${{ steps.version.outputs.VERSION }}
+          body: |
+            See [CHANGELOG.md](https://github.com/Mattbusel/fin-stream/blob/main/CHANGELOG.md) for details.
+          draft: false
+          prerelease: ${{ contains(steps.version.outputs.VERSION, '-') }}

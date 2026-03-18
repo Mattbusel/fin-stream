@@ -15,20 +15,20 @@ use crate::error::StreamError;
 pub enum MarketSession {
     /// US equity market (NYSE/NASDAQ) — 9:30–16:00 ET Mon–Fri.
     UsEquity,
-    /// Crypto market — 24/7/365.
+    /// Crypto market — 24/7/365, always open.
     Crypto,
-    /// Forex market — 24/5, Sunday 17:00 ET – Friday 17:00 ET.
+    /// Forex market — 24/5, Sunday 22:00 UTC – Friday 22:00 UTC.
     Forex,
 }
 
 /// Trading status at a point in time.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum TradingStatus {
-    /// Regular trading hours.
+    /// Regular trading hours are active.
     Open,
-    /// Pre-market or after-hours for equity; equivalent to Open for crypto.
+    /// Pre-market or after-hours session (equity); equivalent to `Open` for crypto.
     Extended,
-    /// Market is closed.
+    /// Market is fully closed; no trading possible.
     Closed,
 }
 

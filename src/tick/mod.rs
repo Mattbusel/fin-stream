@@ -17,9 +17,13 @@ use std::str::FromStr;
 /// Supported exchanges.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum Exchange {
+    /// Binance spot/futures WebSocket feed.
     Binance,
+    /// Coinbase Advanced Trade WebSocket feed.
     Coinbase,
+    /// Alpaca Markets data stream.
     Alpaca,
+    /// Polygon.io WebSocket feed.
     Polygon,
 }
 
@@ -50,9 +54,13 @@ impl FromStr for Exchange {
 /// Raw tick — unprocessed bytes from an exchange WebSocket.
 #[derive(Debug, Clone)]
 pub struct RawTick {
+    /// Source exchange.
     pub exchange: Exchange,
+    /// Instrument symbol as reported by the exchange.
     pub symbol: String,
+    /// Raw JSON payload from the WebSocket frame.
     pub payload: serde_json::Value,
+    /// System-clock timestamp (ms since Unix epoch) when the tick was received.
     pub received_at_ms: u64,
 }
 
@@ -71,20 +79,30 @@ impl RawTick {
 /// Canonical normalized tick — exchange-agnostic.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct NormalizedTick {
+    /// Source exchange.
     pub exchange: Exchange,
+    /// Instrument symbol in the canonical form used by this crate.
     pub symbol: String,
+    /// Trade price (exact decimal, never `f64`).
     pub price: Decimal,
+    /// Trade quantity (exact decimal).
     pub quantity: Decimal,
+    /// Direction of the aggressing order, if available from the exchange.
     pub side: Option<TradeSide>,
+    /// Exchange-assigned trade identifier, if available.
     pub trade_id: Option<String>,
+    /// Exchange-side timestamp (ms since Unix epoch), if included in the feed.
     pub exchange_ts_ms: Option<u64>,
+    /// Local system-clock timestamp when this tick was received.
     pub received_at_ms: u64,
 }
 
 /// Direction of trade that generated the tick.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum TradeSide {
+    /// Buyer was the aggressor.
     Buy,
+    /// Seller was the aggressor.
     Sell,
 }
 

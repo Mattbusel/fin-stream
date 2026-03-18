@@ -13,15 +13,18 @@ use crate::error::StreamError;
 use std::time::Duration;
 
 /// Reconnection policy for a WebSocket feed.
+///
+/// Controls exponential-backoff reconnect behaviour. Build with
+/// [`ReconnectPolicy::new`] or use [`Default`] for sensible defaults.
 #[derive(Debug, Clone)]
 pub struct ReconnectPolicy {
     /// Maximum number of reconnect attempts before giving up.
     pub max_attempts: u32,
-    /// Initial backoff delay.
+    /// Initial backoff delay for the first reconnect attempt.
     pub initial_backoff: Duration,
     /// Maximum backoff delay (cap for exponential growth).
     pub max_backoff: Duration,
-    /// Backoff multiplier.
+    /// Multiplier applied to the backoff on each successive attempt (must be >= 1.0).
     pub multiplier: f64,
 }
 
@@ -79,10 +82,13 @@ impl Default for ReconnectPolicy {
 /// Configuration for a WebSocket feed connection.
 #[derive(Debug, Clone)]
 pub struct ConnectionConfig {
+    /// WebSocket URL to connect to (e.g. `"wss://stream.binance.com:9443/ws"`).
     pub url: String,
+    /// Capacity of the downstream channel that receives incoming messages.
     pub channel_capacity: usize,
+    /// Reconnect policy applied on disconnection.
     pub reconnect: ReconnectPolicy,
-    /// Ping interval to keep the connection alive.
+    /// Ping interval to keep the connection alive (default: 20 s).
     pub ping_interval: Duration,
 }
 

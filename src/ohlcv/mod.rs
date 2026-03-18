@@ -15,8 +15,11 @@ use rust_decimal::Decimal;
 /// Supported bar timeframes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum Timeframe {
+    /// Bar duration measured in seconds.
     Seconds(u64),
+    /// Bar duration measured in minutes.
     Minutes(u64),
+    /// Bar duration measured in hours.
     Hours(u64),
 }
 
@@ -40,15 +43,25 @@ impl Timeframe {
 /// A completed or partial OHLCV bar.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct OhlcvBar {
+    /// Instrument symbol (e.g. `"BTC-USD"`).
     pub symbol: String,
+    /// Timeframe of this bar.
     pub timeframe: Timeframe,
+    /// UTC millisecond timestamp of the bar's open boundary.
     pub bar_start_ms: u64,
+    /// Opening price (first tick's price in the bar window).
     pub open: Decimal,
+    /// Highest price seen in the bar window.
     pub high: Decimal,
+    /// Lowest price seen in the bar window.
     pub low: Decimal,
+    /// Closing price (most recent tick's price in the bar window).
     pub close: Decimal,
+    /// Total traded volume in this bar.
     pub volume: Decimal,
+    /// Number of ticks contributing to this bar.
     pub trade_count: u64,
+    /// `true` once the bar's time window has been closed by a tick in a later window.
     pub is_complete: bool,
 }
 

@@ -12,24 +12,29 @@ use crate::error::StreamError;
 use dashmap::DashMap;
 use std::sync::Arc;
 
-/// Health status of a feed.
+/// Health status of a single feed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum HealthStatus {
     /// Feed is active and within staleness threshold.
     Healthy,
     /// Feed has not produced data within the staleness threshold.
     Stale,
-    /// Feed is newly registered, no data received yet.
+    /// Feed is newly registered and no data has been received yet.
     Unknown,
 }
 
 /// Per-feed health state.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct FeedHealth {
+    /// Identifier of this feed (e.g. `"BTC-USD"`).
     pub feed_id: String,
+    /// Current health status of this feed.
     pub status: HealthStatus,
+    /// Timestamp (ms since Unix epoch) of the most recent tick, if any.
     pub last_tick_ms: Option<u64>,
+    /// Staleness threshold in milliseconds for this feed.
     pub stale_threshold_ms: u64,
+    /// Total number of heartbeats received since registration.
     pub tick_count: u64,
     /// Number of consecutive stale checks. Resets to 0 on heartbeat.
     pub consecutive_stale: u32,
