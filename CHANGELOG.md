@@ -7,7 +7,34 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+---
+
+## [1.1.0] - 2026-03-18
+
+### Added
+- `[profile.release]`: `opt-level = 3`, `lto = "thin"`, `codegen-units = 1`,
+  `strip = "debuginfo"`, `panic = "abort"` for maximum release performance.
+- `[profile.bench]`: dedicated bench profile with `lto = "thin"`.
+- `[lints.clippy]`: `pedantic = "warn"` group enabled; common false-positive
+  pedantic lints explicitly `allow`ed (`module_name_repetitions`, `must_use_candidate`,
+  `missing_errors_doc`, `missing_panics_doc`).
+- `readme`, `authors`, and `include` fields added to `Cargo.toml`.
+- CI `bench` job: separate job with `--no-run` compile check and `--sample-size 10` run.
+- CI `deny` job: `cargo-deny-action` checking licenses, advisories, bans, and sources.
+- CI `coverage` job: `cargo-tarpaulin` with Codecov upload.
+- CI `test` job: expanded to a matrix of `ubuntu-latest`, `windows-latest`,
+  `macos-latest`; adds `PROPTEST_CASES=1000`, `cargo test --release`, and
+  `cargo audit` steps.
+- `tests/api_coverage_stream.rs`: additional tests covering `HealthMonitor::with_circuit_breaker_threshold`,
+  `SessionAwareness::session()`, `LorentzTransform::beta()`/`gamma()`, `SpacetimePoint` fields,
+  `MinMaxNormalizer::window_size()`/`is_empty()`/`reset()`, `OhlcvAggregator::with_emit_empty_bars`,
+  `ReconnectPolicy` backoff math, `BookDelta::with_sequence`, `TickNormalizer` unknown exchange error.
+- Release workflow: `.github/workflows/release.yml` for tag-triggered crates.io publish.
+
 ### Changed
+- Version bumped to `1.1.0`.
+- CI restructured from a single combined job into separate `fmt`, `clippy`, `test`,
+  `bench`, `doc`, `deny`, and `coverage` jobs for better parallelism and clearer failure signals.
 - Production-readiness pass: doc comments, error handling, CI, tests, and README reviewed.
   All existing tests continue to pass (328 total across unit and integration suites).
 
@@ -109,5 +136,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - `error` module: `StreamError` enum covering connection, parsing, order book, backpressure, SPSC, aggregation, normalization, and Lorentz-transform failures.
 - Benchmark harness: `benches/tick_hot_path.rs` using Criterion.
 
-[0.2.0]: https://github.com/Mattbusel/fin-stream/releases/tag/v0.2.0
+[Unreleased]: https://github.com/Mattbusel/fin-stream/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/Mattbusel/fin-stream/compare/v1.0.0...v1.1.0
+[1.0.0]: https://github.com/Mattbusel/fin-stream/compare/v0.2.0...v1.0.0
+[0.2.0]: https://github.com/Mattbusel/fin-stream/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/Mattbusel/fin-stream/releases/tag/v0.1.0
