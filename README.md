@@ -159,20 +159,60 @@ fin-stream is the ingestion and transformation layer designed to sit above the
 `OhlcvBar`, and signal types. fin-stream imports `fin-primitives` for shared type
 definitions and re-exports the types needed by downstream consumers.
 
-## Module map
+## Module overview
 
-| Module    | Public types |
-|-----------|--------------|
-| `tick`    | `RawTick`, `NormalizedTick`, `Exchange`, `TradeSide`, `TickNormalizer` |
-| `ring`    | `SpscRing`, `SpscProducer`, `SpscConsumer` |
-| `ohlcv`   | `OhlcvAggregator`, `OhlcvBar`, `Timeframe` |
-| `norm`    | `MinMaxNormalizer` |
-| `lorentz` | `LorentzTransform`, `SpacetimePoint` |
-| `book`    | `OrderBook`, `BookDelta`, `BookSide`, `PriceLevel` |
-| `health`  | `HealthMonitor`, `FeedHealth`, `HealthStatus` |
-| `session` | `SessionAwareness`, `MarketSession`, `TradingStatus` |
-| `ws`      | `WsManager`, `ConnectionConfig`, `ReconnectPolicy` |
-| `error`   | `StreamError` |
+| Module | Purpose | Key types |
+|---|---|---|
+| `ws` | WebSocket connection lifecycle with exponential-backoff reconnect and backpressure | `WsManager`, `ConnectionConfig`, `ReconnectPolicy` |
+| `tick` | Convert raw exchange payloads (Binance/Coinbase/Alpaca/Polygon) into a single canonical form | `RawTick`, `NormalizedTick`, `Exchange`, `TradeSide`, `TickNormalizer` |
+| `ring` | Lock-free SPSC ring buffer: zero-allocation hot path between normalizer and consumers | `SpscRing`, `SpscProducer`, `SpscConsumer` |
+| `book` | Incremental order book delta streaming with snapshot reset and crossed-book detection | `OrderBook`, `BookDelta`, `BookSide`, `PriceLevel` |
+| `ohlcv` | Bar construction at any `Seconds / Minutes / Hours` timeframe with optional gap-fill bars | `OhlcvAggregator`, `OhlcvBar`, `Timeframe` |
+| `health` | Per-feed staleness detection with configurable thresholds and a circuit-breaker | `HealthMonitor`, `FeedHealth`, `HealthStatus` |
+| `session` | Trading-status classification (Open / Extended / Closed) for US Equity, Crypto, Forex | `SessionAwareness`, `MarketSession`, `TradingStatus` |
+| `norm` | Rolling min-max normalizer mapping streaming observations into `[0.0, 1.0]` | `MinMaxNormalizer` |
+| `lorentz` | Lorentz spacetime transforms for feature engineering on price-time coordinates | `LorentzTransform`, `SpacetimePoint` |
+| `error` | Unified typed error hierarchy covering every pipeline failure mode | `StreamError` |
+
+### Pipeline flow
+
+```
+ws  ->  tick  ->  [ring buffer]  ->  book / ohlcv / health
+                                            |
+                                    session / norm / lorentz
+                                            |
+                                       downstream
+```
+
+## Error handling
+
+All fallible operations return `Result<_, StreamError>`. The library never panics on production inputs. The `StreamError` variants are grouped by subsystem:
+
+| Variant | Subsystem | When emitted |
+|---|---|---|
+| `ConnectionFailed` | ws | WebSocket connection attempt rejected |
+| `Disconnected` | ws | Live connection dropped unexpectedly |
+| `ReconnectExhausted` | ws | All reconnect attempts consumed |
+| `Backpressure` | ws / ring | Downstream channel or ring buffer is full |
+| `ParseError` | tick | Tick deserialization failed (missing field, invalid decimal) |
+| `UnknownExchange` | tick | Exchange identifier string not recognized |
+| `InvalidTick` | tick | Tick failed validation (negative price, zero quantity) |
+| `BookReconstructionFailed` | book | Delta applied to the wrong symbol, or sequence gap |
+| `BookCrossed` | book | Order book bid >= ask after applying a delta |
+| `StaleFeed` | health | Feed has not produced data within the staleness threshold |
+| `AggregationError` | ohlcv | Wrong symbol or zero-duration timeframe |
+| `NormalizationError` | norm | `normalize()` called before any observations are fed |
+| `RingBufferFull` | ring | SPSC ring buffer has no free slots |
+| `RingBufferEmpty` | ring | SPSC ring buffer has no pending items |
+| `LorentzConfigError` | lorentz | `beta >= 1` or negative `beta` |
+| `Io` | all | Underlying I/O error |
+| `WebSocket` | ws | WebSocket protocol-level error |
+
+All variants implement `std::error::Error` and `Display`. The `Display` format is machine-parseable.
+
+## Changelog
+
+See [CHANGELOG.md](CHANGELOG.md) for a full version-by-version history of changes.
 
 ## Running tests and benchmarks
 

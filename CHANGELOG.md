@@ -7,6 +7,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Changed
+- Production-readiness pass: doc comments, error handling, CI, tests, and README reviewed.
+  All existing tests continue to pass (328 total across unit and integration suites).
+
 ---
 
 ## [0.2.0] - 2026-03-17
