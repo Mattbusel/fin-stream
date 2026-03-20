@@ -357,6 +357,26 @@ mod tests {
     }
 
     #[test]
+    fn test_minmax_is_full_false_before_capacity() {
+        let mut n = norm(3);
+        assert!(!n.is_full());
+        n.update(dec!(1));
+        n.update(dec!(2));
+        assert!(!n.is_full());
+        n.update(dec!(3));
+        assert!(n.is_full());
+    }
+
+    #[test]
+    fn test_minmax_is_full_stays_true_after_eviction() {
+        let mut n = norm(3);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] {
+            n.update(v);
+        }
+        assert!(n.is_full()); // window stays at capacity after eviction
+    }
+
+    #[test]
     fn test_new_zero_window_returns_error() {
         let result = MinMaxNormalizer::new(0);
         assert!(matches!(result, Err(StreamError::ConfigError { .. })));
@@ -842,6 +862,28 @@ impl ZScoreNormalizer {
             })
             .collect()
     }
+
+    /// Returns `true` if `value` is an outlier: its z-score exceeds `z_threshold` in magnitude.
+    ///
+    /// Returns `false` when the window has fewer than 2 observations (z-score undefined).
+    /// A typical threshold is `2.0` (95th percentile) or `3.0` (99.7th percentile).
+    pub fn is_outlier(&self, value: Decimal, z_threshold: f64) -> bool {
+        let n = self.window.len();
+        if n < 2 {
+            return false;
+        }
+        let n_dec = Decimal::from(n as u64);
+        let mean = self.sum / n_dec;
+        let variance = (self.sum_sq / n_dec) - mean * mean;
+        let variance = if variance < Decimal::ZERO { Decimal::ZERO } else { variance };
+        let sd = variance.to_f64().unwrap_or(0.0).sqrt();
+        if sd == 0.0 {
+            return false;
+        }
+        let mean_f64 = mean.to_f64().unwrap_or(0.0);
+        let val_f64 = value.to_f64().unwrap_or(mean_f64);
+        ((val_f64 - mean_f64) / sd).abs() > z_threshold
+    }
 }
 
 #[cfg(test)]
@@ -859,6 +901,26 @@ mod zscore_tests {
             ZScoreNormalizer::new(0),
             Err(StreamError::ConfigError { .. })
         ));
+    }
+
+    #[test]
+    fn test_zscore_is_full_false_before_capacity() {
+        let mut n = znorm(3);
+        assert!(!n.is_full());
+        n.update(dec!(1));
+        n.update(dec!(2));
+        assert!(!n.is_full());
+        n.update(dec!(3));
+        assert!(n.is_full());
+    }
+
+    #[test]
+    fn test_zscore_is_full_stays_true_after_eviction() {
+        let mut n = znorm(3);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] {
+            n.update(v);
+        }
+        assert!(n.is_full());
     }
 
     #[test]

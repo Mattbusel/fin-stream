@@ -257,6 +257,11 @@ impl OrderBook {
         Some(ask - bid)
     }
 
+    /// Returns `true` if both sides of the book have no resting orders.
+    pub fn is_empty(&self) -> bool {
+        self.bids.is_empty() && self.asks.is_empty()
+    }
+
     /// Number of bid levels.
     pub fn bid_depth(&self) -> usize {
         self.bids.len()
@@ -525,6 +530,29 @@ impl OrderBook {
             return None;
         }
         ((bid_vol - ask_vol) / total).to_f64()
+    }
+
+    /// Returns the top-`n` price levels for the given side, sorted best-first.
+    ///
+    /// For bids, levels are sorted descending (highest price first).
+    /// For asks, levels are sorted ascending (lowest price first).
+    /// If `n` exceeds the available levels, all levels are returned.
+    pub fn levels(&self, side: BookSide, n: usize) -> Vec<PriceLevel> {
+        match side {
+            BookSide::Bid => self
+                .bids
+                .iter()
+                .rev()
+                .take(n)
+                .map(|(p, q)| PriceLevel::new(*p, *q))
+                .collect(),
+            BookSide::Ask => self
+                .asks
+                .iter()
+                .take(n)
+                .map(|(p, q)| PriceLevel::new(*p, *q))
+                .collect(),
+        }
     }
 
     /// Return a full snapshot of all bid and ask levels.
@@ -1111,5 +1139,75 @@ mod tests {
         b.apply(delta("BTC-USD", BookSide::Ask, dec!(101), dec!(2))).unwrap();
         assert_eq!(b.level_count(BookSide::Bid), b.bid_depth());
         assert_eq!(b.level_count(BookSide::Ask), b.ask_depth());
+    }
+
+    // ── PriceLevel::notional ─────────────────────────────────────────────────
+
+    #[test]
+    fn test_price_level_notional() {
+        let level = PriceLevel::new(dec!(50000), dec!(2));
+        assert_eq!(level.notional(), dec!(100000));
+    }
+
+    #[test]
+    fn test_price_level_notional_zero_qty() {
+        let level = PriceLevel::new(dec!(100), dec!(0));
+        assert_eq!(level.notional(), dec!(0));
+    }
+
+    // ── OrderBook::weighted_mid_price ────────────────────────────────────────
+
+    #[test]
+    fn test_weighted_mid_price_equal_qtys_is_arithmetic_mid() {
+        // bid=100 qty=1, ask=102 qty=1 → wmid = (100*1 + 102*1) / 2 = 101
+        let mut b = book("X");
+        b.apply(delta("X", BookSide::Bid, dec!(100), dec!(1))).unwrap();
+        b.apply(delta("X", BookSide::Ask, dec!(102), dec!(1))).unwrap();
+        assert_eq!(b.weighted_mid_price().unwrap(), dec!(101));
+    }
+
+    #[test]
+    fn test_weighted_mid_price_skews_toward_larger_qty() {
+        // bid=100 qty=1, ask=102 qty=3 → wmid = (100*3 + 102*1) / 4 = 402/4 = 100.5
+        let mut b = book("X");
+        b.apply(delta("X", BookSide::Bid, dec!(100), dec!(1))).unwrap();
+        b.apply(delta("X", BookSide::Ask, dec!(102), dec!(3))).unwrap();
+        assert_eq!(b.weighted_mid_price().unwrap(), dec!(100.5));
+    }
+
+    #[test]
+    fn test_weighted_mid_price_empty_returns_none() {
+        let b = book("X");
+        assert!(b.weighted_mid_price().is_none());
+    }
+
+    // ── OrderBook::is_empty ───────────────────────────────────────────────────
+
+    #[test]
+    fn test_is_empty_new_book() {
+        let b = book("BTC-USD");
+        assert!(b.is_empty());
+    }
+
+    #[test]
+    fn test_is_empty_false_with_bid() {
+        let mut b = book("BTC-USD");
+        b.apply(delta("BTC-USD", BookSide::Bid, dec!(100), dec!(1))).unwrap();
+        assert!(!b.is_empty());
+    }
+
+    #[test]
+    fn test_is_empty_false_with_ask() {
+        let mut b = book("BTC-USD");
+        b.apply(delta("BTC-USD", BookSide::Ask, dec!(101), dec!(1))).unwrap();
+        assert!(!b.is_empty());
+    }
+
+    #[test]
+    fn test_is_empty_true_after_removing_all_levels() {
+        let mut b = book("BTC-USD");
+        b.apply(delta("BTC-USD", BookSide::Bid, dec!(100), dec!(1))).unwrap();
+        b.apply(delta("BTC-USD", BookSide::Bid, dec!(100), dec!(0))).unwrap(); // remove
+        assert!(b.is_empty());
     }
 }

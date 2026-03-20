@@ -46,6 +46,16 @@ impl WsStats {
         }
         self.total_bytes_received as f64 / (elapsed_ms as f64 / 1000.0)
     }
+
+    /// Average bytes per message: `total_bytes / total_messages`.
+    ///
+    /// Returns `None` if no messages have been received (avoids division by zero).
+    pub fn avg_message_size(&self) -> Option<f64> {
+        if self.total_messages_received == 0 {
+            return None;
+        }
+        Some(self.total_bytes_received as f64 / self.total_messages_received as f64)
+    }
 }
 
 /// Reconnection policy for a WebSocket feed.

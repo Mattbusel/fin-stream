@@ -390,6 +390,14 @@ impl<T, const N: usize> SpscConsumer<T, N> {
         self.inner.capacity()
     }
 
+    /// Fraction of capacity currently occupied: `len / capacity`.
+    ///
+    /// Returns a value in `[0.0, 1.0]`. Useful for backpressure monitoring.
+    #[inline]
+    pub fn fill_ratio(&self) -> f64 {
+        self.inner.len() as f64 / self.inner.capacity() as f64
+    }
+
     /// Clone the next item without removing it.
     ///
     /// Returns `None` if the ring is empty. See [`SpscRing::peek_clone`].

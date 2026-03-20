@@ -452,6 +452,10 @@ impl OhlcvAggregator {
         self.bars_emitted += emitted.len() as u64;
         for b in &emitted {
             self.total_volume += b.volume;
+            self.peak_volume = Some(match self.peak_volume {
+                Some(prev) => prev.max(b.volume),
+                None => b.volume,
+            });
         }
         if let Some(b) = emitted.last() {
             self.last_bar = Some(b.clone());
@@ -471,6 +475,10 @@ impl OhlcvAggregator {
         bar.is_complete = true;
         self.bars_emitted += 1;
         self.total_volume += bar.volume;
+        self.peak_volume = Some(match self.peak_volume {
+            Some(prev) => prev.max(bar.volume),
+            None => bar.volume,
+        });
         self.last_bar = Some(bar.clone());
         Some(bar)
     }
@@ -498,6 +506,7 @@ impl OhlcvAggregator {
         self.bars_emitted = 0;
         self.price_volume_sum = Decimal::ZERO;
         self.total_volume = Decimal::ZERO;
+        self.peak_volume = None;
     }
 
     /// Cumulative traded volume across all completed bars emitted by this aggregator.
@@ -506,6 +515,14 @@ impl OhlcvAggregator {
     /// [`reset`](Self::reset).
     pub fn total_volume(&self) -> Decimal {
         self.total_volume
+    }
+
+    /// Maximum single-bar volume seen across all completed bars.
+    ///
+    /// Returns `None` if no bars have been completed yet. Reset to `None` by
+    /// [`reset`](Self::reset).
+    pub fn peak_volume(&self) -> Option<Decimal> {
+        self.peak_volume
     }
 
     /// Average volume per completed bar: `total_volume / bars_emitted`.
@@ -1424,5 +1441,66 @@ mod tests {
         let prev = make_bar(dec!(9), dec!(12), dec!(8), dec!(11));
         let curr = make_bar(dec!(10), dec!(11), dec!(9), dec!(10));
         assert!(!curr.outside_bar(&prev));
+    }
+
+    // ── OhlcvBar::is_hammer ───────────────────────────────────────────────────
+
+    #[test]
+    fn test_is_hammer_classic() {
+        // open=9, high=10, low=0, close=9 → body=0, wick_lo=9, wick_hi=1, range=10
+        // body=0 ≤ 30%, wick_lo=9 ≥ 60%, wick_hi=1 ≤ 10% → hammer
+        let bar = make_bar(dec!(9), dec!(10), dec!(0), dec!(9));
+        assert!(bar.is_hammer());
+    }
+
+    #[test]
+    fn test_is_hammer_false_large_upper_wick() {
+        // open=5, high=10, low=0, close=5 → body=0, wick_hi=5 (50%) → not hammer
+        let bar = make_bar(dec!(5), dec!(10), dec!(0), dec!(5));
+        assert!(!bar.is_hammer());
+    }
+
+    #[test]
+    fn test_is_hammer_false_zero_range() {
+        let bar = make_bar(dec!(5), dec!(5), dec!(5), dec!(5));
+        assert!(!bar.is_hammer());
+    }
+
+    // ── OhlcvAggregator::peak_volume ─────────────────────────────────────────
+
+    #[test]
+    fn test_peak_volume_none_before_completion() {
+        let agg = agg("BTC-USD", Timeframe::Minutes(1));
+        assert!(agg.peak_volume().is_none());
+    }
+
+    #[test]
+    fn test_peak_volume_tracks_maximum() {
+        let mut agg = agg("BTC-USD", Timeframe::Minutes(1));
+        // Bar 1: vol=3
+        agg.feed(&make_tick("BTC-USD", dec!(100), dec!(3), 60_000)).unwrap();
+        // Trigger bar 1 completion; bar 2 vol=10 in progress
+        agg.feed(&make_tick("BTC-USD", dec!(101), dec!(10), 120_000)).unwrap();
+        assert_eq!(agg.peak_volume(), Some(dec!(3)));
+        // Trigger bar 2 completion
+        agg.feed(&make_tick("BTC-USD", dec!(102), dec!(1), 180_000)).unwrap();
+        assert_eq!(agg.peak_volume(), Some(dec!(10)));
+    }
+
+    #[test]
+    fn test_peak_volume_reset_clears() {
+        let mut agg = agg("BTC-USD", Timeframe::Minutes(1));
+        agg.feed(&make_tick("BTC-USD", dec!(100), dec!(5), 60_000)).unwrap();
+        agg.feed(&make_tick("BTC-USD", dec!(101), dec!(1), 120_000)).unwrap();
+        agg.reset();
+        assert!(agg.peak_volume().is_none());
+    }
+
+    #[test]
+    fn test_peak_volume_via_flush() {
+        let mut agg = agg("BTC-USD", Timeframe::Minutes(1));
+        agg.feed(&make_tick("BTC-USD", dec!(100), dec!(7), 60_000)).unwrap();
+        agg.flush();
+        assert_eq!(agg.peak_volume(), Some(dec!(7)));
     }
 }

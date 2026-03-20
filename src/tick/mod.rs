@@ -199,6 +199,15 @@ impl NormalizedTick {
         self.side == Some(TradeSide::Sell)
     }
 
+    /// Return a copy of this tick with the trade side set to `side`.
+    ///
+    /// Useful in tests and feed normalizers that determine the aggressor side
+    /// after initial tick construction.
+    pub fn with_side(mut self, side: TradeSide) -> Self {
+        self.side = Some(side);
+        self
+    }
+
     /// Return a copy of this tick with the exchange timestamp set to `ts_ms`.
     ///
     /// Useful in tests and feed normalizers to inject an authoritative exchange
@@ -857,5 +866,69 @@ mod tests {
     fn test_with_exchange_ts_overrides_existing() {
         let tick = make_tick_at(1_000).with_exchange_ts(999).with_exchange_ts(888);
         assert_eq!(tick.exchange_ts_ms, Some(888));
+    }
+
+    // ── NormalizedTick::price_move_from / is_more_recent_than ─────────────────
+
+    #[test]
+    fn test_price_move_from_positive() {
+        let prev = make_tick_at(1_000);
+        let mut curr = make_tick_at(2_000);
+        curr.price = prev.price + rust_decimal_macros::dec!(5);
+        assert_eq!(curr.price_move_from(&prev), rust_decimal_macros::dec!(5));
+    }
+
+    #[test]
+    fn test_price_move_from_negative() {
+        let prev = make_tick_at(1_000);
+        let mut curr = make_tick_at(2_000);
+        curr.price = prev.price - rust_decimal_macros::dec!(3);
+        assert_eq!(curr.price_move_from(&prev), rust_decimal_macros::dec!(-3));
+    }
+
+    #[test]
+    fn test_price_move_from_zero_when_same() {
+        let tick = make_tick_at(1_000);
+        assert_eq!(tick.price_move_from(&tick), rust_decimal_macros::dec!(0));
+    }
+
+    #[test]
+    fn test_is_more_recent_than_true() {
+        let older = make_tick_at(1_000);
+        let newer = make_tick_at(2_000);
+        assert!(newer.is_more_recent_than(&older));
+    }
+
+    #[test]
+    fn test_is_more_recent_than_false_when_older() {
+        let older = make_tick_at(1_000);
+        let newer = make_tick_at(2_000);
+        assert!(!older.is_more_recent_than(&newer));
+    }
+
+    #[test]
+    fn test_is_more_recent_than_false_when_equal() {
+        let tick = make_tick_at(1_000);
+        assert!(!tick.is_more_recent_than(&tick));
+    }
+
+    // ── NormalizedTick::with_side ─────────────────────────────────────────────
+
+    #[test]
+    fn test_with_side_sets_buy() {
+        let tick = make_tick_at(1_000).with_side(TradeSide::Buy);
+        assert_eq!(tick.side, Some(TradeSide::Buy));
+    }
+
+    #[test]
+    fn test_with_side_sets_sell() {
+        let tick = make_tick_at(1_000).with_side(TradeSide::Sell);
+        assert_eq!(tick.side, Some(TradeSide::Sell));
+    }
+
+    #[test]
+    fn test_with_side_overrides_existing() {
+        let tick = make_tick_at(1_000).with_side(TradeSide::Buy).with_side(TradeSide::Sell);
+        assert_eq!(tick.side, Some(TradeSide::Sell));
     }
 }

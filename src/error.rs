@@ -207,6 +207,24 @@ impl From<fin_primitives::error::FinError> for StreamError {
 }
 
 impl StreamError {
+    /// Returns `true` for errors that are not recoverable without a code or
+    /// configuration change.
+    ///
+    /// Fatal errors indicate a programming mistake or invalid configuration:
+    /// misconfigured parameters, unknown exchanges, exhausted reconnect budgets,
+    /// or corrupted book state that cannot be repaired by retrying.
+    pub fn is_fatal(&self) -> bool {
+        matches!(
+            self,
+            StreamError::ConfigError { .. }
+                | StreamError::LorentzConfigError { .. }
+                | StreamError::UnknownExchange(_)
+                | StreamError::ReconnectExhausted { .. }
+                | StreamError::UnknownFeed { .. }
+                | StreamError::BookReconstructionFailed { .. }
+        )
+    }
+
     /// Returns `true` for errors that originate in the order book subsystem.
     ///
     /// Book errors indicate structural problems with the market data feed

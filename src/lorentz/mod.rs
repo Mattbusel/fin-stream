@@ -192,6 +192,14 @@ impl LorentzTransform {
         Self::new(beta)
     }
 
+    /// Returns the Lorentz gamma factor for the given `beta`: `1 / √(1 − β²)`.
+    ///
+    /// This is a pure mathematical helper — no validation is performed.
+    /// Returns `f64::INFINITY` when `beta == 1.0` and `NaN` when `beta > 1.0`.
+    pub fn gamma_at(beta: f64) -> f64 {
+        (1.0 - beta * beta).sqrt().recip()
+    }
+
     /// Computes beta (v/c) from a Lorentz gamma factor. Returns an error if `gamma < 1.0`.
     pub fn beta_from_gamma(gamma: f64) -> Result<f64, StreamError> {
         if gamma.is_nan() || gamma < 1.0 {
@@ -994,5 +1002,51 @@ mod tests {
         assert!(LorentzTransform::beta_from_gamma(0.5).is_err()); // < 1
         assert!(LorentzTransform::beta_from_gamma(f64::NAN).is_err());
         assert!(LorentzTransform::beta_from_gamma(-1.0).is_err());
+    }
+
+    // ── LorentzTransform::from_rapidity ───────────────────────────────────────
+
+    #[test]
+    fn test_from_rapidity_zero_is_identity() {
+        let lt = LorentzTransform::from_rapidity(0.0).unwrap();
+        assert!(lt.is_identity());
+    }
+
+    #[test]
+    fn test_from_rapidity_positive_gives_valid_beta() {
+        // eta = 0.5 → beta = tanh(0.5) ≈ 0.4621
+        let lt = LorentzTransform::from_rapidity(0.5).unwrap();
+        assert!((lt.beta() - 0.5_f64.tanh()).abs() < EPS);
+    }
+
+    #[test]
+    fn test_from_rapidity_infinite_rejected() {
+        assert!(LorentzTransform::from_rapidity(f64::INFINITY).is_err());
+        assert!(LorentzTransform::from_rapidity(f64::NEG_INFINITY).is_err());
+        assert!(LorentzTransform::from_rapidity(f64::NAN).is_err());
+    }
+
+    // ── SpacetimePoint::distance_to ───────────────────────────────────────────
+
+    #[test]
+    fn test_distance_to_timelike_separation() {
+        // t=3, x=0 vs t=0, x=0 → Δt=3, Δx=0 → norm_sq=9 → dist=3
+        let a = SpacetimePoint::new(0.0, 0.0);
+        let b = SpacetimePoint::new(3.0, 0.0);
+        assert!((a.distance_to(b) - 3.0).abs() < EPS);
+    }
+
+    #[test]
+    fn test_distance_to_spacelike_separation() {
+        // t=0 vs x=4 → norm_sq=0-16=-16 → dist=4
+        let a = SpacetimePoint::new(0.0, 0.0);
+        let b = SpacetimePoint::new(0.0, 4.0);
+        assert!((a.distance_to(b) - 4.0).abs() < EPS);
+    }
+
+    #[test]
+    fn test_distance_to_same_point_is_zero() {
+        let p = SpacetimePoint::new(2.0, 3.0);
+        assert!(p.distance_to(p).abs() < EPS);
     }
 }

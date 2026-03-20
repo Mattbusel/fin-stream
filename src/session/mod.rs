@@ -148,6 +148,18 @@ impl SessionAwareness {
             .unwrap_or(false)
     }
 
+    /// Returns `true` if the session is currently tradeable: either
+    /// [`TradingStatus::Open`] or [`TradingStatus::Extended`].
+    ///
+    /// For [`MarketSession::Crypto`] this always returns `true`. For equity,
+    /// returns `true` during both regular hours and extended (pre/after-market)
+    /// hours.
+    pub fn is_market_hours(&self, utc_ms: u64) -> bool {
+        self.status(utc_ms)
+            .map(|s| s == TradingStatus::Open || s == TradingStatus::Extended)
+            .unwrap_or(false)
+    }
+
     /// Returns the number of whole minutes until the next [`TradingStatus::Open`] transition.
     ///
     /// Returns `0` if the session is already open. For [`MarketSession::Crypto`] always
@@ -208,6 +220,32 @@ impl SessionAwareness {
         let pre_open = 4 * 3600_u64;
         let market_open = 9 * 3600 + 30 * 60_u64;
         t >= pre_open && t < market_open
+    }
+
+    /// Returns `true` if the equity session is in the after-hours window (16:00–20:00 ET).
+    ///
+    /// Always returns `false` for non-equity sessions. After-hours is a subset of
+    /// [`TradingStatus::Extended`]; this method distinguishes it from pre-market.
+    pub fn is_after_hours(&self, utc_ms: u64) -> bool {
+        if self.session != MarketSession::UsEquity {
+            return false;
+        }
+        let secs = (utc_ms / 1000) as i64;
+        let dt = chrono::DateTime::<chrono::Utc>::from_timestamp(secs, 0)
+            .unwrap_or_else(chrono::Utc::now);
+        let et_offset_secs: i64 = if is_us_dst(utc_ms) { -4 * 3600 } else { -5 * 3600 };
+        let et_dt = dt + chrono::Duration::seconds(et_offset_secs);
+        let dow = et_dt.weekday();
+        if dow == chrono::Weekday::Sat || dow == chrono::Weekday::Sun {
+            return false;
+        }
+        if is_us_market_holiday(et_dt.date_naive()) {
+            return false;
+        }
+        let t = et_dt.num_seconds_from_midnight() as u64;
+        let market_close = 16 * 3600_u64;
+        let post_close = 20 * 3600_u64;
+        t >= market_close && t < post_close
     }
 
     /// Return the UTC millisecond timestamp of the next time this session
@@ -1172,5 +1210,34 @@ mod tests {
     fn test_is_closed_equity_during_open_is_false() {
         let sa = sa(MarketSession::UsEquity);
         assert!(!sa.is_closed(MON_OPEN_UTC_MS));
+    }
+
+    // ── SessionAwareness::is_market_hours ─────────────────────────────────────
+
+    #[test]
+    fn test_is_market_hours_crypto_always_true() {
+        let sa = sa(MarketSession::Crypto);
+        assert!(sa.is_market_hours(MON_OPEN_UTC_MS));
+        assert!(sa.is_market_hours(SAT_UTC_MS));
+    }
+
+    #[test]
+    fn test_is_market_hours_equity_open_is_true() {
+        let sa = sa(MarketSession::UsEquity);
+        assert!(sa.is_market_hours(MON_OPEN_UTC_MS));
+    }
+
+    #[test]
+    fn test_is_market_hours_equity_extended_is_true() {
+        // 7:00 AM EST = pre-market (Extended)
+        let seven_am_est_ms = 1704715200_000u64;
+        let sa = sa(MarketSession::UsEquity);
+        assert!(sa.is_market_hours(seven_am_est_ms));
+    }
+
+    #[test]
+    fn test_is_market_hours_equity_closed_is_false() {
+        let sa = sa(MarketSession::UsEquity);
+        assert!(!sa.is_market_hours(SAT_UTC_MS));
     }
 }

@@ -297,6 +297,29 @@ impl HealthMonitor {
         Some(newest.saturating_sub(oldest))
     }
 
+    /// The feed that has gone the longest without receiving a tick.
+    ///
+    /// Among all registered feeds, returns the one with the oldest (smallest)
+    /// `last_tick_ms`. Feeds that have never received a tick (`last_tick_ms ==
+    /// `None`) are considered more stale than any feed that has. Returns `None`
+    /// if no feeds are registered.
+    pub fn most_stale_feed(&self) -> Option<FeedHealth> {
+        self.feeds.iter().fold(None, |acc: Option<FeedHealth>, entry| {
+            let feed = entry.clone();
+            match acc {
+                None => Some(feed),
+                Some(current) => {
+                    let more_stale = match (feed.last_tick_ms, current.last_tick_ms) {
+                        (None, _) => true,
+                        (Some(_), None) => false,
+                        (Some(a), Some(b)) => a < b,
+                    };
+                    if more_stale { Some(feed) } else { Some(current) }
+                }
+            }
+        })
+    }
+
     /// Feed identifiers that are currently in [`HealthStatus::Healthy`] state.
     ///
     /// Returns a sorted list of IDs. Complement of
@@ -887,5 +910,49 @@ mod tests {
         m.check_all(1_001_000);
         let healthy = m.healthy_feeds();
         assert_eq!(healthy, vec!["A".to_string(), "B".to_string(), "C".to_string()]);
+    }
+
+    // ── HealthMonitor::unknown_count / FeedHealth::is_healthy ─────────────────
+
+    #[test]
+    fn test_unknown_count_all_new_feeds() {
+        let m = monitor();
+        m.register("A", None);
+        m.register("B", None);
+        assert_eq!(m.unknown_count(), 2);
+    }
+
+    #[test]
+    fn test_unknown_count_decreases_after_heartbeat() {
+        let m = monitor();
+        m.register("A", None);
+        m.register("B", None);
+        m.heartbeat("A", 1_000).unwrap();
+        assert_eq!(m.unknown_count(), 1); // B is still Unknown
+    }
+
+    #[test]
+    fn test_unknown_count_zero_when_all_healthy() {
+        let m = monitor();
+        m.register("A", None);
+        m.heartbeat("A", 1_000).unwrap();
+        assert_eq!(m.unknown_count(), 0);
+    }
+
+    #[test]
+    fn test_feed_health_is_healthy_true_after_heartbeat() {
+        let m = monitor();
+        m.register("X", None);
+        m.heartbeat("X", 1_000).unwrap();
+        let fh = m.get("X").unwrap();
+        assert!(fh.is_healthy());
+    }
+
+    #[test]
+    fn test_feed_health_is_healthy_false_when_unknown() {
+        let m = monitor();
+        m.register("X", None);
+        let fh = m.get("X").unwrap();
+        assert!(!fh.is_healthy());
     }
 }
