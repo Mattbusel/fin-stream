@@ -321,6 +321,14 @@ impl StreamError {
         matches!(self, StreamError::ConfigError { .. })
     }
 
+    /// Returns `true` if this error relates to a feed (stale or unknown).
+    pub fn is_feed_error(&self) -> bool {
+        matches!(
+            self,
+            StreamError::StaleFeed { .. } | StreamError::UnknownFeed { .. }
+        )
+    }
+
     /// Human-readable category string for this error.
     ///
     /// Returns one of `"connection"`, `"data"`, `"pipeline"`, `"book"`,
@@ -984,5 +992,28 @@ mod tests {
     #[test]
     fn test_is_config_error_false_for_ring_buffer_empty() {
         assert!(!StreamError::RingBufferEmpty.is_config_error());
+    }
+
+    // ── StreamError::is_feed_error ────────────────────────────────────────────
+
+    #[test]
+    fn test_is_feed_error_true_for_stale_feed() {
+        let e = StreamError::StaleFeed {
+            feed_id: "btc".into(),
+            elapsed_ms: 5_000,
+            threshold_ms: 1_000,
+        };
+        assert!(e.is_feed_error());
+    }
+
+    #[test]
+    fn test_is_feed_error_true_for_unknown_feed() {
+        let e = StreamError::UnknownFeed { feed_id: "xyz".into() };
+        assert!(e.is_feed_error());
+    }
+
+    #[test]
+    fn test_is_feed_error_false_for_ring_buffer_empty() {
+        assert!(!StreamError::RingBufferEmpty.is_feed_error());
     }
 }
