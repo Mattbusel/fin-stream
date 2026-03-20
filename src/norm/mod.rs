@@ -457,6 +457,35 @@ impl MinMaxNormalizer {
         Some(skew)
     }
 
+    /// Excess kurtosis of the window values: `(Σ((x−mean)⁴/n) / std_dev⁴) − 3`.
+    ///
+    /// Positive values indicate heavier-tailed distributions (leptokurtic);
+    /// negative values indicate lighter tails (platykurtic). A normal
+    /// distribution has excess kurtosis of `0`.
+    ///
+    /// Returns `None` if the window has fewer than 4 observations or if the
+    /// standard deviation is zero (all values identical).
+    pub fn kurtosis(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let n = self.window.len();
+        if n < 4 {
+            return None;
+        }
+        let n_f = n as f64;
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.len() < n {
+            return None;
+        }
+        let mean = vals.iter().sum::<f64>() / n_f;
+        let variance = vals.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / n_f;
+        let std_dev = variance.sqrt();
+        if std_dev == 0.0 {
+            return None;
+        }
+        let kurt = vals.iter().map(|v| ((v - mean) / std_dev).powi(4)).sum::<f64>() / n_f - 3.0;
+        Some(kurt)
+    }
+
     /// The most recently added value, or `None` if the window is empty.
     pub fn latest(&self) -> Option<Decimal> {
         self.window.back().copied()

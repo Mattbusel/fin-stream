@@ -79,6 +79,44 @@ impl std::fmt::Display for TradingStatus {
     }
 }
 
+impl std::str::FromStr for MarketSession {
+    type Err = StreamError;
+
+    /// Parse a market session name (case-insensitive).
+    ///
+    /// Accepted values: `"usequity"`, `"crypto"`, `"forex"`.
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "usequity" => Ok(MarketSession::UsEquity),
+            "crypto" => Ok(MarketSession::Crypto),
+            "forex" => Ok(MarketSession::Forex),
+            _ => Err(StreamError::ConfigError {
+                reason: format!("unknown market session '{s}'; expected usequity, crypto, or forex"),
+            }),
+        }
+    }
+}
+
+impl std::str::FromStr for TradingStatus {
+    type Err = StreamError;
+
+    /// Parse a trading status string (case-insensitive).
+    ///
+    /// Accepted values: `"open"`, `"extended"`, `"closed"`.
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "open" => Ok(TradingStatus::Open),
+            "extended" => Ok(TradingStatus::Extended),
+            "closed" => Ok(TradingStatus::Closed),
+            _ => Err(StreamError::ConfigError {
+                reason: format!(
+                    "unknown trading status '{s}'; expected open, extended, or closed"
+                ),
+            }),
+        }
+    }
+}
+
 /// Determines trading status for a market session.
 pub struct SessionAwareness {
     session: MarketSession,
@@ -569,7 +607,6 @@ impl SessionAwareness {
         let elapsed = self.time_in_session_ms(utc_ms).unwrap_or(0);
         let duration = self.session.session_duration_ms();
         if duration == u64::MAX { return u64::MAX; }
-        elapsed.saturating_sub(0);
         duration.saturating_sub(elapsed)
     }
 

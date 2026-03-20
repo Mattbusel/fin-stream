@@ -61,12 +61,70 @@ impl Timeframe {
     }
 }
 
+impl PartialOrd for Timeframe {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for Timeframe {
+    /// Compares timeframes by their duration in milliseconds.
+    ///
+    /// For example: `Seconds(30) < Minutes(1) < Hours(1)`.
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.duration_ms().cmp(&other.duration_ms())
+    }
+}
+
 impl std::fmt::Display for Timeframe {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Timeframe::Seconds(s) => write!(f, "{s}s"),
             Timeframe::Minutes(m) => write!(f, "{m}m"),
             Timeframe::Hours(h) => write!(f, "{h}h"),
+        }
+    }
+}
+
+impl std::str::FromStr for Timeframe {
+    type Err = crate::error::StreamError;
+
+    /// Parse a timeframe string such as `"1s"`, `"5m"`, or `"2h"`.
+    ///
+    /// The format is a positive integer followed by a unit suffix:
+    /// - `s` — seconds (e.g. `"30s"`)
+    /// - `m` — minutes (e.g. `"5m"`)
+    /// - `h` — hours   (e.g. `"1h"`)
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StreamError::ConfigError`] if the string is empty, has an
+    /// unknown suffix, or if the numeric part is zero or cannot be parsed.
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let s = s.trim();
+        if s.is_empty() {
+            return Err(crate::error::StreamError::ConfigError {
+                reason: "timeframe string is empty".into(),
+            });
+        }
+        let (digits, suffix) = s.split_at(s.len() - 1);
+        let n: u64 = digits.parse().map_err(|_| crate::error::StreamError::ConfigError {
+            reason: format!("invalid timeframe numeric part '{digits}' in '{s}'"),
+        })?;
+        if n == 0 {
+            return Err(crate::error::StreamError::ConfigError {
+                reason: format!("timeframe value must be > 0, got '{s}'"),
+            });
+        }
+        match suffix {
+            "s" => Ok(Timeframe::Seconds(n)),
+            "m" => Ok(Timeframe::Minutes(n)),
+            "h" => Ok(Timeframe::Hours(n)),
+            other => Err(crate::error::StreamError::ConfigError {
+                reason: format!(
+                    "unknown timeframe suffix '{other}' in '{s}'; expected s, m, or h"
+                ),
+            }),
         }
     }
 }
@@ -272,8 +330,9 @@ impl OhlcvBar {
     /// An inside bar has `high < prev.high` and `low > prev.low` — its full
     /// range is contained within the prior bar's range. Used in price action
     /// trading as a consolidation signal.
+    #[deprecated(since = "2.2.0", note = "Use `is_inside_bar` instead")]
     pub fn inside_bar(&self, prev: &OhlcvBar) -> bool {
-        self.high < prev.high && self.low > prev.low
+        self.is_inside_bar(prev)
     }
 
     /// Returns `true` if this bar is an outside bar relative to `prev`.
@@ -396,9 +455,19 @@ impl OhlcvBar {
         self.wick_upper() > self.body()
     }
 
+    /// Returns `true` if the lower wick is longer than the candle body.
+    ///
+    /// Indicates a bullish rejection at the low (demand below current price).
+    pub fn is_long_lower_wick(&self) -> bool {
+        self.wick_lower() > self.body()
+    }
+
     /// Absolute price change over the bar: `|close − open|`.
+    ///
+    /// Alias for [`body`](Self::body).
+    #[deprecated(since = "2.2.0", note = "Use `body()` instead")]
     pub fn price_change_abs(&self) -> Decimal {
-        (self.close - self.open).abs()
+        self.body()
     }
 
     /// Upper shadow length — alias for [`wick_upper`](Self::wick_upper).
@@ -515,8 +584,11 @@ impl OhlcvBar {
     }
 
     /// Absolute size of the candle body: `|close - open|`.
+    ///
+    /// Alias for [`body`](Self::body).
+    #[deprecated(since = "2.2.0", note = "Use `body()` instead")]
     pub fn body_size(&self) -> Decimal {
-        (self.close - self.open).abs()
+        self.body()
     }
 
     /// Volume change vs the previous bar: `self.volume - prev.volume`.
@@ -599,8 +671,10 @@ impl OhlcvBar {
     /// Returns `true` if this bar is an outside bar (engulfs `prev`'s range).
     ///
     /// An outside bar has a higher high AND lower low than the previous bar.
+    /// Alias for [`outside_bar`](Self::outside_bar).
+    #[deprecated(since = "2.2.0", note = "Use `outside_bar()` instead")]
     pub fn is_outside_bar(&self, prev: &OhlcvBar) -> bool {
-        self.high > prev.high && self.low < prev.low
+        self.outside_bar(prev)
     }
 
     /// Midpoint of the high-low range: `(high + low) / 2`.
@@ -771,8 +845,10 @@ impl OhlcvBar {
     /// Gap between this bar's open and the previous bar's close: `self.open - prev.close`.
     ///
     /// A positive value indicates an upward gap; negative indicates a downward gap.
+    /// Alias for [`gap_from`](Self::gap_from).
+    #[deprecated(since = "2.2.0", note = "Use `gap_from()` instead")]
     pub fn close_gap(&self, prev: &OhlcvBar) -> Decimal {
-        self.open - prev.close
+        self.gap_from(prev)
     }
 
     /// Returns `true` if the close price is strictly above the bar's midpoint `(high + low) / 2`.
@@ -788,8 +864,11 @@ impl OhlcvBar {
     }
 
     /// Full high-low range of the bar: `high - low`.
+    ///
+    /// Alias for [`range`](Self::range).
+    #[deprecated(since = "2.2.0", note = "Use `range()` instead")]
     pub fn bar_range(&self) -> Decimal {
-        self.high - self.low
+        self.range()
     }
 
     /// Duration of this bar's timeframe in milliseconds.
@@ -820,26 +899,26 @@ impl OhlcvBar {
 
     /// True range: `max(high - low, |high - prev_close|, |low - prev_close|)`.
     ///
-    /// This is the ATR building block. Without a previous close, returns `high - low`.
+    /// Alias for [`true_range`](Self::true_range).
+    #[deprecated(since = "2.2.0", note = "Use `true_range()` instead")]
     pub fn true_range_with_prev(&self, prev_close: Decimal) -> Decimal {
-        let hl = self.high - self.low;
-        let hc = (self.high - prev_close).abs();
-        let lc = (self.low - prev_close).abs();
-        hl.max(hc).max(lc)
+        self.true_range(prev_close)
     }
 
     /// Returns the ratio of close to high, or `None` if high is zero.
+    ///
+    /// Alias for [`high_close_ratio`](Self::high_close_ratio).
+    #[deprecated(since = "2.2.0", note = "Use `high_close_ratio()` instead")]
     pub fn close_to_high_ratio(&self) -> Option<f64> {
-        use rust_decimal::prelude::ToPrimitive;
-        if self.high.is_zero() { return None; }
-        (self.close / self.high).to_f64()
+        self.high_close_ratio()
     }
 
     /// Returns the ratio of close to open, or `None` if open is zero.
+    ///
+    /// Alias for [`open_close_ratio`](Self::open_close_ratio).
+    #[deprecated(since = "2.2.0", note = "Use `open_close_ratio()` instead")]
     pub fn close_open_ratio(&self) -> Option<f64> {
-        use rust_decimal::prelude::ToPrimitive;
-        if self.open.is_zero() { return None; }
-        (self.close / self.open).to_f64()
+        self.open_close_ratio()
     }
 
     /// Interpolates a price within the bar's high-low range.
@@ -851,6 +930,32 @@ impl OhlcvBar {
         let pct_clamped = pct.clamp(0.0, 1.0);
         let factor = Decimal::from_f64(pct_clamped).unwrap_or(Decimal::ZERO);
         self.low + self.range() * factor
+    }
+
+    /// Average true range (ATR) across a slice of consecutive bars.
+    ///
+    /// Computes the mean of [`true_range`](Self::true_range) for bars `[1..]`,
+    /// using each bar's predecessor as the previous close. Returns `None` if
+    /// the slice has fewer than 2 bars.
+    pub fn average_true_range(bars: &[OhlcvBar]) -> Option<Decimal> {
+        if bars.len() < 2 {
+            return None;
+        }
+        let sum: Decimal = (1..bars.len())
+            .map(|i| bars[i].true_range(bars[i - 1].close))
+            .sum();
+        Some(sum / Decimal::from((bars.len() - 1) as u64))
+    }
+
+    /// Average body size across a slice of bars: mean of [`body`](Self::body) for each bar.
+    ///
+    /// Returns `None` if the slice is empty.
+    pub fn average_body(bars: &[OhlcvBar]) -> Option<Decimal> {
+        if bars.is_empty() {
+            return None;
+        }
+        let sum: Decimal = bars.iter().map(|b| b.body()).sum();
+        Some(sum / Decimal::from(bars.len() as u64))
     }
 }
 
@@ -1179,6 +1284,7 @@ impl OhlcvAggregator {
 }
 
 #[cfg(test)]
+#[allow(deprecated)]
 mod tests {
     use super::*;
     use crate::tick::{Exchange, NormalizedTick, TradeSide};
@@ -2086,14 +2192,14 @@ mod tests {
     fn test_inside_bar_true_when_contained() {
         let prev = make_bar(dec!(9), dec!(15), dec!(5), dec!(12));
         let curr = make_bar(dec!(10), dec!(14), dec!(6), dec!(11));
-        assert!(curr.inside_bar(&prev));
+        assert!(curr.is_inside_bar(&prev));
     }
 
     #[test]
     fn test_inside_bar_false_when_not_contained() {
         let prev = make_bar(dec!(9), dec!(15), dec!(5), dec!(12));
         let curr = make_bar(dec!(10), dec!(16), dec!(6), dec!(11));
-        assert!(!curr.inside_bar(&prev));
+        assert!(!curr.is_inside_bar(&prev));
     }
 
     #[test]
@@ -3149,6 +3255,61 @@ mod tests {
     fn test_price_at_pct_clamped_above_one() {
         let bar = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100));
         assert_eq!(bar.price_at_pct(2.0), dec!(110));
+    }
+
+    // ── average_true_range ────────────────────────────────────────────────────
+
+    #[test]
+    fn test_average_true_range_none_when_fewer_than_two_bars() {
+        let bar = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        assert!(OhlcvBar::average_true_range(&[bar]).is_none());
+        assert!(OhlcvBar::average_true_range(&[]).is_none());
+    }
+
+    #[test]
+    fn test_average_true_range_two_bars_no_gap() {
+        // bar1: high=110 low=90 close=100
+        // bar2: high=115 low=95 close=110  tr = max(115-95, |115-100|, |95-100|) = max(20,15,5) = 20
+        let bar1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100));
+        let bar2 = make_ohlcv_bar(dec!(105), dec!(115), dec!(95), dec!(110));
+        let atr = OhlcvBar::average_true_range(&[bar1, bar2]).unwrap();
+        assert_eq!(atr, dec!(20)); // only one TR value: bar2 vs bar1.close=100
+    }
+
+    #[test]
+    fn test_average_true_range_three_bars_mean() {
+        // bar1: close=100
+        // bar2: h=110 l=90 c=105; tr = max(20, |110-100|, |90-100|) = max(20,10,10) = 20
+        // bar3: h=120 l=100 c=115; tr = max(20, |120-105|, |100-105|) = max(20,15,5) = 20
+        let bar1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100));
+        let bar2 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let bar3 = make_ohlcv_bar(dec!(110), dec!(120), dec!(100), dec!(115));
+        let atr = OhlcvBar::average_true_range(&[bar1, bar2, bar3]).unwrap();
+        assert_eq!(atr, dec!(20));
+    }
+
+    // ── average_body ──────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_average_body_none_when_empty() {
+        assert!(OhlcvBar::average_body(&[]).is_none());
+    }
+
+    #[test]
+    fn test_average_body_single_bar() {
+        let bar = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(108));
+        // body = |108 - 100| = 8
+        assert_eq!(OhlcvBar::average_body(&[bar]), Some(dec!(8)));
+    }
+
+    #[test]
+    fn test_average_body_multiple_bars() {
+        let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(110)); // body=10
+        let b2 = make_ohlcv_bar(dec!(110), dec!(120), dec!(100), dec!(100)); // body=10
+        let b3 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(120)); // body=20
+        let avg = OhlcvBar::average_body(&[b1, b2, b3]).unwrap();
+        // (10 + 10 + 20) / 3 = 40/3
+        assert_eq!(avg, dec!(40) / dec!(3));
     }
 
     // ── mean_volume ───────────────────────────────────────────────────────────

@@ -337,7 +337,7 @@ impl<T, const N: usize> SpscRing<T, N> {
             return None;
         }
         // SAFETY: slot at head is initialized (tail > head guarantees it)
-        Some(unsafe { (*self.buf[head % N].get()).assume_init_ref() })
+        Some(unsafe { (*self.buf[head & (N - 1)].get()).assume_init_ref() })
     }
 
     /// Returns a reference to the newest item (back) without removing it.
@@ -351,7 +351,7 @@ impl<T, const N: usize> SpscRing<T, N> {
         }
         let back = tail.wrapping_sub(1);
         // SAFETY: slot at back is initialized (tail > head guarantees it)
-        Some(unsafe { (*self.buf[back % N].get()).assume_init_ref() })
+        Some(unsafe { (*self.buf[back & (N - 1)].get()).assume_init_ref() })
     }
 
     /// Drain all items currently in the ring into a `Vec`, in FIFO order.
@@ -396,7 +396,7 @@ impl<T, const N: usize> SpscRing<T, N> {
         let len = tail.wrapping_sub(head);
         let mut out = Vec::with_capacity(len);
         for i in 0..len {
-            let slot = (head.wrapping_add(i)) % N;
+            let slot = head.wrapping_add(i) & (N - 1);
             // SAFETY: slots in [head, tail) are initialized
             let item = unsafe { (*self.buf[slot].get()).assume_init_ref() };
             out.push(item.clone());
@@ -433,9 +433,9 @@ impl<T, const N: usize> SpscRing<T, N> {
         if len == 0 {
             return None;
         }
-        let mut min_val = unsafe { (*self.buf[head % N].get()).assume_init_ref() }.clone();
+        let mut min_val = unsafe { (*self.buf[head & (N - 1)].get()).assume_init_ref() }.clone();
         for i in 1..len {
-            let slot = head.wrapping_add(i) % N;
+            let slot = head.wrapping_add(i) & (N - 1);
             let item = unsafe { (*self.buf[slot].get()).assume_init_ref() };
             if item < &min_val {
                 min_val = item.clone();
@@ -459,9 +459,9 @@ impl<T, const N: usize> SpscRing<T, N> {
         if len == 0 {
             return None;
         }
-        let mut max_val = unsafe { (*self.buf[head % N].get()).assume_init_ref() }.clone();
+        let mut max_val = unsafe { (*self.buf[head & (N - 1)].get()).assume_init_ref() }.clone();
         for i in 1..len {
-            let slot = head.wrapping_add(i) % N;
+            let slot = head.wrapping_add(i) & (N - 1);
             let item = unsafe { (*self.buf[slot].get()).assume_init_ref() };
             if item > &max_val {
                 max_val = item.clone();
@@ -484,7 +484,7 @@ impl<T, const N: usize> SpscRing<T, N> {
         let len = tail.wrapping_sub(head);
         let mut count = 0;
         for i in 0..len {
-            let slot = head.wrapping_add(i) % N;
+            let slot = head.wrapping_add(i) & (N - 1);
             // SAFETY: slots in [head, tail) are initialized
             let item = unsafe { (*self.buf[slot].get()).assume_init_ref() };
             if predicate(item) {
@@ -509,12 +509,11 @@ impl<T, const N: usize> SpscRing<T, N> {
         if n >= len {
             return None;
         }
-        let slot = head.wrapping_add(n) % N;
+        let slot = head.wrapping_add(n) & (N - 1);
         // SAFETY: slots in [head, tail) are initialized
         Some(unsafe { (*self.buf[slot].get()).assume_init_ref() }.clone())
     }
 
-    /// Mean of all elements in the ring as `f64`.
     /// Returns the element for which `key(element)` is minimum, cloned.
     ///
     /// Returns `None` if the ring is empty.
@@ -535,7 +534,7 @@ impl<T, const N: usize> SpscRing<T, N> {
         let mut best: Option<T> = None;
         let mut best_key: Option<K> = None;
         for i in 0..len {
-            let slot = head.wrapping_add(i) % N;
+            let slot = head.wrapping_add(i) & (N - 1);
             // SAFETY: slots in [head, tail) are initialized
             let item = unsafe { (*self.buf[slot].get()).assume_init_ref() }.clone();
             let k = key(&item);
@@ -567,7 +566,7 @@ impl<T, const N: usize> SpscRing<T, N> {
         let mut best: Option<T> = None;
         let mut best_key: Option<K> = None;
         for i in 0..len {
-            let slot = head.wrapping_add(i) % N;
+            let slot = head.wrapping_add(i) & (N - 1);
             // SAFETY: slots in [head, tail) are initialized
             let item = unsafe { (*self.buf[slot].get()).assume_init_ref() }.clone();
             let k = key(&item);
@@ -590,7 +589,7 @@ impl<T, const N: usize> SpscRing<T, N> {
         let tail = self.tail.load(Ordering::Acquire);
         let len = tail.wrapping_sub(head);
         for i in 0..len {
-            let slot = head.wrapping_add(i) % N;
+            let slot = head.wrapping_add(i) & (N - 1);
             // SAFETY: slots in [head, tail) are initialized
             let item = unsafe { (*self.buf[slot].get()).assume_init_ref() };
             if item == value {
@@ -600,6 +599,7 @@ impl<T, const N: usize> SpscRing<T, N> {
         false
     }
 
+    /// Arithmetic mean of all elements in the ring, as `f64`.
     ///
     /// Returns `None` if the ring is empty.
     ///
@@ -616,7 +616,7 @@ impl<T, const N: usize> SpscRing<T, N> {
         }
         let sum: f64 = (0..len)
             .map(|i| {
-                let slot = head.wrapping_add(i) % N;
+                let slot = head.wrapping_add(i) & (N - 1);
                 // SAFETY: slots in [head, tail) are initialized
                 unsafe { (*self.buf[slot].get()).assume_init_ref() }.clone().into()
             })
@@ -641,7 +641,7 @@ impl<T, const N: usize> SpscRing<T, N> {
         }
         (0..len)
             .map(|i| {
-                let slot = head.wrapping_add(i) % N;
+                let slot = head.wrapping_add(i) & (N - 1);
                 // SAFETY: slots in [head, tail) are initialized
                 unsafe { (*self.buf[slot].get()).assume_init_ref() }.clone()
             })

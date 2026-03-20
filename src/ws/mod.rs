@@ -50,11 +50,9 @@ impl WsStats {
     /// Average bytes per message: `total_bytes / total_messages`.
     ///
     /// Returns `None` if no messages have been received (avoids division by zero).
+    #[deprecated(since = "2.2.0", note = "Use `bytes_per_message()` instead")]
     pub fn avg_message_size(&self) -> Option<f64> {
-        if self.total_messages_received == 0 {
-            return None;
-        }
-        Some(self.total_bytes_received as f64 / self.total_messages_received as f64)
+        self.bytes_per_message()
     }
 
     /// Total bytes received expressed as mebibytes (MiB): `total_bytes / 1_048_576.0`.
@@ -91,11 +89,9 @@ impl WsStats {
     /// Average bytes per message received.
     ///
     /// Returns `None` if no messages have been received.
+    #[deprecated(since = "2.2.0", note = "Use `bytes_per_message()` instead")]
     pub fn avg_message_size_bytes(&self) -> Option<f64> {
-        if self.total_messages_received == 0 {
-            return None;
-        }
-        Some(self.total_bytes_received as f64 / self.total_messages_received as f64)
+        self.bytes_per_message()
     }
 
     /// Bits per second received over `elapsed_ms` (bytes × 8 / seconds).
@@ -129,6 +125,7 @@ impl WsStats {
     /// Average message size in bytes: alias for [`bytes_per_message`](Self::bytes_per_message).
     ///
     /// Returns `None` if no messages have been received yet.
+    #[deprecated(since = "2.2.0", note = "Use `bytes_per_message()` instead")]
     pub fn average_message_size_bytes(&self) -> Option<f64> {
         self.bytes_per_message()
     }
@@ -172,6 +169,7 @@ impl WsStats {
     /// Messages received per second over `elapsed_ms`: alias for `message_rate`.
     ///
     /// Returns `0.0` if `elapsed_ms` is zero.
+    #[deprecated(since = "2.2.0", note = "Use `message_rate()` instead")]
     pub fn message_density(&self, elapsed_ms: u64) -> f64 {
         self.message_rate(elapsed_ms)
     }
@@ -180,6 +178,7 @@ impl WsStats {
     ///
     /// Higher values indicate smaller, more "compressed" messages.
     /// Returns `None` if no bytes have been received.
+    #[deprecated(since = "2.2.0", note = "Use `efficiency_ratio()` instead")]
     pub fn compression_ratio(&self) -> Option<f64> {
         self.efficiency_ratio()
     }
