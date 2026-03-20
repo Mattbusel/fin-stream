@@ -518,10 +518,7 @@ impl HealthMonitor {
     /// Feeds start in `Unknown` state before the first heartbeat arrives.
     /// A non-zero count indicates feeds that have never been heard from.
     pub fn unknown_count(&self) -> usize {
-        self.feeds
-            .iter()
-            .filter(|e| e.status == HealthStatus::Unknown)
-            .count()
+        self.feeds_by_status(HealthStatus::Unknown).len()
     }
 
     /// Average tick count per registered feed.
