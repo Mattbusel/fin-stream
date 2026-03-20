@@ -1672,6 +1672,36 @@ mod tests {
         for v in [dec!(10), dec!(20), dec!(5), dec!(30)] { n.update(v); }
         assert!(!n.is_at_max(dec!(20)));
     }
+
+    // ── MinMaxNormalizer::fraction_above / fraction_below ─────────────────────
+
+    #[test]
+    fn test_minmax_fraction_above_none_for_empty_window() {
+        assert!(norm(3).fraction_above(dec!(5)).is_none());
+    }
+
+    #[test]
+    fn test_minmax_fraction_above_correct() {
+        let mut n = norm(5);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4), dec!(5)] { n.update(v); }
+        // above 3: {4, 5} = 2/5 = 0.4
+        let frac = n.fraction_above(dec!(3)).unwrap();
+        assert!((frac - 0.4).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_minmax_fraction_below_none_for_empty_window() {
+        assert!(norm(3).fraction_below(dec!(5)).is_none());
+    }
+
+    #[test]
+    fn test_minmax_fraction_below_correct() {
+        let mut n = norm(5);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4), dec!(5)] { n.update(v); }
+        // below 3: {1, 2} = 2/5 = 0.4
+        let frac = n.fraction_below(dec!(3)).unwrap();
+        assert!((frac - 0.4).abs() < 1e-9);
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -3694,5 +3724,35 @@ mod zscore_stability_tests {
         for v in [dec!(10), dec!(10), dec!(10), dec!(10), dec!(100)] { n.update(v); }
         // latest is 100, far from mean ~28; should be unstable
         assert!(!n.is_stable(1.0));
+    }
+
+    // ── ZScoreNormalizer::fraction_above / fraction_below ─────────────────────
+
+    #[test]
+    fn test_zscore_fraction_above_none_for_empty_window() {
+        assert!(znorm(3).fraction_above(dec!(5)).is_none());
+    }
+
+    #[test]
+    fn test_zscore_fraction_above_correct() {
+        let mut n = znorm(5);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4), dec!(5)] { n.update(v); }
+        // above 3: {4, 5} = 2/5 = 0.4
+        let frac = n.fraction_above(dec!(3)).unwrap();
+        assert!((frac - 0.4).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_zscore_fraction_below_none_for_empty_window() {
+        assert!(znorm(3).fraction_below(dec!(5)).is_none());
+    }
+
+    #[test]
+    fn test_zscore_fraction_below_correct() {
+        let mut n = znorm(5);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4), dec!(5)] { n.update(v); }
+        // below 3: {1, 2} = 2/5 = 0.4
+        let frac = n.fraction_below(dec!(3)).unwrap();
+        assert!((frac - 0.4).abs() < 1e-9);
     }
 }

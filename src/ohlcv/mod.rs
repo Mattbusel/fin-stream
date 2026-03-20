@@ -4962,4 +4962,81 @@ mod tests {
         let ratio = OhlcvBar::mean_body_ratio(&[b1, b2]).unwrap();
         assert!(ratio >= 0.0 && ratio <= 1.0);
     }
+
+    // ── OhlcvBar::volume_std_dev ──────────────────────────────────────────────
+
+    #[test]
+    fn test_volume_std_dev_none_for_single_bar() {
+        let mut b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        b.volume = dec!(100);
+        assert!(OhlcvBar::volume_std_dev(&[b]).is_none());
+    }
+
+    #[test]
+    fn test_volume_std_dev_zero_for_identical_volumes() {
+        let mut b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105)); b1.volume = dec!(50);
+        let mut b2 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105)); b2.volume = dec!(50);
+        assert_eq!(OhlcvBar::volume_std_dev(&[b1, b2]), Some(0.0));
+    }
+
+    #[test]
+    fn test_volume_std_dev_positive_for_varied_volumes() {
+        let mut b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105)); b1.volume = dec!(10);
+        let mut b2 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105)); b2.volume = dec!(100);
+        let std = OhlcvBar::volume_std_dev(&[b1, b2]).unwrap();
+        assert!(std > 0.0);
+    }
+
+    // ── OhlcvBar::max_volume_bar / min_volume_bar ─────────────────────────────
+
+    #[test]
+    fn test_max_volume_bar_none_for_empty_slice() {
+        assert!(OhlcvBar::max_volume_bar(&[]).is_none());
+    }
+
+    #[test]
+    fn test_max_volume_bar_returns_highest_volume() {
+        let mut b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105)); b1.volume = dec!(10);
+        let mut b2 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105)); b2.volume = dec!(100);
+        let bars = [b1, b2];
+        let bar = OhlcvBar::max_volume_bar(&bars).unwrap();
+        assert_eq!(bar.volume, dec!(100));
+    }
+
+    #[test]
+    fn test_min_volume_bar_returns_lowest_volume() {
+        let mut b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105)); b1.volume = dec!(10);
+        let mut b2 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105)); b2.volume = dec!(100);
+        let bars = [b1, b2];
+        let bar = OhlcvBar::min_volume_bar(&bars).unwrap();
+        assert_eq!(bar.volume, dec!(10));
+    }
+
+    // ── OhlcvBar::gap_sum ─────────────────────────────────────────────────────
+
+    #[test]
+    fn test_gap_sum_zero_for_empty_slice() {
+        assert_eq!(OhlcvBar::gap_sum(&[]), dec!(0));
+    }
+
+    #[test]
+    fn test_gap_sum_zero_for_single_bar() {
+        assert_eq!(OhlcvBar::gap_sum(&[make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105))]), dec!(0));
+    }
+
+    #[test]
+    fn test_gap_sum_positive_for_gap_up_sequence() {
+        // b1 close=100, b2 open=110 → gap = +10
+        let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100));
+        let b2 = make_ohlcv_bar(dec!(110), dec!(120), dec!(105), dec!(115));
+        assert_eq!(OhlcvBar::gap_sum(&[b1, b2]), dec!(10));
+    }
+
+    #[test]
+    fn test_gap_sum_negative_for_gap_down_sequence() {
+        // b1 close=100, b2 open=90 → gap = -10
+        let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100));
+        let b2 = make_ohlcv_bar(dec!(90), dec!(95), dec!(80), dec!(85));
+        assert_eq!(OhlcvBar::gap_sum(&[b1, b2]), dec!(-10));
+    }
 }

@@ -3468,4 +3468,66 @@ mod tests {
         let t2 = make_tick_pq(dec!(110), dec!(1));
         assert_eq!(NormalizedTick::last_price(&[t1, t2]), Some(dec!(110)));
     }
+
+    #[test]
+    fn test_longest_buy_streak_zero_for_empty() {
+        assert_eq!(NormalizedTick::longest_buy_streak(&[]), 0);
+    }
+
+    #[test]
+    fn test_longest_buy_streak_counts_consecutive_buys() {
+        use rust_decimal_macros::dec;
+        let mut b1 = make_tick_pq(dec!(100), dec!(1)); b1.side = Some(TradeSide::Buy);
+        let mut b2 = make_tick_pq(dec!(100), dec!(1)); b2.side = Some(TradeSide::Buy);
+        let mut s  = make_tick_pq(dec!(100), dec!(1)); s.side = Some(TradeSide::Sell);
+        let mut b3 = make_tick_pq(dec!(100), dec!(1)); b3.side = Some(TradeSide::Buy);
+        // streaks: [2, 1] → max = 2
+        assert_eq!(NormalizedTick::longest_buy_streak(&[b1, b2, s, b3]), 2);
+    }
+
+    #[test]
+    fn test_longest_sell_streak_zero_for_no_sells() {
+        use rust_decimal_macros::dec;
+        let mut b = make_tick_pq(dec!(100), dec!(1)); b.side = Some(TradeSide::Buy);
+        assert_eq!(NormalizedTick::longest_sell_streak(&[b]), 0);
+    }
+
+    #[test]
+    fn test_longest_sell_streak_correct() {
+        use rust_decimal_macros::dec;
+        let mut b  = make_tick_pq(dec!(100), dec!(1)); b.side = Some(TradeSide::Buy);
+        let mut s1 = make_tick_pq(dec!(100), dec!(1)); s1.side = Some(TradeSide::Sell);
+        let mut s2 = make_tick_pq(dec!(100), dec!(1)); s2.side = Some(TradeSide::Sell);
+        let mut s3 = make_tick_pq(dec!(100), dec!(1)); s3.side = Some(TradeSide::Sell);
+        assert_eq!(NormalizedTick::longest_sell_streak(&[b, s1, s2, s3]), 3);
+    }
+
+    #[test]
+    fn test_price_at_max_volume_none_for_empty() {
+        assert!(NormalizedTick::price_at_max_volume(&[]).is_none());
+    }
+
+    #[test]
+    fn test_price_at_max_volume_returns_dominant_price() {
+        use rust_decimal_macros::dec;
+        let t1 = make_tick_pq(dec!(100), dec!(1));
+        let t2 = make_tick_pq(dec!(200), dec!(5));
+        let t3 = make_tick_pq(dec!(200), dec!(3));
+        // price 200 has total vol 8 > price 100 vol 1
+        assert_eq!(NormalizedTick::price_at_max_volume(&[t1, t2, t3]), Some(dec!(200)));
+    }
+
+    #[test]
+    fn test_recent_volume_zero_for_empty_slice() {
+        assert_eq!(NormalizedTick::recent_volume(&[], 5), rust_decimal_macros::dec!(0));
+    }
+
+    #[test]
+    fn test_recent_volume_sums_last_n_ticks() {
+        use rust_decimal_macros::dec;
+        let ticks: Vec<_> = [dec!(1), dec!(2), dec!(3), dec!(4), dec!(5)]
+            .iter().map(|&q| make_tick_pq(dec!(100), q)).collect();
+        // last 3 ticks: qty 3+4+5 = 12
+        assert_eq!(NormalizedTick::recent_volume(&ticks, 3), dec!(12));
+    }
 }
