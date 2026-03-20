@@ -514,6 +514,11 @@ impl OhlcvBar {
         self.open < prev.low
     }
 
+    /// Absolute size of the candle body: `|close - open|`.
+    pub fn body_size(&self) -> Decimal {
+        (self.close - self.open).abs()
+    }
+
     /// High-low range as a percentage of the open price: `(high - low) / open * 100`.
     ///
     /// Returns `None` if open is zero.
@@ -2848,6 +2853,29 @@ mod tests {
         let bar = make_ohlcv_bar(dec!(100), dec!(100), dec!(100), dec!(100));
         let pct = bar.range_pct().unwrap();
         assert_eq!(pct, 0.0);
+    }
+
+    // ── OhlcvBar::body_size ──────────────────────────────────────────────────
+
+    #[test]
+    fn test_body_size_bullish_bar() {
+        // open=100, close=110 → body = 10
+        let bar = make_ohlcv_bar(dec!(100), dec!(115), dec!(95), dec!(110));
+        assert_eq!(bar.body_size(), dec!(10));
+    }
+
+    #[test]
+    fn test_body_size_bearish_bar() {
+        // open=110, close=100 → body = 10
+        let bar = make_ohlcv_bar(dec!(110), dec!(115), dec!(95), dec!(100));
+        assert_eq!(bar.body_size(), dec!(10));
+    }
+
+    #[test]
+    fn test_body_size_doji() {
+        // open == close → body = 0
+        let bar = make_ohlcv_bar(dec!(100), dec!(105), dec!(95), dec!(100));
+        assert_eq!(bar.body_size(), dec!(0));
     }
 
     // ── OhlcvBar::price_at_pct ───────────────────────────────────────────────

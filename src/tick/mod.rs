@@ -441,6 +441,11 @@ impl NormalizedTick {
         self.quantity.is_zero()
     }
 
+    /// Returns `true` if this tick's price deviates from `reference` by more than `threshold`.
+    pub fn is_away_from_price(&self, reference: Decimal, threshold: Decimal) -> bool {
+        (self.price - reference).abs() > threshold
+    }
+
     /// Returns `true` if this tick's quantity is strictly above `threshold`.
     pub fn is_large_tick(&self, threshold: Decimal) -> bool {
         self.quantity > threshold
@@ -1859,5 +1864,30 @@ mod tests {
         let mut tick = make_tick_at(0);
         tick.quantity = Decimal::from(1u32);
         assert!(!tick.is_large_tick(Decimal::from(5u32)));
+    }
+
+    // ── NormalizedTick::is_away_from_price ───────────────────────────────────
+
+    #[test]
+    fn test_is_away_from_price_true_when_beyond_threshold() {
+        let mut tick = make_tick_at(0);
+        tick.price = Decimal::from(110u32);
+        // |110 - 100| = 10 > 5
+        assert!(tick.is_away_from_price(Decimal::from(100u32), Decimal::from(5u32)));
+    }
+
+    #[test]
+    fn test_is_away_from_price_false_when_at_threshold() {
+        let mut tick = make_tick_at(0);
+        tick.price = Decimal::from(105u32);
+        // |105 - 100| = 5, not > 5
+        assert!(!tick.is_away_from_price(Decimal::from(100u32), Decimal::from(5u32)));
+    }
+
+    #[test]
+    fn test_is_away_from_price_false_when_equal() {
+        let mut tick = make_tick_at(0);
+        tick.price = Decimal::from(100u32);
+        assert!(!tick.is_away_from_price(Decimal::from(100u32), Decimal::from(1u32)));
     }
 }

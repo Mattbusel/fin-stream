@@ -207,6 +207,14 @@ impl MinMaxNormalizer {
         Some(max - min)
     }
 
+    /// Midpoint of the current window: `(min + max) / 2`.
+    ///
+    /// Returns `None` if the window is empty.
+    pub fn midpoint(&mut self) -> Option<Decimal> {
+        let (min, max) = self.min_max()?;
+        Some((min + max) / Decimal::TWO)
+    }
+
     /// Reset the normalizer, clearing all observations and the cache.
     pub fn reset(&mut self) {
         self.window.clear();
@@ -692,6 +700,31 @@ mod tests {
         assert_eq!(n.range(), Some(dec!(30))); // 40 - 10
     }
 
+    // ── MinMaxNormalizer::midpoint ────────────────────────────────────────────
+
+    #[test]
+    fn test_midpoint_none_when_empty() {
+        let mut n = norm(4);
+        assert!(n.midpoint().is_none());
+    }
+
+    #[test]
+    fn test_midpoint_correct() {
+        let mut n = norm(4);
+        for v in [dec!(10), dec!(20), dec!(30), dec!(40)] {
+            n.update(v);
+        }
+        // min=10, max=40 → midpoint = 25
+        assert_eq!(n.midpoint(), Some(dec!(25)));
+    }
+
+    #[test]
+    fn test_midpoint_single_value() {
+        let mut n = norm(4);
+        n.update(dec!(42));
+        assert_eq!(n.midpoint(), Some(dec!(42)));
+    }
+
     // ── MinMaxNormalizer::normalize_clamp ─────────────────────────────────────
 
     #[test]
@@ -964,6 +997,14 @@ impl ZScoreNormalizer {
         let mean = self.sum / n_dec;
         let v = (self.sum_sq / n_dec) - mean * mean;
         Some(if v < Decimal::ZERO { Decimal::ZERO } else { v })
+    }
+
+    /// Current window variance as `f64` (convenience wrapper around [`variance`](Self::variance)).
+    ///
+    /// Returns `None` if the window has fewer than 2 observations.
+    pub fn variance_f64(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        self.variance()?.to_f64()
     }
 
     /// Feed a slice of values into the window and return z-scores for each.
@@ -1908,5 +1949,28 @@ mod zscore_tests {
          .add_observation(dec!(2))
          .add_observation(dec!(3));
         assert_eq!(n.len(), 3);
+    }
+
+    // ── ZScoreNormalizer::variance_f64 ────────────────────────────────────────
+
+    #[test]
+    fn test_variance_f64_none_when_single_observation() {
+        let mut n = znorm(4);
+        n.update(dec!(5));
+        assert!(n.variance_f64().is_none());
+    }
+
+    #[test]
+    fn test_variance_f64_zero_when_all_same() {
+        let mut n = znorm(4);
+        for _ in 0..4 { n.update(dec!(5)); }
+        assert_eq!(n.variance_f64(), Some(0.0));
+    }
+
+    #[test]
+    fn test_variance_f64_positive_with_spread() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        assert!(n.variance_f64().unwrap() > 0.0);
     }
 }

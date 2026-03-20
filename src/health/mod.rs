@@ -669,6 +669,18 @@ impl HealthMonitor {
         self.feeds.iter().filter(|e| e.status == HealthStatus::Stale).count()
     }
 
+    /// Age in milliseconds of the most recently-ticked healthy feed at `now_ms`.
+    ///
+    /// Returns `None` if no healthy feeds have received a tick.
+    pub fn min_healthy_age_ms(&self, now_ms: u64) -> Option<u64> {
+        self.feeds
+            .iter()
+            .filter(|e| e.status == HealthStatus::Healthy)
+            .filter_map(|e| e.last_tick_ms)
+            .map(|t| now_ms.saturating_sub(t))
+            .min()
+    }
+
 }
 
 #[cfg(test)]
@@ -2005,5 +2017,27 @@ mod tests {
     fn test_degraded_count_zero_when_empty() {
         let m = HealthMonitor::new(5_000);
         assert_eq!(m.degraded_count(), 0);
+    }
+
+    // ── HealthMonitor::min_healthy_age_ms ────────────────────────────────────
+
+    #[test]
+    fn test_min_healthy_age_ms_none_when_no_healthy_feeds() {
+        let m = HealthMonitor::new(5_000);
+        m.register("A", None);
+        // No heartbeat → Unknown, not Healthy
+        assert!(m.min_healthy_age_ms(10_000).is_none());
+    }
+
+    #[test]
+    fn test_min_healthy_age_ms_returns_most_recent() {
+        let m = HealthMonitor::new(5_000);
+        m.register("A", None);
+        m.register("B", None);
+        m.heartbeat("A", 8_000).unwrap(); // 2s ago at now=10000
+        m.heartbeat("B", 9_000).unwrap(); // 1s ago at now=10000
+        m.check_all(10_000);
+        // B is more recent → min age = 1000ms
+        assert_eq!(m.min_healthy_age_ms(10_000), Some(1_000));
     }
 }
