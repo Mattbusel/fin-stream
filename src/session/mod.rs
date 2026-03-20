@@ -284,6 +284,12 @@ impl SessionAwareness {
         t >= market_close && t < post_close
     }
 
+    /// Returns `true` if the current time is in extended hours (pre-market or
+    /// after-hours) for `UsEquity`. Always `false` for other sessions.
+    pub fn is_extended_hours(&self, utc_ms: u64) -> bool {
+        self.is_pre_market(utc_ms) || self.is_after_hours(utc_ms)
+    }
+
     /// Return the UTC millisecond timestamp of the next time this session
     /// enters [`TradingStatus::Closed`] status.
     ///

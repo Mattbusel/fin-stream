@@ -267,6 +267,17 @@ impl HealthMonitor {
             .count()
     }
 
+    /// Fraction of registered feeds that are currently stale, in `[0.0, 1.0]`.
+    ///
+    /// Returns `0.0` when no feeds are registered.
+    pub fn stale_ratio(&self) -> f64 {
+        let total = self.feeds.len();
+        if total == 0 {
+            return 0.0;
+        }
+        self.stale_count() as f64 / total as f64
+    }
+
     /// Number of feeds currently in the [`HealthStatus::Stale`] state.
     pub fn stale_count(&self) -> usize {
         self.feeds

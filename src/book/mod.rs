@@ -497,6 +497,16 @@ impl OrderBook {
         (spread / mid * Decimal::from(100)).to_f64()
     }
 
+    /// Returns `true` if the bid-ask spread is at or below `threshold`.
+    ///
+    /// Returns `false` when either side is empty (no spread to compare).
+    pub fn is_tight_spread(&self, threshold: Decimal) -> bool {
+        match self.spread() {
+            Some(s) => s <= threshold,
+            None => false,
+        }
+    }
+
     /// Total number of price levels across both sides of the book.
     ///
     /// Equivalent to `bid_depth() + ask_depth()`.

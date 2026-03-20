@@ -266,6 +266,14 @@ impl LorentzTransform {
         Ok((1.0 - 1.0 / (gamma * gamma)).sqrt())
     }
 
+    /// Rapidity: `φ = atanh(β)`.
+    ///
+    /// Unlike velocity, rapidities add linearly under boosts:
+    /// `φ_total = φ_1 + φ_2`.
+    pub fn rapidity(&self) -> f64 {
+        self.beta.atanh()
+    }
+
     /// Proper velocity: `w = β × γ`.
     ///
     /// Unlike coordinate velocity `β`, proper velocity is unbounded and

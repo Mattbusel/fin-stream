@@ -994,6 +994,29 @@ impl ZScoreNormalizer {
     pub fn running_max(&self) -> Option<Decimal> {
         self.window.iter().copied().reduce(Decimal::max)
     }
+
+    /// Range of values in the current window: `running_max − running_min`.
+    ///
+    /// Returns `None` when the window is empty.
+    pub fn window_range(&self) -> Option<Decimal> {
+        let min = self.running_min()?;
+        let max = self.running_max()?;
+        Some(max - min)
+    }
+
+    /// Coefficient of variation: `std_dev / |mean|`.
+    ///
+    /// A dimensionless measure of relative dispersion. Returns `None` when the
+    /// window has fewer than 2 observations or when the mean is zero.
+    pub fn coefficient_of_variation(&self) -> Option<f64> {
+        let mean = self.mean()?;
+        if mean.is_zero() {
+            return None;
+        }
+        let std_dev = self.std_dev()?;
+        let mean_f = mean.abs().to_f64()?;
+        Some(std_dev / mean_f)
+    }
 }
 
 #[cfg(test)]
@@ -1267,5 +1290,48 @@ mod zscore_tests {
         }
         let sd = n.std_dev().unwrap();
         assert!((sd - 2.0).abs() < 1e-6, "expected ~2.0 got {sd}");
+    }
+
+    // --- window_range / coefficient_of_variation ---
+
+    #[test]
+    fn test_window_range_none_when_empty() {
+        let n = znorm(5);
+        assert!(n.window_range().is_none());
+    }
+
+    #[test]
+    fn test_window_range_correct_value() {
+        let mut n = znorm(5);
+        n.update(dec!(10));
+        n.update(dec!(20));
+        n.update(dec!(15));
+        // max=20, min=10 → range=10
+        assert_eq!(n.window_range().unwrap(), dec!(10));
+    }
+
+    #[test]
+    fn test_coefficient_of_variation_none_when_empty() {
+        let n = znorm(5);
+        assert!(n.coefficient_of_variation().is_none());
+    }
+
+    #[test]
+    fn test_coefficient_of_variation_none_when_mean_zero() {
+        let mut n = znorm(5);
+        n.update(dec!(-5));
+        n.update(dec!(5)); // mean = 0
+        assert!(n.coefficient_of_variation().is_none());
+    }
+
+    #[test]
+    fn test_coefficient_of_variation_positive_for_nonzero_mean() {
+        let mut n = znorm(8);
+        for v in [dec!(2), dec!(4), dec!(4), dec!(4), dec!(5), dec!(5), dec!(7), dec!(9)] {
+            n.update(v);
+        }
+        // mean = 5, std_dev = 2, cv = 2/5 = 0.4
+        let cv = n.coefficient_of_variation().unwrap();
+        assert!((cv - 0.4).abs() < 1e-5, "expected ~0.4 got {cv}");
     }
 }
