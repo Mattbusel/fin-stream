@@ -207,6 +207,20 @@ impl From<fin_primitives::error::FinError> for StreamError {
 }
 
 impl StreamError {
+    /// Returns `true` for errors that originate in the order book subsystem.
+    ///
+    /// Book errors indicate structural problems with the market data feed
+    /// (sequence gaps, crossed books, failed reconstruction) that typically
+    /// require a book reset or feed reconnection to resolve.
+    pub fn is_book_error(&self) -> bool {
+        matches!(
+            self,
+            StreamError::SequenceGap { .. }
+                | StreamError::BookCrossed { .. }
+                | StreamError::BookReconstructionFailed { .. }
+        )
+    }
+
     /// Returns `true` for errors that are transient and worth retrying.
     ///
     /// Transient errors arise from external conditions (network drops, full

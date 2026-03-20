@@ -83,6 +83,27 @@ impl BookDelta {
     }
 }
 
+impl std::fmt::Display for BookDelta {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let side = match self.side {
+            BookSide::Bid => "Bid",
+            BookSide::Ask => "Ask",
+        };
+        match self.sequence {
+            Some(seq) => write!(
+                f,
+                "{} {} {} x {} seq={}",
+                self.symbol, side, self.price, self.quantity, seq
+            ),
+            None => write!(
+                f,
+                "{} {} {} x {}",
+                self.symbol, side, self.price, self.quantity
+            ),
+        }
+    }
+}
+
 /// Live order book for a single symbol.
 pub struct OrderBook {
     symbol: String,
@@ -233,6 +254,16 @@ impl OrderBook {
     /// Returns `true` if an ask level exists at exactly `price`.
     pub fn contains_ask(&self, price: Decimal) -> bool {
         self.asks.contains_key(&price)
+    }
+
+    /// Returns the resting quantity at `price` on the bid side, or `None` if absent.
+    pub fn volume_at_bid(&self, price: Decimal) -> Option<Decimal> {
+        self.bids.get(&price).copied()
+    }
+
+    /// Returns the resting quantity at `price` on the ask side, or `None` if absent.
+    pub fn volume_at_ask(&self, price: Decimal) -> Option<Decimal> {
+        self.asks.get(&price).copied()
     }
 
     /// Top N bids (descending by price).
@@ -567,5 +598,60 @@ mod tests {
         assert_eq!(d2.symbol, "BTC-USD");
         assert_eq!(d2.price, dec!(50000));
         assert_eq!(d2.sequence, Some(42));
+    }
+
+    #[test]
+    fn test_volume_at_bid_present() {
+        let mut b = book("BTC-USD");
+        b.apply(delta("BTC-USD", BookSide::Bid, dec!(50000), dec!(3)))
+            .unwrap();
+        assert_eq!(b.volume_at_bid(dec!(50000)), Some(dec!(3)));
+        assert_eq!(b.volume_at_bid(dec!(49999)), None);
+    }
+
+    #[test]
+    fn test_volume_at_ask_present() {
+        let mut b = book("BTC-USD");
+        b.apply(delta("BTC-USD", BookSide::Ask, dec!(50100), dec!(5)))
+            .unwrap();
+        assert_eq!(b.volume_at_ask(dec!(50100)), Some(dec!(5)));
+        assert_eq!(b.volume_at_ask(dec!(50200)), None);
+    }
+
+    #[test]
+    fn test_book_delta_display_with_sequence() {
+        let d = BookDelta::new("BTC-USD", BookSide::Bid, dec!(50000), dec!(1))
+            .with_sequence(42);
+        let s = d.to_string();
+        assert!(s.contains("BTC-USD"));
+        assert!(s.contains("Bid"));
+        assert!(s.contains("seq=42"));
+    }
+
+    #[test]
+    fn test_book_delta_display_without_sequence() {
+        let d = BookDelta::new("ETH-USD", BookSide::Ask, dec!(3000), dec!(2));
+        let s = d.to_string();
+        assert!(s.contains("ETH-USD"));
+        assert!(s.contains("Ask"));
+        assert!(!s.contains("seq="));
+    }
+
+    #[test]
+    fn test_snapshot_bids_descending_asks_ascending() {
+        let mut b = book("BTC-USD");
+        b.apply(delta("BTC-USD", BookSide::Bid, dec!(49800), dec!(1)))
+            .unwrap();
+        b.apply(delta("BTC-USD", BookSide::Bid, dec!(50000), dec!(2)))
+            .unwrap();
+        b.apply(delta("BTC-USD", BookSide::Ask, dec!(50200), dec!(1)))
+            .unwrap();
+        b.apply(delta("BTC-USD", BookSide::Ask, dec!(50100), dec!(3)))
+            .unwrap();
+        let (bids, asks) = b.snapshot();
+        assert_eq!(bids[0].price, dec!(50000));
+        assert_eq!(bids[1].price, dec!(49800));
+        assert_eq!(asks[0].price, dec!(50100));
+        assert_eq!(asks[1].price, dec!(50200));
     }
 }

@@ -132,6 +132,32 @@ impl std::fmt::Display for TradeSide {
     }
 }
 
+impl TradeSide {
+    /// Returns `true` if this side is [`TradeSide::Buy`].
+    pub fn is_buy(self) -> bool {
+        self == TradeSide::Buy
+    }
+
+    /// Returns `true` if this side is [`TradeSide::Sell`].
+    pub fn is_sell(self) -> bool {
+        self == TradeSide::Sell
+    }
+}
+
+impl std::fmt::Display for NormalizedTick {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let side = match self.side {
+            Some(s) => s.to_string(),
+            None => "?".to_string(),
+        };
+        write!(
+            f,
+            "{} {} {} x {} {} @{}ms",
+            self.exchange, self.symbol, self.price, self.quantity, side, self.received_at_ms
+        )
+    }
+}
+
 /// Normalizes raw ticks from any supported exchange into [`NormalizedTick`] form.
 ///
 /// `TickNormalizer` is stateless and cheap to clone; a single instance can be
@@ -567,5 +593,26 @@ mod tests {
         };
         let tick = normalizer().normalize(raw).unwrap();
         assert_eq!(tick.quantity, Decimal::ZERO);
+    }
+
+    #[test]
+    fn test_trade_side_is_buy() {
+        assert!(TradeSide::Buy.is_buy());
+        assert!(!TradeSide::Buy.is_sell());
+    }
+
+    #[test]
+    fn test_trade_side_is_sell() {
+        assert!(TradeSide::Sell.is_sell());
+        assert!(!TradeSide::Sell.is_buy());
+    }
+
+    #[test]
+    fn test_normalized_tick_display() {
+        let tick = normalizer().normalize(binance_tick("BTCUSDT")).unwrap();
+        let s = tick.to_string();
+        assert!(s.contains("Binance"));
+        assert!(s.contains("BTCUSDT"));
+        assert!(s.contains("50000"));
     }
 }

@@ -199,6 +199,27 @@ impl MinMaxNormalizer {
     pub fn window_size(&self) -> usize {
         self.window_size
     }
+
+    /// Feed a slice of values into the window and return normalized forms of each.
+    ///
+    /// Each value in `values` is first passed through [`update`](Self::update) to
+    /// advance the rolling window, then normalized against the current window state.
+    /// The output has the same length as `values`.
+    ///
+    /// # Errors
+    /// Propagates the first [`StreamError`] returned by [`normalize`](Self::normalize).
+    pub fn normalize_batch(
+        &mut self,
+        values: &[rust_decimal::Decimal],
+    ) -> Result<Vec<f64>, crate::error::StreamError> {
+        values
+            .iter()
+            .map(|&v| {
+                self.update(v);
+                self.normalize(v)
+            })
+            .collect()
+    }
 }
 
 #[cfg(test)]

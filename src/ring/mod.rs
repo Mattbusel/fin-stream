@@ -181,6 +181,20 @@ impl<T, const N: usize> SpscRing<T, N> {
         Ok(item)
     }
 
+    /// Push an item, silently dropping it and returning `false` if the buffer is full.
+    ///
+    /// Unlike [`push`](Self::push), this never returns an error — it accepts data loss
+    /// under backpressure. Suitable for non-critical metrics or telemetry where
+    /// occasional drops are preferable to blocking or erroring.
+    ///
+    /// Returns `true` if the item was enqueued, `false` if it was dropped.
+    ///
+    /// # Complexity: O(1), allocation-free.
+    #[inline]
+    pub fn try_push_or_drop(&self, item: T) -> bool {
+        self.push(item).is_ok()
+    }
+
     /// Drain all items currently in the ring into a `Vec`, in FIFO order.
     ///
     /// Only safe to call when no producer/consumer pair is active (i.e., before
@@ -265,6 +279,14 @@ impl<T, const N: usize> SpscProducer<T, N> {
     #[inline]
     pub fn push(&self, item: T) -> Result<(), StreamError> {
         self.inner.push(item)
+    }
+
+    /// Push an item, silently dropping it if the ring is full. See [`SpscRing::try_push_or_drop`].
+    ///
+    /// Returns `true` if enqueued, `false` if dropped.
+    #[inline]
+    pub fn try_push_or_drop(&self, item: T) -> bool {
+        self.inner.try_push_or_drop(item)
     }
 
     /// Returns `true` if the ring is full.

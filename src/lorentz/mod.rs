@@ -202,6 +202,22 @@ impl LorentzTransform {
         self.gamma * x
     }
 
+    /// Computes the Lorentz-invariant spacetime interval between two events.
+    ///
+    /// The interval is defined as `ds² = (Δt)² - (Δx)²` (signature `+−`).
+    /// A positive result means the separation is time-like; negative means space-like;
+    /// zero means light-like (the events could be connected by a photon).
+    ///
+    /// This quantity is invariant under Lorentz boosts — `apply(p1)` and `apply(p2)`
+    /// will yield the same interval as `p1` and `p2` directly.
+    ///
+    /// # Complexity: O(1)
+    pub fn spacetime_interval(p1: SpacetimePoint, p2: SpacetimePoint) -> f64 {
+        let dt = p2.t - p1.t;
+        let dx = p2.x - p1.x;
+        dt * dt - dx * dx
+    }
+
     /// Compose two Lorentz boosts into a single equivalent boost.
     ///
     /// Uses the relativistic velocity addition formula:
