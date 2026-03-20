@@ -1273,7 +1273,8 @@ mod tests {
     fn test_minmax_sample_variance_larger_than_population_variance() {
         let mut n = norm(4);
         for v in [dec!(10), dec!(20), dec!(30), dec!(40)] { n.update(v); }
-        let pop_var = n.variance().unwrap().to_string().parse::<f64>().unwrap();
+        use rust_decimal::prelude::ToPrimitive;
+        let pop_var = n.variance().unwrap().to_f64().unwrap();
         let sample_var = n.sample_variance().unwrap();
         assert!(sample_var > pop_var, "sample variance should exceed population variance");
     }
@@ -2065,6 +2066,35 @@ impl ZScoreNormalizer {
             alpha * vf + (1.0 - alpha) * acc
         });
         Some(result)
+    }
+
+    /// Fraction of window values strictly above the midpoint between the
+    /// running minimum and maximum.
+    ///
+    /// Returns `None` if the window is empty or min == max.
+    pub fn fraction_above_mid(&self) -> Option<f64> {
+        let lo = self.running_min()?;
+        let hi = self.running_max()?;
+        if lo == hi {
+            return None;
+        }
+        let mid = (lo + hi) / Decimal::from(2u64);
+        let above = self.window.iter().filter(|&&v| v > mid).count();
+        Some(above as f64 / self.window.len() as f64)
+    }
+
+    /// Ratio of the window span (max − min) to the mean.
+    ///
+    /// Returns `None` if the window is empty, has fewer than 2 elements,
+    /// or the mean is zero.
+    pub fn normalized_range(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let span = self.window_range()?;
+        let mean = self.mean()?;
+        if mean.is_zero() {
+            return None;
+        }
+        (span / mean).to_f64()
     }
 }
 
@@ -3092,5 +3122,49 @@ mod zscore_stability_tests {
         for v in [dec!(10), dec!(20), dec!(30), dec!(100)] { n.update(v); }
         let ewma = n.ewma(1.0).unwrap();
         assert!((ewma - 100.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_zscore_fraction_above_mid_none_for_empty_window() {
+        let n = znorm(3);
+        assert!(n.fraction_above_mid().is_none());
+    }
+
+    #[test]
+    fn test_zscore_fraction_above_mid_none_when_all_equal() {
+        let mut n = znorm(3);
+        for _ in 0..3 { n.update(dec!(5)); }
+        assert!(n.fraction_above_mid().is_none());
+    }
+
+    #[test]
+    fn test_zscore_fraction_above_mid_half_above() {
+        let mut n = znorm(4);
+        for v in [dec!(0), dec!(10), dec!(6), dec!(4)] { n.update(v); }
+        // mid = (0+10)/2 = 5; above 5: 10 and 6 → 2/4 = 0.5
+        let frac = n.fraction_above_mid().unwrap();
+        assert!((frac - 0.5).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_zscore_normalized_range_none_for_empty_window() {
+        let n = znorm(3);
+        assert!(n.normalized_range().is_none());
+    }
+
+    #[test]
+    fn test_zscore_normalized_range_zero_for_uniform_window() {
+        let mut n = znorm(3);
+        for _ in 0..3 { n.update(dec!(10)); }
+        assert_eq!(n.normalized_range(), Some(0.0));
+    }
+
+    #[test]
+    fn test_zscore_normalized_range_positive_for_varying_window() {
+        let mut n = znorm(3);
+        for v in [dec!(8), dec!(10), dec!(12)] { n.update(v); }
+        // span = 12 - 8 = 4, mean = 10, ratio = 0.4
+        let nr = n.normalized_range().unwrap();
+        assert!((nr - 0.4).abs() < 1e-9);
     }
 }
