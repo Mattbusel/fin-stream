@@ -526,6 +526,60 @@ impl MinMaxNormalizer {
         Some(kurt)
     }
 
+    /// Median of the current window values, or `None` if the window is empty.
+    ///
+    /// For an even-length window the median is the mean of the two middle values.
+    pub fn median(&self) -> Option<Decimal> {
+        if self.window.is_empty() {
+            return None;
+        }
+        let mut sorted: Vec<Decimal> = self.window.iter().copied().collect();
+        sorted.sort();
+        let n = sorted.len();
+        if n % 2 == 1 {
+            Some(sorted[n / 2])
+        } else {
+            Some((sorted[n / 2 - 1] + sorted[n / 2]) / Decimal::from(2u64))
+        }
+    }
+
+    /// Bessel-corrected (sample) variance of the window — divides by `n − 1`.
+    ///
+    /// Returns `None` for fewer than 2 observations.
+    pub fn sample_variance(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let n = self.window.len();
+        if n < 2 {
+            return None;
+        }
+        let mean = self.mean()?.to_f64()?;
+        let sum_sq: f64 = self.window.iter()
+            .filter_map(|v| v.to_f64())
+            .map(|v| (v - mean).powi(2))
+            .sum();
+        Some(sum_sq / (n - 1) as f64)
+    }
+
+    /// Median absolute deviation (MAD) of the window.
+    ///
+    /// Returns `None` if the window is empty.
+    pub fn mad(&self) -> Option<Decimal> {
+        let med = self.median()?;
+        let mut deviations: Vec<Decimal> = self.window.iter()
+            .map(|&v| {
+                let d = v - med;
+                if d < Decimal::ZERO { -d } else { d }
+            })
+            .collect();
+        deviations.sort();
+        let n = deviations.len();
+        if n % 2 == 1 {
+            Some(deviations[n / 2])
+        } else {
+            Some((deviations[n / 2 - 1] + deviations[n / 2]) / Decimal::from(2u64))
+        }
+    }
+
     /// The most recently added value, or `None` if the window is empty.
     pub fn latest(&self) -> Option<Decimal> {
         self.window.back().copied()
@@ -1141,6 +1195,69 @@ mod tests {
         }
         let k = n.kurtosis().unwrap();
         assert!(k < 0.0, "uniform distribution should have negative excess kurtosis, got {k}");
+    }
+
+    // ── MinMaxNormalizer::median ──────────────────────────────────────────────
+
+    #[test]
+    fn test_minmax_median_none_for_empty_window() {
+        assert!(norm(4).median().is_none());
+    }
+
+    #[test]
+    fn test_minmax_median_odd_window() {
+        let mut n = norm(5);
+        for v in [dec!(3), dec!(1), dec!(5), dec!(2), dec!(4)] { n.update(v); }
+        // sorted: [1, 2, 3, 4, 5] → median = 3
+        assert_eq!(n.median(), Some(dec!(3)));
+    }
+
+    #[test]
+    fn test_minmax_median_even_window() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        // sorted: [1, 2, 3, 4] → median = (2+3)/2 = 2.5
+        assert_eq!(n.median(), Some(dec!(2.5)));
+    }
+
+    // ── MinMaxNormalizer::sample_variance ─────────────────────────────────────
+
+    #[test]
+    fn test_minmax_sample_variance_none_for_single_obs() {
+        let mut n = norm(4);
+        n.update(dec!(10));
+        assert!(n.sample_variance().is_none());
+    }
+
+    #[test]
+    fn test_minmax_sample_variance_larger_than_population_variance() {
+        let mut n = norm(4);
+        for v in [dec!(10), dec!(20), dec!(30), dec!(40)] { n.update(v); }
+        let pop_var = n.variance().unwrap().to_string().parse::<f64>().unwrap();
+        let sample_var = n.sample_variance().unwrap();
+        assert!(sample_var > pop_var, "sample variance should exceed population variance");
+    }
+
+    // ── MinMaxNormalizer::mad ─────────────────────────────────────────────────
+
+    #[test]
+    fn test_minmax_mad_none_for_empty_window() {
+        assert!(norm(4).mad().is_none());
+    }
+
+    #[test]
+    fn test_minmax_mad_zero_for_identical_values() {
+        let mut n = norm(4);
+        for _ in 0..4 { n.update(dec!(5)); }
+        assert_eq!(n.mad(), Some(dec!(0)));
+    }
+
+    #[test]
+    fn test_minmax_mad_correct_for_known_distribution() {
+        let mut n = norm(5);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4), dec!(5)] { n.update(v); }
+        // median = 3; deviations = [2,1,0,1,2] sorted → [0,1,1,2,2]; MAD = 1
+        assert_eq!(n.mad(), Some(dec!(1)));
     }
 }
 
