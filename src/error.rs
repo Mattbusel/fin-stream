@@ -563,6 +563,16 @@ impl StreamError {
         )
     }
 
+    /// Returns `true` if this is a normalization or aggregation error.
+    pub fn is_normalization_error(&self) -> bool {
+        matches!(self, StreamError::NormalizationError { .. })
+    }
+
+    /// Returns `true` if this is an aggregation error.
+    pub fn is_agg_error(&self) -> bool {
+        matches!(self, StreamError::AggregationError { .. })
+    }
+
 }
 
 #[cfg(test)]

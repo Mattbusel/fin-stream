@@ -1208,6 +1208,23 @@ impl ZScoreNormalizer {
         if std == 0.0 { return None; }
         Some((v - *ema_mean) / std)
     }
+
+    /// Z-score of the most recently added value.
+    ///
+    /// Returns `None` if the window is empty or std-dev is zero.
+    pub fn z_score_of_latest(&self) -> Option<f64> {
+        let latest = self.latest()?;
+        self.normalize(latest).ok()
+    }
+
+    /// Signed deviation of `value` from the window mean, as `f64`.
+    ///
+    /// Returns `None` if the window is empty.
+    pub fn deviation_from_mean(&self, value: Decimal) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let mean = self.mean()?.to_f64()?;
+        value.to_f64().map(|v| v - mean)
+    }
 }
 
 #[cfg(test)]

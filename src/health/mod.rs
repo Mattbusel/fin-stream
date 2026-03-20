@@ -359,6 +359,19 @@ impl HealthMonitor {
         })
     }
 
+    /// Fraction of known (non-unknown) feeds that are stale.
+    ///
+    /// Excludes feeds in `Unknown` state from the denominator.
+    /// Returns `0.0` when no non-unknown feeds are registered.
+    pub fn stale_ratio_excluding_unknown(&self) -> f64 {
+        let known: Vec<_> = self.feeds.iter()
+            .filter(|e| e.status != HealthStatus::Unknown)
+            .collect();
+        if known.is_empty() { return 0.0; }
+        let stale = known.iter().filter(|e| e.status == HealthStatus::Stale).count();
+        stale as f64 / known.len() as f64
+    }
+
     /// Feed identifiers that are currently in [`HealthStatus::Healthy`] state.
     ///
     /// Returns a sorted list of IDs. Complement of

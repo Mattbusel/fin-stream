@@ -162,6 +162,21 @@ impl WsStats {
         Some(self.total_messages_received as f64 / self.total_bytes_received as f64)
     }
 
+    /// Messages received per second over `elapsed_ms`: alias for `message_rate`.
+    ///
+    /// Returns `0.0` if `elapsed_ms` is zero.
+    pub fn message_density(&self, elapsed_ms: u64) -> f64 {
+        self.message_rate(elapsed_ms)
+    }
+
+    /// Ratio of messages to bytes: useful as a compression proxy.
+    ///
+    /// Higher values indicate smaller, more "compressed" messages.
+    /// Returns `None` if no bytes have been received.
+    pub fn compression_ratio(&self) -> Option<f64> {
+        self.efficiency_ratio()
+    }
+
 }
 
 /// Reconnection policy for a WebSocket feed.

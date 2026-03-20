@@ -604,6 +604,13 @@ impl SessionAwareness {
         }
     }
 
+    /// Fraction of the session remaining: `1.0 - session_progress`.
+    ///
+    /// Returns `None` if the session is not open.
+    pub fn fraction_remaining(&self, utc_ms: u64) -> Option<f64> {
+        self.session_progress(utc_ms).map(|p| 1.0 - p)
+    }
+
     /// Minutes elapsed since the most recent session close.
     ///
     /// Returns `0.0` if the session is currently open or the last close

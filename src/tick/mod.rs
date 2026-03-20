@@ -422,6 +422,25 @@ impl NormalizedTick {
         self.notional_value() > threshold
     }
 
+    /// Returns `true` if this tick is on the buy side.
+    ///
+    /// Returns `false` if the side is `Sell` or `None`.
+    pub fn is_buy_side(&self) -> bool {
+        self.side == Some(TradeSide::Buy)
+    }
+
+    /// Returns `true` if this tick is on the sell side.
+    ///
+    /// Returns `false` if the side is `Buy` or `None`.
+    pub fn is_sell_side(&self) -> bool {
+        self.side == Some(TradeSide::Sell)
+    }
+
+    /// Returns `true` if this tick's price is within `[low, high]` (inclusive).
+    pub fn price_in_range(&self, low: Decimal, high: Decimal) -> bool {
+        self.price >= low && self.price <= high
+    }
+
     /// Price rounded down to the nearest multiple of `tick_size`.
     ///
     /// Returns the original price if `tick_size` is zero.

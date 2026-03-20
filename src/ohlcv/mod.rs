@@ -504,6 +504,18 @@ impl OhlcvBar {
         self.high < prev.high && self.low > prev.low
     }
 
+    /// Returns `true` if this bar is an outside bar (engulfs `prev`'s range).
+    ///
+    /// An outside bar has a higher high AND lower low than the previous bar.
+    pub fn is_outside_bar(&self, prev: &OhlcvBar) -> bool {
+        self.high > prev.high && self.low < prev.low
+    }
+
+    /// Midpoint of the high-low range: `(high + low) / 2`.
+    pub fn high_low_midpoint(&self) -> Decimal {
+        (self.high + self.low) / Decimal::TWO
+    }
+
     /// Classifies this bar as `"bullish"`, `"bearish"`, or `"doji"`.
     ///
     /// A doji is a bar whose body is zero (open equals close). Otherwise the
