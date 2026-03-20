@@ -987,6 +987,45 @@ impl MinMaxNormalizer {
         Some(-std::f64::consts::LN_2 / lambda)
     }
 
+    /// Geometric mean of the window values.
+    ///
+    /// `exp(mean(ln(v_i)))`. Returns `None` if the window is empty or any
+    /// value is non-positive.
+    pub fn geometric_mean(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() {
+            return None;
+        }
+        let logs: Vec<f64> = self.window.iter()
+            .filter_map(|v| v.to_f64())
+            .filter_map(|f| if f > 0.0 { Some(f.ln()) } else { None })
+            .collect();
+        if logs.len() != self.window.len() {
+            return None;
+        }
+        Some((logs.iter().sum::<f64>() / logs.len() as f64).exp())
+    }
+
+    /// Harmonic mean of the window values.
+    ///
+    /// `n / sum(1/v_i)`. Returns `None` if the window is empty or any value
+    /// is zero.
+    pub fn harmonic_mean(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() {
+            return None;
+        }
+        let reciprocals: Vec<f64> = self.window.iter()
+            .filter_map(|v| v.to_f64())
+            .filter_map(|f| if f != 0.0 { Some(1.0 / f) } else { None })
+            .collect();
+        if reciprocals.len() != self.window.len() {
+            return None;
+        }
+        let n = reciprocals.len() as f64;
+        Some(n / reciprocals.iter().sum::<f64>())
+    }
+
 }
 
 #[cfg(test)]
@@ -2371,6 +2410,44 @@ mod tests {
         // May or may not return Some depending on AR coefficient sign; just ensure no panic
         let _ = n.half_life_estimate();
     }
+
+    // ── MinMaxNormalizer::geometric_mean ──────────────────────────────────────
+
+    #[test]
+    fn test_minmax_geometric_mean_none_for_empty() {
+        assert!(norm(4).geometric_mean().is_none());
+    }
+
+    #[test]
+    fn test_minmax_geometric_mean_correct_for_powers_of_2() {
+        // geomean(1,2,4,8) = (1*2*4*8)^(1/4) = 64^0.25 = 2.828...
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(4), dec!(8)] { n.update(v); }
+        let gm = n.geometric_mean().unwrap();
+        assert!((gm - 64.0f64.powf(0.25)).abs() < 1e-6, "got {}", gm);
+    }
+
+    // ── MinMaxNormalizer::harmonic_mean ───────────────────────────────────────
+
+    #[test]
+    fn test_minmax_harmonic_mean_none_for_empty() {
+        assert!(norm(4).harmonic_mean().is_none());
+    }
+
+    #[test]
+    fn test_minmax_harmonic_mean_none_when_any_zero() {
+        let mut n = norm(2);
+        n.update(dec!(0)); n.update(dec!(5));
+        assert!(n.harmonic_mean().is_none());
+    }
+
+    #[test]
+    fn test_minmax_harmonic_mean_positive_for_positive_values() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let hm = n.harmonic_mean().unwrap();
+        assert!(hm > 0.0 && hm < 4.0, "HM should be in (0, max), got {}", hm);
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -3420,6 +3497,45 @@ impl ZScoreNormalizer {
             return None;
         }
         Some(-std::f64::consts::LN_2 / lambda)
+    }
+
+    /// Geometric mean of the window values.
+    ///
+    /// `exp(mean(ln(v_i)))`. Returns `None` if the window is empty or any
+    /// value is non-positive.
+    pub fn geometric_mean(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() {
+            return None;
+        }
+        let logs: Vec<f64> = self.window.iter()
+            .filter_map(|v| v.to_f64())
+            .filter_map(|f| if f > 0.0 { Some(f.ln()) } else { None })
+            .collect();
+        if logs.len() != self.window.len() {
+            return None;
+        }
+        Some((logs.iter().sum::<f64>() / logs.len() as f64).exp())
+    }
+
+    /// Harmonic mean of the window values.
+    ///
+    /// `n / sum(1/v_i)`. Returns `None` if the window is empty or any value
+    /// is zero.
+    pub fn harmonic_mean(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() {
+            return None;
+        }
+        let reciprocals: Vec<f64> = self.window.iter()
+            .filter_map(|v| v.to_f64())
+            .filter_map(|f| if f != 0.0 { Some(1.0 / f) } else { None })
+            .collect();
+        if reciprocals.len() != self.window.len() {
+            return None;
+        }
+        let n = reciprocals.len() as f64;
+        Some(n / reciprocals.iter().sum::<f64>())
     }
 
 }
@@ -5116,5 +5232,35 @@ mod zscore_stability_tests {
         let mut n = znorm(6);
         for v in [dec!(10), dec!(5), dec!(10), dec!(5), dec!(10), dec!(5)] { n.update(v); }
         let _ = n.half_life_estimate();
+    }
+
+    // ── ZScoreNormalizer::geometric_mean ──────────────────────────────────────
+
+    #[test]
+    fn test_zscore_geometric_mean_none_for_empty() {
+        assert!(znorm(4).geometric_mean().is_none());
+    }
+
+    #[test]
+    fn test_zscore_geometric_mean_correct_for_powers_of_2() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(4), dec!(8)] { n.update(v); }
+        let gm = n.geometric_mean().unwrap();
+        assert!((gm - 64.0f64.powf(0.25)).abs() < 1e-6, "got {}", gm);
+    }
+
+    // ── ZScoreNormalizer::harmonic_mean ───────────────────────────────────────
+
+    #[test]
+    fn test_zscore_harmonic_mean_none_for_empty() {
+        assert!(znorm(4).harmonic_mean().is_none());
+    }
+
+    #[test]
+    fn test_zscore_harmonic_mean_positive_for_positive_values() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let hm = n.harmonic_mean().unwrap();
+        assert!(hm > 0.0 && hm < 4.0, "HM should be in (0, max), got {}", hm);
     }
 }

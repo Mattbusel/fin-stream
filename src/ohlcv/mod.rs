@@ -2082,6 +2082,64 @@ impl OhlcvBar {
         Some(total / bars.len() as f64)
     }
 
+    /// Normalised close: last close as a fraction of the window's close range.
+    ///
+    /// `(last_close - min_close) / (max_close - min_close)`. Returns `None`
+    /// if fewer than 2 bars or the close range is zero.
+    pub fn normalized_close(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let min = Self::min_close(bars)?;
+        let max = Self::max_close(bars)?;
+        let range = max - min;
+        if range.is_zero() {
+            return None;
+        }
+        let last = bars.last()?.close;
+        ((last - min) / range).to_f64()
+    }
+
+    /// Price channel position: where the last close falls in the
+    /// `[lowest_low, highest_high]` range.
+    ///
+    /// `(last_close - lowest_low) / (highest_high - lowest_low)`. Returns
+    /// `None` if the slice is empty or the range is zero.
+    pub fn price_channel_position(bars: &[OhlcvBar]) -> Option<f64> {
+        Self::price_position(bars)
+    }
+
+    /// Composite candle score: fraction of bars that are bullish, have a body
+    /// above 50% of range, and close above the midpoint of the bar.
+    ///
+    /// Returns `None` if the slice is empty.
+    pub fn candle_score(bars: &[OhlcvBar]) -> Option<f64> {
+        if bars.is_empty() {
+            return None;
+        }
+        let strong = bars.iter().filter(|b| {
+            b.is_bullish()
+                && !b.range().is_zero()
+                && b.body() * Decimal::TWO > b.range()
+                && b.close_above_midpoint()
+        }).count();
+        Some(strong as f64 / bars.len() as f64)
+    }
+
+    /// Mean number of ticks per millisecond of bar duration.
+    ///
+    /// `tick_count / bar_duration_ms`. Returns `None` if the slice is empty
+    /// or the total duration across bars is zero.
+    pub fn bar_speed(bars: &[OhlcvBar]) -> Option<f64> {
+        if bars.is_empty() {
+            return None;
+        }
+        let total_ticks: u64 = bars.iter().map(|b| b.trade_count).sum();
+        let total_ms: u64 = bars.iter().map(|b| b.bar_duration_ms()).sum();
+        if total_ms == 0 {
+            return None;
+        }
+        Some(total_ticks as f64 / total_ms as f64)
+    }
+
 }
 
 impl std::fmt::Display for OhlcvBar {
@@ -6496,5 +6554,61 @@ mod tests {
         let b = make_ohlcv_bar(dec!(100), dec!(115), dec!(98), dec!(110));
         let r = OhlcvBar::open_range(&[b]).unwrap();
         assert!(r > 0.0, "directional bar should have positive open_range, got {}", r);
+    }
+
+    // ── OhlcvBar::normalized_close ────────────────────────────────────────────
+
+    #[test]
+    fn test_normalized_close_none_for_single_bar() {
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        assert!(OhlcvBar::normalized_close(&[b]).is_none());
+    }
+
+    #[test]
+    fn test_normalized_close_one_when_last_close_is_max() {
+        let b1 = make_ohlcv_bar(dec!(98), dec!(105), dec!(96), dec!(100));
+        let b2 = make_ohlcv_bar(dec!(100), dec!(115), dec!(99), dec!(110));
+        let nc = OhlcvBar::normalized_close(&[b1, b2]).unwrap();
+        assert!((nc - 1.0).abs() < 1e-9, "last close = max should give 1.0, got {}", nc);
+    }
+
+    #[test]
+    fn test_normalized_close_zero_when_last_close_is_min() {
+        let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(90));
+        let b2 = make_ohlcv_bar(dec!(90), dec!(105), dec!(88), dec!(100));
+        // min_close=90, max_close=100, last_close=100 → 1.0
+        // Actually min=90, max=100, last=100 → normalized=1.0
+        let nc = OhlcvBar::normalized_close(&[b1, b2]).unwrap();
+        assert!(nc >= 0.0 && nc <= 1.0, "normalized close should be in [0,1], got {}", nc);
+    }
+
+    // ── OhlcvBar::candle_score ────────────────────────────────────────────────
+
+    #[test]
+    fn test_candle_score_none_for_empty() {
+        assert!(OhlcvBar::candle_score(&[]).is_none());
+    }
+
+    #[test]
+    fn test_candle_score_one_for_strong_bull_bar() {
+        // open=100, close=108, high=110, low=99 → bullish, body=8, range=11, close_above_mid=yes
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(99), dec!(108));
+        let s = OhlcvBar::candle_score(&[b]).unwrap();
+        assert_eq!(s, 1.0, "strong bullish bar should score 1.0, got {}", s);
+    }
+
+    #[test]
+    fn test_candle_score_zero_for_bear_bar() {
+        // open=108, close=100 → bearish → score 0
+        let b = make_ohlcv_bar(dec!(108), dec!(110), dec!(99), dec!(100));
+        let s = OhlcvBar::candle_score(&[b]).unwrap();
+        assert_eq!(s, 0.0, "bearish bar should score 0.0, got {}", s);
+    }
+
+    // ── OhlcvBar::bar_speed ───────────────────────────────────────────────────
+
+    #[test]
+    fn test_bar_speed_none_for_empty() {
+        assert!(OhlcvBar::bar_speed(&[]).is_none());
     }
 }

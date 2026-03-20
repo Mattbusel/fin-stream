@@ -1610,6 +1610,90 @@ impl NormalizedTick {
         }).count()
     }
 
+    /// Realized spread: mean buy price minus mean sell price.
+    ///
+    /// A positive value suggests buys are executed at higher prices than sells
+    /// (typical in a two-sided market). Returns `None` if either side has no
+    /// ticks.
+    pub fn realized_spread(ticks: &[NormalizedTick]) -> Option<Decimal> {
+        let buy_avg = Self::buy_avg_price(ticks)?;
+        let sell_avg = Self::sell_avg_price(ticks)?;
+        Some(buy_avg - sell_avg)
+    }
+
+    /// Adverse selection score: fraction of large trades that moved the price
+    /// against the initiator (proxy for informed trading).
+    ///
+    /// A "large" trade is one with quantity above the window median quantity.
+    /// Returns `None` if the slice has fewer than 3 ticks or median is zero.
+    pub fn adverse_selection_score(ticks: &[NormalizedTick]) -> Option<f64> {
+        if ticks.len() < 3 {
+            return None;
+        }
+        let median_qty = Self::median_price(
+            &ticks.iter().map(|t| {
+                let mut cloned = t.clone();
+                cloned.price = t.quantity;
+                cloned
+            }).collect::<Vec<_>>()
+        )?;
+        if median_qty.is_zero() {
+            return None;
+        }
+        let large_trades: Vec<_> = ticks.windows(2)
+            .filter(|w| w[0].quantity > median_qty)
+            .collect();
+        if large_trades.is_empty() {
+            return None;
+        }
+        // Adverse if the next price moved against the initiating side
+        let adverse = large_trades.iter().filter(|w| {
+            let price_moved_up = w[1].price > w[0].price;
+            match w[0].side {
+                Some(TradeSide::Buy) => !price_moved_up,  // buy but price fell
+                Some(TradeSide::Sell) => price_moved_up,  // sell but price rose
+                None => false,
+            }
+        }).count();
+        Some(adverse as f64 / large_trades.len() as f64)
+    }
+
+    /// Price impact per unit of volume: `|price_return| / total_volume`.
+    ///
+    /// Returns `None` if fewer than 2 ticks or total volume is zero.
+    pub fn price_impact_per_unit(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let ret = (Self::price_return_pct(ticks)?.abs()) as f64;
+        let vol = Self::buy_volume(ticks) + Self::sell_volume(ticks);
+        if vol.is_zero() {
+            return None;
+        }
+        vol.to_f64().map(|v| ret / v)
+    }
+
+    /// Volume-weighted return: VWAP of returns weighted by quantity.
+    ///
+    /// Computes `(p_i - p_{i-1}) / p_{i-1}` for each consecutive pair,
+    /// weighted by `qty_i`, then sums weighted returns. Returns `None` if
+    /// fewer than 2 ticks or total quantity is zero.
+    pub fn volume_weighted_return(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 2 {
+            return None;
+        }
+        let total_qty: Decimal = ticks[1..].iter().map(|t| t.quantity).sum();
+        if total_qty.is_zero() {
+            return None;
+        }
+        let weighted: f64 = ticks.windows(2).filter_map(|w| {
+            if w[0].price.is_zero() { return None; }
+            let ret = ((w[1].price - w[0].price) / w[0].price).to_f64()?;
+            let qty = w[1].quantity.to_f64()?;
+            Some(ret * qty)
+        }).sum::<f64>();
+        total_qty.to_f64().map(|tq| weighted / tq)
+    }
+
 }
 
 impl std::fmt::Display for NormalizedTick {
@@ -5015,5 +5099,52 @@ mod tests {
             make_tick_pq(dec!(107), dec!(1)),
         ];
         assert_eq!(NormalizedTick::price_oscillation_count(&ticks), 2);
+    }
+
+    // ── NormalizedTick::realized_spread ───────────────────────────────────────
+
+    #[test]
+    fn test_realized_spread_none_when_no_sides() {
+        use rust_decimal_macros::dec;
+        let t = make_tick_pq(dec!(100), dec!(1));
+        assert!(NormalizedTick::realized_spread(&[t]).is_none());
+    }
+
+    #[test]
+    fn test_realized_spread_positive_when_buys_higher() {
+        use rust_decimal_macros::dec;
+        let mut b = make_tick_pq(dec!(105), dec!(1)); b.side = Some(TradeSide::Buy);
+        let mut s = make_tick_pq(dec!(100), dec!(1)); s.side = Some(TradeSide::Sell);
+        let spread = NormalizedTick::realized_spread(&[b, s]).unwrap();
+        assert!(spread > dec!(0), "expected positive spread, got {}", spread);
+    }
+
+    // ── NormalizedTick::price_impact_per_unit ────────────────────────────────
+
+    #[test]
+    fn test_price_impact_per_unit_none_for_single_tick() {
+        use rust_decimal_macros::dec;
+        let t = make_tick_pq(dec!(100), dec!(1));
+        assert!(NormalizedTick::price_impact_per_unit(&[t]).is_none());
+    }
+
+    // ── NormalizedTick::volume_weighted_return ────────────────────────────────
+
+    #[test]
+    fn test_volume_weighted_return_none_for_single_tick() {
+        use rust_decimal_macros::dec;
+        let t = make_tick_pq(dec!(100), dec!(1));
+        assert!(NormalizedTick::volume_weighted_return(&[t]).is_none());
+    }
+
+    #[test]
+    fn test_volume_weighted_return_zero_for_constant_price() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(5)),
+            make_tick_pq(dec!(100), dec!(5)),
+        ];
+        let r = NormalizedTick::volume_weighted_return(&ticks).unwrap();
+        assert!((r - 0.0).abs() < 1e-9, "constant price should give 0 return, got {}", r);
     }
 }
