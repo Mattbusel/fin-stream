@@ -180,7 +180,7 @@ fn test_health_monitor_multi_feed_scenario() {
 
     let errors = monitor.check_all(1_003_000);
     assert_eq!(errors.len(), 1);
-    assert!(errors[0].to_string().contains("ETH-USD"));
+    assert!(errors[0].1.to_string().contains("ETH-USD"));
 
     assert_eq!(monitor.healthy_count(), 1);
     assert_eq!(monitor.stale_count(), 1);

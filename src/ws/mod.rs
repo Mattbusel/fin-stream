@@ -17,6 +17,15 @@ use tokio::time;
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 use tracing::{debug, info, warn};
 
+/// Statistics collected during WebSocket operation.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct WsStats {
+    /// Total number of messages received (text + binary combined).
+    pub total_messages_received: u64,
+    /// Total bytes received across all messages.
+    pub total_bytes_received: u64,
+}
+
 /// Reconnection policy for a WebSocket feed.
 ///
 /// Controls exponential-backoff reconnect behaviour. Build with
@@ -31,6 +40,9 @@ pub struct ReconnectPolicy {
     pub max_backoff: Duration,
     /// Multiplier applied to the backoff on each successive attempt (must be >= 1.0).
     pub multiplier: f64,
+    /// Jitter ratio in [0.0, 1.0]: the computed backoff is offset by up to
+    /// `±ratio × backoff` using a deterministic per-attempt hash. 0.0 = no jitter.
+    pub jitter: f64,
 }
 
 impl ReconnectPolicy {
@@ -63,7 +75,27 @@ impl ReconnectPolicy {
             initial_backoff,
             max_backoff,
             multiplier,
+            jitter: 0.0,
         })
+    }
+
+    /// Apply deterministic per-attempt jitter to the computed backoff.
+    ///
+    /// `ratio` must be in `[0.0, 1.0]`. The effective backoff for attempt N
+    /// will be spread uniformly over `[backoff*(1-ratio), backoff*(1+ratio)]`
+    /// using a hash of the attempt index — no `rand` dependency needed.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StreamError::ConfigError`] if `ratio` is outside `[0.0, 1.0]`.
+    pub fn with_jitter(mut self, ratio: f64) -> Result<Self, StreamError> {
+        if !(0.0..=1.0).contains(&ratio) {
+            return Err(StreamError::ConfigError {
+                reason: format!("jitter ratio must be in [0.0, 1.0], got {ratio}"),
+            });
+        }
+        self.jitter = ratio;
+        Ok(self)
     }
 
     /// Backoff duration for attempt N (0-indexed).
@@ -75,7 +107,18 @@ impl ReconnectPolicy {
         // saturates to 0 on some targets and panics in debug builds. Clamping
         // to max_backoff in floating-point space first avoids the UB entirely.
         let max_ms = self.max_backoff.as_millis() as f64;
-        let ms = (self.initial_backoff.as_millis() as f64 * factor).min(max_ms);
+        let base_ms = (self.initial_backoff.as_millis() as f64 * factor).min(max_ms);
+        let ms = if self.jitter > 0.0 {
+            // Deterministic noise via Knuth multiplicative hash of the attempt index.
+            let hash = (attempt as u64)
+                .wrapping_mul(2654435769)
+                .wrapping_add(1013904223);
+            let noise = (hash & 0xFFFF) as f64 / 65535.0; // [0.0, 1.0]
+            let delta = base_ms * self.jitter * (noise * 2.0 - 1.0); // ±jitter×base
+            (base_ms + delta).clamp(0.0, max_ms)
+        } else {
+            base_ms
+        };
         Duration::from_millis(ms as u64)
     }
 }
@@ -87,6 +130,7 @@ impl Default for ReconnectPolicy {
             initial_backoff: Duration::from_millis(500),
             max_backoff: Duration::from_secs(30),
             multiplier: 2.0,
+            jitter: 0.0,
         }
     }
 }
@@ -154,6 +198,7 @@ pub struct WsManager {
     config: ConnectionConfig,
     connect_attempts: u32,
     is_connected: bool,
+    stats: WsStats,
 }
 
 impl WsManager {
@@ -163,6 +208,7 @@ impl WsManager {
             config,
             connect_attempts: 0,
             is_connected: false,
+            stats: WsStats::default(),
         }
     }
 
@@ -244,12 +290,16 @@ impl WsManager {
                 msg = read.next() => {
                     match msg {
                         Some(Ok(Message::Text(text))) => {
+                            self.stats.total_messages_received += 1;
+                            self.stats.total_bytes_received += text.len() as u64;
                             if message_tx.send(text.to_string()).await.is_err() {
                                 // Receiver dropped — clean shutdown.
                                 return Ok(());
                             }
                         }
                         Some(Ok(Message::Binary(bytes))) => {
+                            self.stats.total_messages_received += 1;
+                            self.stats.total_bytes_received += bytes.len() as u64;
                             if let Ok(text) = String::from_utf8(bytes.to_vec()) {
                                 if message_tx.send(text).await.is_err() {
                                     return Ok(());
@@ -307,6 +357,11 @@ impl WsManager {
     /// The configuration this manager was created with.
     pub fn config(&self) -> &ConnectionConfig {
         &self.config
+    }
+
+    /// Cumulative receive statistics for this manager.
+    pub fn stats(&self) -> &WsStats {
+        &self.stats
     }
 
     /// Check whether the next reconnect attempt is allowed.
@@ -516,5 +571,87 @@ mod tests {
         assert_eq!(msg.as_deref(), Some("subscribe"));
         // Re-borrow to confirm the channel holds the receiver
         let _ = rx;
+    }
+
+    #[test]
+    fn test_ws_stats_initial_zero() {
+        let mgr = WsManager::new(default_config());
+        let s = mgr.stats();
+        assert_eq!(s.total_messages_received, 0);
+        assert_eq!(s.total_bytes_received, 0);
+    }
+
+    #[test]
+    fn test_ws_stats_default() {
+        let s = WsStats::default();
+        assert_eq!(s.total_messages_received, 0);
+        assert_eq!(s.total_bytes_received, 0);
+    }
+
+    #[test]
+    fn test_reconnect_policy_with_jitter_valid() {
+        let p = ReconnectPolicy::new(10, Duration::from_millis(100), Duration::from_secs(30), 2.0)
+            .unwrap()
+            .with_jitter(0.5)
+            .unwrap();
+        assert_eq!(p.jitter, 0.5);
+    }
+
+    #[test]
+    fn test_reconnect_policy_with_jitter_zero_is_deterministic() {
+        let p = ReconnectPolicy::new(10, Duration::from_millis(100), Duration::from_secs(30), 2.0)
+            .unwrap()
+            .with_jitter(0.0)
+            .unwrap();
+        // Zero jitter: backoff must be identical to un-jittered value.
+        let b0 = p.backoff_for_attempt(0);
+        let b1 = p.backoff_for_attempt(0);
+        assert_eq!(b0, b1);
+        assert_eq!(b0, Duration::from_millis(100));
+    }
+
+    #[test]
+    fn test_reconnect_policy_with_jitter_invalid_ratio() {
+        let result =
+            ReconnectPolicy::new(10, Duration::from_millis(100), Duration::from_secs(30), 2.0)
+                .unwrap()
+                .with_jitter(1.5);
+        assert!(matches!(result, Err(StreamError::ConfigError { .. })));
+    }
+
+    #[test]
+    fn test_reconnect_policy_with_jitter_negative_ratio() {
+        let result =
+            ReconnectPolicy::new(10, Duration::from_millis(100), Duration::from_secs(30), 2.0)
+                .unwrap()
+                .with_jitter(-0.1);
+        assert!(matches!(result, Err(StreamError::ConfigError { .. })));
+    }
+
+    #[test]
+    fn test_reconnect_policy_with_jitter_stays_within_bounds() {
+        let p = ReconnectPolicy::new(20, Duration::from_millis(100), Duration::from_secs(30), 2.0)
+            .unwrap()
+            .with_jitter(1.0)
+            .unwrap();
+        // With ratio=1.0 the backoff can range [0, 2×base] but must not exceed max_backoff.
+        for attempt in 0..20 {
+            let b = p.backoff_for_attempt(attempt);
+            assert!(b <= Duration::from_secs(30), "attempt {attempt} exceeded max_backoff");
+        }
+    }
+
+    #[test]
+    fn test_reconnect_policy_with_jitter_varies_across_attempts() {
+        let p = ReconnectPolicy::new(10, Duration::from_millis(1000), Duration::from_secs(30), 1.0)
+            .unwrap()
+            .with_jitter(0.5)
+            .unwrap();
+        // With constant multiplier=1.0 all base backoffs are 1000ms; jitter should
+        // produce different values for different attempt indices.
+        let values: Vec<Duration> = (0..10).map(|a| p.backoff_for_attempt(a)).collect();
+        let unique: std::collections::HashSet<u64> =
+            values.iter().map(|d| d.as_millis() as u64).collect();
+        assert!(unique.len() > 1, "jitter should produce variation across attempts");
     }
 }

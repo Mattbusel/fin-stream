@@ -133,8 +133,11 @@ impl HealthMonitor {
     }
 
     /// Check all feeds for staleness at the given timestamp.
-    /// Returns a list of errors for stale feeds.
-    pub fn check_all(&self, now_ms: u64) -> Vec<StreamError> {
+    ///
+    /// Returns a list of `(feed_id, error)` pairs for stale feeds so callers
+    /// can route errors to the appropriate handler without re-parsing the feed
+    /// identifier out of the error message.
+    pub fn check_all(&self, now_ms: u64) -> Vec<(String, StreamError)> {
         let mut errors = Vec::new();
         for mut entry in self.feeds.iter_mut() {
             let elapsed = entry.last_tick_ms.map(|t| now_ms.saturating_sub(t));
@@ -142,11 +145,15 @@ impl HealthMonitor {
                 if elapsed > entry.stale_threshold_ms {
                     entry.status = HealthStatus::Stale;
                     entry.consecutive_stale += 1;
-                    errors.push(StreamError::StaleFeed {
-                        feed_id: entry.feed_id.clone(),
-                        elapsed_ms: elapsed,
-                        threshold_ms: entry.stale_threshold_ms,
-                    });
+                    let feed_id = entry.feed_id.clone();
+                    errors.push((
+                        feed_id.clone(),
+                        StreamError::StaleFeed {
+                            feed_id,
+                            elapsed_ms: elapsed,
+                            threshold_ms: entry.stale_threshold_ms,
+                        },
+                    ));
                 }
             }
         }
@@ -166,6 +173,62 @@ impl HealthMonitor {
     /// Total number of registered feeds.
     pub fn feed_count(&self) -> usize {
         self.feeds.len()
+    }
+
+    /// Check staleness for a single feed at `now_ms`.
+    ///
+    /// Returns `Some(StreamError::StaleFeed { .. })` if the feed is stale,
+    /// `None` if it is healthy or has not yet received any ticks, or
+    /// `Err(StreamError::UnknownFeed)` if `feed_id` is not registered.
+    pub fn check_one(
+        &self,
+        feed_id: &str,
+        now_ms: u64,
+    ) -> Result<Option<StreamError>, StreamError> {
+        let mut entry = self
+            .feeds
+            .get_mut(feed_id)
+            .ok_or_else(|| StreamError::UnknownFeed {
+                feed_id: feed_id.to_string(),
+            })?;
+        let elapsed = match entry.last_tick_ms {
+            Some(t) => now_ms.saturating_sub(t),
+            None => return Ok(None),
+        };
+        if elapsed > entry.stale_threshold_ms {
+            entry.status = HealthStatus::Stale;
+            entry.consecutive_stale += 1;
+            Ok(Some(StreamError::StaleFeed {
+                feed_id: entry.feed_id.clone(),
+                elapsed_ms: elapsed,
+                threshold_ms: entry.stale_threshold_ms,
+            }))
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// Reset a feed's stale counter and status without deregistering it.
+    ///
+    /// Clears `consecutive_stale`, `tick_count`, `last_tick_ms`, and sets
+    /// the status back to `Unknown`. Useful when a feed reconnects and should
+    /// be treated as fresh.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StreamError::UnknownFeed`] if `feed_id` is not registered.
+    pub fn reset_feed(&self, feed_id: &str) -> Result<(), StreamError> {
+        let mut entry = self
+            .feeds
+            .get_mut(feed_id)
+            .ok_or_else(|| StreamError::UnknownFeed {
+                feed_id: feed_id.to_string(),
+            })?;
+        entry.status = HealthStatus::Unknown;
+        entry.last_tick_ms = None;
+        entry.tick_count = 0;
+        entry.consecutive_stale = 0;
+        Ok(())
     }
 
     /// Sorted list of all registered feed identifiers.
@@ -189,6 +252,18 @@ impl HealthMonitor {
             .iter()
             .filter(|e| e.status == HealthStatus::Stale)
             .count()
+    }
+
+    /// Reset all registered feeds to `Unknown` status, clearing last-tick timestamps.
+    ///
+    /// Useful at session boundaries (e.g. daily market open) to start fresh staleness
+    /// tracking without re-registering feeds. Tick counts are preserved.
+    pub fn reset_all(&self) {
+        for mut entry in self.feeds.iter_mut() {
+            entry.status = HealthStatus::Unknown;
+            entry.last_tick_ms = None;
+            entry.consecutive_stale = 0;
+        }
     }
 }
 
@@ -252,9 +327,8 @@ mod tests {
         m.heartbeat("BTC-USD", 1_000_000).unwrap();
         let errors = m.check_all(1_010_000); // 10s elapsed, threshold 5s
         assert_eq!(errors.len(), 1);
-        assert!(
-            matches!(&errors[0], StreamError::StaleFeed { feed_id, .. } if feed_id == "BTC-USD")
-        );
+        assert_eq!(errors[0].0, "BTC-USD");
+        assert!(matches!(&errors[0].1, StreamError::StaleFeed { feed_id, .. } if feed_id == "BTC-USD"));
     }
 
     #[test]
@@ -431,6 +505,56 @@ mod tests {
         m.register("ETH-USD", None);
         m.deregister("BTC-USD");
         assert_eq!(m.feed_ids(), vec!["ETH-USD"]);
+    }
+
+    #[test]
+    fn test_reset_feed_clears_state() {
+        let m = monitor();
+        m.register("BTC-USD", None);
+        m.heartbeat("BTC-USD", 1_000_000).unwrap();
+        m.check_all(1_010_000); // make it stale
+        assert_eq!(m.get("BTC-USD").unwrap().status, HealthStatus::Stale);
+        m.reset_feed("BTC-USD").unwrap();
+        let h = m.get("BTC-USD").unwrap();
+        assert_eq!(h.status, HealthStatus::Unknown);
+        assert_eq!(h.tick_count, 0);
+        assert_eq!(h.consecutive_stale, 0);
+        assert!(h.last_tick_ms.is_none());
+    }
+
+    #[test]
+    fn test_reset_feed_unknown_returns_error() {
+        let m = monitor();
+        assert!(matches!(
+            m.reset_feed("ghost"),
+            Err(StreamError::UnknownFeed { .. })
+        ));
+    }
+
+    #[test]
+    fn test_check_one_healthy_feed_returns_none() {
+        let m = monitor();
+        m.register("BTC-USD", None);
+        m.heartbeat("BTC-USD", 1_000_000).unwrap();
+        assert!(m.check_one("BTC-USD", 1_003_000).unwrap().is_none());
+    }
+
+    #[test]
+    fn test_check_one_stale_feed_returns_some_error() {
+        let m = monitor();
+        m.register("BTC-USD", None);
+        m.heartbeat("BTC-USD", 1_000_000).unwrap();
+        let result = m.check_one("BTC-USD", 1_010_000).unwrap();
+        assert!(matches!(result, Some(StreamError::StaleFeed { .. })));
+    }
+
+    #[test]
+    fn test_check_one_unknown_feed_returns_err() {
+        let m = monitor();
+        assert!(matches!(
+            m.check_one("ghost", 0),
+            Err(StreamError::UnknownFeed { .. })
+        ));
     }
 
     #[test]

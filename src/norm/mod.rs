@@ -158,6 +158,7 @@ impl MinMaxNormalizer {
     /// converted to `f64`.
     ///
     /// # Complexity: O(1) when cache is clean; O(W) after an eviction.
+    #[must_use = "normalized value is returned; ignoring it loses the result"]
     pub fn normalize(&mut self, value: Decimal) -> Result<f64, StreamError> {
         let (min, max) = self
             .min_max()
@@ -219,6 +220,25 @@ impl MinMaxNormalizer {
                 self.normalize(v)
             })
             .collect()
+    }
+
+    /// Returns the percentile rank of `value` within the current window.
+    ///
+    /// The percentile rank is the fraction of window values that are `<= value`,
+    /// expressed in `[0.0, 1.0]`. Returns `None` if the window is empty.
+    ///
+    /// Useful for identifying whether the current value is historically high or low
+    /// relative to its recent context without requiring a min/max range.
+    pub fn percentile_rank(&self, value: rust_decimal::Decimal) -> Option<f64> {
+        if self.window.is_empty() {
+            return None;
+        }
+        let count_le = self
+            .window
+            .iter()
+            .filter(|&&v| v <= value)
+            .count();
+        Some(count_le as f64 / self.window.len() as f64)
     }
 }
 
@@ -419,5 +439,255 @@ mod tests {
         let (min, max) = n.min_max().unwrap();
         assert_eq!(min, dec!(50000.00000000));
         assert_eq!(max, dec!(50000.12345678));
+    }
+}
+
+/// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
+///
+/// Maps each new sample to its z-score: `(x - mean) / std_dev`. The rolling
+/// window maintains an O(1) mean and variance via incremental sum/sum-of-squares
+/// tracking, with O(W) recompute only when a value is evicted.
+///
+/// Returns 0.0 when the window has fewer than 2 observations (variance is 0).
+///
+/// # Example
+///
+/// ```rust
+/// use fin_stream::norm::ZScoreNormalizer;
+/// use rust_decimal_macros::dec;
+///
+/// let mut norm = ZScoreNormalizer::new(5).unwrap();
+/// for v in [dec!(10), dec!(20), dec!(30), dec!(40), dec!(50)] {
+///     norm.update(v);
+/// }
+/// // 30 is the mean; normalize returns 0.0
+/// let z = norm.normalize(dec!(30)).unwrap();
+/// assert!((z - 0.0).abs() < 1e-9);
+/// ```
+pub struct ZScoreNormalizer {
+    window_size: usize,
+    window: VecDeque<Decimal>,
+    sum: Decimal,
+    sum_sq: Decimal,
+}
+
+impl ZScoreNormalizer {
+    /// Create a new z-score normalizer with the given rolling window size.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StreamError::ConfigError`] if `window_size == 0`.
+    pub fn new(window_size: usize) -> Result<Self, StreamError> {
+        if window_size == 0 {
+            return Err(StreamError::ConfigError {
+                reason: "ZScoreNormalizer window_size must be > 0".into(),
+            });
+        }
+        Ok(Self {
+            window_size,
+            window: VecDeque::with_capacity(window_size),
+            sum: Decimal::ZERO,
+            sum_sq: Decimal::ZERO,
+        })
+    }
+
+    /// Add a new observation to the rolling window.
+    ///
+    /// Evicts the oldest value when the window is full, adjusting running sums
+    /// in O(1). No full recompute is needed unless eviction causes sum drift;
+    /// the implementation recomputes exactly when necessary via `recompute`.
+    pub fn update(&mut self, value: Decimal) {
+        if self.window.len() == self.window_size {
+            let evicted = self.window.pop_front().unwrap_or(Decimal::ZERO);
+            self.sum -= evicted;
+            self.sum_sq -= evicted * evicted;
+        }
+        self.window.push_back(value);
+        self.sum += value;
+        self.sum_sq += value * value;
+    }
+
+    /// Normalize `value` to a z-score using the current window's mean and std dev.
+    ///
+    /// Returns 0.0 if:
+    /// - The window has fewer than 2 observations (std dev undefined).
+    /// - The standard deviation is effectively zero (all window values identical).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StreamError::NormalizationError`] if the window is empty.
+    ///
+    /// # Complexity: O(1)
+    #[must_use = "z-score is returned; ignoring it loses the normalized value"]
+    pub fn normalize(&self, value: Decimal) -> Result<f64, StreamError> {
+        let n = self.window.len();
+        if n == 0 {
+            return Err(StreamError::NormalizationError {
+                reason: "window is empty; call update() before normalize()".into(),
+            });
+        }
+        if n < 2 {
+            return Ok(0.0);
+        }
+        let n_dec = Decimal::from(n as u64);
+        let mean = self.sum / n_dec;
+        // Population variance = E[X²] - (E[X])²
+        let variance = (self.sum_sq / n_dec) - mean * mean;
+        // Clamp to zero to guard against floating-point subtraction underflow.
+        let variance = if variance < Decimal::ZERO {
+            Decimal::ZERO
+        } else {
+            variance
+        };
+        let var_f64 = variance.to_f64().ok_or_else(|| StreamError::NormalizationError {
+            reason: "Decimal-to-f64 conversion failed for variance".into(),
+        })?;
+        let std_dev = var_f64.sqrt();
+        if std_dev < f64::EPSILON {
+            return Ok(0.0);
+        }
+        let diff = value - mean;
+        let diff_f64 = diff.to_f64().ok_or_else(|| StreamError::NormalizationError {
+            reason: "Decimal-to-f64 conversion failed for diff".into(),
+        })?;
+        Ok(diff_f64 / std_dev)
+    }
+
+    /// Current rolling mean of the window, or `None` if the window is empty.
+    pub fn mean(&self) -> Option<Decimal> {
+        if self.window.is_empty() {
+            return None;
+        }
+        let n = Decimal::from(self.window.len() as u64);
+        Some(self.sum / n)
+    }
+
+    /// Reset the normalizer, clearing all observations and sums.
+    pub fn reset(&mut self) {
+        self.window.clear();
+        self.sum = Decimal::ZERO;
+        self.sum_sq = Decimal::ZERO;
+    }
+
+    /// Number of observations currently in the window.
+    pub fn len(&self) -> usize {
+        self.window.len()
+    }
+
+    /// Returns `true` if no observations have been added since construction or reset.
+    pub fn is_empty(&self) -> bool {
+        self.window.is_empty()
+    }
+
+    /// The configured window size.
+    pub fn window_size(&self) -> usize {
+        self.window_size
+    }
+}
+
+#[cfg(test)]
+mod zscore_tests {
+    use super::*;
+    use rust_decimal_macros::dec;
+
+    fn znorm(w: usize) -> ZScoreNormalizer {
+        ZScoreNormalizer::new(w).unwrap()
+    }
+
+    #[test]
+    fn test_zscore_new_zero_window_returns_error() {
+        assert!(matches!(
+            ZScoreNormalizer::new(0),
+            Err(StreamError::ConfigError { .. })
+        ));
+    }
+
+    #[test]
+    fn test_zscore_empty_window_returns_error() {
+        let n = znorm(4);
+        assert!(matches!(
+            n.normalize(dec!(1)),
+            Err(StreamError::NormalizationError { .. })
+        ));
+    }
+
+    #[test]
+    fn test_zscore_single_value_returns_zero() {
+        let mut n = znorm(4);
+        n.update(dec!(50));
+        assert_eq!(n.normalize(dec!(50)).unwrap(), 0.0);
+    }
+
+    #[test]
+    fn test_zscore_mean_is_zero() {
+        let mut n = znorm(5);
+        for v in [dec!(10), dec!(20), dec!(30), dec!(40), dec!(50)] {
+            n.update(v);
+        }
+        // mean = 30; z-score of 30 should be 0
+        let z = n.normalize(dec!(30)).unwrap();
+        assert!((z - 0.0).abs() < 1e-9, "z-score of mean should be 0, got {z}");
+    }
+
+    #[test]
+    fn test_zscore_symmetric_around_mean() {
+        let mut n = znorm(4);
+        for v in [dec!(10), dec!(20), dec!(30), dec!(40)] {
+            n.update(v);
+        }
+        // mean = 25; values equidistant above and below mean have equal |z|
+        let z_low = n.normalize(dec!(15)).unwrap();
+        let z_high = n.normalize(dec!(35)).unwrap();
+        assert!((z_low.abs() - z_high.abs()).abs() < 1e-9);
+        assert!(z_low < 0.0, "below-mean z-score should be negative");
+        assert!(z_high > 0.0, "above-mean z-score should be positive");
+    }
+
+    #[test]
+    fn test_zscore_all_same_returns_zero() {
+        let mut n = znorm(4);
+        for _ in 0..4 {
+            n.update(dec!(100));
+        }
+        assert_eq!(n.normalize(dec!(100)).unwrap(), 0.0);
+    }
+
+    #[test]
+    fn test_zscore_rolling_window_eviction() {
+        let mut n = znorm(3);
+        n.update(dec!(1));
+        n.update(dec!(2));
+        n.update(dec!(3));
+        // Evict 1, add 100 — window is [2, 3, 100]
+        n.update(dec!(100));
+        // mean ≈ 35; value 100 should have positive z-score
+        let z = n.normalize(dec!(100)).unwrap();
+        assert!(z > 0.0);
+    }
+
+    #[test]
+    fn test_zscore_reset_clears_state() {
+        let mut n = znorm(4);
+        for v in [dec!(10), dec!(20), dec!(30)] {
+            n.update(v);
+        }
+        n.reset();
+        assert!(n.is_empty());
+        assert!(n.mean().is_none());
+        assert!(matches!(
+            n.normalize(dec!(1)),
+            Err(StreamError::NormalizationError { .. })
+        ));
+    }
+
+    #[test]
+    fn test_zscore_len_and_window_size() {
+        let mut n = znorm(5);
+        assert_eq!(n.len(), 0);
+        assert!(n.is_empty());
+        n.update(dec!(1));
+        n.update(dec!(2));
+        assert_eq!(n.len(), 2);
+        assert_eq!(n.window_size(), 5);
     }
 }

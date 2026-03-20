@@ -93,6 +93,62 @@ impl SessionAwareness {
         }
     }
 
+    /// Return the UTC millisecond timestamp of the next time this session
+    /// enters [`TradingStatus::Closed`] status.
+    ///
+    /// If the session is already `Closed`, returns `utc_ms` unchanged.
+    /// For [`MarketSession::Crypto`], which never closes, returns `u64::MAX`.
+    pub fn next_close_ms(&self, utc_ms: u64) -> u64 {
+        match self.session {
+            MarketSession::Crypto => u64::MAX,
+            MarketSession::Forex => self.next_forex_close_ms(utc_ms),
+            MarketSession::UsEquity => self.next_us_equity_close_ms(utc_ms),
+        }
+    }
+
+    fn next_forex_close_ms(&self, utc_ms: u64) -> u64 {
+        if self.forex_status(utc_ms) == TradingStatus::Closed {
+            return utc_ms;
+        }
+        // Forex closes Friday 22:00 UTC.
+        let day_of_week = (utc_ms / (24 * 3600 * 1000) + 4) % 7; // 0=Sun..6=Sat
+        let day_ms = utc_ms % (24 * 3600 * 1000);
+        let start_of_day = utc_ms - day_ms;
+        let hour_22_ms: u64 = 22 * 3600 * 1000;
+
+        // Days until next Friday
+        let days_to_friday: u64 = match day_of_week {
+            0 => 5, // Sun → Fri
+            1 => 4, // Mon → Fri
+            2 => 3, // Tue → Fri
+            3 => 2, // Wed → Fri
+            4 => 1, // Thu → Fri
+            5 => 0, // Fri (before 22:00, so close is today)
+            _ => 6, // Sat shouldn't happen (already closed)
+        };
+        start_of_day + days_to_friday * 24 * 3600 * 1000 + hour_22_ms
+    }
+
+    fn next_us_equity_close_ms(&self, utc_ms: u64) -> u64 {
+        if self.us_equity_status(utc_ms) == TradingStatus::Closed {
+            return utc_ms;
+        }
+        // Market is Open or Extended. Next full close is today at 20:00 ET.
+        // 20:00 ET = 00:00 UTC next calendar day (EDT) or 01:00 UTC next day (EST).
+        let secs = (utc_ms / 1000) as i64;
+        let dt = Utc.timestamp_opt(secs, 0).single().unwrap_or_else(Utc::now);
+        let et_offset_secs: i64 = if is_us_dst(utc_ms) { -4 * 3600 } else { -5 * 3600 };
+        let et_dt = dt + Duration::seconds(et_offset_secs);
+        let et_date = et_dt.date_naive();
+
+        // The UTC calendar date of 20:00 ET is the day after the ET date.
+        let utc_date = et_date + Duration::days(1);
+        let close_hour_utc: u32 = if is_us_dst(utc_ms) { 0 } else { 1 };
+        let approx_ms = date_to_utc_ms(utc_date, close_hour_utc, 0);
+        let corrected_hour: u32 = if is_us_dst(approx_ms) { 0 } else { 1 };
+        date_to_utc_ms(utc_date, corrected_hour, 0)
+    }
+
     fn next_forex_open_ms(&self, utc_ms: u64) -> u64 {
         if self.forex_status(utc_ms) == TradingStatus::Open {
             return utc_ms;
@@ -147,7 +203,25 @@ impl SessionAwareness {
         };
 
         let et_date = et_dt.date_naive();
-        let target_date = et_date + Duration::days(days_ahead);
+        let mut target_date = et_date + Duration::days(days_ahead);
+
+        // Skip over weekends and holidays to find the next trading day.
+        loop {
+            let wd = target_date.weekday();
+            if wd == Weekday::Sat {
+                target_date += Duration::days(2);
+                continue;
+            }
+            if wd == Weekday::Sun {
+                target_date += Duration::days(1);
+                continue;
+            }
+            if is_us_market_holiday(target_date) {
+                target_date += Duration::days(1);
+                continue;
+            }
+            break;
+        }
 
         // Approximate UTC hour for 9:30 ET, then correct for target-date DST.
         let open_hour_utc: u32 = if is_us_dst(utc_ms) { 13 } else { 14 };
@@ -167,6 +241,11 @@ impl SessionAwareness {
         // Closed on weekends.
         let dow = et_dt.weekday();
         if dow == Weekday::Sat || dow == Weekday::Sun {
+            return TradingStatus::Closed;
+        }
+
+        // Closed on US market holidays.
+        if is_us_market_holiday(et_dt.date_naive()) {
             return TradingStatus::Closed;
         }
 
@@ -251,6 +330,101 @@ fn date_to_utc_ms(date: NaiveDate, hour: u32, minute: u32) -> u64 {
         .unwrap_or_else(|| date.and_hms_opt(0, 0, 0).unwrap());
     let utc_dt = Utc.from_utc_datetime(&naive_dt);
     (utc_dt.timestamp() as u64) * 1000
+}
+
+/// Returns `true` if `date` (in ET) is a US equity market holiday (NYSE/NASDAQ closure).
+///
+/// Covers all fixed-date and floating holidays observed by US exchanges:
+/// - **Fixed**: New Year's Day, Juneteenth (since 2022), Independence Day, Christmas Day.
+/// - **Floating**: MLK Day, Presidents Day, Good Friday, Memorial Day, Labor Day, Thanksgiving.
+///
+/// Weekend-observation rules apply: Saturday holidays observe on the prior Friday,
+/// Sunday holidays observe on the following Monday.
+pub fn is_us_market_holiday(date: NaiveDate) -> bool {
+    let year = date.year();
+
+    // Helper: apply weekend-observation rule.
+    let observe = |d: NaiveDate| -> NaiveDate {
+        match d.weekday() {
+            Weekday::Sat => d - Duration::days(1),
+            Weekday::Sun => d + Duration::days(1),
+            _ => d,
+        }
+    };
+
+    let make_date = |y: i32, m: u32, d: u32| {
+        NaiveDate::from_ymd_opt(y, m, d).unwrap_or_else(|| NaiveDate::from_ymd_opt(y, 1, 1).unwrap())
+    };
+
+    // New Year's Day: January 1 (observed).
+    if date == observe(make_date(year, 1, 1)) {
+        return true;
+    }
+    // MLK Day: 3rd Monday of January.
+    if date == nth_weekday_of_month(year, 1, Weekday::Mon, 3) {
+        return true;
+    }
+    // Presidents Day: 3rd Monday of February.
+    if date == nth_weekday_of_month(year, 2, Weekday::Mon, 3) {
+        return true;
+    }
+    // Good Friday: 2 days before Easter Sunday.
+    if date == good_friday(year) {
+        return true;
+    }
+    // Memorial Day: last Monday of May.
+    if date.month() == 5 && date.weekday() == Weekday::Mon {
+        let next_monday = date + Duration::days(7);
+        if next_monday.month() != 5 {
+            return true;
+        }
+    }
+    // Juneteenth: June 19 (observed, since 2022).
+    if year >= 2022 && date == observe(make_date(year, 6, 19)) {
+        return true;
+    }
+    // Independence Day: July 4 (observed).
+    if date == observe(make_date(year, 7, 4)) {
+        return true;
+    }
+    // Labor Day: 1st Monday of September.
+    if date == nth_weekday_of_month(year, 9, Weekday::Mon, 1) {
+        return true;
+    }
+    // Thanksgiving: 4th Thursday of November.
+    if date == nth_weekday_of_month(year, 11, Weekday::Thu, 4) {
+        return true;
+    }
+    // Christmas Day: December 25 (observed).
+    if date == observe(make_date(year, 12, 25)) {
+        return true;
+    }
+    false
+}
+
+/// Compute the date of Good Friday for a given year (2 days before Easter Sunday).
+fn good_friday(year: i32) -> NaiveDate {
+    easter_sunday(year) - Duration::days(2)
+}
+
+/// Compute Easter Sunday using the Anonymous Gregorian algorithm.
+fn easter_sunday(year: i32) -> NaiveDate {
+    let a = year % 19;
+    let b = year / 100;
+    let c = year % 100;
+    let d = b / 4;
+    let e = b % 4;
+    let f = (b + 8) / 25;
+    let g = (b - f + 1) / 3;
+    let h = (19 * a + b - d - g + 15) % 30;
+    let i = c / 4;
+    let k = c % 4;
+    let l = (32 + 2 * e + 2 * i - h - k) % 7;
+    let m = (a + 11 * h + 22 * l) / 451;
+    let month = (h + l - 7 * m + 114) / 31;
+    let day = ((h + l - 7 * m + 114) % 31) + 1;
+    NaiveDate::from_ymd_opt(year, month as u32, day as u32)
+        .unwrap_or_else(|| NaiveDate::from_ymd_opt(year, 1, 1).unwrap())
 }
 
 /// Convenience: check if a session is currently tradeable.
@@ -436,7 +610,8 @@ mod tests {
 
     #[test]
     fn test_next_open_equity_saturday_returns_monday_open() {
-        // SAT_UTC_MS = Saturday 12:00 UTC; market closed. Next open = Mon 14:30 UTC (EST).
+        // SAT_UTC_MS = 2024-01-13 Saturday 12:00 UTC; market closed.
+        // Mon 2024-01-15 is MLK Day (holiday), so next open = Tue 2024-01-16 14:30 UTC (EST).
         let sa = sa(MarketSession::UsEquity);
         let next = sa.next_open_ms(SAT_UTC_MS);
         // The result should be after SAT_UTC_MS and should be Open when checked.
@@ -483,5 +658,175 @@ mod tests {
         let day_ms = SUN_BEFORE_UTC_MS - (SUN_BEFORE_UTC_MS % (24 * 3600 * 1000));
         let expected = day_ms + 22 * 3600 * 1000;
         assert_eq!(next, expected);
+    }
+
+    // ── Holiday calendar ──────────────────────────────────────────────────────
+
+    #[test]
+    fn test_holiday_new_years_day_2024() {
+        // 2024-01-01 is a Monday — New Year's Day, market closed.
+        let date = NaiveDate::from_ymd_opt(2024, 1, 1).unwrap();
+        assert!(is_us_market_holiday(date), "New Year's Day should be a holiday");
+    }
+
+    #[test]
+    fn test_holiday_new_years_observed_when_on_sunday() {
+        // 2023-01-01 is a Sunday — observed Monday 2023-01-02.
+        let observed = NaiveDate::from_ymd_opt(2023, 1, 2).unwrap();
+        assert!(is_us_market_holiday(observed), "Observed New Year's should be a holiday");
+        let actual = NaiveDate::from_ymd_opt(2023, 1, 1).unwrap();
+        assert!(!is_us_market_holiday(actual), "Sunday itself is not the observed holiday");
+    }
+
+    #[test]
+    fn test_holiday_mlk_day_2024() {
+        // 2024-01-15 = 3rd Monday of January.
+        let date = NaiveDate::from_ymd_opt(2024, 1, 15).unwrap();
+        assert!(is_us_market_holiday(date), "MLK Day should be a holiday");
+    }
+
+    #[test]
+    fn test_holiday_good_friday_2024() {
+        // Easter 2024 = March 31; Good Friday = March 29.
+        let date = NaiveDate::from_ymd_opt(2024, 3, 29).unwrap();
+        assert!(is_us_market_holiday(date), "Good Friday 2024 should be a holiday");
+    }
+
+    #[test]
+    fn test_holiday_memorial_day_2024() {
+        // Last Monday of May 2024 = May 27.
+        let date = NaiveDate::from_ymd_opt(2024, 5, 27).unwrap();
+        assert!(is_us_market_holiday(date), "Memorial Day should be a holiday");
+    }
+
+    #[test]
+    fn test_holiday_independence_day_2024() {
+        // July 4, 2024 is a Thursday.
+        let date = NaiveDate::from_ymd_opt(2024, 7, 4).unwrap();
+        assert!(is_us_market_holiday(date), "Independence Day should be a holiday");
+    }
+
+    #[test]
+    fn test_holiday_labor_day_2024() {
+        // 1st Monday of September 2024 = September 2.
+        let date = NaiveDate::from_ymd_opt(2024, 9, 2).unwrap();
+        assert!(is_us_market_holiday(date), "Labor Day should be a holiday");
+    }
+
+    #[test]
+    fn test_holiday_thanksgiving_2024() {
+        // 4th Thursday of November 2024 = November 28.
+        let date = NaiveDate::from_ymd_opt(2024, 11, 28).unwrap();
+        assert!(is_us_market_holiday(date), "Thanksgiving should be a holiday");
+    }
+
+    #[test]
+    fn test_holiday_christmas_2024() {
+        // December 25, 2024 is a Wednesday.
+        let date = NaiveDate::from_ymd_opt(2024, 12, 25).unwrap();
+        assert!(is_us_market_holiday(date), "Christmas should be a holiday");
+    }
+
+    #[test]
+    fn test_holiday_regular_monday_is_not_holiday() {
+        // 2024-01-08 is a regular Monday (not a holiday).
+        let date = NaiveDate::from_ymd_opt(2024, 1, 8).unwrap();
+        assert!(!is_us_market_holiday(date), "Regular Monday should not be a holiday");
+    }
+
+    #[test]
+    fn test_holiday_market_closed_on_christmas_2024() {
+        // Dec 25, 2024 = Christmas; 14:30 UTC (09:30 ET) should be Closed.
+        // date_to_utc_ms(2024-12-25, 14, 30) = some ms value
+        let christmas_open_utc_ms = date_to_utc_ms(
+            NaiveDate::from_ymd_opt(2024, 12, 25).unwrap(),
+            14,
+            30,
+        );
+        let sa = sa(MarketSession::UsEquity);
+        assert_eq!(
+            sa.status(christmas_open_utc_ms).unwrap(),
+            TradingStatus::Closed,
+            "Market should be closed on Christmas"
+        );
+    }
+
+    #[test]
+    fn test_easter_sunday_2024() {
+        assert_eq!(easter_sunday(2024), NaiveDate::from_ymd_opt(2024, 3, 31).unwrap());
+    }
+
+    #[test]
+    fn test_easter_sunday_2025() {
+        assert_eq!(easter_sunday(2025), NaiveDate::from_ymd_opt(2025, 4, 20).unwrap());
+    }
+
+    // ── next_close_ms ─────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_next_close_crypto_is_max() {
+        let sa = sa(MarketSession::Crypto);
+        assert_eq!(sa.next_close_ms(MON_OPEN_UTC_MS), u64::MAX);
+        assert_eq!(sa.next_close_ms(SAT_UTC_MS), u64::MAX);
+    }
+
+    #[test]
+    fn test_next_close_equity_already_closed_returns_same() {
+        // SAT_UTC_MS is Saturday — market is closed
+        let sa = sa(MarketSession::UsEquity);
+        assert_eq!(sa.next_close_ms(SAT_UTC_MS), SAT_UTC_MS);
+    }
+
+    #[test]
+    fn test_next_close_equity_open_est_returns_20_00_et() {
+        // MON_OPEN_UTC_MS = Monday 2024-01-08 14:30 UTC = 09:30 ET (Open, EST=UTC-5)
+        // 20:00 ET (EST) = 01:00 UTC the next calendar day = 2024-01-09 01:00 UTC
+        let sa = sa(MarketSession::UsEquity);
+        let close = sa.next_close_ms(MON_OPEN_UTC_MS);
+        assert!(close > MON_OPEN_UTC_MS);
+        assert_eq!(sa.status(close).unwrap(), TradingStatus::Closed);
+        // 2024-01-09 01:00 UTC = 1704762000000 ms
+        assert_eq!(close, 1704762000000);
+    }
+
+    #[test]
+    fn test_next_close_equity_open_edt_returns_midnight_utc() {
+        // MON_SUMMER_OPEN_UTC_MS = Monday 2024-07-08 13:30 UTC = 09:30 EDT (UTC-4)
+        // 20:00 ET (EDT) = 00:00 UTC the next calendar day = 2024-07-09 00:00 UTC
+        let sa = sa(MarketSession::UsEquity);
+        let close = sa.next_close_ms(MON_SUMMER_OPEN_UTC_MS);
+        assert!(close > MON_SUMMER_OPEN_UTC_MS);
+        assert_eq!(sa.status(close).unwrap(), TradingStatus::Closed);
+        // 2024-07-09 00:00 UTC = 1720483200000 ms
+        assert_eq!(close, 1720483200000);
+    }
+
+    #[test]
+    fn test_next_close_equity_extended_returns_20_00_et() {
+        // MON_CLOSE_UTC_MS = Monday 2024-01-08 21:00 UTC = 16:00 ET (Extended)
+        // Next full close = 20:00 ET = 2024-01-09 01:00 UTC
+        let sa = sa(MarketSession::UsEquity);
+        let close = sa.next_close_ms(MON_CLOSE_UTC_MS);
+        assert!(close > MON_CLOSE_UTC_MS);
+        assert_eq!(sa.status(close).unwrap(), TradingStatus::Closed);
+        assert_eq!(close, 1704762000000);
+    }
+
+    #[test]
+    fn test_next_close_forex_already_closed_returns_same() {
+        // SAT_UTC_MS = Saturday — forex is closed
+        let sa = sa(MarketSession::Forex);
+        assert_eq!(sa.next_close_ms(SAT_UTC_MS), SAT_UTC_MS);
+    }
+
+    #[test]
+    fn test_next_close_forex_open_monday_returns_friday_22_utc() {
+        // MON_OPEN_UTC_MS = Monday 2024-01-08 14:30 UTC → forex open
+        // Next close = Friday 2024-01-12 22:00 UTC = 1705096800000 ms
+        let sa = sa(MarketSession::Forex);
+        let close = sa.next_close_ms(MON_OPEN_UTC_MS);
+        assert!(close > MON_OPEN_UTC_MS);
+        assert_eq!(sa.status(close).unwrap(), TradingStatus::Closed);
+        assert_eq!(close, 1705096800000);
     }
 }

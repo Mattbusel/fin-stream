@@ -271,7 +271,7 @@ fn feed_health_stale_detection_is_per_feed() {
     // After 2 seconds: ETH stale (> 1s threshold), BTC still healthy (< 5s threshold).
     let errors = monitor.check_all(1_002_000);
     assert_eq!(errors.len(), 1, "only ETH-USD should be stale");
-    assert!(errors[0].to_string().contains("ETH-USD"));
+    assert!(errors[0].1.to_string().contains("ETH-USD"));
 
     assert_eq!(monitor.healthy_count(), 1);
     assert_eq!(monitor.stale_count(), 1);

@@ -343,6 +343,27 @@ impl<T, const N: usize> SpscConsumer<T, N> {
     pub fn len(&self) -> usize {
         self.inner.len()
     }
+
+    /// Return a by-value iterator that pops items from the ring in FIFO order.
+    ///
+    /// Unlike [`drain`](Self::drain), this does not collect into a `Vec` — items
+    /// are yielded lazily on each call to `next()`.
+    pub fn into_iter_drain(self) -> SpscDrainIter<T, N> {
+        SpscDrainIter { consumer: self }
+    }
+}
+
+/// Iterator that lazily pops items from a [`SpscConsumer`] in FIFO order.
+pub struct SpscDrainIter<T, const N: usize> {
+    consumer: SpscConsumer<T, N>,
+}
+
+impl<T, const N: usize> Iterator for SpscDrainIter<T, N> {
+    type Item = T;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.consumer.pop().ok()
+    }
 }
 
 #[cfg(test)]
@@ -632,5 +653,59 @@ mod tests {
     fn test_large_power_of_two_size() {
         let ring: SpscRing<u64, 1024> = SpscRing::new();
         assert_eq!(ring.capacity(), 1023);
+    }
+
+    // ── Drain iterator ────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_drain_iter_yields_fifo_order() {
+        let ring: SpscRing<u32, 8> = SpscRing::new();
+        let (prod, cons) = ring.split();
+        prod.push(1).unwrap();
+        prod.push(2).unwrap();
+        prod.push(3).unwrap();
+        let items: Vec<u32> = cons.into_iter_drain().collect();
+        assert_eq!(items, vec![1, 2, 3]);
+    }
+
+    #[test]
+    fn test_drain_iter_empty_ring_yields_nothing() {
+        let ring: SpscRing<u32, 8> = SpscRing::new();
+        let (_, cons) = ring.split();
+        let items: Vec<u32> = cons.into_iter_drain().collect();
+        assert!(items.is_empty());
+    }
+
+    // ── Property-based: FIFO ordering with wraparound ────────────────────────
+
+    proptest::proptest! {
+        /// Any sequence of pushes and pops must preserve FIFO order, even when the
+        /// internal indices wrap around the ring boundary multiple times.
+        #[test]
+        fn prop_fifo_ordering_with_wraparound(
+            // Generate batches of u32 values to push through a small ring.
+            batches in proptest::collection::vec(
+                proptest::collection::vec(0u32..=u32::MAX, 1..=7),
+                1..=20,
+            )
+        ) {
+            // Use a small ring (capacity = 7) to force frequent wraparound.
+            let ring: SpscRing<u32, 8> = SpscRing::new();
+            let mut oracle: std::collections::VecDeque<u32> = std::collections::VecDeque::new();
+
+            for batch in &batches {
+                // Push as many items as will fit; track what was accepted.
+                for &item in batch {
+                    if ring.push(item).is_ok() {
+                        oracle.push_back(item);
+                    }
+                }
+                // Pop everything currently in the ring and check ordering.
+                while let Ok(popped) = ring.pop() {
+                    let expected = oracle.pop_front().expect("oracle must have matching item");
+                    proptest::prop_assert_eq!(popped, expected);
+                }
+            }
+        }
     }
 }

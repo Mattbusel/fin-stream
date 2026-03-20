@@ -62,7 +62,7 @@ pub use book::{BookDelta, BookSide, OrderBook, PriceLevel};
 pub use error::StreamError;
 pub use health::{FeedHealth, HealthMonitor, HealthStatus};
 pub use lorentz::{LorentzTransform, SpacetimePoint};
-pub use norm::MinMaxNormalizer;
+pub use norm::{MinMaxNormalizer, ZScoreNormalizer};
 pub use ohlcv::{OhlcvAggregator, OhlcvBar, Timeframe};
 pub use ring::{SpscConsumer, SpscProducer, SpscRing};
 pub use session::{MarketSession, SessionAwareness, TradingStatus};

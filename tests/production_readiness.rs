@@ -33,7 +33,7 @@ fn health_check_marks_feed_stale_after_threshold() {
     // 3 s elapsed — past threshold, should be stale.
     let errors = monitor.check_all(1_003_000);
     assert_eq!(errors.len(), 1);
-    assert!(matches!(&errors[0], StreamError::StaleFeed { feed_id, .. } if feed_id == "BTC-USD"));
+    assert!(matches!(&errors[0].1, StreamError::StaleFeed { feed_id, .. } if feed_id == "BTC-USD"));
     assert_eq!(monitor.get("BTC-USD").unwrap().status, HealthStatus::Stale);
 }
 
@@ -114,7 +114,7 @@ fn health_per_feed_threshold_independent() {
     // After 1 s: FAST is stale (> 0.5 s), SLOW is healthy (< 10 s).
     let errors = monitor.check_all(base + 1_000);
     assert_eq!(errors.len(), 1);
-    assert!(errors[0].to_string().contains("FAST"));
+    assert!(errors[0].1.to_string().contains("FAST"));
     assert_eq!(monitor.stale_count(), 1);
     assert_eq!(monitor.healthy_count(), 1);
 }

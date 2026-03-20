@@ -29,6 +29,21 @@ pub enum Exchange {
     Polygon,
 }
 
+impl Exchange {
+    /// Returns a slice of all supported exchanges.
+    ///
+    /// Useful for iterating all exchanges to register feeds, build UI dropdowns,
+    /// or validate config values at startup.
+    pub fn all() -> &'static [Exchange] {
+        &[
+            Exchange::Binance,
+            Exchange::Coinbase,
+            Exchange::Alpaca,
+            Exchange::Polygon,
+        ]
+    }
+}
+
 impl std::fmt::Display for Exchange {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -267,6 +282,12 @@ impl TickNormalizer {
         let price = parse_decimal_field(p, "p", &raw.exchange.to_string())?;
         let qty = parse_decimal_field(p, "s", &raw.exchange.to_string())?;
         let trade_id = p.get("i").and_then(|v| v.as_u64()).map(|id| id.to_string());
+        // Alpaca sends RFC 3339 timestamps in the "t" field (e.g. "2023-11-15T10:00:00.000Z").
+        let exchange_ts_ms = p
+            .get("t")
+            .and_then(|v| v.as_str())
+            .and_then(|s| DateTime::parse_from_rfc3339(s).ok())
+            .map(|dt| dt.timestamp_millis() as u64);
         Ok(NormalizedTick {
             exchange: raw.exchange,
             symbol: raw.symbol,
@@ -274,7 +295,7 @@ impl TickNormalizer {
             quantity: qty,
             side: None,
             trade_id,
-            exchange_ts_ms: None,
+            exchange_ts_ms,
             received_at_ms: raw.received_at_ms,
         })
     }
@@ -284,7 +305,11 @@ impl TickNormalizer {
         let price = parse_decimal_field(p, "p", &raw.exchange.to_string())?;
         let qty = parse_decimal_field(p, "s", &raw.exchange.to_string())?;
         let trade_id = p.get("i").and_then(|v| v.as_str()).map(str::to_string);
-        let exchange_ts = p.get("t").and_then(|v| v.as_u64());
+        // Polygon sends nanoseconds since epoch in the "t" field; convert to milliseconds.
+        let exchange_ts = p
+            .get("t")
+            .and_then(|v| v.as_u64())
+            .map(|t_ns| t_ns / 1_000_000);
         Ok(NormalizedTick {
             exchange: raw.exchange,
             symbol: raw.symbol,
@@ -381,7 +406,8 @@ mod tests {
         RawTick {
             exchange: Exchange::Polygon,
             symbol: symbol.to_string(),
-            payload: json!({ "p": "180.51", "s": "5", "i": "XYZ-001", "t": 1700000000004u64 }),
+            // Polygon sends nanoseconds; 1_700_000_000_000_000_000 ns = 1_700_000_000_000 ms
+            payload: json!({ "p": "180.51", "s": "5", "i": "XYZ-001", "t": 1_700_000_000_000_000_000u64 }),
             received_at_ms: 1700000000005,
         }
     }
@@ -474,8 +500,29 @@ mod tests {
     fn test_normalize_polygon_tick() {
         let tick = normalizer().normalize(polygon_tick("AAPL")).unwrap();
         assert_eq!(tick.price, Decimal::from_str("180.51").unwrap());
-        assert_eq!(tick.exchange_ts_ms, Some(1700000000004));
+        // 1_700_000_000_000_000_000 ns / 1_000_000 = 1_700_000_000_000 ms
+        assert_eq!(tick.exchange_ts_ms, Some(1_700_000_000_000u64));
         assert_eq!(tick.trade_id, Some("XYZ-001".to_string()));
+    }
+
+    #[test]
+    fn test_normalize_alpaca_rfc3339_timestamp() {
+        let raw = RawTick {
+            exchange: Exchange::Alpaca,
+            symbol: "AAPL".into(),
+            payload: json!({ "p": "180.50", "s": "10", "i": 99, "t": "2023-11-15T00:00:00Z" }),
+            received_at_ms: 1700000000003,
+        };
+        let tick = normalizer().normalize(raw).unwrap();
+        assert!(tick.exchange_ts_ms.is_some(), "Alpaca 't' field should be parsed");
+        // 2023-11-15T00:00:00Z = 1700006400000 ms
+        assert_eq!(tick.exchange_ts_ms, Some(1700006400000u64));
+    }
+
+    #[test]
+    fn test_normalize_alpaca_no_timestamp_field() {
+        let tick = normalizer().normalize(alpaca_tick("AAPL")).unwrap();
+        assert_eq!(tick.exchange_ts_ms, None, "missing 't' field means no exchange_ts_ms");
     }
 
     #[test]

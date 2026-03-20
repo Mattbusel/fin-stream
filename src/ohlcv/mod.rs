@@ -80,6 +80,16 @@ pub struct OhlcvBar {
     pub is_gap_fill: bool,
 }
 
+impl std::fmt::Display for OhlcvBar {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{} {} [{}/{}/{}/{}  v={}]",
+            self.symbol, self.timeframe, self.open, self.high, self.low, self.close, self.volume
+        )
+    }
+}
+
 /// Aggregates ticks into OHLCV bars.
 pub struct OhlcvAggregator {
     symbol: String,
@@ -89,6 +99,8 @@ pub struct OhlcvAggregator {
     /// that were skipped between the previous tick and the current one.
     /// The synthetic bars use the last known close price for all OHLC fields.
     emit_empty_bars: bool,
+    /// Total number of completed bars emitted by this aggregator.
+    bars_emitted: u64,
 }
 
 impl OhlcvAggregator {
@@ -99,9 +111,8 @@ impl OhlcvAggregator {
     pub fn new(symbol: impl Into<String>, timeframe: Timeframe) -> Result<Self, StreamError> {
         let tf_dur = timeframe.duration_ms();
         if tf_dur == 0 {
-            return Err(StreamError::ParseError {
-                exchange: "OhlcvAggregator".into(),
-                reason: "timeframe duration must be > 0".into(),
+            return Err(StreamError::ConfigError {
+                reason: "OhlcvAggregator timeframe duration must be > 0".into(),
             });
         }
         Ok(Self {
@@ -109,6 +120,7 @@ impl OhlcvAggregator {
             timeframe,
             current_bar: None,
             emit_empty_bars: false,
+            bars_emitted: 0,
         })
     }
 
@@ -130,8 +142,7 @@ impl OhlcvAggregator {
     #[inline]
     pub fn feed(&mut self, tick: &NormalizedTick) -> Result<Vec<OhlcvBar>, StreamError> {
         if tick.symbol != self.symbol {
-            return Err(StreamError::ParseError {
-                exchange: tick.exchange.to_string(),
+            return Err(StreamError::AggregationError {
                 reason: format!(
                     "tick symbol '{}' does not match aggregator '{}'",
                     tick.symbol, self.symbol
@@ -210,6 +221,7 @@ impl OhlcvAggregator {
                 });
             }
         }
+        self.bars_emitted += emitted.len() as u64;
         Ok(emitted)
     }
 
@@ -223,7 +235,13 @@ impl OhlcvAggregator {
     pub fn flush(&mut self) -> Option<OhlcvBar> {
         let mut bar = self.current_bar.take()?;
         bar.is_complete = true;
+        self.bars_emitted += 1;
         Some(bar)
+    }
+
+    /// Total number of completed bars emitted by this aggregator (via `feed` or `flush`).
+    pub fn bar_count(&self) -> u64 {
+        self.bars_emitted
     }
 
     /// The symbol this aggregator tracks.
@@ -392,7 +410,7 @@ mod tests {
         let mut agg = agg("BTC-USD", Timeframe::Minutes(1));
         let tick = make_tick("ETH-USD", dec!(3000), dec!(1), 60_000);
         let result = agg.feed(&tick);
-        assert!(matches!(result, Err(StreamError::ParseError { .. })));
+        assert!(matches!(result, Err(StreamError::AggregationError { .. })));
     }
 
     #[test]
@@ -513,5 +531,37 @@ mod tests {
         for bar in &bars {
             assert!(bar.is_complete, "all emitted bars must be marked complete");
         }
+    }
+
+    #[test]
+    fn test_ohlcv_bar_display() {
+        let mut agg = agg("BTC-USD", Timeframe::Minutes(1));
+        agg.feed(&make_tick("BTC-USD", dec!(50000), dec!(1), 60_000))
+            .unwrap();
+        let bar = agg.current_bar().unwrap();
+        let s = bar.to_string();
+        assert!(s.contains("BTC-USD"));
+        assert!(s.contains("1m"));
+        assert!(s.contains("50000"));
+    }
+
+    #[test]
+    fn test_bar_count_increments_on_feed() {
+        let mut agg = agg("BTC-USD", Timeframe::Minutes(1));
+        assert_eq!(agg.bar_count(), 0);
+        agg.feed(&make_tick("BTC-USD", dec!(50000), dec!(1), 60_000))
+            .unwrap();
+        agg.feed(&make_tick("BTC-USD", dec!(50100), dec!(1), 120_000))
+            .unwrap();
+        assert_eq!(agg.bar_count(), 1);
+    }
+
+    #[test]
+    fn test_bar_count_increments_on_flush() {
+        let mut agg = agg("BTC-USD", Timeframe::Minutes(1));
+        agg.feed(&make_tick("BTC-USD", dec!(50000), dec!(1), 60_000))
+            .unwrap();
+        agg.flush().unwrap();
+        assert_eq!(agg.bar_count(), 1);
     }
 }

@@ -180,6 +180,17 @@ impl LorentzTransform {
         points.iter().map(|&p| self.transform(p)).collect()
     }
 
+    /// Apply the inverse boost to a batch of points.
+    ///
+    /// Equivalent to calling [`inverse_transform`](Self::inverse_transform) on each element.
+    /// For any slice `pts`, `inverse_transform_batch(&transform_batch(pts))` equals `pts`
+    /// up to floating-point rounding.
+    ///
+    /// # Complexity: O(n), one heap allocation of size `n`.
+    pub fn inverse_transform_batch(&self, points: &[SpacetimePoint]) -> Vec<SpacetimePoint> {
+        points.iter().map(|&p| self.inverse_transform(p)).collect()
+    }
+
     /// Time-dilation: the transformed time coordinate for a point at rest
     /// (`x = 0`) is `t' = gamma * t`.
     ///
@@ -216,6 +227,17 @@ impl LorentzTransform {
         let dt = p2.t - p1.t;
         let dx = p2.x - p1.x;
         dt * dt - dx * dx
+    }
+
+    /// The Minkowski rapidity `φ = atanh(beta)`.
+    ///
+    /// Rapidities are **additive** under composition: applying boost `φ₁` then
+    /// `φ₂` yields a single boost with rapidity `φ₁ + φ₂`. This is the additive
+    /// quantity that velocity addition makes non-linear.
+    ///
+    /// # Complexity: O(1)
+    pub fn rapidity(&self) -> f64 {
+        self.beta.atanh()
     }
 
     /// Compose two Lorentz boosts into a single equivalent boost.
@@ -424,6 +446,31 @@ mod tests {
         }
     }
 
+    #[test]
+    fn test_inverse_transform_batch_roundtrip() {
+        let lt = LorentzTransform::new(0.5).unwrap();
+        let pts = vec![
+            SpacetimePoint::new(1.0, 0.0),
+            SpacetimePoint::new(2.0, 1.0),
+            SpacetimePoint::new(0.0, 3.0),
+        ];
+        let transformed = lt.transform_batch(&pts);
+        let restored = lt.inverse_transform_batch(&transformed);
+        for (i, (&orig, &rest)) in pts.iter().zip(restored.iter()).enumerate() {
+            assert!(
+                point_approx_eq(orig, rest),
+                "round-trip failed at index {i}: expected {orig:?}, got {rest:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_inverse_transform_batch_length_preserved() {
+        let lt = LorentzTransform::new(0.3).unwrap();
+        let pts = vec![SpacetimePoint::new(0.0, 0.0), SpacetimePoint::new(1.0, 1.0)];
+        assert_eq!(lt.inverse_transform_batch(&pts).len(), pts.len());
+    }
+
     // ── SpacetimePoint ────────────────────────────────────────────────────────
 
     #[test]
@@ -470,6 +517,38 @@ mod tests {
         // Instead verify compose gives valid beta < 1.
         let composed = lt_fwd.compose(&lt_bwd).unwrap();
         assert!(composed.beta() < 1.0);
+    }
+
+    // ── Rapidity ──────────────────────────────────────────────────────────────
+
+    /// beta=0 has rapidity 0 (atanh(0) = 0).
+    #[test]
+    fn test_rapidity_zero_beta() {
+        let lt = LorentzTransform::new(0.0).unwrap();
+        assert!(approx_eq(lt.rapidity(), 0.0));
+    }
+
+    /// Rapidity for beta=0.5: atanh(0.5) ≈ 0.5493.
+    #[test]
+    fn test_rapidity_known_value() {
+        let lt = LorentzTransform::new(0.5).unwrap();
+        let expected = (0.5f64).atanh();
+        assert!((lt.rapidity() - expected).abs() < EPS);
+    }
+
+    /// Rapidities are additive: rapidity(compose(a, b)) == rapidity(a) + rapidity(b).
+    #[test]
+    fn test_rapidity_is_additive_under_composition() {
+        let lt1 = LorentzTransform::new(0.3).unwrap();
+        let lt2 = LorentzTransform::new(0.4).unwrap();
+        let composed = lt1.compose(&lt2).unwrap();
+        let sum_rapidities = lt1.rapidity() + lt2.rapidity();
+        assert!(
+            (composed.rapidity() - sum_rapidities).abs() < 1e-9,
+            "rapidity should be additive: {} vs {}",
+            composed.rapidity(),
+            sum_rapidities
+        );
     }
 
     /// Compose and then transform equals applying both transforms sequentially.
