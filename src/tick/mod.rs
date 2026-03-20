@@ -272,6 +272,11 @@ impl NormalizedTick {
     pub fn volume_notional(&self) -> rust_decimal::Decimal {
         self.price * self.quantity
     }
+
+    /// Returns `true` if this tick's price is strictly above `price`.
+    pub fn is_above(&self, price: Decimal) -> bool {
+        self.price > price
+    }
 }
 
 impl std::fmt::Display for NormalizedTick {
@@ -1015,5 +1020,13 @@ mod tests {
         let mut tick = make_tick_at(1_000);
         tick.quantity = rust_decimal_macros::dec!(10);
         assert!(!tick.is_large_trade(rust_decimal_macros::dec!(50)));
+    }
+
+    #[test]
+    fn test_volume_notional_is_price_times_quantity() {
+        let mut tick = make_tick_at(1_000);
+        tick.price = rust_decimal_macros::dec!(200);
+        tick.quantity = rust_decimal_macros::dec!(3);
+        assert_eq!(tick.volume_notional(), rust_decimal_macros::dec!(600));
     }
 }

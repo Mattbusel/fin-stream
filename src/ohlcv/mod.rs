@@ -343,6 +343,17 @@ impl OhlcvBar {
     pub fn bar_midpoint(&self) -> Decimal {
         (self.open + self.close) / Decimal::from(2)
     }
+
+    /// Body as a fraction of total range: `body / range`.
+    ///
+    /// Returns `None` when `range` is zero (all OHLC prices identical).
+    pub fn body_to_range_ratio(&self) -> Option<Decimal> {
+        let r = self.range();
+        if r.is_zero() {
+            return None;
+        }
+        Some(self.body() / r)
+    }
 }
 
 impl std::fmt::Display for OhlcvBar {
@@ -648,6 +659,12 @@ impl OhlcvAggregator {
         let duration = self.timeframe.duration_ms();
         let progress = elapsed as f64 / duration as f64;
         Some(progress.clamp(0.0, 1.0))
+    }
+
+    /// Returns `true` if a bar is currently in progress (at least one tick has
+    /// been fed since the last flush or reset).
+    pub fn is_active(&self) -> bool {
+        self.current_bar.is_some()
     }
 }
 
@@ -1323,6 +1340,36 @@ mod tests {
         let bar = make_bar(dec!(8), dec!(10), dec!(6), dec!(10));
         assert_eq!(bar.median_price(), dec!(8));
         assert!(bar.typical_price() > bar.median_price());
+    }
+
+    #[test]
+    fn test_close_location_value_at_high() {
+        // close == high → CLV = (high - low - 0) / range = 1.0
+        let bar = make_bar(dec!(100), dec!(110), dec!(90), dec!(110));
+        let clv = bar.close_location_value().unwrap();
+        assert!((clv - 1.0).abs() < 1e-9, "expected 1.0 got {clv}");
+    }
+
+    #[test]
+    fn test_close_location_value_at_low() {
+        // close == low → CLV = (low - low - (high - low)) / range = -range/range = -1.0
+        let bar = make_bar(dec!(100), dec!(110), dec!(90), dec!(90));
+        let clv = bar.close_location_value().unwrap();
+        assert!((clv + 1.0).abs() < 1e-9, "expected -1.0 got {clv}");
+    }
+
+    #[test]
+    fn test_close_location_value_midpoint_is_zero() {
+        // close == (high + low) / 2 → CLV = 0.0
+        let bar = make_bar(dec!(100), dec!(110), dec!(90), dec!(100));
+        let clv = bar.close_location_value().unwrap();
+        assert!(clv.abs() < 1e-9, "expected 0.0 got {clv}");
+    }
+
+    #[test]
+    fn test_close_location_value_zero_range_returns_none() {
+        let bar = make_bar(dec!(100), dec!(100), dec!(100), dec!(100));
+        assert!(bar.close_location_value().is_none());
     }
 
     // ── OhlcvAggregator::last_bar ─────────────────────────────────────────────

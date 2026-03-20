@@ -1044,4 +1044,23 @@ mod tests {
         let snapshot = ring.peek_all();
         assert_eq!(snapshot, vec![1, 2, 3, 4]);
     }
+
+    #[test]
+    fn test_drain_into_appends_to_buf() {
+        let ring: SpscRing<u32, 8> = SpscRing::new();
+        ring.push(10).unwrap();
+        ring.push(20).unwrap();
+        let mut buf = vec![1u32, 2];
+        ring.drain_into(&mut buf);
+        assert_eq!(buf, vec![1, 2, 10, 20]);
+        assert!(ring.is_empty());
+    }
+
+    #[test]
+    fn test_drain_into_empty_ring_leaves_buf_unchanged() {
+        let ring: SpscRing<u32, 8> = SpscRing::new();
+        let mut buf = vec![42u32];
+        ring.drain_into(&mut buf);
+        assert_eq!(buf, vec![42]);
+    }
 }

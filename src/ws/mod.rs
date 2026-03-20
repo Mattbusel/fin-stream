@@ -69,6 +69,11 @@ impl WsStats {
     pub fn is_idle(&self, elapsed_ms: u64, min_rate: f64) -> bool {
         self.message_rate(elapsed_ms) < min_rate
     }
+
+    /// Returns `true` if at least one message has been received.
+    pub fn has_traffic(&self) -> bool {
+        self.total_messages_received > 0
+    }
 }
 
 /// Reconnection policy for a WebSocket feed.
@@ -999,5 +1004,24 @@ mod tests {
     fn test_is_idle_zero_messages_always_idle() {
         let stats = WsStats::default();
         assert!(stats.is_idle(1_000, 0.001));
+    }
+
+    #[test]
+    fn test_total_attempts_remaining_full() {
+        let p = ReconnectPolicy::default(); // max_attempts = 10
+        assert_eq!(p.total_attempts_remaining(0), 10);
+    }
+
+    #[test]
+    fn test_total_attempts_remaining_partial() {
+        let p = ReconnectPolicy::default();
+        assert_eq!(p.total_attempts_remaining(3), 7);
+    }
+
+    #[test]
+    fn test_total_attempts_remaining_exhausted() {
+        let p = ReconnectPolicy::default();
+        assert_eq!(p.total_attempts_remaining(10), 0);
+        assert_eq!(p.total_attempts_remaining(99), 0);
     }
 }

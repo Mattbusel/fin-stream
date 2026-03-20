@@ -864,4 +864,27 @@ mod tests {
             "other"
         );
     }
+
+    #[test]
+    fn test_is_network_error_ws_variants() {
+        assert!(StreamError::WebSocket("dropped".into()).is_network_error());
+        assert!(StreamError::ConnectionFailed {
+            url: "wss://x".into(),
+            reason: "timeout".into()
+        }
+        .is_network_error());
+        assert!(StreamError::Disconnected { url: "wss://x".into() }.is_network_error());
+    }
+
+    #[test]
+    fn test_is_network_error_false_for_config() {
+        assert!(!StreamError::ConfigError { reason: "bad".into() }.is_network_error());
+        assert!(!StreamError::RingBufferFull { capacity: 8 }.is_network_error());
+        assert!(!StreamError::BookCrossed {
+            symbol: "BTC".into(),
+            bid: Decimal::from(100u32),
+            ask: Decimal::from(99u32),
+        }
+        .is_network_error());
+    }
 }

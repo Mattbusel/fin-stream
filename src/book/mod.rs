@@ -340,6 +340,14 @@ impl OrderBook {
         }
     }
 
+    /// Returns `true` if exactly one side (bids or asks) has levels and the
+    /// other is empty. An empty book returns `false`.
+    pub fn is_one_sided(&self) -> bool {
+        let has_bids = !self.bids.is_empty();
+        let has_asks = !self.asks.is_empty();
+        has_bids != has_asks
+    }
+
     /// Sum of the top `n` bid levels' quantities (best `n` bids).
     ///
     /// If fewer than `n` bid levels exist, sums all available levels. Returns
@@ -1348,5 +1356,32 @@ mod tests {
         let b = book("BTC-USD");
         assert_eq!(b.total_notional(BookSide::Bid), dec!(0));
         assert_eq!(b.total_notional(BookSide::Ask), dec!(0));
+    }
+
+    #[test]
+    fn test_cumulative_bid_volume_top_two() {
+        let mut b = book("BTC-USD");
+        b.apply(delta("BTC-USD", BookSide::Bid, dec!(100), dec!(5))).unwrap();
+        b.apply(delta("BTC-USD", BookSide::Bid, dec!(99), dec!(3))).unwrap();
+        b.apply(delta("BTC-USD", BookSide::Bid, dec!(98), dec!(2))).unwrap();
+        // best 2 bids: 100 (qty=5), 99 (qty=3)
+        assert_eq!(b.cumulative_bid_volume(2), dec!(8));
+    }
+
+    #[test]
+    fn test_cumulative_ask_volume_top_two() {
+        let mut b = book("BTC-USD");
+        b.apply(delta("BTC-USD", BookSide::Ask, dec!(101), dec!(4))).unwrap();
+        b.apply(delta("BTC-USD", BookSide::Ask, dec!(102), dec!(6))).unwrap();
+        b.apply(delta("BTC-USD", BookSide::Ask, dec!(103), dec!(1))).unwrap();
+        // best 2 asks: 101 (qty=4), 102 (qty=6)
+        assert_eq!(b.cumulative_ask_volume(2), dec!(10));
+    }
+
+    #[test]
+    fn test_cumulative_volume_empty_returns_zero() {
+        let b = book("BTC-USD");
+        assert_eq!(b.cumulative_bid_volume(5), dec!(0));
+        assert_eq!(b.cumulative_ask_volume(5), dec!(0));
     }
 }

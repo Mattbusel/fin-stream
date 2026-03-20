@@ -1199,4 +1199,34 @@ mod zscore_tests {
         // window = [20, 30], sum = 50
         assert_eq!(n.sum().unwrap(), dec!(50));
     }
+
+    #[test]
+    fn test_std_dev_single_observation_returns_some_zero() {
+        let mut n = znorm(5);
+        n.update(dec!(10));
+        // Single sample → variance undefined, std_dev should return None or 0
+        // ZScoreNormalizer::std_dev returns None for n < 2
+        assert!(n.std_dev().is_none() || n.std_dev().unwrap() == 0.0);
+    }
+
+    #[test]
+    fn test_std_dev_constant_window_is_zero() {
+        let mut n = znorm(4);
+        for _ in 0..4 {
+            n.update(dec!(5));
+        }
+        let sd = n.std_dev().unwrap();
+        assert!(sd.abs() < 1e-9, "expected 0.0 got {sd}");
+    }
+
+    #[test]
+    fn test_std_dev_known_population() {
+        // values [2, 4, 4, 4, 5, 5, 7, 9] → σ = 2.0
+        let mut n = znorm(8);
+        for v in [dec!(2), dec!(4), dec!(4), dec!(4), dec!(5), dec!(5), dec!(7), dec!(9)] {
+            n.update(v);
+        }
+        let sd = n.std_dev().unwrap();
+        assert!((sd - 2.0).abs() < 1e-6, "expected ~2.0 got {sd}");
+    }
 }
