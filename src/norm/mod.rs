@@ -949,6 +949,48 @@ mod tests {
         n.update(dec!(300)); // oldest (100) evicted
         assert_eq!(n.latest(), Some(dec!(300)));
     }
+
+    // ── MinMaxNormalizer::kurtosis ────────────────────────────────────────────
+
+    #[test]
+    fn test_minmax_kurtosis_none_fewer_than_4_observations() {
+        let mut n = norm(5);
+        n.update(dec!(1));
+        n.update(dec!(2));
+        n.update(dec!(3));
+        assert!(n.kurtosis().is_none());
+    }
+
+    #[test]
+    fn test_minmax_kurtosis_some_with_4_observations() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] {
+            n.update(v);
+        }
+        assert!(n.kurtosis().is_some());
+    }
+
+    #[test]
+    fn test_minmax_kurtosis_none_all_same_value() {
+        let mut n = norm(4);
+        for _ in 0..4 {
+            n.update(dec!(5));
+        }
+        // std_dev = 0 → kurtosis undefined
+        assert!(n.kurtosis().is_none());
+    }
+
+    #[test]
+    fn test_minmax_kurtosis_uniform_distribution_is_negative() {
+        // Uniform distribution has excess kurtosis ≈ -1.2
+        let mut n = norm(10);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4), dec!(5),
+                  dec!(6), dec!(7), dec!(8), dec!(9), dec!(10)] {
+            n.update(v);
+        }
+        let k = n.kurtosis().unwrap();
+        assert!(k < 0.0, "uniform distribution should have negative excess kurtosis, got {k}");
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
