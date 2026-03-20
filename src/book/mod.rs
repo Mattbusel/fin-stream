@@ -664,6 +664,25 @@ impl OrderBook {
         }
     }
 
+    /// Total number of distinct price levels across both bid and ask sides.
+    pub fn level_count_both_sides(&self) -> usize {
+        self.bids.len() + self.asks.len()
+    }
+
+    /// The `n`th-best ask price (0 = best/lowest ask).
+    ///
+    /// Returns `None` if there are fewer than `n + 1` ask levels.
+    pub fn ask_price_at_rank(&self, n: usize) -> Option<Decimal> {
+        self.asks.keys().nth(n).copied()
+    }
+
+    /// The `n`th-best bid price (0 = best/highest bid).
+    ///
+    /// Returns `None` if there are fewer than `n + 1` bid levels.
+    pub fn bid_price_at_rank(&self, n: usize) -> Option<Decimal> {
+        self.bids.keys().nth_back(n).copied()
+    }
+
     /// Number of distinct price levels per unit of price range on the given side.
     ///
     /// `quote_density = level_count / (max_price - min_price)`.

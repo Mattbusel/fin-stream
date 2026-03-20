@@ -761,6 +761,20 @@ impl OhlcvBar {
         self.is_bearish() && self.is_engulfing(prev)
     }
 
+    /// Returns `true` if this bar is a bullish engulfing candle relative to `prev`.
+    ///
+    /// A bullish engulfing has: current bar bullish, body entirely engulfs prev body.
+    pub fn is_bullish_engulfing(&self, prev: &OhlcvBar) -> bool {
+        self.is_bullish() && self.is_engulfing(prev)
+    }
+
+    /// Gap between this bar's open and the previous bar's close: `self.open - prev.close`.
+    ///
+    /// A positive value indicates an upward gap; negative indicates a downward gap.
+    pub fn close_gap(&self, prev: &OhlcvBar) -> Decimal {
+        self.open - prev.close
+    }
+
     /// Duration of this bar's timeframe in milliseconds.
     pub fn bar_duration_ms(&self) -> u64 {
         self.timeframe.duration_ms()
