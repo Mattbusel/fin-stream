@@ -434,6 +434,17 @@ impl HealthMonitor {
         self.healthy_count() as f64 / total as f64
     }
 
+    /// ID of the feed whose `last_tick_ms` is the most recent (largest value).
+    ///
+    /// Returns `None` if no feed has ever received a tick.
+    pub fn last_updated_feed_id(&self) -> Option<String> {
+        self.feeds
+            .iter()
+            .filter_map(|e| e.last_tick_ms.map(|t| (t, e.feed_id.clone())))
+            .max_by_key(|(t, _)| *t)
+            .map(|(_, id)| id)
+    }
+
     /// IDs of all feeds currently in [`HealthStatus::Unknown`] state.
     pub fn unknown_feed_ids(&self) -> Vec<String> {
         self.feeds
@@ -2288,5 +2299,24 @@ mod tests {
         m.heartbeat("BTC", 1).unwrap();
         m.heartbeat("ETH", 0).unwrap();
         assert_eq!(m.total_tick_count(), 3);
+    }
+
+    // ── last_updated_feed_id ──────────────────────────────────────────────────
+
+    #[test]
+    fn test_last_updated_feed_id_none_when_no_ticks() {
+        let m = HealthMonitor::new(5_000);
+        m.register("BTC", None);
+        assert!(m.last_updated_feed_id().is_none());
+    }
+
+    #[test]
+    fn test_last_updated_feed_id_returns_most_recent() {
+        let m = HealthMonitor::new(5_000);
+        m.register("BTC", None);
+        m.register("ETH", None);
+        m.heartbeat("BTC", 100).unwrap();
+        m.heartbeat("ETH", 200).unwrap(); // ETH more recent
+        assert_eq!(m.last_updated_feed_id(), Some("ETH".to_string()));
     }
 }

@@ -681,6 +681,15 @@ impl SessionAwareness {
         }
     }
 
+    /// Returns `true` if `date` falls in the final week of the month (day ≥ 22).
+    ///
+    /// Weekly equity options expire on Fridays; monthly contracts expire the
+    /// third Friday. The final calendar week of the month covers both cases
+    /// and is often associated with elevated volatility and rebalancing.
+    pub fn is_expiry_week(date: NaiveDate) -> bool {
+        date.day() >= 22
+    }
+
     /// Returns `true` if `date` falls in a typical US earnings season month
     /// (January, April, July, or October).
     ///
@@ -2637,5 +2646,25 @@ mod tests {
     fn test_day_of_week_name_sunday() {
         let d = NaiveDate::from_ymd_opt(2024, 1, 7).unwrap(); // Sunday
         assert_eq!(SessionAwareness::day_of_week_name(d), "Sunday");
+    }
+
+    // ── is_expiry_week ────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_is_expiry_week_true_for_late_month() {
+        let d = NaiveDate::from_ymd_opt(2024, 1, 25).unwrap();
+        assert!(SessionAwareness::is_expiry_week(d));
+    }
+
+    #[test]
+    fn test_is_expiry_week_true_at_boundary_day_22() {
+        let d = NaiveDate::from_ymd_opt(2024, 1, 22).unwrap();
+        assert!(SessionAwareness::is_expiry_week(d));
+    }
+
+    #[test]
+    fn test_is_expiry_week_false_for_early_month() {
+        let d = NaiveDate::from_ymd_opt(2024, 1, 10).unwrap();
+        assert!(!SessionAwareness::is_expiry_week(d));
     }
 }

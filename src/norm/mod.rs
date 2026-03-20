@@ -376,6 +376,16 @@ impl MinMaxNormalizer {
         self.window.iter().filter(|&&v| v > threshold).count()
     }
 
+    /// Fraction of window values strictly above the midpoint `(min + max) / 2`.
+    ///
+    /// Returns `None` if the window is empty. Returns `0.0` if all values are equal.
+    pub fn fraction_above_mid(&mut self) -> Option<f64> {
+        let (min, max) = self.min_max()?;
+        let mid = (min + max) / rust_decimal::Decimal::TWO;
+        let above = self.window.iter().filter(|&&v| v > mid).count();
+        Some(above as f64 / self.window.len() as f64)
+    }
+
     /// `(max - min) / max` as `f64` — the range as a fraction of the maximum.
     ///
     /// Measures how wide the window's spread is relative to its peak. Returns
@@ -2322,5 +2332,39 @@ mod zscore_tests {
         for v in [dec!(1), dec!(2), dec!(3), dec!(4), dec!(5), dec!(100)] { n.update(v); }
         // 100 is many std devs from mean; threshold=1.0 should catch it
         assert!(n.above_threshold_count(1.0) >= 1);
+    }
+}
+
+#[cfg(test)]
+mod minmax_extra_tests {
+    use super::*;
+    use rust_decimal_macros::dec;
+
+    fn norm(w: usize) -> MinMaxNormalizer {
+        MinMaxNormalizer::new(w).unwrap()
+    }
+
+    // ── fraction_above_mid ────────────────────────────────────────────────────
+
+    #[test]
+    fn test_fraction_above_mid_none_when_empty() {
+        let mut n = norm(4);
+        assert!(n.fraction_above_mid().is_none());
+    }
+
+    #[test]
+    fn test_fraction_above_mid_zero_when_all_same() {
+        let mut n = norm(4);
+        for _ in 0..4 { n.update(dec!(5)); }
+        assert_eq!(n.fraction_above_mid(), Some(0.0));
+    }
+
+    #[test]
+    fn test_fraction_above_mid_half_when_symmetric() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        // mid = (1+4)/2 = 2.5, above: 3 and 4 = 2/4 = 0.5
+        let f = n.fraction_above_mid().unwrap();
+        assert!((f - 0.5).abs() < 1e-10);
     }
 }

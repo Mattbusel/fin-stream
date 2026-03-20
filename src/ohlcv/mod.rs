@@ -3363,4 +3363,44 @@ mod tests {
         let pct = bar.bar_height_pct().unwrap();
         assert!((pct - 0.2).abs() < 1e-10);
     }
+
+    // ── is_bullish_engulfing ──────────────────────────────────────────────────
+
+    #[test]
+    fn test_is_bullish_engulfing_true_for_valid_pattern() {
+        // prev: bearish bar (open=110, close=100), this: bullish, engulfs (open=98, close=112)
+        let prev = make_ohlcv_bar(dec!(110), dec!(115), dec!(95), dec!(100));
+        let bar = make_ohlcv_bar(dec!(98), dec!(115), dec!(95), dec!(112));
+        assert!(bar.is_bullish_engulfing(&prev));
+    }
+
+    #[test]
+    fn test_is_bullish_engulfing_false_when_bearish() {
+        let prev = make_ohlcv_bar(dec!(110), dec!(115), dec!(95), dec!(100));
+        let bar = make_ohlcv_bar(dec!(108), dec!(115), dec!(95), dec!(95));
+        assert!(!bar.is_bullish_engulfing(&prev));
+    }
+
+    // ── close_gap ─────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_close_gap_positive_for_gap_up() {
+        let prev = make_ohlcv_bar(dec!(100), dec!(105), dec!(95), dec!(102));
+        let bar = make_ohlcv_bar(dec!(106), dec!(110), dec!(103), dec!(108)); // open=106 > prev close=102
+        assert_eq!(bar.close_gap(&prev), dec!(4));
+    }
+
+    #[test]
+    fn test_close_gap_negative_for_gap_down() {
+        let prev = make_ohlcv_bar(dec!(100), dec!(105), dec!(95), dec!(102));
+        let bar = make_ohlcv_bar(dec!(98), dec!(100), dec!(95), dec!(97)); // open=98 < prev close=102
+        assert_eq!(bar.close_gap(&prev), dec!(-4));
+    }
+
+    #[test]
+    fn test_close_gap_zero_when_no_gap() {
+        let prev = make_ohlcv_bar(dec!(100), dec!(105), dec!(95), dec!(102));
+        let bar = make_ohlcv_bar(dec!(102), dec!(110), dec!(100), dec!(108));
+        assert_eq!(bar.close_gap(&prev), dec!(0));
+    }
 }

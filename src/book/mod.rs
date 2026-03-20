@@ -2776,4 +2776,45 @@ mod tests {
         let b = book("X");
         assert_eq!(b.total_notional_both_sides(), dec!(0));
     }
+
+    // ── level_count_both_sides ────────────────────────────────────────────────
+
+    #[test]
+    fn test_level_count_both_sides_zero_when_empty() {
+        let b = book("X");
+        assert_eq!(b.level_count_both_sides(), 0);
+    }
+
+    #[test]
+    fn test_level_count_both_sides_counts_all_levels() {
+        let mut b = book("X");
+        b.apply(delta("X", BookSide::Bid, dec!(99), dec!(1))).unwrap();
+        b.apply(delta("X", BookSide::Bid, dec!(98), dec!(1))).unwrap();
+        b.apply(delta("X", BookSide::Ask, dec!(101), dec!(1))).unwrap();
+        assert_eq!(b.level_count_both_sides(), 3);
+    }
+
+    // ── ask_price_at_rank / bid_price_at_rank ─────────────────────────────────
+
+    #[test]
+    fn test_ask_price_at_rank_best_ask_at_zero() {
+        let mut b = book("X");
+        b.apply(delta("X", BookSide::Ask, dec!(101), dec!(1))).unwrap();
+        b.apply(delta("X", BookSide::Ask, dec!(102), dec!(1))).unwrap();
+        assert_eq!(b.ask_price_at_rank(0), Some(dec!(101)));
+    }
+
+    #[test]
+    fn test_bid_price_at_rank_best_bid_at_zero() {
+        let mut b = book("X");
+        b.apply(delta("X", BookSide::Bid, dec!(99), dec!(1))).unwrap();
+        b.apply(delta("X", BookSide::Bid, dec!(98), dec!(1))).unwrap();
+        assert_eq!(b.bid_price_at_rank(0), Some(dec!(99)));
+    }
+
+    #[test]
+    fn test_ask_price_at_rank_none_out_of_bounds() {
+        let b = book("X");
+        assert!(b.ask_price_at_rank(0).is_none());
+    }
 }

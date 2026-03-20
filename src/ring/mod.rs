@@ -501,6 +501,38 @@ impl<T, const N: usize> SpscRing<T, N> {
     }
 
     /// Mean of all elements in the ring as `f64`.
+    /// Returns the element for which `key(element)` is minimum, cloned.
+    ///
+    /// Returns `None` if the ring is empty.
+    ///
+    /// # Complexity: O(n).
+    pub fn min_cloned_by<F, K>(&self, key: F) -> Option<T>
+    where
+        T: Clone,
+        F: Fn(&T) -> K,
+        K: Ord,
+    {
+        let head = self.head.load(Ordering::Acquire);
+        let tail = self.tail.load(Ordering::Acquire);
+        let len = tail.wrapping_sub(head);
+        if len == 0 {
+            return None;
+        }
+        let mut best: Option<T> = None;
+        let mut best_key: Option<K> = None;
+        for i in 0..len {
+            let slot = head.wrapping_add(i) % N;
+            // SAFETY: slots in [head, tail) are initialized
+            let item = unsafe { (*self.buf[slot].get()).assume_init_ref() }.clone();
+            let k = key(&item);
+            if best_key.as_ref().map_or(true, |bk| &k < bk) {
+                best_key = Some(k);
+                best = Some(item);
+            }
+        }
+        best
+    }
+
     /// Returns the element for which `key(element)` is maximum, cloned.
     ///
     /// Returns `None` if the ring is empty.
@@ -1913,5 +1945,32 @@ mod tests {
         ring.push(-10i32).unwrap();
         // max by absolute value → -10
         assert_eq!(ring.max_cloned_by(|&x| x.abs()), Some(-10));
+    }
+
+    // ── min_cloned_by ─────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_min_cloned_by_none_when_empty() {
+        let ring: SpscRing<u32, 4> = SpscRing::new();
+        assert!(ring.min_cloned_by(|&x| x).is_none());
+    }
+
+    #[test]
+    fn test_min_cloned_by_returns_min_element() {
+        let ring: SpscRing<u32, 8> = SpscRing::new();
+        ring.push(3u32).unwrap();
+        ring.push(1u32).unwrap();
+        ring.push(7u32).unwrap();
+        assert_eq!(ring.min_cloned_by(|&x| x), Some(1));
+    }
+
+    #[test]
+    fn test_min_cloned_by_custom_key() {
+        let ring: SpscRing<i32, 8> = SpscRing::new();
+        ring.push(-5i32).unwrap();
+        ring.push(3i32).unwrap();
+        ring.push(-1i32).unwrap();
+        // min by absolute value → -1 (abs=1)
+        assert_eq!(ring.min_cloned_by(|&x| x.abs()), Some(-1));
     }
 }

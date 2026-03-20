@@ -441,6 +441,11 @@ impl NormalizedTick {
         self.price - reference
     }
 
+    /// Returns `true` if this tick's `received_at_ms` falls within a trading session window.
+    pub fn is_market_open_tick(&self, session_start_ms: u64, session_end_ms: u64) -> bool {
+        self.received_at_ms >= session_start_ms && self.received_at_ms < session_end_ms
+    }
+
     /// Returns `true` if this tick's price exactly equals `target`.
     pub fn is_at_price(&self, target: Decimal) -> bool {
         self.price == target
@@ -2156,5 +2161,25 @@ mod tests {
     fn test_is_round_number_false_when_step_zero() {
         let tick = make_tick_at(0);
         assert!(!tick.is_round_number(rust_decimal_macros::dec!(0)));
+    }
+
+    // ── is_market_open_tick ───────────────────────────────────────────────────
+
+    #[test]
+    fn test_is_market_open_tick_true_when_within_session() {
+        let tick = make_tick_at(500); // received at ms=500
+        assert!(tick.is_market_open_tick(100, 1_000));
+    }
+
+    #[test]
+    fn test_is_market_open_tick_false_when_before_session() {
+        let tick = make_tick_at(50);
+        assert!(!tick.is_market_open_tick(100, 1_000));
+    }
+
+    #[test]
+    fn test_is_market_open_tick_false_when_at_session_end() {
+        let tick = make_tick_at(1_000);
+        assert!(!tick.is_market_open_tick(100, 1_000)); // exclusive end
     }
 }
