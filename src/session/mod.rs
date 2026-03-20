@@ -529,6 +529,13 @@ impl SessionAwareness {
         }
     }
 
+    /// Returns `true` if both `self` and `other` are simultaneously open at `utc_ms`.
+    ///
+    /// Useful for detecting session overlaps like the London/New York overlap (13:00–17:00 UTC).
+    pub fn overlaps_with(&self, other: &SessionAwareness, utc_ms: u64) -> bool {
+        self.is_open(utc_ms) && other.is_open(utc_ms)
+    }
+
     /// Returns `true` if the session is in the first 25% of its duration.
     ///
     /// Returns `false` outside the session.
@@ -610,6 +617,20 @@ impl SessionAwareness {
     pub fn is_last_minute(&self, utc_ms: u64) -> bool {
         match self.remaining_session_ms(utc_ms) {
             Some(r) => r <= 60_000,
+            None => false,
+        }
+    }
+
+    /// Returns `true` if `utc_ms` falls within the midday 12:00–13:00 ET quiet period
+    /// (3 hours into the 6.5-hour US equity session).
+    ///
+    /// Always returns `false` for non-US-Equity sessions.
+    pub fn is_lunch_hour(&self, utc_ms: u64) -> bool {
+        if self.session != MarketSession::UsEquity {
+            return false;
+        }
+        match self.time_in_session_ms(utc_ms) {
+            Some(elapsed) => elapsed >= 150 * 60 * 1_000 && elapsed < 210 * 60 * 1_000,
             None => false,
         }
     }
@@ -2199,5 +2220,34 @@ mod tests {
         let prog = sa.session_progress(t).unwrap();
         let rem = sa.fraction_remaining(t).unwrap();
         assert!((prog + rem - 1.0).abs() < 1e-9);
+    }
+
+    // ── SessionAnalyzer::is_lunch_hour ────────────────────────────────────────
+
+    #[test]
+    fn test_is_lunch_hour_true_at_midday() {
+        let sa = sa(MarketSession::UsEquity);
+        // 2.5h into session = 150min = start of lunch window
+        let t = MON_OPEN_UTC_MS + 150 * 60_000;
+        assert!(sa.is_lunch_hour(t));
+    }
+
+    #[test]
+    fn test_is_lunch_hour_false_at_open() {
+        let sa = sa(MarketSession::UsEquity);
+        assert!(!sa.is_lunch_hour(MON_OPEN_UTC_MS));
+    }
+
+    #[test]
+    fn test_is_lunch_hour_false_outside_session() {
+        let sa = sa(MarketSession::UsEquity);
+        assert!(!sa.is_lunch_hour(SAT_UTC_MS));
+    }
+
+    #[test]
+    fn test_is_lunch_hour_false_for_crypto() {
+        let sa = sa(MarketSession::Crypto);
+        let t = MON_OPEN_UTC_MS + 150 * 60_000;
+        assert!(!sa.is_lunch_hour(t));
     }
 }

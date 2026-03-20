@@ -682,6 +682,13 @@ impl LorentzTransform {
         self.beta > 0.9
     }
 
+    /// First-order Taylor approximation of γ valid for small β: `1 + β²/2`.
+    ///
+    /// Accurate to ~0.1% for β < 0.1; diverges significantly above β ≈ 0.4.
+    pub fn lorentz_factor_approx(&self) -> f64 {
+        1.0 + 0.5 * self.beta * self.beta
+    }
+
     /// Classifies a spacetime interval `(dt, dx)` as `"timelike"`, `"lightlike"`, or `"spacelike"`.
     ///
     /// Spacetime interval: `s² = dt² - dx²` (in natural units, c = 1).
@@ -697,6 +704,15 @@ impl LorentzTransform {
         } else {
             "lightlike"
         }
+    }
+
+    /// Lorentz-invariant rest mass from energy and momentum: `m = sqrt(E² - p²)`.
+    ///
+    /// In natural units (`c = 1`). Returns `None` if `E² < p²` (unphysical configuration).
+    pub fn lorentz_invariant_mass(energy: f64, momentum: f64) -> Option<f64> {
+        let m_sq = energy * energy - momentum * momentum;
+        if m_sq < 0.0 { return None; }
+        Some(m_sq.sqrt())
     }
 }
 
@@ -1770,5 +1786,28 @@ mod tests {
     fn test_is_ultra_relativistic_false_at_rest() {
         let t = LorentzTransform::new(0.0).unwrap();
         assert!(!t.is_ultra_relativistic());
+    }
+
+    // ── LorentzTransform::lorentz_factor_approx ──────────────────────────────
+
+    #[test]
+    fn test_lorentz_factor_approx_equals_one_at_rest() {
+        let t = LorentzTransform::new(0.0).unwrap();
+        assert!((t.lorentz_factor_approx() - 1.0).abs() < 1e-12);
+    }
+
+    #[test]
+    fn test_lorentz_factor_approx_close_for_small_beta() {
+        let t = LorentzTransform::new(0.1).unwrap();
+        // Exact gamma = 1/sqrt(1-0.01) ≈ 1.005037, approx = 1 + 0.005 = 1.005
+        let approx = t.lorentz_factor_approx();
+        let exact = t.gamma();
+        assert!((approx - exact).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_lorentz_factor_approx_always_gte_one() {
+        let t = LorentzTransform::new(0.5).unwrap();
+        assert!(t.lorentz_factor_approx() >= 1.0);
     }
 }

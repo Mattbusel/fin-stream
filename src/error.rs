@@ -573,6 +573,11 @@ impl StreamError {
         matches!(self, StreamError::AggregationError { .. })
     }
 
+    /// Returns `true` if this is a sequence gap error.
+    pub fn is_sequence_error(&self) -> bool {
+        matches!(self, StreamError::SequenceGap { .. })
+    }
+
 }
 
 #[cfg(test)]
@@ -1520,5 +1525,38 @@ mod tests {
     #[test]
     fn test_is_agg_error_false_for_other() {
         assert!(!StreamError::RingBufferEmpty.is_agg_error());
+    }
+
+    // ── StreamError::is_book_error / is_sequence_error ───────────────────────
+
+    #[test]
+    fn test_is_book_error_true_for_reconstruction() {
+        let e = StreamError::BookReconstructionFailed { symbol: "BTC-USD".into(), reason: "missing snapshot".into() };
+        assert!(e.is_book_error());
+    }
+
+    #[test]
+    fn test_is_book_error_true_for_sequence_gap() {
+        let e = StreamError::SequenceGap { symbol: "BTC-USD".into(), expected: 5, got: 7 };
+        assert!(e.is_book_error());
+    }
+
+    #[test]
+    fn test_is_book_error_false_for_parse_error() {
+        let e = StreamError::ParseError { exchange: "binance".into(), reason: "bad json".into() };
+        assert!(!e.is_book_error());
+    }
+
+    #[test]
+    fn test_is_sequence_error_true() {
+        let e = StreamError::SequenceGap { symbol: "ETH-USD".into(), expected: 1, got: 3 };
+        assert!(e.is_sequence_error());
+    }
+
+    #[test]
+    fn test_is_sequence_error_false_for_book_crossed() {
+        let e = StreamError::BookCrossed { symbol: "BTC-USD".into(), bid: rust_decimal_macros::dec!(101), ask: rust_decimal_macros::dec!(100) };
+        assert!(!e.is_sequence_error());
+        assert!(e.is_book_error());
     }
 }

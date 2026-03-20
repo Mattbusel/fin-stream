@@ -317,6 +317,33 @@ impl<T, const N: usize> SpscRing<T, N> {
         self.fill_ratio() >= threshold
     }
 
+    /// Returns a reference to the oldest item (front) without removing it.
+    ///
+    /// Returns `None` if the buffer is empty. Only valid before calling `split()`.
+    pub fn peek_front(&self) -> Option<&T> {
+        let head = self.head.load(Ordering::Acquire);
+        let tail = self.tail.load(Ordering::Acquire);
+        if head == tail {
+            return None;
+        }
+        // SAFETY: slot at head is initialized (tail > head guarantees it)
+        Some(unsafe { (*self.buf[head % N].get()).assume_init_ref() })
+    }
+
+    /// Returns a reference to the newest item (back) without removing it.
+    ///
+    /// Returns `None` if the buffer is empty. Only valid before calling `split()`.
+    pub fn peek_back(&self) -> Option<&T> {
+        let head = self.head.load(Ordering::Acquire);
+        let tail = self.tail.load(Ordering::Acquire);
+        if head == tail {
+            return None;
+        }
+        let back = tail.wrapping_sub(1);
+        // SAFETY: slot at back is initialized (tail > head guarantees it)
+        Some(unsafe { (*self.buf[back % N].get()).assume_init_ref() })
+    }
+
     /// Drain all items currently in the ring into a `Vec`, in FIFO order.
     ///
     /// Only safe to call when no producer/consumer pair is active (i.e., before
@@ -1267,6 +1294,44 @@ mod tests {
         let ring: SpscRing<u32, 8> = SpscRing::new(); // capacity = 7
         ring.push(1u32).unwrap(); // 1/7 ≈ 0.14
         assert!(!ring.is_nearly_full(0.9));
+    }
+
+    // ── SpscRing::peek_front / peek_back ─────────────────────────────────────
+
+    #[test]
+    fn test_peek_front_none_when_empty() {
+        let ring: SpscRing<u32, 8> = SpscRing::new();
+        assert!(ring.peek_front().is_none());
+    }
+
+    #[test]
+    fn test_peek_front_returns_oldest_item() {
+        let ring: SpscRing<u32, 8> = SpscRing::new();
+        ring.push(10u32).unwrap();
+        ring.push(20u32).unwrap();
+        assert_eq!(ring.peek_front(), Some(&10u32));
+    }
+
+    #[test]
+    fn test_peek_front_does_not_remove_item() {
+        let ring: SpscRing<u32, 8> = SpscRing::new();
+        ring.push(42u32).unwrap();
+        let _ = ring.peek_front();
+        assert_eq!(ring.len(), 1);
+    }
+
+    #[test]
+    fn test_peek_back_none_when_empty() {
+        let ring: SpscRing<u32, 8> = SpscRing::new();
+        assert!(ring.peek_back().is_none());
+    }
+
+    #[test]
+    fn test_peek_back_returns_newest_item() {
+        let ring: SpscRing<u32, 8> = SpscRing::new();
+        ring.push(10u32).unwrap();
+        ring.push(20u32).unwrap();
+        assert_eq!(ring.peek_back(), Some(&20u32));
     }
 
     // --- SpscRing::has_capacity ---

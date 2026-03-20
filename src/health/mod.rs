@@ -657,6 +657,11 @@ impl HealthMonitor {
         self.feeds.iter().any(|e| e.feed_id == feed_id)
     }
 
+    /// Returns `true` if any registered feed has [`HealthStatus::Unknown`] status.
+    pub fn any_unknown(&self) -> bool {
+        self.feeds.iter().any(|e| e.status == HealthStatus::Unknown)
+    }
+
 }
 
 #[cfg(test)]
@@ -1942,5 +1947,28 @@ mod tests {
         m.check_all(10_000);
         // A=Healthy, B=Stale → 1 stale of 2 known = 0.5
         assert!((m.stale_ratio_excluding_unknown() - 0.5).abs() < 1e-10);
+    }
+
+    // ── HealthMonitor::any_unknown ────────────────────────────────────────────
+
+    #[test]
+    fn test_any_unknown_false_when_empty() {
+        let m = HealthMonitor::new(5_000);
+        assert!(!m.any_unknown());
+    }
+
+    #[test]
+    fn test_any_unknown_true_when_feed_registered_but_no_heartbeat() {
+        let m = HealthMonitor::new(5_000);
+        m.register("BTC-USD", None);
+        assert!(m.any_unknown());
+    }
+
+    #[test]
+    fn test_any_unknown_false_when_all_have_heartbeats() {
+        let m = HealthMonitor::new(5_000);
+        m.register("BTC-USD", None);
+        m.heartbeat("BTC-USD", 1_000).unwrap();
+        assert!(!m.any_unknown());
     }
 }

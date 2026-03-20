@@ -504,6 +504,16 @@ impl OhlcvBar {
         self.high < prev.high && self.low > prev.low
     }
 
+    /// Returns `true` if this bar opened above the previous bar's high (gap up).
+    pub fn gap_up(&self, prev: &OhlcvBar) -> bool {
+        self.open > prev.high
+    }
+
+    /// Returns `true` if this bar opened below the previous bar's low (gap down).
+    pub fn gap_down(&self, prev: &OhlcvBar) -> bool {
+        self.open < prev.low
+    }
+
     /// Returns `true` if this bar is an outside bar (engulfs `prev`'s range).
     ///
     /// An outside bar has a higher high AND lower low than the previous bar.
@@ -2772,6 +2782,36 @@ mod tests {
         let bar = make_ohlcv_bar(dec!(100), dec!(111), dec!(90), dec!(100));
         // (111 + 90) / 2 = 100.5
         assert_eq!(bar.high_low_midpoint(), dec!(100.5));
+    }
+
+    // ── OhlcvBar::gap_up / gap_down ──────────────────────────────────────────
+
+    #[test]
+    fn test_gap_up_true() {
+        let prev = make_ohlcv_bar(dec!(95), dec!(100), dec!(90), dec!(98));
+        let bar  = make_ohlcv_bar(dec!(102), dec!(110), dec!(101), dec!(108));
+        assert!(bar.gap_up(&prev));
+    }
+
+    #[test]
+    fn test_gap_up_false_when_no_gap() {
+        let prev = make_ohlcv_bar(dec!(95), dec!(100), dec!(90), dec!(98));
+        let bar  = make_ohlcv_bar(dec!(99), dec!(105), dec!(98), dec!(104));
+        assert!(!bar.gap_up(&prev));
+    }
+
+    #[test]
+    fn test_gap_down_true() {
+        let prev = make_ohlcv_bar(dec!(95), dec!(100), dec!(90), dec!(92));
+        let bar  = make_ohlcv_bar(dec!(88), dec!(89), dec!(85), dec!(86));
+        assert!(bar.gap_down(&prev));
+    }
+
+    #[test]
+    fn test_gap_down_false_when_no_gap() {
+        let prev = make_ohlcv_bar(dec!(95), dec!(100), dec!(90), dec!(92));
+        let bar  = make_ohlcv_bar(dec!(91), dec!(95), dec!(89), dec!(93));
+        assert!(!bar.gap_down(&prev));
     }
 
     // ── OhlcvBar::price_at_pct ───────────────────────────────────────────────

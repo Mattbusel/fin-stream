@@ -177,6 +177,20 @@ impl WsStats {
         self.efficiency_ratio()
     }
 
+    /// Fraction of `total_ms` during which the connection was active.
+    ///
+    /// Estimated as `total_messages_received / (total_ms / 1000.0 * expected_rate)`.
+    /// Here we use a simple proxy: `bytes_received / total_ms` (bytes per ms),
+    /// normalized so that 0.0 means idle and higher values indicate more activity.
+    ///
+    /// Returns `0.0` if `total_ms` is zero.
+    pub fn uptime_fraction(&self, total_ms: u64) -> f64 {
+        if total_ms == 0 {
+            return 0.0;
+        }
+        (self.total_bytes_received as f64 / total_ms as f64).min(1.0)
+    }
+
 }
 
 /// Reconnection policy for a WebSocket feed.
@@ -1499,5 +1513,34 @@ mod tests {
     fn test_compression_ratio_same_as_efficiency_ratio() {
         let stats = WsStats { total_messages_received: 100, total_bytes_received: 10_000 };
         assert_eq!(stats.compression_ratio(), stats.efficiency_ratio());
+    }
+
+    // ── WsStats::uptime_fraction ──────────────────────────────────────────────
+
+    #[test]
+    fn test_uptime_fraction_zero_when_elapsed_zero() {
+        let stats = WsStats { total_messages_received: 100, total_bytes_received: 50_000 };
+        assert_eq!(stats.uptime_fraction(0), 0.0);
+    }
+
+    #[test]
+    fn test_uptime_fraction_zero_when_no_bytes() {
+        let stats = WsStats { total_messages_received: 0, total_bytes_received: 0 };
+        assert_eq!(stats.uptime_fraction(60_000), 0.0);
+    }
+
+    #[test]
+    fn test_uptime_fraction_nonzero_with_bytes() {
+        let stats = WsStats { total_messages_received: 100, total_bytes_received: 1_000 };
+        // bytes/ms = 1000/60000 ≈ 0.0167
+        let f = stats.uptime_fraction(60_000);
+        assert!(f > 0.0 && f <= 1.0);
+    }
+
+    #[test]
+    fn test_uptime_fraction_clamped_to_one() {
+        // Very high byte count relative to elapsed → capped at 1.0
+        let stats = WsStats { total_messages_received: 0, total_bytes_received: 1_000_000 };
+        assert_eq!(stats.uptime_fraction(100), 1.0);
     }
 }
