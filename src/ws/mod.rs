@@ -126,6 +126,13 @@ impl WsStats {
         self.total_messages_received >= threshold
     }
 
+    /// Average message size in bytes: alias for [`bytes_per_message`](Self::bytes_per_message).
+    ///
+    /// Returns `None` if no messages have been received yet.
+    pub fn average_message_size_bytes(&self) -> Option<f64> {
+        self.bytes_per_message()
+    }
+
     /// Average bytes per message received so far.
     ///
     /// Returns `None` if no messages have been received yet.
@@ -1565,5 +1572,19 @@ mod tests {
         let stats = WsStats { total_messages_received: 100, total_bytes_received: 0 };
         // message_rate returns 0.0 when elapsed_ms=0 → always idle
         assert!(stats.is_idle(0, 1.0));
+    }
+
+    // ── WsStats::average_message_size_bytes ───────────────────────────────────
+
+    #[test]
+    fn test_average_message_size_bytes_none_when_no_messages() {
+        let stats = WsStats { total_messages_received: 0, total_bytes_received: 0 };
+        assert!(stats.average_message_size_bytes().is_none());
+    }
+
+    #[test]
+    fn test_average_message_size_bytes_same_as_bytes_per_message() {
+        let stats = WsStats { total_messages_received: 10, total_bytes_received: 1_000 };
+        assert_eq!(stats.average_message_size_bytes(), stats.bytes_per_message());
     }
 }

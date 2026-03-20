@@ -659,6 +659,23 @@ impl OrderBook {
         }
     }
 
+    /// Number of distinct price levels per unit of price range on the given side.
+    ///
+    /// `quote_density = level_count / (max_price - min_price)`.
+    /// Returns `None` if the side has fewer than 2 levels (range is zero).
+    pub fn quote_density(&self, side: BookSide) -> Option<Decimal> {
+        let map = match side {
+            BookSide::Bid => &self.bids,
+            BookSide::Ask => &self.asks,
+        };
+        if map.len() < 2 { return None; }
+        let min_p = *map.keys().next()?;
+        let max_p = *map.keys().next_back()?;
+        let range = max_p - min_p;
+        if range.is_zero() { return None; }
+        Some(Decimal::from(map.len()) / range)
+    }
+
     /// Resting quantity at an exact price level on the given side.
     ///
     /// Returns `None` if there is no resting order at that price. This is a
@@ -1086,6 +1103,16 @@ impl OrderBook {
         if remaining > Decimal::ZERO { return None; } // not enough liquidity
         let avg_fill = cost / qty;
         Some((avg_fill - best_price).abs())
+    }
+
+    /// Number of distinct price levels on the ask side.
+    pub fn ask_level_count(&self) -> usize {
+        self.asks.len()
+    }
+
+    /// Number of distinct price levels on the bid side.
+    pub fn bid_level_count(&self) -> usize {
+        self.bids.len()
     }
 
     /// Cumulative ask volume at levels within `price_range` of the best ask.
@@ -2443,5 +2470,29 @@ mod tests {
     #[test]
     fn test_bid_volume_within_zero_when_empty() {
         assert_eq!(book("X").bid_volume_within(dec!(10)), dec!(0));
+    }
+
+    // ── OrderBook::ask_level_count / bid_level_count ─────────────────────────
+
+    #[test]
+    fn test_ask_level_count_zero_when_empty() {
+        assert_eq!(book("X").ask_level_count(), 0);
+    }
+
+    #[test]
+    fn test_ask_level_count_correct() {
+        let mut b = book("X");
+        b.apply(delta("X", BookSide::Ask, dec!(100), dec!(1))).unwrap();
+        b.apply(delta("X", BookSide::Ask, dec!(101), dec!(2))).unwrap();
+        b.apply(delta("X", BookSide::Ask, dec!(102), dec!(3))).unwrap();
+        assert_eq!(b.ask_level_count(), 3);
+    }
+
+    #[test]
+    fn test_bid_level_count_correct() {
+        let mut b = book("X");
+        b.apply(delta("X", BookSide::Bid, dec!(99), dec!(1))).unwrap();
+        b.apply(delta("X", BookSide::Bid, dec!(98), dec!(2))).unwrap();
+        assert_eq!(b.bid_level_count(), 2);
     }
 }

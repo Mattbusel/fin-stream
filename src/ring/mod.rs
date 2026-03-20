@@ -317,6 +317,16 @@ impl<T, const N: usize> SpscRing<T, N> {
         self.fill_ratio() >= threshold
     }
 
+    /// Returns a copy of the oldest item (front) without removing it.
+    ///
+    /// Returns `None` if the buffer is empty. Only valid before calling `split()`.
+    pub fn first(&self) -> Option<T>
+    where
+        T: Copy,
+    {
+        self.peek_front().copied()
+    }
+
     /// Returns a reference to the oldest item (front) without removing it.
     ///
     /// Returns `None` if the buffer is empty. Only valid before calling `split()`.
@@ -1340,6 +1350,30 @@ mod tests {
         let ring: SpscRing<u32, 8> = SpscRing::new(); // capacity = 7
         ring.push(1u32).unwrap(); // 1/7 ≈ 0.14
         assert!(!ring.is_nearly_full(0.9));
+    }
+
+    // ── SpscRing::first ──────────────────────────────────────────────────────
+
+    #[test]
+    fn test_first_none_when_empty() {
+        let ring: SpscRing<u32, 8> = SpscRing::new();
+        assert!(ring.first().is_none());
+    }
+
+    #[test]
+    fn test_first_returns_oldest_copy() {
+        let ring: SpscRing<u32, 8> = SpscRing::new();
+        ring.push(42u32).unwrap();
+        ring.push(99u32).unwrap();
+        assert_eq!(ring.first(), Some(42u32));
+    }
+
+    #[test]
+    fn test_first_does_not_remove() {
+        let ring: SpscRing<u32, 8> = SpscRing::new();
+        ring.push(7u32).unwrap();
+        let _ = ring.first();
+        assert_eq!(ring.len(), 1);
     }
 
     // ── SpscRing::peek_front / peek_back ─────────────────────────────────────

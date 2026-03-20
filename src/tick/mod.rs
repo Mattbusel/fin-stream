@@ -441,6 +441,11 @@ impl NormalizedTick {
         self.quantity.is_zero()
     }
 
+    /// Returns `true` if this tick's price is strictly between `bid` and `ask`.
+    pub fn is_within_spread(&self, bid: Decimal, ask: Decimal) -> bool {
+        self.price > bid && self.price < ask
+    }
+
     /// Returns `true` if this tick's price deviates from `reference` by more than `threshold`.
     pub fn is_away_from_price(&self, reference: Decimal, threshold: Decimal) -> bool {
         (self.price - reference).abs() > threshold
@@ -1889,5 +1894,28 @@ mod tests {
         let mut tick = make_tick_at(0);
         tick.price = Decimal::from(100u32);
         assert!(!tick.is_away_from_price(Decimal::from(100u32), Decimal::from(1u32)));
+    }
+
+    // ── NormalizedTick::is_within_spread ──────────────────────────────────────
+
+    #[test]
+    fn test_is_within_spread_true_when_between() {
+        let mut tick = make_tick_at(0);
+        tick.price = Decimal::from(100u32);
+        assert!(tick.is_within_spread(Decimal::from(99u32), Decimal::from(101u32)));
+    }
+
+    #[test]
+    fn test_is_within_spread_false_when_at_bid() {
+        let mut tick = make_tick_at(0);
+        tick.price = Decimal::from(99u32);
+        assert!(!tick.is_within_spread(Decimal::from(99u32), Decimal::from(101u32)));
+    }
+
+    #[test]
+    fn test_is_within_spread_false_when_above_ask() {
+        let mut tick = make_tick_at(0);
+        tick.price = Decimal::from(102u32);
+        assert!(!tick.is_within_spread(Decimal::from(99u32), Decimal::from(101u32)));
     }
 }

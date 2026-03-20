@@ -669,6 +669,15 @@ impl HealthMonitor {
         self.feeds.iter().filter(|e| e.status == HealthStatus::Stale).count()
     }
 
+    /// IDs of all feeds currently in [`HealthStatus::Healthy`] state.
+    pub fn healthy_feed_ids(&self) -> Vec<String> {
+        self.feeds
+            .iter()
+            .filter(|e| e.status == HealthStatus::Healthy)
+            .map(|e| e.feed_id.clone())
+            .collect()
+    }
+
     /// Age in milliseconds of the most recently-ticked healthy feed at `now_ms`.
     ///
     /// Returns `None` if no healthy feeds have received a tick.
@@ -2039,5 +2048,25 @@ mod tests {
         m.check_all(10_000);
         // B is more recent → min age = 1000ms
         assert_eq!(m.min_healthy_age_ms(10_000), Some(1_000));
+    }
+
+    // ── HealthMonitor::healthy_feed_ids ───────────────────────────────────────
+
+    #[test]
+    fn test_healthy_feed_ids_empty_when_no_feeds() {
+        let m = HealthMonitor::new(5_000);
+        assert!(m.healthy_feed_ids().is_empty());
+    }
+
+    #[test]
+    fn test_healthy_feed_ids_returns_healthy_only() {
+        let m = HealthMonitor::new(5_000);
+        m.register("A", None);
+        m.register("B", None);
+        m.heartbeat("A", 9_500).unwrap(); // healthy
+        // B has no heartbeat → unknown
+        m.check_all(10_000);
+        let ids = m.healthy_feed_ids();
+        assert_eq!(ids, vec!["A".to_string()]);
     }
 }

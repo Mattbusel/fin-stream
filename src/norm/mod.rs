@@ -999,6 +999,13 @@ impl ZScoreNormalizer {
         Some(if v < Decimal::ZERO { Decimal::ZERO } else { v })
     }
 
+    /// Standard deviation of the current window as `f64`.
+    ///
+    /// Returns `None` if the window has fewer than 2 observations.
+    pub fn std_dev_f64(&self) -> Option<f64> {
+        self.variance_f64().map(|v| v.sqrt())
+    }
+
     /// Current window variance as `f64` (convenience wrapper around [`variance`](Self::variance)).
     ///
     /// Returns `None` if the window has fewer than 2 observations.
@@ -1972,5 +1979,30 @@ mod zscore_tests {
         let mut n = znorm(4);
         for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
         assert!(n.variance_f64().unwrap() > 0.0);
+    }
+
+    // ── ZScoreNormalizer::std_dev_f64 ─────────────────────────────────────────
+
+    #[test]
+    fn test_std_dev_f64_none_when_single_observation() {
+        let mut n = znorm(4);
+        n.update(dec!(5));
+        assert!(n.std_dev_f64().is_none());
+    }
+
+    #[test]
+    fn test_std_dev_f64_zero_when_all_same() {
+        let mut n = znorm(4);
+        for _ in 0..4 { n.update(dec!(5)); }
+        assert_eq!(n.std_dev_f64(), Some(0.0));
+    }
+
+    #[test]
+    fn test_std_dev_f64_equals_sqrt_of_variance() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let var = n.variance_f64().unwrap();
+        let std = n.std_dev_f64().unwrap();
+        assert!((std - var.sqrt()).abs() < 1e-12);
     }
 }
