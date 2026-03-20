@@ -212,6 +212,38 @@ impl OhlcvBar {
     /// rather than body. Ranges from `0.0` (pure body, no wicks) to `1.0`
     /// (pure wicks — a doji with effectively zero body relative to range).
     /// Returns `None` if the bar's range is zero (all prices identical).
+    /// True range: `max(high − low, |high − prev_close|, |low − prev_close|)`.
+    ///
+    /// The standard ATR (Average True Range) input. Accounts for overnight gaps by
+    /// including the distance from the previous close to today's high and low.
+    pub fn true_range(&self, prev_close: Decimal) -> Decimal {
+        let hl = self.high - self.low;
+        let hpc = (self.high - prev_close).abs();
+        let lpc = (self.low - prev_close).abs();
+        hl.max(hpc).max(lpc)
+    }
+
+    /// Returns `true` if this bar is an inside bar relative to `prev`.
+    ///
+    /// An inside bar has `high < prev.high` and `low > prev.low` — its full
+    /// range is contained within the prior bar's range. Used in price action
+    /// trading as a consolidation signal.
+    pub fn inside_bar(&self, prev: &OhlcvBar) -> bool {
+        self.high < prev.high && self.low > prev.low
+    }
+
+    /// Returns `true` if this bar is an outside bar relative to `prev`.
+    ///
+    /// An outside bar has `high > prev.high` and `low < prev.low` — it fully
+    /// engulfs the prior bar's range. Also called a key reversal day.
+    pub fn outside_bar(&self, prev: &OhlcvBar) -> bool {
+        self.high > prev.high && self.low < prev.low
+    }
+
+    /// Returns the ratio of total wick length to bar range: `(upper_wick + lower_wick) / range`.
+    ///
+    /// A value near 1 indicates a bar that is mostly wicks with little body.
+    /// Returns `None` when the bar has zero range (high == low).
     pub fn wick_ratio(&self) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
         let range = self.range();
@@ -219,6 +251,33 @@ impl OhlcvBar {
             return None;
         }
         ((self.wick_upper() + self.wick_lower()) / range).to_f64()
+    }
+
+    /// Returns `true` if this bar has a classic hammer shape.
+    ///
+    /// A hammer has:
+    /// - A small body (≤ 30% of range)
+    /// - A long lower wick (≥ 60% of range)
+    /// - A tiny upper wick (≤ 10% of range)
+    ///
+    /// Returns `false` if the bar's range is zero.
+    pub fn is_hammer(&self) -> bool {
+        let range = self.range();
+        if range.is_zero() {
+            return false;
+        }
+        let body = self.body();
+        let wick_lo = self.wick_lower();
+        let wick_hi = self.wick_upper();
+        let three = Decimal::from(3);
+        let six = Decimal::from(6);
+        let ten = Decimal::from(10);
+        // body ≤ 30%: body*10 ≤ range*3
+        // lower wick ≥ 60%: wick_lo*10 ≥ range*6
+        // upper wick ≤ 10%: wick_hi*10 ≤ range
+        body * ten <= range * three
+            && wick_lo * ten >= range * six
+            && wick_hi * ten <= range
     }
 }
 
@@ -249,6 +308,8 @@ pub struct OhlcvAggregator {
     price_volume_sum: Decimal,
     /// Cumulative volume across all completed bars (does not include the current partial bar).
     total_volume: Decimal,
+    /// Maximum single-bar volume seen across all completed bars.
+    peak_volume: Option<Decimal>,
 }
 
 impl OhlcvAggregator {
@@ -272,6 +333,7 @@ impl OhlcvAggregator {
             bars_emitted: 0,
             price_volume_sum: Decimal::ZERO,
             total_volume: Decimal::ZERO,
+            peak_volume: None,
         })
     }
 
@@ -1311,5 +1373,56 @@ mod tests {
         agg.feed(&make_tick("BTC-USD", dec!(102), dec!(1), 180_000)).unwrap();
         // bar 1 vol=4, bar 2 vol=6 → avg=5
         assert_eq!(agg.average_volume(), Some(dec!(5)));
+    }
+
+    // ── OhlcvBar::true_range / inside_bar / outside_bar ──────────────────────
+
+    #[test]
+    fn test_true_range_no_gap() {
+        // high=12, low=8, prev_close=10 → HL=4, H-prev=2, L-prev=2 → TR=4
+        let bar = make_bar(dec!(9), dec!(12), dec!(8), dec!(11));
+        assert_eq!(bar.true_range(dec!(10)), dec!(4));
+    }
+
+    #[test]
+    fn test_true_range_gap_up() {
+        // high=15, low=12, prev_close=10 → HL=3, H-prev=5, L-prev=2 → TR=5
+        let bar = make_bar(dec!(12), dec!(15), dec!(12), dec!(13));
+        assert_eq!(bar.true_range(dec!(10)), dec!(5));
+    }
+
+    #[test]
+    fn test_true_range_gap_down() {
+        // high=8, low=5, prev_close=12 → HL=3, H-prev=4, L-prev=7 → TR=7
+        let bar = make_bar(dec!(7), dec!(8), dec!(5), dec!(6));
+        assert_eq!(bar.true_range(dec!(12)), dec!(7));
+    }
+
+    #[test]
+    fn test_inside_bar_true_when_contained() {
+        let prev = make_bar(dec!(9), dec!(15), dec!(5), dec!(12));
+        let curr = make_bar(dec!(10), dec!(14), dec!(6), dec!(11));
+        assert!(curr.inside_bar(&prev));
+    }
+
+    #[test]
+    fn test_inside_bar_false_when_not_contained() {
+        let prev = make_bar(dec!(9), dec!(15), dec!(5), dec!(12));
+        let curr = make_bar(dec!(10), dec!(16), dec!(6), dec!(11));
+        assert!(!curr.inside_bar(&prev));
+    }
+
+    #[test]
+    fn test_outside_bar_true_when_engulfing() {
+        let prev = make_bar(dec!(9), dec!(12), dec!(8), dec!(11));
+        let curr = make_bar(dec!(10), dec!(14), dec!(6), dec!(11));
+        assert!(curr.outside_bar(&prev));
+    }
+
+    #[test]
+    fn test_outside_bar_false_when_not_engulfing() {
+        let prev = make_bar(dec!(9), dec!(12), dec!(8), dec!(11));
+        let curr = make_bar(dec!(10), dec!(11), dec!(9), dec!(10));
+        assert!(!curr.outside_bar(&prev));
     }
 }

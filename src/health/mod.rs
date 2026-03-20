@@ -45,6 +45,11 @@ impl FeedHealth {
     pub fn elapsed_ms(&self, now_ms: u64) -> Option<u64> {
         self.last_tick_ms.map(|t| now_ms.saturating_sub(t))
     }
+
+    /// Returns `true` if this feed's status is [`HealthStatus::Healthy`].
+    pub fn is_healthy(&self) -> bool {
+        self.status == HealthStatus::Healthy
+    }
 }
 
 /// Central health monitor for all active feeds.
@@ -356,6 +361,17 @@ impl HealthMonitor {
             .collect();
         ids.sort();
         ids
+    }
+
+    /// Number of feeds whose status is [`HealthStatus::Unknown`].
+    ///
+    /// Feeds start in `Unknown` state before the first heartbeat arrives.
+    /// A non-zero count indicates feeds that have never been heard from.
+    pub fn unknown_count(&self) -> usize {
+        self.feeds
+            .iter()
+            .filter(|e| e.status == HealthStatus::Unknown)
+            .count()
     }
 }
 

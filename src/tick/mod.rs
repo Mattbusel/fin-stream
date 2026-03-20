@@ -207,6 +207,21 @@ impl NormalizedTick {
         self.exchange_ts_ms = Some(ts_ms);
         self
     }
+
+    /// Signed price movement from `prev` to this tick: `self.price − prev.price`.
+    ///
+    /// Positive when price rose, negative when price fell, zero when unchanged.
+    /// Only meaningful when both ticks share the same symbol and exchange.
+    pub fn price_move_from(&self, prev: &NormalizedTick) -> Decimal {
+        self.price - prev.price
+    }
+
+    /// Returns `true` if this tick arrived more recently than `other`.
+    ///
+    /// Compares `received_at_ms` timestamps. Equal timestamps return `false`.
+    pub fn is_more_recent_than(&self, other: &NormalizedTick) -> bool {
+        self.received_at_ms > other.received_at_ms
+    }
 }
 
 impl std::fmt::Display for NormalizedTick {

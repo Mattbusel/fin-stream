@@ -100,6 +100,17 @@ impl SpacetimePoint {
     pub fn is_spacelike(self) -> bool {
         self.norm_sq() < 0.0
     }
+
+    /// Proper spacetime distance between `self` and `other`.
+    ///
+    /// Computed as `sqrt(|Δt² − Δx²|)` where `Δ = other − self`. The absolute
+    /// value ensures a real result regardless of the interval type.
+    /// For time-like separations this is the proper time; for space-like
+    /// separations it is the proper length.
+    pub fn distance_to(self, other: Self) -> f64 {
+        let d = self.displacement(other);
+        d.norm_sq().abs().sqrt()
+    }
 }
 
 /// Lorentz frame-boost transform for financial time series.
@@ -162,6 +173,26 @@ impl LorentzTransform {
     ///
     /// Returns [`StreamError::LorentzConfigError`] if `gamma < 1.0` or is `NaN`
     /// (gamma must be ≥ 1 for a physically valid boost).
+    /// Construct a Lorentz transform from rapidity `η = atanh(β)`.
+    ///
+    /// Rapidity is the additive parameter for successive boosts along the
+    /// same axis: composing two boosts `η₁` and `η₂` gives `η₁ + η₂`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StreamError::LorentzConfigError`] if `eta` is `NaN`, `Inf`, or
+    /// results in `|beta| >= 1`.
+    pub fn from_rapidity(eta: f64) -> Result<Self, StreamError> {
+        if !eta.is_finite() {
+            return Err(StreamError::LorentzConfigError {
+                reason: format!("rapidity must be finite, got {eta}"),
+            });
+        }
+        let beta = eta.tanh();
+        Self::new(beta)
+    }
+
+    /// Computes beta (v/c) from a Lorentz gamma factor. Returns an error if `gamma < 1.0`.
     pub fn beta_from_gamma(gamma: f64) -> Result<f64, StreamError> {
         if gamma.is_nan() || gamma < 1.0 {
             return Err(StreamError::LorentzConfigError {

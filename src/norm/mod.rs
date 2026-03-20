@@ -231,6 +231,14 @@ impl MinMaxNormalizer {
         self.window_size
     }
 
+    /// Returns `true` when the window holds exactly `window_size` observations.
+    ///
+    /// At full capacity the normalizer has seen enough data for stable min/max
+    /// estimates; before this point early observations dominate the range.
+    pub fn is_full(&self) -> bool {
+        self.window.len() == self.window_size
+    }
+
     /// Returns the arithmetic mean of the current window observations.
     ///
     /// Returns `None` if the window is empty.
@@ -788,6 +796,14 @@ impl ZScoreNormalizer {
     /// The configured window size.
     pub fn window_size(&self) -> usize {
         self.window_size
+    }
+
+    /// Returns `true` when the window holds exactly `window_size` observations.
+    ///
+    /// At full capacity the z-score calculation is stable; before this point
+    /// the window may not be representative of the underlying distribution.
+    pub fn is_full(&self) -> bool {
+        self.window.len() == self.window_size
     }
 
     /// Current population variance of the window.

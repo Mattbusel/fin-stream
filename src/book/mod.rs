@@ -39,6 +39,11 @@ impl PriceLevel {
     pub fn new(price: Decimal, quantity: Decimal) -> Self {
         Self { price, quantity }
     }
+
+    /// Notional value of this level: `price × quantity`.
+    pub fn notional(&self) -> Decimal {
+        self.price * self.quantity
+    }
 }
 
 /// Incremental order book update.
@@ -226,6 +231,23 @@ impl OrderBook {
         let bid = self.best_bid()?.price;
         let ask = self.best_ask()?.price;
         Some((bid + ask) / Decimal::from(2))
+    }
+
+    /// Quantity-weighted mid price.
+    ///
+    /// `(bid_price × ask_qty + ask_price × bid_qty) / (bid_qty + ask_qty)`.
+    ///
+    /// Gives a better estimate of fair value than the arithmetic mid when the
+    /// best-bid and best-ask have very different resting quantities.
+    /// Returns `None` if either side is empty or total quantity is zero.
+    pub fn weighted_mid_price(&self) -> Option<Decimal> {
+        let bid = self.best_bid()?;
+        let ask = self.best_ask()?;
+        let total_qty = bid.quantity + ask.quantity;
+        if total_qty.is_zero() {
+            return None;
+        }
+        Some((bid.price * ask.quantity + ask.price * bid.quantity) / total_qty)
     }
 
     /// Spread.

@@ -48,6 +48,15 @@ impl MarketSession {
             MarketSession::Crypto => u64::MAX,
         }
     }
+
+    /// Returns `true` if this session has a defined extended-hours trading period.
+    ///
+    /// Only [`MarketSession::UsEquity`] has pre-market (4:00–9:30 ET) and
+    /// after-hours (16:00–20:00 ET) periods. Crypto is always open; Forex has
+    /// no separate extended session.
+    pub fn has_extended_hours(self) -> bool {
+        matches!(self, MarketSession::UsEquity)
+    }
 }
 
 impl std::fmt::Display for MarketSession {
@@ -236,6 +245,26 @@ impl SessionAwareness {
         let open_ms = self.next_open_ms(look_before);
         let elapsed = utc_ms.saturating_sub(open_ms);
         Some((elapsed as f64 / duration_ms as f64).clamp(0.0, 1.0))
+    }
+
+    /// Milliseconds elapsed since the current session opened.
+    ///
+    /// Returns `None` if the session is not currently [`TradingStatus::Open`] or
+    /// if the session never closes (e.g. [`MarketSession::Crypto`]).
+    ///
+    /// At session open this returns `0`; this is the absolute counterpart to the
+    /// fractional [`session_progress`](Self::session_progress).
+    pub fn time_in_session_ms(&self, utc_ms: u64) -> Option<u64> {
+        if !self.is_open(utc_ms) {
+            return None;
+        }
+        let duration_ms = self.session.session_duration_ms();
+        if duration_ms == u64::MAX {
+            return None;
+        }
+        let look_before = utc_ms.saturating_sub(duration_ms);
+        let open_ms = self.next_open_ms(look_before);
+        Some(utc_ms.saturating_sub(open_ms))
     }
 
     fn next_forex_close_ms(&self, utc_ms: u64) -> u64 {
