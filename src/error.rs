@@ -684,4 +684,39 @@ mod tests {
             "config"
         );
     }
+
+    // ── StreamError::is_fatal ─────────────────────────────────────────────────
+
+    #[test]
+    fn test_is_fatal_config_error() {
+        assert!(StreamError::ConfigError { reason: "bad".into() }.is_fatal());
+    }
+
+    #[test]
+    fn test_is_fatal_unknown_exchange() {
+        assert!(StreamError::UnknownExchange("Kraken".into()).is_fatal());
+    }
+
+    #[test]
+    fn test_is_fatal_reconnect_exhausted() {
+        assert!(StreamError::ReconnectExhausted { url: "wss://x".into(), attempts: 5 }.is_fatal());
+    }
+
+    #[test]
+    fn test_is_fatal_lorentz_config() {
+        assert!(StreamError::LorentzConfigError { reason: "beta>=1".into() }.is_fatal());
+    }
+
+    #[test]
+    fn test_is_fatal_parse_error_is_not_fatal() {
+        assert!(!StreamError::ParseError {
+            exchange: "Binance".into(),
+            reason: "bad json".into()
+        }.is_fatal());
+    }
+
+    #[test]
+    fn test_is_fatal_ring_buffer_full_is_not_fatal() {
+        assert!(!StreamError::RingBufferFull { capacity: 8 }.is_fatal());
+    }
 }

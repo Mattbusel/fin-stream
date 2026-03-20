@@ -196,6 +196,18 @@ impl SessionAwareness {
         }
     }
 
+    /// Returns the number of complete bars of `bar_duration_ms` that fit before the next open.
+    ///
+    /// Returns `0` if the session is already open or `bar_duration_ms == 0`.
+    /// Useful for scheduling reconnects or pre-open setup tasks.
+    pub fn bars_until_open(&self, utc_ms: u64, bar_duration_ms: u64) -> u64 {
+        if bar_duration_ms == 0 || self.is_open(utc_ms) {
+            return 0;
+        }
+        let ms_until = self.time_until_open_ms(utc_ms);
+        ms_until / bar_duration_ms
+    }
+
     /// Returns `true` if the equity session is currently in the pre-market window (4:00–9:30 ET).
     ///
     /// Always returns `false` for non-equity sessions. Pre-market is a subset of

@@ -904,4 +904,40 @@ mod tests {
         assert_eq!(consumer.capacity(), 3);
         assert_eq!(consumer.len(), 3);
     }
+
+    // ── SpscConsumer::fill_ratio ──────────────────────────────────────────────
+
+    #[test]
+    fn test_fill_ratio_empty_is_zero() {
+        let ring: SpscRing<u32, 8> = SpscRing::new();
+        let (_, consumer) = ring.split();
+        assert!((consumer.fill_ratio() - 0.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_fill_ratio_full_is_one() {
+        let ring: SpscRing<u32, 4> = SpscRing::new(); // capacity = 3
+        let (producer, consumer) = ring.split();
+        for i in 0..3 {
+            producer.push(i).unwrap();
+        }
+        assert!((consumer.fill_ratio() - 1.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_fill_ratio_partial() {
+        let ring: SpscRing<u32, 8> = SpscRing::new(); // capacity = 7
+        let (producer, consumer) = ring.split();
+        // Push 7/2 ≈ 3 items (but let's push exactly 7 and pop 4 to leave 3)
+        for i in 0..7 {
+            producer.push(i).unwrap();
+        }
+        // capacity=7, filled=7 → ratio=1.0 initially; pop 4 → 3 remain → 3/7
+        consumer.pop().unwrap();
+        consumer.pop().unwrap();
+        consumer.pop().unwrap();
+        consumer.pop().unwrap();
+        let ratio = consumer.fill_ratio();
+        assert!((ratio - 3.0 / 7.0).abs() < 1e-9, "got {ratio}");
+    }
 }

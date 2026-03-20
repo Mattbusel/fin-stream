@@ -555,6 +555,16 @@ impl OrderBook {
         }
     }
 
+    /// Returns the resting quantity at a specific bid price level, or `None` if absent.
+    pub fn bid_volume_at_price(&self, price: Decimal) -> Option<Decimal> {
+        self.bids.get(&price).copied()
+    }
+
+    /// Returns the resting quantity at a specific ask price level, or `None` if absent.
+    pub fn ask_volume_at_price(&self, price: Decimal) -> Option<Decimal> {
+        self.asks.get(&price).copied()
+    }
+
     /// Return a full snapshot of all bid and ask levels.
     ///
     /// The returned tuple is `(bids, asks)`:
