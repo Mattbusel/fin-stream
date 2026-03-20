@@ -3501,4 +3501,47 @@ mod zscore_stability_tests {
         n.update(dec!(42));
         assert_eq!(n.min_max(), Some((dec!(42), dec!(42))));
     }
+
+    // ── ZScoreNormalizer::values ──────────────────────────────────────────────
+
+    #[test]
+    fn test_zscore_values_empty_for_empty_window() {
+        assert!(znorm(3).values().is_empty());
+    }
+
+    #[test]
+    fn test_zscore_values_preserves_insertion_order() {
+        let mut n = znorm(4);
+        for v in [dec!(10), dec!(20), dec!(30), dec!(40)] { n.update(v); }
+        assert_eq!(n.values(), vec![dec!(10), dec!(20), dec!(30), dec!(40)]);
+    }
+
+    // ── ZScoreNormalizer::above_zero_fraction ─────────────────────────────────
+
+    #[test]
+    fn test_zscore_above_zero_fraction_none_for_empty_window() {
+        assert!(znorm(3).above_zero_fraction().is_none());
+    }
+
+    #[test]
+    fn test_zscore_above_zero_fraction_zero_for_all_negative() {
+        let mut n = znorm(3);
+        for v in [dec!(-3), dec!(-2), dec!(-1)] { n.update(v); }
+        assert_eq!(n.above_zero_fraction(), Some(0.0));
+    }
+
+    #[test]
+    fn test_zscore_above_zero_fraction_one_for_all_positive() {
+        let mut n = znorm(3);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        assert_eq!(n.above_zero_fraction(), Some(1.0));
+    }
+
+    #[test]
+    fn test_zscore_above_zero_fraction_half_for_mixed() {
+        let mut n = znorm(4);
+        for v in [dec!(-2), dec!(-1), dec!(1), dec!(2)] { n.update(v); }
+        let frac = n.above_zero_fraction().unwrap();
+        assert!((frac - 0.5).abs() < 1e-9);
+    }
 }

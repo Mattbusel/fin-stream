@@ -3243,4 +3243,92 @@ mod tests {
         // avg = (100 + 200) / 2 = 150
         assert_eq!(NormalizedTick::average_notional(&[t1, t2]), Some(dec!(150)));
     }
+
+    #[test]
+    fn test_count_neutral_zero_for_empty_slice() {
+        assert_eq!(NormalizedTick::count_neutral(&[]), 0);
+    }
+
+    #[test]
+    fn test_count_neutral_counts_sideless_ticks() {
+        use rust_decimal_macros::dec;
+        let neutral = make_tick_pq(dec!(100), dec!(1)); // side = None
+        let mut buy = make_tick_pq(dec!(100), dec!(1));
+        buy.side = Some(TradeSide::Buy);
+        assert_eq!(NormalizedTick::count_neutral(&[neutral, buy]), 1);
+    }
+
+    #[test]
+    fn test_recent_returns_all_when_n_exceeds_len() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(110), dec!(1)),
+        ];
+        assert_eq!(NormalizedTick::recent(&ticks, 10).len(), 2);
+    }
+
+    #[test]
+    fn test_recent_returns_last_n() {
+        use rust_decimal_macros::dec;
+        let ticks: Vec<_> = [dec!(100), dec!(110), dec!(120), dec!(130)]
+            .iter()
+            .map(|&p| make_tick_pq(p, dec!(1)))
+            .collect();
+        let recent = NormalizedTick::recent(&ticks, 2);
+        assert_eq!(recent.len(), 2);
+        assert_eq!(recent[0].price, dec!(120));
+        assert_eq!(recent[1].price, dec!(130));
+    }
+
+    #[test]
+    fn test_price_linear_slope_none_for_single_tick() {
+        let t = make_tick_pq(rust_decimal_macros::dec!(100), rust_decimal_macros::dec!(1));
+        assert!(NormalizedTick::price_linear_slope(&[t]).is_none());
+    }
+
+    #[test]
+    fn test_price_linear_slope_positive_for_rising_prices() {
+        use rust_decimal_macros::dec;
+        let ticks: Vec<_> = [dec!(100), dec!(110), dec!(120)]
+            .iter()
+            .map(|&p| make_tick_pq(p, dec!(1)))
+            .collect();
+        let slope = NormalizedTick::price_linear_slope(&ticks).unwrap();
+        assert!(slope > 0.0);
+    }
+
+    #[test]
+    fn test_price_linear_slope_negative_for_falling_prices() {
+        use rust_decimal_macros::dec;
+        let ticks: Vec<_> = [dec!(120), dec!(110), dec!(100)]
+            .iter()
+            .map(|&p| make_tick_pq(p, dec!(1)))
+            .collect();
+        let slope = NormalizedTick::price_linear_slope(&ticks).unwrap();
+        assert!(slope < 0.0);
+    }
+
+    #[test]
+    fn test_notional_std_dev_none_for_single_tick() {
+        let t = make_tick_pq(rust_decimal_macros::dec!(100), rust_decimal_macros::dec!(1));
+        assert!(NormalizedTick::notional_std_dev(&[t]).is_none());
+    }
+
+    #[test]
+    fn test_notional_std_dev_zero_for_identical_notionals() {
+        use rust_decimal_macros::dec;
+        let t1 = make_tick_pq(dec!(100), dec!(1)); // notional=100
+        let t2 = make_tick_pq(dec!(100), dec!(1)); // notional=100
+        assert_eq!(NormalizedTick::notional_std_dev(&[t1, t2]), Some(0.0));
+    }
+
+    #[test]
+    fn test_notional_std_dev_positive_for_varied_notionals() {
+        use rust_decimal_macros::dec;
+        let t1 = make_tick_pq(dec!(100), dec!(1)); // notional=100
+        let t2 = make_tick_pq(dec!(200), dec!(2)); // notional=400
+        let std = NormalizedTick::notional_std_dev(&[t1, t2]).unwrap();
+        assert!(std > 0.0);
+    }
 }

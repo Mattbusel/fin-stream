@@ -4756,4 +4756,71 @@ mod tests {
         let ratio = OhlcvBar::mean_wick_ratio(&[b1, b2]).unwrap();
         assert!(ratio >= 0.0 && ratio <= 1.0);
     }
+
+    // ── OhlcvBar::bullish_volume / bearish_volume ─────────────────────────────
+
+    #[test]
+    fn test_bullish_volume_zero_for_empty_slice() {
+        assert_eq!(OhlcvBar::bullish_volume(&[]), dec!(0));
+    }
+
+    #[test]
+    fn test_bullish_volume_sums_bullish_bars() {
+        let mut bull = make_ohlcv_bar(dec!(90), dec!(110), dec!(85), dec!(105));
+        bull.volume = dec!(100);
+        let mut bear = make_ohlcv_bar(dec!(110), dec!(115), dec!(85), dec!(95));
+        bear.volume = dec!(50);
+        assert_eq!(OhlcvBar::bullish_volume(&[bull, bear]), dec!(100));
+    }
+
+    #[test]
+    fn test_bearish_volume_zero_for_empty_slice() {
+        assert_eq!(OhlcvBar::bearish_volume(&[]), dec!(0));
+    }
+
+    #[test]
+    fn test_bearish_volume_sums_bearish_bars() {
+        let mut bull = make_ohlcv_bar(dec!(90), dec!(110), dec!(85), dec!(105));
+        bull.volume = dec!(100);
+        let mut bear = make_ohlcv_bar(dec!(110), dec!(115), dec!(85), dec!(95));
+        bear.volume = dec!(50);
+        assert_eq!(OhlcvBar::bearish_volume(&[bull, bear]), dec!(50));
+    }
+
+    // ── OhlcvBar::close_above_mid_count ──────────────────────────────────────
+
+    #[test]
+    fn test_close_above_mid_count_zero_for_empty_slice() {
+        assert_eq!(OhlcvBar::close_above_mid_count(&[]), 0);
+    }
+
+    #[test]
+    fn test_close_above_mid_count_correct() {
+        let above_mid = make_ohlcv_bar(dec!(100), dec!(120), dec!(80), dec!(110)); // mid=100, close=110 > 100
+        let at_mid = make_ohlcv_bar(dec!(100), dec!(120), dec!(80), dec!(100)); // mid=100, close=100 not > 100
+        let below_mid = make_ohlcv_bar(dec!(100), dec!(120), dec!(80), dec!(85)); // mid=100, close=85 < 100
+        assert_eq!(OhlcvBar::close_above_mid_count(&[above_mid, at_mid, below_mid]), 1);
+    }
+
+    // ── OhlcvBar::ema ─────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_ema_none_for_empty_slice() {
+        assert!(OhlcvBar::ema(&[], 0.5).is_none());
+    }
+
+    #[test]
+    fn test_ema_single_bar_equals_close() {
+        let bar = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let e = OhlcvBar::ema(&[bar], 0.5).unwrap();
+        assert!((e - 105.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_ema_alpha_one_equals_last_close() {
+        let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100));
+        let b2 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(200));
+        let e = OhlcvBar::ema(&[b1, b2], 1.0).unwrap();
+        assert!((e - 200.0).abs() < 1e-9);
+    }
 }
