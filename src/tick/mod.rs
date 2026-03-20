@@ -743,6 +743,24 @@ impl NormalizedTick {
             .sum()
     }
 
+    /// Median price across a slice of ticks.
+    ///
+    /// Sorts tick prices and returns the middle value (or mean of two middle
+    /// values for an even-length slice). Returns `None` for an empty slice.
+    pub fn median_price(ticks: &[NormalizedTick]) -> Option<Decimal> {
+        if ticks.is_empty() {
+            return None;
+        }
+        let mut prices: Vec<Decimal> = ticks.iter().map(|t| t.price).collect();
+        prices.sort();
+        let n = prices.len();
+        if n % 2 == 1 {
+            Some(prices[n / 2])
+        } else {
+            Some((prices[n / 2 - 1] + prices[n / 2]) / Decimal::from(2u64))
+        }
+    }
+
 }
 
 impl std::fmt::Display for NormalizedTick {
@@ -2568,5 +2586,34 @@ mod tests {
         let sell_with_side = NormalizedTick { side: Some(TradeSide::Sell), ..sell };
         // sell notional = 200 × 3 = 600
         assert_eq!(NormalizedTick::sell_notional(&[buy_with_side, sell_with_side]), rust_decimal_macros::dec!(600));
+    }
+
+    // ── median_price ──────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_median_price_none_for_empty_slice() {
+        assert!(NormalizedTick::median_price(&[]).is_none());
+    }
+
+    #[test]
+    fn test_median_price_single_tick() {
+        let tick = make_tick_with_price(rust_decimal_macros::dec!(150));
+        assert_eq!(NormalizedTick::median_price(&[tick]), Some(rust_decimal_macros::dec!(150)));
+    }
+
+    #[test]
+    fn test_median_price_odd_count() {
+        let t1 = make_tick_with_price(rust_decimal_macros::dec!(90));
+        let t2 = make_tick_with_price(rust_decimal_macros::dec!(100));
+        let t3 = make_tick_with_price(rust_decimal_macros::dec!(110));
+        assert_eq!(NormalizedTick::median_price(&[t1, t2, t3]), Some(rust_decimal_macros::dec!(100)));
+    }
+
+    #[test]
+    fn test_median_price_even_count() {
+        let t1 = make_tick_with_price(rust_decimal_macros::dec!(90));
+        let t2 = make_tick_with_price(rust_decimal_macros::dec!(100));
+        // median = (90+100)/2 = 95
+        assert_eq!(NormalizedTick::median_price(&[t1, t2]), Some(rust_decimal_macros::dec!(95)));
     }
 }

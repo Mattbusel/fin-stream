@@ -3994,6 +3994,34 @@ mod tests {
         assert!(slope.abs() < 1e-10, "slope should be ~0 for identical closes");
     }
 
+    // ── highest_close / lowest_close ──────────────────────────────────────────
+
+    #[test]
+    fn test_highest_close_none_for_empty_slice() {
+        assert!(OhlcvBar::highest_close(&[]).is_none());
+    }
+
+    #[test]
+    fn test_highest_close_returns_max_close() {
+        let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let b2 = make_ohlcv_bar(dec!(100), dec!(120), dec!(95), dec!(115));
+        let b3 = make_ohlcv_bar(dec!(100), dec!(108), dec!(90), dec!(102));
+        assert_eq!(OhlcvBar::highest_close(&[b1, b2, b3]), Some(dec!(115)));
+    }
+
+    #[test]
+    fn test_lowest_close_none_for_empty_slice() {
+        assert!(OhlcvBar::lowest_close(&[]).is_none());
+    }
+
+    #[test]
+    fn test_lowest_close_returns_min_close() {
+        let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let b2 = make_ohlcv_bar(dec!(100), dec!(120), dec!(95), dec!(115));
+        let b3 = make_ohlcv_bar(dec!(100), dec!(108), dec!(90), dec!(102));
+        assert_eq!(OhlcvBar::lowest_close(&[b1, b2, b3]), Some(dec!(102)));
+    }
+
     // ── mean_close ────────────────────────────────────────────────────────────
 
     #[test]
