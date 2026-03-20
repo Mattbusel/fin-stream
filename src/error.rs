@@ -334,6 +334,11 @@ impl StreamError {
         matches!(self, StreamError::ParseError { .. })
     }
 
+    /// Returns `true` if this is a book reconstruction failure.
+    pub fn is_book_reconstruction_error(&self) -> bool {
+        matches!(self, StreamError::BookReconstructionFailed { .. })
+    }
+
     /// Human-readable category string for this error.
     ///
     /// Returns one of `"connection"`, `"data"`, `"pipeline"`, `"book"`,

@@ -90,10 +90,6 @@ impl WsStats {
         Some(self.total_bytes_received as f64 / self.total_messages_received as f64)
     }
 
-    /// Total data received expressed in mebibytes (MiB).
-    pub fn total_data_mb(&self) -> f64 {
-        self.total_bytes_received as f64 / 1_048_576.0
-    }
 
 }
 

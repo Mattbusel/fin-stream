@@ -496,17 +496,6 @@ impl LorentzTransform {
         proper_time * self.gamma
     }
 
-    /// The Minkowski rapidity `φ = atanh(beta)`.
-    ///
-    /// Rapidities are **additive** under composition: applying boost `φ₁` then
-    /// `φ₂` yields a single boost with rapidity `φ₁ + φ₂`. This is the additive
-    /// quantity that velocity addition makes non-linear.
-    ///
-    /// # Complexity: O(1)
-    pub fn rapidity(&self) -> f64 {
-        self.beta.atanh()
-    }
-
     /// Compose two Lorentz boosts into a single equivalent boost.
     ///
     /// Uses the relativistic velocity addition formula:

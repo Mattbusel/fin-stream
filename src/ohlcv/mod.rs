@@ -137,6 +137,16 @@ impl OhlcvBar {
         self.close < self.open
     }
 
+    /// Returns `true` if the bar has a non-zero upper wick (`high > max(open, close)`).
+    pub fn has_upper_wick(&self) -> bool {
+        self.wick_upper() > Decimal::ZERO
+    }
+
+    /// Returns `true` if the bar has a non-zero lower wick (`min(open, close) > low`).
+    pub fn has_lower_wick(&self) -> bool {
+        self.wick_lower() > Decimal::ZERO
+    }
+
     /// Directional classification of the bar body.
     ///
     /// Returns [`BarDirection::Bullish`] when `close > open`, [`BarDirection::Bearish`]
