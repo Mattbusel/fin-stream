@@ -2534,4 +2534,39 @@ mod tests {
         let tick = make_tick_with_price(rust_decimal_macros::dec!(100));
         assert_eq!(NormalizedTick::count_below_price(&[tick], rust_decimal_macros::dec!(100)), 0);
     }
+
+    // ── total_notional / buy_notional / sell_notional ─────────────────────────
+
+    #[test]
+    fn test_total_notional_zero_for_empty_slice() {
+        assert_eq!(NormalizedTick::total_notional(&[]), rust_decimal::Decimal::ZERO);
+    }
+
+    #[test]
+    fn test_total_notional_sums_all_ticks() {
+        // 100 × 2 + 200 × 3 = 200 + 600 = 800
+        let t1 = make_tick_pq(rust_decimal_macros::dec!(100), rust_decimal_macros::dec!(2));
+        let t2 = make_tick_pq(rust_decimal_macros::dec!(200), rust_decimal_macros::dec!(3));
+        assert_eq!(NormalizedTick::total_notional(&[t1, t2]), rust_decimal_macros::dec!(800));
+    }
+
+    #[test]
+    fn test_buy_notional_only_includes_buy_side() {
+        let buy = make_tick_pq(rust_decimal_macros::dec!(100), rust_decimal_macros::dec!(2));
+        let sell = make_tick_pq(rust_decimal_macros::dec!(200), rust_decimal_macros::dec!(3));
+        let buy_with_side = NormalizedTick { side: Some(TradeSide::Buy), ..buy };
+        let sell_with_side = NormalizedTick { side: Some(TradeSide::Sell), ..sell };
+        // buy notional = 100 × 2 = 200
+        assert_eq!(NormalizedTick::buy_notional(&[buy_with_side, sell_with_side]), rust_decimal_macros::dec!(200));
+    }
+
+    #[test]
+    fn test_sell_notional_only_includes_sell_side() {
+        let buy = make_tick_pq(rust_decimal_macros::dec!(100), rust_decimal_macros::dec!(2));
+        let sell = make_tick_pq(rust_decimal_macros::dec!(200), rust_decimal_macros::dec!(3));
+        let buy_with_side = NormalizedTick { side: Some(TradeSide::Buy), ..buy };
+        let sell_with_side = NormalizedTick { side: Some(TradeSide::Sell), ..sell };
+        // sell notional = 200 × 3 = 600
+        assert_eq!(NormalizedTick::sell_notional(&[buy_with_side, sell_with_side]), rust_decimal_macros::dec!(600));
+    }
 }

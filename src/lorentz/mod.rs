@@ -629,10 +629,10 @@ impl LorentzTransform {
 
     /// Relativistic Doppler factor for a source moving toward the observer at `β`.
     ///
-    /// Alias for [`doppler_ratio`](Self::doppler_ratio).
+    /// `D = √((1 + β) / (1 − β))`. Alias for [`doppler_ratio`](Self::doppler_ratio).
     #[deprecated(since = "2.2.0", note = "Use `doppler_ratio` instead")]
     pub fn doppler_factor(&self) -> f64 {
-        self.doppler_ratio()
+        ((1.0 + self.beta) / (1.0 - self.beta)).sqrt()
     }
 
     /// Relativistic aberration angle for a light ray with direction cosine `cos_theta`.
@@ -765,7 +765,7 @@ impl LorentzTransform {
     /// Values > 1 represent blue-shift (approaching); < 1 red-shift (receding).
     /// At rest (beta = 0) returns 1.0.
     pub fn doppler_ratio(&self) -> f64 {
-        self.doppler_factor()
+        ((1.0 + self.beta) / (1.0 - self.beta)).sqrt()
     }
 
     /// Dilated coordinate time in milliseconds for a given proper time `proper_ms`.
