@@ -161,7 +161,7 @@ impl HealthMonitor {
     pub fn check_all(&self, now_ms: u64) -> Vec<(String, StreamError)> {
         let mut errors = Vec::new();
         for mut entry in self.feeds.iter_mut() {
-            let elapsed = entry.last_tick_ms.map(|t| now_ms.saturating_sub(t));
+            let elapsed = entry.elapsed_ms(now_ms);
             if let Some(elapsed) = elapsed {
                 if elapsed > entry.stale_threshold_ms {
                     entry.status = HealthStatus::Stale;
@@ -271,7 +271,7 @@ impl HealthMonitor {
     ///
     /// Returns `0.0` when no feeds are registered.
     pub fn stale_ratio(&self) -> f64 {
-        let total = self.feeds.len();
+        let total = self.feed_count();
         if total == 0 {
             return 0.0;
         }
@@ -296,11 +296,7 @@ impl HealthMonitor {
     /// Useful for bulk alerting: iterate the returned vec to log or notify on
     /// every stale feed in one call rather than checking each feed individually.
     pub fn stale_feeds(&self) -> Vec<FeedHealth> {
-        self.feeds
-            .iter()
-            .filter(|e| e.status == HealthStatus::Stale)
-            .map(|e| e.clone())
-            .collect()
+        self.feeds_by_status(HealthStatus::Stale)
     }
 
     /// The oldest `last_tick_ms` across all registered feeds, or `None` if no
@@ -538,7 +534,7 @@ impl HealthMonitor {
     ///
     /// Returns `0.0` if no feeds are registered.
     pub fn avg_tick_count(&self) -> f64 {
-        let count = self.feeds.len();
+        let count = self.feed_count();
         if count == 0 {
             return 0.0;
         }
