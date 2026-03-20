@@ -852,6 +852,36 @@ fn easter_sunday(year: i32) -> NaiveDate {
         .unwrap_or_else(|| NaiveDate::from_ymd_opt(year, 1, 1).unwrap())
 }
 
+/// Count of US equity trading days (non-holiday weekdays) in the UTC millisecond range
+/// `[start_ms, end_ms)`.
+///
+/// Uses the same holiday calendar as [`is_us_market_holiday`].
+/// Returns `0` if `end_ms <= start_ms`.
+pub fn trading_day_count(start_ms: u64, end_ms: u64) -> usize {
+    use chrono::{Datelike, NaiveDate, TimeZone, Utc, Weekday};
+    if end_ms <= start_ms {
+        return 0;
+    }
+    let ms_to_naive = |ms: u64| {
+        Utc.timestamp_opt((ms / 1000) as i64, 0)
+            .single()
+            .map(|dt| dt.date_naive())
+            .unwrap_or_else(|| NaiveDate::from_ymd_opt(1970, 1, 1).unwrap())
+    };
+    let start_date = ms_to_naive(start_ms);
+    let end_date = ms_to_naive(end_ms);
+    let mut count = 0usize;
+    let mut day = start_date;
+    while day < end_date {
+        let wd = day.weekday();
+        if wd != Weekday::Sat && wd != Weekday::Sun && !is_us_market_holiday(day) {
+            count += 1;
+        }
+        day = day.succ_opt().unwrap_or(day);
+    }
+    count
+}
+
 /// Convenience: check if a session is currently tradeable.
 pub fn is_tradeable(session: MarketSession, utc_ms: u64) -> Result<bool, StreamError> {
     let sa = SessionAwareness::new(session);

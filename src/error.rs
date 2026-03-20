@@ -1290,4 +1290,44 @@ mod tests {
         let e = StreamError::LorentzConfigError { reason: "bad beta".into() };
         assert_eq!(e.to_error_code(), 7001);
     }
+
+    // --- StreamError::is_data_integrity_error ---
+    #[test]
+    fn test_is_data_integrity_error_true_for_book_crossed() {
+        let e = StreamError::BookCrossed {
+            symbol: "AAPL".into(),
+            bid: rust_decimal_macros::dec!(101),
+            ask: rust_decimal_macros::dec!(100),
+        };
+        assert!(e.is_data_integrity_error());
+    }
+
+    #[test]
+    fn test_is_data_integrity_error_true_for_sequence_gap() {
+        let e = StreamError::SequenceGap {
+            symbol: "BTCUSDT".into(),
+            expected: 42,
+            got: 50,
+        };
+        assert!(e.is_data_integrity_error());
+    }
+
+    #[test]
+    fn test_is_data_integrity_error_false_for_connection_failed() {
+        let e = StreamError::ConnectionFailed {
+            url: "wss://example.com".into(),
+            reason: "timeout".into(),
+        };
+        assert!(!e.is_data_integrity_error());
+    }
+
+    #[test]
+    fn test_is_data_integrity_error_false_for_stale_feed() {
+        let e = StreamError::StaleFeed {
+            feed_id: "kraken".into(),
+            elapsed_ms: 9_000,
+            threshold_ms: 5_000,
+        };
+        assert!(!e.is_data_integrity_error());
+    }
 }

@@ -1187,4 +1187,37 @@ mod tests {
         let ratio = ring.fill_ratio();
         assert!((ring.utilization_pct() - ratio * 100.0).abs() < 1e-10);
     }
+
+    // --- SpscRing::has_capacity ---
+    #[test]
+    fn test_has_capacity_true_on_empty_ring() {
+        let ring: SpscRing<u32, 8> = SpscRing::new(); // usable = 7
+        assert!(ring.has_capacity(7));
+    }
+
+    #[test]
+    fn test_has_capacity_false_when_full() {
+        let ring: SpscRing<u32, 8> = SpscRing::new();
+        for i in 0..7u32 {
+            ring.push(i).unwrap();
+        }
+        assert!(!ring.has_capacity(1));
+    }
+
+    #[test]
+    fn test_has_capacity_false_for_zero_capacity_needed() {
+        let ring: SpscRing<u32, 4> = SpscRing::new();
+        // has_capacity(0) should always be true (0 slots needed)
+        assert!(ring.has_capacity(0));
+    }
+
+    #[test]
+    fn test_has_capacity_partial_fill() {
+        let ring: SpscRing<u32, 8> = SpscRing::new(); // usable = 7
+        ring.push(1u32).unwrap();
+        ring.push(2u32).unwrap();
+        // 2 filled, 5 free
+        assert!(ring.has_capacity(5));
+        assert!(!ring.has_capacity(6));
+    }
 }

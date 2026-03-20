@@ -732,6 +732,41 @@ mod tests {
         let mut n = norm(4);
         assert!(n.normalize_clamp(dec!(5)).is_err());
     }
+
+    // ── MinMaxNormalizer::latest ──────────────────────────────────────────────
+
+    #[test]
+    fn test_latest_none_when_empty() {
+        let n = norm(5);
+        assert_eq!(n.latest(), None);
+    }
+
+    #[test]
+    fn test_latest_returns_most_recent_value() {
+        let mut n = norm(5);
+        n.update(dec!(10));
+        n.update(dec!(20));
+        n.update(dec!(30));
+        assert_eq!(n.latest(), Some(dec!(30)));
+    }
+
+    #[test]
+    fn test_latest_updates_on_each_push() {
+        let mut n = norm(3);
+        n.update(dec!(1));
+        assert_eq!(n.latest(), Some(dec!(1)));
+        n.update(dec!(5));
+        assert_eq!(n.latest(), Some(dec!(5)));
+    }
+
+    #[test]
+    fn test_latest_returns_last_after_window_overflow() {
+        let mut n = norm(2); // window_size = 2
+        n.update(dec!(100));
+        n.update(dec!(200));
+        n.update(dec!(300)); // oldest (100) evicted
+        assert_eq!(n.latest(), Some(dec!(300)));
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -1092,6 +1127,17 @@ impl ZScoreNormalizer {
         }
         let kurt = vals.iter().map(|v| ((v - mean) / std_dev).powi(4)).sum::<f64>() / n_f - 3.0;
         Some(kurt)
+    }
+
+    /// Returns `true` if the z-score of `value` exceeds `sigma` in absolute terms.
+    ///
+    /// Convenience wrapper around [`normalize`](Self::normalize) for alert logic.
+    /// Returns `false` if the normalizer window is empty or std-dev is zero.
+    pub fn is_extreme(&self, value: Decimal, sigma: f64) -> bool {
+        self.normalize(value)
+            .ok()
+            .map(|z| z.abs() > sigma)
+            .unwrap_or(false)
     }
 }
 
@@ -1467,5 +1513,88 @@ mod zscore_tests {
         use rust_decimal::prelude::ToPrimitive;
         let expected = n.mean().unwrap().to_f64().unwrap();
         assert!((n.window_mean_f64().unwrap() - expected).abs() < 1e-10);
+    }
+
+    // ── ZScoreNormalizer::kurtosis ────────────────────────────────────────────
+
+    #[test]
+    fn test_kurtosis_none_when_fewer_than_4_observations() {
+        let mut n = znorm(5);
+        n.update(dec!(1));
+        n.update(dec!(2));
+        n.update(dec!(3));
+        assert!(n.kurtosis().is_none());
+    }
+
+    #[test]
+    fn test_kurtosis_returns_some_with_4_observations() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] {
+            n.update(v);
+        }
+        assert!(n.kurtosis().is_some());
+    }
+
+    #[test]
+    fn test_kurtosis_none_when_all_same_value() {
+        let mut n = znorm(4);
+        for _ in 0..4 {
+            n.update(dec!(5));
+        }
+        // std_dev = 0 → kurtosis is None
+        assert!(n.kurtosis().is_none());
+    }
+
+    #[test]
+    fn test_kurtosis_uniform_distribution_is_negative() {
+        // Uniform distribution has excess kurtosis of -1.2
+        let mut n = znorm(10);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4), dec!(5),
+                  dec!(6), dec!(7), dec!(8), dec!(9), dec!(10)] {
+            n.update(v);
+        }
+        let k = n.kurtosis().unwrap();
+        // Excess kurtosis of uniform dist over integers is negative
+        assert!(k < 0.0, "expected negative excess kurtosis for uniform dist, got {k}");
+    }
+
+    // --- ZScoreNormalizer::is_near_mean ---
+    #[test]
+    fn test_is_near_mean_false_with_fewer_than_two_obs() {
+        let mut n = znorm(5);
+        n.update(dec!(10));
+        assert!(!n.is_near_mean(dec!(10), 1.0));
+    }
+
+    #[test]
+    fn test_is_near_mean_true_within_one_sigma() {
+        let mut n = znorm(10);
+        // Feed 10, 10, 10, ..., 10, 20 → mean≈11, std_dev small-ish
+        for _ in 0..9 {
+            n.update(dec!(10));
+        }
+        n.update(dec!(20));
+        // mean = (90 + 20) / 10 = 11
+        assert!(n.is_near_mean(dec!(11), 1.0));
+    }
+
+    #[test]
+    fn test_is_near_mean_false_when_far_from_mean() {
+        let mut n = znorm(5);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4), dec!(5)] {
+            n.update(v);
+        }
+        // mean = 3, std_dev ≈ 1.41; 100 is many sigmas away
+        assert!(!n.is_near_mean(dec!(100), 2.0));
+    }
+
+    #[test]
+    fn test_is_near_mean_true_when_all_identical_any_value() {
+        let mut n = znorm(4);
+        for _ in 0..4 {
+            n.update(dec!(7));
+        }
+        // std_dev = 0 → any value returns true
+        assert!(n.is_near_mean(dec!(999), 0.0));
     }
 }
