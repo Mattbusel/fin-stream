@@ -515,4 +515,43 @@ mod tests {
         }
         .is_transient());
     }
+
+    // ── StreamError::is_connection_error ─────────────────────────────────────
+
+    #[test]
+    fn test_is_connection_error_connection_variants() {
+        assert!(StreamError::ConnectionFailed {
+            url: "wss://x.io".into(),
+            reason: "refused".into()
+        }
+        .is_connection_error());
+        assert!(StreamError::Disconnected {
+            url: "wss://x.io".into()
+        }
+        .is_connection_error());
+        assert!(StreamError::ReconnectExhausted {
+            url: "wss://x.io".into(),
+            attempts: 5
+        }
+        .is_connection_error());
+    }
+
+    #[test]
+    fn test_is_connection_error_data_errors_are_not_connection() {
+        assert!(!StreamError::ParseError {
+            exchange: "Binance".into(),
+            reason: "bad json".into()
+        }
+        .is_connection_error());
+        assert!(!StreamError::ConfigError {
+            reason: "bad config".into()
+        }
+        .is_connection_error());
+        assert!(!StreamError::BookCrossed {
+            symbol: "BTC-USD".into(),
+            bid: rust_decimal_macros::dec!(100),
+            ask: rust_decimal_macros::dec!(99),
+        }
+        .is_connection_error());
+    }
 }

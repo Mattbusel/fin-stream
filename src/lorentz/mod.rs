@@ -760,4 +760,31 @@ mod tests {
         assert!(LorentzTransform::boost_chain(&[1.0]).is_err());
         assert!(LorentzTransform::boost_chain(&[0.3, -0.1]).is_err());
     }
+
+    // ── LorentzTransform::time_dilation ───────────────────────────────────────
+
+    #[test]
+    fn test_time_dilation_identity_at_zero_beta() {
+        // beta=0, gamma=1 → time_dilation(t) == t
+        let lt = LorentzTransform::new(0.0).unwrap();
+        assert!(approx_eq(lt.time_dilation(10.0), 10.0));
+    }
+
+    #[test]
+    fn test_time_dilation_inverse_of_proper_time() {
+        // time_dilation(proper_time(t)) should round-trip to t
+        let lt = LorentzTransform::new(0.6).unwrap();
+        let t = 5.0_f64;
+        let tau = lt.proper_time(t);
+        assert!(approx_eq(lt.time_dilation(tau), t));
+    }
+
+    #[test]
+    fn test_time_dilation_greater_than_proper_time() {
+        // For beta > 0: coordinate_time = gamma * tau > tau (moving clocks run slower)
+        let lt = LorentzTransform::new(0.8).unwrap();
+        let proper = 3.0_f64;
+        let coord = lt.time_dilation(proper);
+        assert!(coord > proper);
+    }
 }
