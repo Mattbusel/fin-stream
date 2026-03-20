@@ -1125,6 +1125,16 @@ impl OrderBook {
         Some((avg_fill - best_price).abs())
     }
 
+    /// Total notional value (price × quantity) at a specific price level on a given side.
+    ///
+    /// Returns `None` if no level exists at `price`.
+    pub fn total_value_at_level(&self, side: BookSide, price: Decimal) -> Option<Decimal> {
+        match side {
+            BookSide::Bid => self.bids.get(&price).map(|&q| price * q),
+            BookSide::Ask => self.asks.get(&price).map(|&q| price * q),
+        }
+    }
+
     /// Estimated volume-weighted average execution price for a market buy of `quantity`.
     ///
     /// Walks up the ask side. Returns `None` if insufficient liquidity.

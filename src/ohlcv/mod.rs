@@ -536,6 +536,29 @@ impl OhlcvBar {
         this_range < prev_range / Decimal::TWO
     }
 
+    /// Mean volume across a slice of bars.
+    ///
+    /// Returns `None` if the slice is empty.
+    pub fn mean_volume(bars: &[OhlcvBar]) -> Option<Decimal> {
+        if bars.is_empty() {
+            return None;
+        }
+        let sum: Decimal = bars.iter().map(|b| b.volume).sum();
+        Some(sum / Decimal::from(bars.len() as u64))
+    }
+
+    /// Absolute deviation of close price from VWAP as a fraction of VWAP: `|close - vwap| / vwap`.
+    ///
+    /// Returns `None` if `vwap` is not set or is zero.
+    pub fn vwap_deviation(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let vwap = self.vwap?;
+        if vwap.is_zero() {
+            return None;
+        }
+        ((self.close - vwap).abs() / vwap).to_f64()
+    }
+
     /// Volume as a ratio of `avg_volume`.
     ///
     /// Returns `None` if `avg_volume` is zero.
