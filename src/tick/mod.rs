@@ -1288,6 +1288,80 @@ impl NormalizedTick {
         Some((buys - sells) / n)
     }
 
+    /// Average price of buy-side ticks.
+    ///
+    /// Returns `None` if there are no buy-side ticks.
+    pub fn buy_avg_price(ticks: &[NormalizedTick]) -> Option<Decimal> {
+        let buys: Vec<_> = ticks.iter().filter(|t| t.is_buy()).collect();
+        if buys.is_empty() {
+            return None;
+        }
+        let sum: Decimal = buys.iter().map(|t| t.price).sum();
+        Some(sum / Decimal::from(buys.len() as u32))
+    }
+
+    /// Average price of sell-side ticks.
+    ///
+    /// Returns `None` if there are no sell-side ticks.
+    pub fn sell_avg_price(ticks: &[NormalizedTick]) -> Option<Decimal> {
+        let sells: Vec<_> = ticks.iter().filter(|t| t.is_sell()).collect();
+        if sells.is_empty() {
+            return None;
+        }
+        let sum: Decimal = sells.iter().map(|t| t.price).sum();
+        Some(sum / Decimal::from(sells.len() as u32))
+    }
+
+    /// Skewness of the price distribution across ticks.
+    ///
+    /// Uses the standard moment-based formula. Returns `None` if fewer than 3
+    /// ticks or if the standard deviation is zero.
+    pub fn price_skewness(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let n = ticks.len();
+        if n < 3 {
+            return None;
+        }
+        let prices: Vec<f64> = ticks.iter().filter_map(|t| t.price.to_f64()).collect();
+        if prices.len() != n {
+            return None;
+        }
+        let nf = n as f64;
+        let mean = prices.iter().sum::<f64>() / nf;
+        let variance = prices.iter().map(|p| (p - mean).powi(2)).sum::<f64>() / nf;
+        if variance == 0.0 {
+            return None;
+        }
+        let std_dev = variance.sqrt();
+        let skew = prices.iter().map(|p| ((p - mean) / std_dev).powi(3)).sum::<f64>() / nf;
+        Some(skew)
+    }
+
+    /// Skewness of the quantity distribution across ticks.
+    ///
+    /// Uses the standard moment-based formula. Returns `None` if fewer than 3
+    /// ticks or if the standard deviation is zero.
+    pub fn quantity_skewness(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let n = ticks.len();
+        if n < 3 {
+            return None;
+        }
+        let qtys: Vec<f64> = ticks.iter().filter_map(|t| t.quantity.to_f64()).collect();
+        if qtys.len() != n {
+            return None;
+        }
+        let nf = n as f64;
+        let mean = qtys.iter().sum::<f64>() / nf;
+        let variance = qtys.iter().map(|q| (q - mean).powi(2)).sum::<f64>() / nf;
+        if variance == 0.0 {
+            return None;
+        }
+        let std_dev = variance.sqrt();
+        let skew = qtys.iter().map(|q| ((q - mean) / std_dev).powi(3)).sum::<f64>() / nf;
+        Some(skew)
+    }
+
     /// Shannon entropy of the price distribution across ticks.
     ///
     /// Each unique price is treated as a category. Returns `None` if the
@@ -4310,5 +4384,83 @@ mod tests {
         ];
         let e = NormalizedTick::price_entropy(&ticks).unwrap();
         assert!(e > 0.0, "varied prices should have positive entropy, got {}", e);
+    }
+
+    // ── NormalizedTick::buy_avg_price / sell_avg_price ────────────────────────
+
+    #[test]
+    fn test_buy_avg_price_none_for_no_buys() {
+        use rust_decimal_macros::dec;
+        let mut t = make_tick_pq(dec!(100), dec!(1));
+        t.side = Some(TradeSide::Sell);
+        assert!(NormalizedTick::buy_avg_price(&[t]).is_none());
+    }
+
+    #[test]
+    fn test_buy_avg_price_correct() {
+        use rust_decimal_macros::dec;
+        let mut t1 = make_tick_pq(dec!(100), dec!(1)); t1.side = Some(TradeSide::Buy);
+        let mut t2 = make_tick_pq(dec!(110), dec!(1)); t2.side = Some(TradeSide::Buy);
+        assert_eq!(NormalizedTick::buy_avg_price(&[t1, t2]), Some(dec!(105)));
+    }
+
+    #[test]
+    fn test_sell_avg_price_none_for_no_sells() {
+        use rust_decimal_macros::dec;
+        let mut t = make_tick_pq(dec!(100), dec!(1));
+        t.side = Some(TradeSide::Buy);
+        assert!(NormalizedTick::sell_avg_price(&[t]).is_none());
+    }
+
+    #[test]
+    fn test_sell_avg_price_correct() {
+        use rust_decimal_macros::dec;
+        let mut t1 = make_tick_pq(dec!(90), dec!(1)); t1.side = Some(TradeSide::Sell);
+        let mut t2 = make_tick_pq(dec!(100), dec!(1)); t2.side = Some(TradeSide::Sell);
+        assert_eq!(NormalizedTick::sell_avg_price(&[t1, t2]), Some(dec!(95)));
+    }
+
+    // ── NormalizedTick::price_skewness ────────────────────────────────────────
+
+    #[test]
+    fn test_price_skewness_none_for_fewer_than_3() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![make_tick_pq(dec!(100), dec!(1)), make_tick_pq(dec!(101), dec!(1))];
+        assert!(NormalizedTick::price_skewness(&ticks).is_none());
+    }
+
+    #[test]
+    fn test_price_skewness_zero_for_symmetric() {
+        use rust_decimal_macros::dec;
+        // symmetric distribution: 1,2,3
+        let ticks = vec![
+            make_tick_pq(dec!(1), dec!(1)),
+            make_tick_pq(dec!(2), dec!(1)),
+            make_tick_pq(dec!(3), dec!(1)),
+        ];
+        let s = NormalizedTick::price_skewness(&ticks).unwrap();
+        assert!(s.abs() < 1e-9, "symmetric should have near-zero skew, got {}", s);
+    }
+
+    // ── NormalizedTick::quantity_skewness ─────────────────────────────────────
+
+    #[test]
+    fn test_quantity_skewness_none_for_fewer_than_3() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![make_tick_pq(dec!(100), dec!(1)), make_tick_pq(dec!(101), dec!(2))];
+        assert!(NormalizedTick::quantity_skewness(&ticks).is_none());
+    }
+
+    #[test]
+    fn test_quantity_skewness_positive_for_right_skewed() {
+        use rust_decimal_macros::dec;
+        // most quantities small, one very large: right-skewed
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(101), dec!(1)),
+            make_tick_pq(dec!(102), dec!(100)),
+        ];
+        let s = NormalizedTick::quantity_skewness(&ticks).unwrap();
+        assert!(s > 0.0, "right-skewed distribution should have positive skewness, got {}", s);
     }
 }

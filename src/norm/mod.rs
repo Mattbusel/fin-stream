@@ -834,6 +834,22 @@ impl MinMaxNormalizer {
         (max / p75).to_f64()
     }
 
+    /// Z-score of the window minimum relative to the current mean and std dev.
+    ///
+    /// Returns `None` if the window is empty or std dev is zero.
+    pub fn z_score_of_min(&self) -> Option<f64> {
+        let min = self.window.iter().copied().reduce(Decimal::min)?;
+        self.z_score(min)
+    }
+
+    /// Z-score of the window maximum relative to the current mean and std dev.
+    ///
+    /// Returns `None` if the window is empty or std dev is zero.
+    pub fn z_score_of_max(&self) -> Option<f64> {
+        let max = self.window.iter().copied().reduce(Decimal::max)?;
+        self.z_score(max)
+    }
+
 }
 
 #[cfg(test)]
@@ -2045,6 +2061,36 @@ mod tests {
         let r = n.tail_ratio().unwrap();
         assert!(r > 1.0, "outlier should push ratio above 1.0, got {}", r);
     }
+
+    // ── MinMaxNormalizer::z_score_of_min / z_score_of_max ─────────────────────
+
+    #[test]
+    fn test_minmax_z_score_of_min_none_for_empty() {
+        assert!(norm(4).z_score_of_min().is_none());
+    }
+
+    #[test]
+    fn test_minmax_z_score_of_max_none_for_empty() {
+        assert!(norm(4).z_score_of_max().is_none());
+    }
+
+    #[test]
+    fn test_minmax_z_score_of_min_negative_for_varied_window() {
+        let mut n = norm(5);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4), dec!(5)] { n.update(v); }
+        // min=1, mean=3, so z-score should be negative
+        let z = n.z_score_of_min().unwrap();
+        assert!(z < 0.0, "z-score of min should be negative, got {}", z);
+    }
+
+    #[test]
+    fn test_minmax_z_score_of_max_positive_for_varied_window() {
+        let mut n = norm(5);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4), dec!(5)] { n.update(v); }
+        // max=5, mean=3, so z-score should be positive
+        let z = n.z_score_of_max().unwrap();
+        assert!(z > 0.0, "z-score of max should be positive, got {}", z);
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -2943,6 +2989,22 @@ impl ZScoreNormalizer {
             return None;
         }
         (max / p75).to_f64()
+    }
+
+    /// Z-score of the window minimum relative to the current mean and std dev.
+    ///
+    /// Returns `None` if the window is empty or std dev is zero.
+    pub fn z_score_of_min(&self) -> Option<f64> {
+        let min = self.running_min()?;
+        self.z_score_opt(min)
+    }
+
+    /// Z-score of the window maximum relative to the current mean and std dev.
+    ///
+    /// Returns `None` if the window is empty or std dev is zero.
+    pub fn z_score_of_max(&self) -> Option<f64> {
+        let max = self.running_max()?;
+        self.z_score_opt(max)
     }
 
 }
@@ -4475,5 +4537,33 @@ mod zscore_stability_tests {
         for v in [dec!(1), dec!(1), dec!(1), dec!(1), dec!(10)] { n.update(v); }
         let r = n.tail_ratio().unwrap();
         assert!(r > 1.0, "outlier should push ratio above 1.0, got {}", r);
+    }
+
+    // ── ZScoreNormalizer::z_score_of_min / z_score_of_max ────────────────────
+
+    #[test]
+    fn test_zscore_z_score_of_min_none_for_empty() {
+        assert!(znorm(4).z_score_of_min().is_none());
+    }
+
+    #[test]
+    fn test_zscore_z_score_of_max_none_for_empty() {
+        assert!(znorm(4).z_score_of_max().is_none());
+    }
+
+    #[test]
+    fn test_zscore_z_score_of_min_negative_for_varied_window() {
+        let mut n = znorm(5);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4), dec!(5)] { n.update(v); }
+        let z = n.z_score_of_min().unwrap();
+        assert!(z < 0.0, "z-score of min should be negative, got {}", z);
+    }
+
+    #[test]
+    fn test_zscore_z_score_of_max_positive_for_varied_window() {
+        let mut n = znorm(5);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4), dec!(5)] { n.update(v); }
+        let z = n.z_score_of_max().unwrap();
+        assert!(z > 0.0, "z-score of max should be positive, got {}", z);
     }
 }

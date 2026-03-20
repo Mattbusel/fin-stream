@@ -1715,6 +1715,65 @@ impl OhlcvBar {
         ((last_close - lo) / range).to_f64()
     }
 
+    /// Returns `true` if the last `n` closes form a strict uptrend.
+    ///
+    /// Each close must be strictly greater than the previous. Returns `false`
+    /// if `n < 2` or the slice has fewer than `n` bars.
+    pub fn is_trending_up(bars: &[OhlcvBar], n: usize) -> bool {
+        if n < 2 || bars.len() < n {
+            return false;
+        }
+        bars[bars.len() - n..].windows(2).all(|w| w[1].close > w[0].close)
+    }
+
+    /// Returns `true` if the last `n` closes form a strict downtrend.
+    ///
+    /// Each close must be strictly less than the previous. Returns `false`
+    /// if `n < 2` or the slice has fewer than `n` bars.
+    pub fn is_trending_down(bars: &[OhlcvBar], n: usize) -> bool {
+        if n < 2 || bars.len() < n {
+            return false;
+        }
+        bars[bars.len() - n..].windows(2).all(|w| w[1].close < w[0].close)
+    }
+
+    /// Percentage change in volume between the last two bars.
+    ///
+    /// Returns `None` if fewer than 2 bars or if the previous bar's volume is
+    /// zero.
+    pub fn volume_acceleration(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.len() < 2 {
+            return None;
+        }
+        let prev = bars[bars.len() - 2].volume;
+        if prev.is_zero() {
+            return None;
+        }
+        let curr = bars[bars.len() - 1].volume;
+        ((curr - prev) / prev * Decimal::ONE_HUNDRED).to_f64()
+    }
+
+    /// Mean ratio of total wick length to body size across all bars.
+    ///
+    /// For each bar: `(upper_wick + lower_wick) / body`. Bars with a zero body
+    /// are skipped. Returns `None` if no valid bars exist.
+    pub fn wick_body_ratio(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let valid: Vec<f64> = bars.iter().filter_map(|b| {
+            let body = b.body();
+            if body.is_zero() {
+                return None;
+            }
+            let wicks = b.wick_upper() + b.wick_lower();
+            (wicks / body).to_f64()
+        }).collect();
+        if valid.is_empty() {
+            return None;
+        }
+        Some(valid.iter().sum::<f64>() / valid.len() as f64)
+    }
+
     /// Count of bars where `close > open` (bullish bars).
     pub fn close_above_open_count(bars: &[OhlcvBar]) -> usize {
         bars.iter().filter(|b| b.close > b.open).count()
@@ -5841,5 +5900,72 @@ mod tests {
         let b2 = make_ohlcv_bar(dec!(100), dec!(112), dec!(88), dec!(105));
         let r = OhlcvBar::close_volatility_ratio(&[b1, b2]).unwrap();
         assert!((r - 0.0).abs() < 1e-9, "expected 0.0 for identical closes, got {}", r);
+    }
+
+    // ── OhlcvBar::is_trending_up / is_trending_down ───────────────────────────
+
+    #[test]
+    fn test_is_trending_up_false_for_empty() {
+        assert!(!OhlcvBar::is_trending_up(&[], 3));
+    }
+
+    #[test]
+    fn test_is_trending_up_false_for_n_less_than_2() {
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        assert!(!OhlcvBar::is_trending_up(&[b], 1));
+    }
+
+    #[test]
+    fn test_is_trending_up_true_for_rising_closes() {
+        let b1 = make_ohlcv_bar(dec!(100), dec!(105), dec!(98), dec!(102));
+        let b2 = make_ohlcv_bar(dec!(102), dec!(110), dec!(100), dec!(107));
+        let b3 = make_ohlcv_bar(dec!(107), dec!(115), dec!(105), dec!(112));
+        assert!(OhlcvBar::is_trending_up(&[b1, b2, b3], 3));
+    }
+
+    #[test]
+    fn test_is_trending_down_true_for_falling_closes() {
+        let b1 = make_ohlcv_bar(dec!(112), dec!(115), dec!(105), dec!(110));
+        let b2 = make_ohlcv_bar(dec!(110), dec!(112), dec!(100), dec!(105));
+        let b3 = make_ohlcv_bar(dec!(105), dec!(108), dec!(95), dec!(98));
+        assert!(OhlcvBar::is_trending_down(&[b1, b2, b3], 3));
+    }
+
+    // ── OhlcvBar::volume_acceleration ────────────────────────────────────────
+
+    #[test]
+    fn test_volume_acceleration_none_for_single_bar() {
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        assert!(OhlcvBar::volume_acceleration(&[b]).is_none());
+    }
+
+    #[test]
+    fn test_volume_acceleration_positive_when_volume_rises() {
+        let mut b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105)); b1.volume = dec!(100);
+        let mut b2 = make_ohlcv_bar(dec!(105), dec!(115), dec!(103), dec!(110)); b2.volume = dec!(150);
+        let acc = OhlcvBar::volume_acceleration(&[b1, b2]).unwrap();
+        assert!(acc > 0.0, "volume rose so acceleration should be positive, got {}", acc);
+    }
+
+    // ── OhlcvBar::wick_body_ratio ─────────────────────────────────────────────
+
+    #[test]
+    fn test_wick_body_ratio_none_for_empty() {
+        assert!(OhlcvBar::wick_body_ratio(&[]).is_none());
+    }
+
+    #[test]
+    fn test_wick_body_ratio_none_for_doji_bar() {
+        // open == close → zero body, should be skipped
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100));
+        assert!(OhlcvBar::wick_body_ratio(&[b]).is_none());
+    }
+
+    #[test]
+    fn test_wick_body_ratio_positive_for_wicked_bar() {
+        // open=100, close=105 → body=5; high=115, low=95 → wicks=10+5=15
+        let b = make_ohlcv_bar(dec!(100), dec!(115), dec!(95), dec!(105));
+        let r = OhlcvBar::wick_body_ratio(&[b]).unwrap();
+        assert!(r > 0.0, "expected positive wick/body ratio, got {}", r);
     }
 }
