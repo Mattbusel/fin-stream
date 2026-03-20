@@ -517,19 +517,21 @@ impl<T, const N: usize> SpscRing<T, N> {
         if len == 0 {
             return None;
         }
-        let mut best: Option<T> = None;
-        let mut best_key: Option<K> = None;
-        for i in 0..len {
+        // SAFETY: len > 0 so head slot is initialized
+        let first = unsafe { (*self.buf[head & (N - 1)].get()).assume_init_ref() }.clone();
+        let mut best_key = key(&first);
+        let mut best = first;
+        for i in 1..len {
             let slot = head.wrapping_add(i) & (N - 1);
             // SAFETY: slots in [head, tail) are initialized
             let item = unsafe { (*self.buf[slot].get()).assume_init_ref() }.clone();
             let k = key(&item);
-            if best_key.as_ref().map_or(true, |bk| &k < bk) {
-                best_key = Some(k);
-                best = Some(item);
+            if k < best_key {
+                best_key = k;
+                best = item;
             }
         }
-        best
+        Some(best)
     }
 
     /// Returns the element for which `key(element)` is maximum, cloned.
@@ -549,19 +551,21 @@ impl<T, const N: usize> SpscRing<T, N> {
         if len == 0 {
             return None;
         }
-        let mut best: Option<T> = None;
-        let mut best_key: Option<K> = None;
-        for i in 0..len {
+        // SAFETY: len > 0 so head slot is initialized
+        let first = unsafe { (*self.buf[head & (N - 1)].get()).assume_init_ref() }.clone();
+        let mut best_key = key(&first);
+        let mut best = first;
+        for i in 1..len {
             let slot = head.wrapping_add(i) & (N - 1);
             // SAFETY: slots in [head, tail) are initialized
             let item = unsafe { (*self.buf[slot].get()).assume_init_ref() }.clone();
             let k = key(&item);
-            if best_key.as_ref().map_or(true, |bk| &k > bk) {
-                best_key = Some(k);
-                best = Some(item);
+            if k > best_key {
+                best_key = k;
+                best = item;
             }
         }
-        best
+        Some(best)
     }
 
     /// Returns `true` if the ring contains an element equal to `value`.

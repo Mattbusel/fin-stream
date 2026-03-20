@@ -549,7 +549,7 @@ impl OrderBook {
 
     /// Returns `true` if there is a non-zero ask entry at exactly `price`.
     pub fn has_ask_at(&self, price: Decimal) -> bool {
-        self.asks.get(&price).map(|q| !q.is_zero()).unwrap_or(false)
+        self.asks.get(&price).map_or(false, |q| !q.is_zero())
     }
 
     /// Returns `(bid_levels, ask_levels)` — the number of distinct price levels

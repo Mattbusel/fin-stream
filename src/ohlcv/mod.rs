@@ -1598,6 +1598,69 @@ impl OhlcvBar {
         let up = bars.windows(2).filter(|w| w[1].close > w[0].close).count();
         Some(up as f64 / moves as f64)
     }
+
+    /// Net price change: `close - open` for the last bar.
+    ///
+    /// Returns `None` for an empty slice.
+    pub fn net_change(bars: &[OhlcvBar]) -> Option<Decimal> {
+        bars.last().map(|b| b.price_change())
+    }
+
+    /// Percentage change from open to close for the last bar: `(close - open) / open * 100`.
+    ///
+    /// Returns `None` for an empty slice or zero open.
+    pub fn open_to_close_pct(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let bar = bars.last()?;
+        if bar.open.is_zero() {
+            return None;
+        }
+        (bar.price_change() / bar.open * Decimal::ONE_HUNDRED).to_f64()
+    }
+
+    /// Percentage of high-to-low range relative to high: `(high - low) / high * 100`.
+    ///
+    /// Returns `None` for an empty slice or zero high.
+    pub fn high_to_low_pct(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let bar = bars.last()?;
+        if bar.high.is_zero() {
+            return None;
+        }
+        (bar.range() / bar.high * Decimal::ONE_HUNDRED).to_f64()
+    }
+
+    /// Count of consecutive bars (from the end) where `high` is strictly higher than the prior `high`.
+    pub fn consecutive_highs(bars: &[OhlcvBar]) -> usize {
+        if bars.len() < 2 {
+            return 0;
+        }
+        let mut count = 0;
+        for w in bars.windows(2).rev() {
+            if w[1].high > w[0].high {
+                count += 1;
+            } else {
+                break;
+            }
+        }
+        count
+    }
+
+    /// Count of consecutive bars (from the end) where `low` is strictly lower than the prior `low`.
+    pub fn consecutive_lows(bars: &[OhlcvBar]) -> usize {
+        if bars.len() < 2 {
+            return 0;
+        }
+        let mut count = 0;
+        for w in bars.windows(2).rev() {
+            if w[1].low < w[0].low {
+                count += 1;
+            } else {
+                break;
+            }
+        }
+        count
+    }
 }
 
 impl std::fmt::Display for OhlcvBar {
@@ -5392,5 +5455,80 @@ mod tests {
         let b3 = make_ohlcv_bar(dec!(105), dec!(110), dec!(95), dec!(100));
         let s = OhlcvBar::trend_strength(&[b1, b2, b3]).unwrap();
         assert!((s - 0.0).abs() < 1e-9);
+    }
+
+    // ── OhlcvBar::net_change ──────────────────────────────────────────────────
+
+    #[test]
+    fn test_net_change_none_for_empty() {
+        assert!(OhlcvBar::net_change(&[]).is_none());
+    }
+
+    #[test]
+    fn test_net_change_positive_for_bullish_bar() {
+        let b = make_ohlcv_bar(dec!(100), dec!(115), dec!(98), dec!(112));
+        assert_eq!(OhlcvBar::net_change(&[b]), Some(dec!(12)));
+    }
+
+    #[test]
+    fn test_net_change_negative_for_bearish_bar() {
+        let b = make_ohlcv_bar(dec!(110), dec!(112), dec!(95), dec!(100));
+        assert_eq!(OhlcvBar::net_change(&[b]), Some(dec!(-10)));
+    }
+
+    // ── OhlcvBar::open_to_close_pct ───────────────────────────────────────────
+
+    #[test]
+    fn test_open_to_close_pct_none_for_empty() {
+        assert!(OhlcvBar::open_to_close_pct(&[]).is_none());
+    }
+
+    #[test]
+    fn test_open_to_close_pct_correct() {
+        // open=100, close=110 → 10%
+        let b = make_ohlcv_bar(dec!(100), dec!(115), dec!(98), dec!(110));
+        let pct = OhlcvBar::open_to_close_pct(&[b]).unwrap();
+        assert!((pct - 10.0).abs() < 1e-9);
+    }
+
+    // ── OhlcvBar::high_to_low_pct ─────────────────────────────────────────────
+
+    #[test]
+    fn test_high_to_low_pct_none_for_empty() {
+        assert!(OhlcvBar::high_to_low_pct(&[]).is_none());
+    }
+
+    #[test]
+    fn test_high_to_low_pct_correct() {
+        // high=200, low=100 → 50%
+        let b = make_ohlcv_bar(dec!(150), dec!(200), dec!(100), dec!(160));
+        let pct = OhlcvBar::high_to_low_pct(&[b]).unwrap();
+        assert!((pct - 50.0).abs() < 1e-9);
+    }
+
+    // ── OhlcvBar::consecutive_highs / consecutive_lows ───────────────────────
+
+    #[test]
+    fn test_consecutive_highs_zero_for_single_bar() {
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        assert_eq!(OhlcvBar::consecutive_highs(&[b]), 0);
+    }
+
+    #[test]
+    fn test_consecutive_highs_counts_trailing_highs() {
+        // bars with rising highs: 110, 120, 130 → 2 consecutive from end
+        let b1 = make_ohlcv_bar(dec!(95), dec!(110), dec!(90), dec!(105));
+        let b2 = make_ohlcv_bar(dec!(105), dec!(120), dec!(103), dec!(115));
+        let b3 = make_ohlcv_bar(dec!(115), dec!(130), dec!(113), dec!(125));
+        assert_eq!(OhlcvBar::consecutive_highs(&[b1, b2, b3]), 2);
+    }
+
+    #[test]
+    fn test_consecutive_lows_counts_trailing_lows() {
+        // bars with falling lows: 90, 80, 70 → 2 consecutive from end
+        let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let b2 = make_ohlcv_bar(dec!(95), dec!(108), dec!(80), dec!(100));
+        let b3 = make_ohlcv_bar(dec!(90), dec!(102), dec!(70), dec!(95));
+        assert_eq!(OhlcvBar::consecutive_lows(&[b1, b2, b3]), 2);
     }
 }
