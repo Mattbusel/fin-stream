@@ -263,6 +263,22 @@ impl MinMaxNormalizer {
             .collect()
     }
 
+    /// Normalize `value` and clamp the result to `[0.0, 1.0]`.
+    ///
+    /// Identical to [`normalize`](Self::normalize) but silently clamps values
+    /// that fall outside the window's observed range. Useful when applying a
+    /// learned normalizer to out-of-sample data without erroring on outliers.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StreamError::NormalizationError`] if the window is empty.
+    pub fn normalize_clamp(
+        &mut self,
+        value: rust_decimal::Decimal,
+    ) -> Result<f64, crate::error::StreamError> {
+        self.normalize(value).map(|v| v.clamp(0.0, 1.0))
+    }
+
     /// Compute the z-score of `value` relative to the current window.
     ///
     /// `z = (value - mean) / stddev`
@@ -731,6 +747,43 @@ impl ZScoreNormalizer {
     /// The configured window size.
     pub fn window_size(&self) -> usize {
         self.window_size
+    }
+
+    /// Current population variance of the window.
+    ///
+    /// Computed as `E[X²] − (E[X])²` from running sums in O(1). Returns
+    /// `None` if fewer than 2 observations are present (variance undefined).
+    pub fn variance(&self) -> Option<Decimal> {
+        let n = self.window.len();
+        if n < 2 {
+            return None;
+        }
+        let n_dec = Decimal::from(n as u64);
+        let mean = self.sum / n_dec;
+        let v = (self.sum_sq / n_dec) - mean * mean;
+        Some(if v < Decimal::ZERO { Decimal::ZERO } else { v })
+    }
+
+    /// Feed a slice of values into the window and return z-scores for each.
+    ///
+    /// Each value is first passed through [`update`](Self::update) to advance
+    /// the rolling window, then normalized. The output has the same length as
+    /// `values`.
+    ///
+    /// # Errors
+    ///
+    /// Propagates the first [`StreamError`] returned by [`normalize`](Self::normalize).
+    pub fn normalize_batch(
+        &mut self,
+        values: &[Decimal],
+    ) -> Result<Vec<f64>, StreamError> {
+        values
+            .iter()
+            .map(|&v| {
+                self.update(v);
+                self.normalize(v)
+            })
+            .collect()
     }
 }
 
