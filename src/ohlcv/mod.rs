@@ -975,6 +975,22 @@ impl OhlcvBar {
         bars.iter().map(|b| b.low).reduce(Decimal::min)
     }
 
+    /// Maximum `close` across a slice of bars.
+    ///
+    /// Returns `None` if the slice is empty. Useful for identifying the
+    /// highest closing price within a lookback window.
+    pub fn highest_close(bars: &[OhlcvBar]) -> Option<Decimal> {
+        bars.iter().map(|b| b.close).reduce(Decimal::max)
+    }
+
+    /// Minimum `close` across a slice of bars.
+    ///
+    /// Returns `None` if the slice is empty. Useful for identifying the
+    /// lowest closing price within a lookback window.
+    pub fn lowest_close(bars: &[OhlcvBar]) -> Option<Decimal> {
+        bars.iter().map(|b| b.close).reduce(Decimal::min)
+    }
+
     /// Total traded volume across a slice of bars.
     ///
     /// Returns `Decimal::ZERO` for an empty slice. Complements

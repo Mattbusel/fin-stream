@@ -1273,6 +1273,36 @@ mod tests {
         // median = 3; deviations = [2,1,0,1,2] sorted → [0,1,1,2,2]; MAD = 1
         assert_eq!(n.mad(), Some(dec!(1)));
     }
+
+    // ── MinMaxNormalizer::robust_z_score ──────────────────────────────────────
+
+    #[test]
+    fn test_minmax_robust_z_none_for_empty_window() {
+        assert!(norm(4).robust_z_score(dec!(10)).is_none());
+    }
+
+    #[test]
+    fn test_minmax_robust_z_none_when_mad_is_zero() {
+        let mut n = norm(4);
+        for _ in 0..4 { n.update(dec!(5)); }
+        assert!(n.robust_z_score(dec!(5)).is_none());
+    }
+
+    #[test]
+    fn test_minmax_robust_z_positive_above_median() {
+        let mut n = norm(5);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4), dec!(5)] { n.update(v); }
+        let rz = n.robust_z_score(dec!(5)).unwrap();
+        assert!(rz > 0.0, "robust z-score should be positive for value above median");
+    }
+
+    #[test]
+    fn test_minmax_robust_z_negative_below_median() {
+        let mut n = norm(5);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4), dec!(5)] { n.update(v); }
+        let rz = n.robust_z_score(dec!(1)).unwrap();
+        assert!(rz < 0.0, "robust z-score should be negative for value below median");
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -2838,5 +2868,36 @@ mod zscore_stability_tests {
         let mut n = znorm(4);
         for v in [dec!(1), dec!(2), dec!(10), dec!(20)] { n.update(v); }
         assert!(!n.is_mean_stable(0.5));
+    }
+
+    // ── ZScoreNormalizer::count_above / count_below ───────────────────────────
+
+    #[test]
+    fn test_zscore_count_above_zero_for_empty_window() {
+        assert_eq!(znorm(4).count_above(dec!(10)), 0);
+    }
+
+    #[test]
+    fn test_zscore_count_above_correct() {
+        let mut n = znorm(5);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4), dec!(5)] { n.update(v); }
+        // strictly above 3: [4, 5] → count = 2
+        assert_eq!(n.count_above(dec!(3)), 2);
+    }
+
+    #[test]
+    fn test_zscore_count_below_correct() {
+        let mut n = znorm(5);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4), dec!(5)] { n.update(v); }
+        // strictly below 3: [1, 2] → count = 2
+        assert_eq!(n.count_below(dec!(3)), 2);
+    }
+
+    #[test]
+    fn test_zscore_count_above_excludes_at_threshold() {
+        let mut n = znorm(3);
+        for v in [dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        assert_eq!(n.count_above(dec!(5)), 0);
+        assert_eq!(n.count_below(dec!(5)), 0);
     }
 }
