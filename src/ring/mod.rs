@@ -1220,4 +1220,26 @@ mod tests {
         assert!(ring.has_capacity(5));
         assert!(!ring.has_capacity(6));
     }
+
+    // --- SpscRing::is_empty ---
+    #[test]
+    fn test_is_empty_true_for_new_ring() {
+        let ring: SpscRing<u32, 8> = SpscRing::new();
+        assert!(ring.is_empty());
+    }
+
+    #[test]
+    fn test_is_empty_false_after_push() {
+        let ring: SpscRing<u32, 8> = SpscRing::new();
+        ring.push(42u32).unwrap();
+        assert!(!ring.is_empty());
+    }
+
+    #[test]
+    fn test_is_empty_true_after_push_and_pop() {
+        let ring: SpscRing<u32, 4> = SpscRing::new();
+        ring.push(1u32).unwrap();
+        let _ = ring.pop();
+        assert!(ring.is_empty());
+    }
 }

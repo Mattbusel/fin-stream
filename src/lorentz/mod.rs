@@ -450,6 +450,14 @@ impl LorentzTransform {
         self.gamma
     }
 
+    /// Proper time dilation: the ratio of proper time elapsed in the moving frame
+    /// to coordinate time `dt` elapsed in the rest frame.
+    ///
+    /// `proper_dt = dt / gamma` — a moving clock runs slower.
+    pub fn proper_time_dilation(&self, dt: f64) -> f64 {
+        dt / self.gamma
+    }
+
     /// Computes the Lorentz-invariant spacetime interval between two events.
     ///
     /// The interval is defined as `ds² = (Δt)² - (Δx)²` (signature `+−`).
@@ -1521,6 +1529,27 @@ mod tests {
     fn test_four_velocity_time_greater_than_one_when_moving() {
         let t = LorentzTransform::new(0.5).unwrap();
         assert!(t.four_velocity_time() > 1.0);
+    }
+
+    // --- LorentzTransform::proper_time_dilation ---
+    #[test]
+    fn test_proper_time_dilation_at_rest_equals_dt() {
+        let t = LorentzTransform::new(0.0).unwrap(); // gamma = 1
+        assert!((t.proper_time_dilation(10.0) - 10.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_proper_time_dilation_less_than_dt_when_moving() {
+        let t = LorentzTransform::new(0.6).unwrap(); // gamma ≈ 1.25
+        let proper = t.proper_time_dilation(10.0);
+        assert!(proper < 10.0, "moving clock should run slow: {proper}");
+    }
+
+    #[test]
+    fn test_proper_time_dilation_approaches_zero_at_high_speed() {
+        let t = LorentzTransform::new(0.9999).unwrap();
+        let proper = t.proper_time_dilation(1.0);
+        assert!(proper < 0.02, "expected near-zero proper time at 0.9999c: {proper}");
     }
 
     // ── LorentzTransform::rapidity ────────────────────────────────────────────

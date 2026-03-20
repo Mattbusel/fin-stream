@@ -531,6 +531,32 @@ impl SessionAwareness {
         self.time_until_open_ms(utc_ms) as f64 / 60_000.0
     }
 
+    /// How far through the current session as a percentage (0.0–100.0).
+    ///
+    /// Returns `0.0` if the session is not currently open.
+    pub fn session_progress_pct(&self, utc_ms: u64) -> f64 {
+        let total = self.open_duration_ms();
+        if total == 0 {
+            return 0.0;
+        }
+        match self.remaining_session_ms(utc_ms) {
+            Some(remaining) => {
+                let elapsed = total.saturating_sub(remaining);
+                elapsed as f64 / total as f64 * 100.0
+            }
+            None => 0.0,
+        }
+    }
+
+    /// Returns `true` if the session is open and within the last 60 seconds of
+    /// the regular trading session.
+    pub fn is_last_minute(&self, utc_ms: u64) -> bool {
+        match self.remaining_session_ms(utc_ms) {
+            Some(r) => r <= 60_000,
+            None => false,
+        }
+    }
+
     fn next_forex_close_ms(&self, utc_ms: u64) -> u64 {
         if self.forex_status(utc_ms) == TradingStatus::Closed {
             return utc_ms;
@@ -1834,6 +1860,40 @@ mod tests {
         let sa = sa(MarketSession::UsEquity);
         let mins = sa.minutes_to_next_open(SAT_UTC_MS);
         assert!(mins > 0.0);
+    }
+
+    // --- SessionAnalyzer::session_progress_pct ---
+    #[test]
+    fn test_session_progress_pct_zero_when_closed() {
+        let sa = sa(MarketSession::UsEquity);
+        assert_eq!(sa.session_progress_pct(SAT_UTC_MS), 0.0);
+    }
+
+    #[test]
+    fn test_session_progress_pct_positive_when_open() {
+        let sa = sa(MarketSession::UsEquity);
+        // 30 minutes into session
+        let pct = sa.session_progress_pct(MON_OPEN_UTC_MS + 30 * 60_000);
+        assert!(pct > 0.0 && pct < 100.0, "expected 0-100, got {pct}");
+    }
+
+    // --- SessionAnalyzer::is_last_minute ---
+    #[test]
+    fn test_is_last_minute_true_within_last_60s() {
+        let sa = sa(MarketSession::UsEquity);
+        assert!(sa.is_last_minute(MON_CLOSE_UTC_MS - 30_000));
+    }
+
+    #[test]
+    fn test_is_last_minute_false_when_more_than_60s_remain() {
+        let sa = sa(MarketSession::UsEquity);
+        assert!(!sa.is_last_minute(MON_CLOSE_UTC_MS - 120_000));
+    }
+
+    #[test]
+    fn test_is_last_minute_false_when_closed() {
+        let sa = sa(MarketSession::UsEquity);
+        assert!(!sa.is_last_minute(SAT_UTC_MS));
     }
 
     // ── SessionAnalyzer::is_extended_hours ────────────────────────────────────

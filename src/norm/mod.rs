@@ -1103,6 +1103,14 @@ impl ZScoreNormalizer {
         diff / std_dev <= sigma_tolerance
     }
 
+    /// Sum of all values currently in the window as `f64`.
+    ///
+    /// Returns `0.0` on an empty window.
+    pub fn window_sum_f64(&self) -> f64 {
+        use rust_decimal::prelude::ToPrimitive;
+        self.sum.to_f64().unwrap_or(0.0)
+    }
+
     /// Excess kurtosis of the window: `(Σ((x-mean)⁴/n) / std_dev⁴) - 3`.
     ///
     /// Returns `None` if the window has fewer than 4 observations or std dev is zero.
@@ -1596,5 +1604,31 @@ mod zscore_tests {
         }
         // std_dev = 0 → any value returns true
         assert!(n.is_near_mean(dec!(999), 0.0));
+    }
+
+    // --- ZScoreNormalizer::window_sum_f64 ---
+    #[test]
+    fn test_window_sum_f64_zero_on_empty() {
+        let n = znorm(5);
+        assert_eq!(n.window_sum_f64(), 0.0);
+    }
+
+    #[test]
+    fn test_window_sum_f64_correct_after_updates() {
+        let mut n = znorm(5);
+        n.update(dec!(10));
+        n.update(dec!(20));
+        n.update(dec!(30));
+        assert!((n.window_sum_f64() - 60.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_window_sum_f64_rolls_out_old_values() {
+        let mut n = znorm(2);
+        n.update(dec!(100));
+        n.update(dec!(200));
+        n.update(dec!(300)); // 100 rolls out
+        // window contains 200, 300 → sum = 500
+        assert!((n.window_sum_f64() - 500.0).abs() < 1e-10);
     }
 }

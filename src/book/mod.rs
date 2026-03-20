@@ -1982,6 +1982,37 @@ mod tests {
         assert_eq!(b.bid_ask_depth(), (0, 0));
     }
 
+    // --- OrderBook::best_bid_qty / best_ask_qty ---
+    #[test]
+    fn test_best_bid_qty_returns_top_bid_quantity() {
+        let mut b = book("BTC-USD");
+        b.apply(delta("BTC-USD", BookSide::Bid, dec!(100), dec!(3))).unwrap();
+        b.apply(delta("BTC-USD", BookSide::Bid, dec!(99), dec!(5))).unwrap();
+        // best bid = 100 with qty=3
+        assert_eq!(b.best_bid_qty(), Some(dec!(3)));
+    }
+
+    #[test]
+    fn test_best_ask_qty_returns_top_ask_quantity() {
+        let mut b = book("BTC-USD");
+        b.apply(delta("BTC-USD", BookSide::Ask, dec!(101), dec!(7))).unwrap();
+        b.apply(delta("BTC-USD", BookSide::Ask, dec!(102), dec!(2))).unwrap();
+        // best ask = 101 with qty=7
+        assert_eq!(b.best_ask_qty(), Some(dec!(7)));
+    }
+
+    #[test]
+    fn test_best_bid_qty_none_when_no_bids() {
+        let b = book("BTC-USD");
+        assert!(b.best_bid_qty().is_none());
+    }
+
+    #[test]
+    fn test_best_ask_qty_none_when_no_asks() {
+        let b = book("BTC-USD");
+        assert!(b.best_ask_qty().is_none());
+    }
+
     // ── OrderBook::is_tight_spread ────────────────────────────────────────────
 
     #[test]

@@ -1330,4 +1330,33 @@ mod tests {
         };
         assert!(!e.is_data_integrity_error());
     }
+
+    // --- StreamError::is_connection_error ---
+    #[test]
+    fn test_is_connection_error_true_for_connection_failed() {
+        let e = StreamError::ConnectionFailed { url: "ws://x".into(), reason: "refused".into() };
+        assert!(e.is_connection_error());
+    }
+
+    #[test]
+    fn test_is_connection_error_true_for_disconnected() {
+        let e = StreamError::Disconnected { url: "ws://x".into() };
+        assert!(e.is_connection_error());
+    }
+
+    #[test]
+    fn test_is_connection_error_true_for_reconnect_exhausted() {
+        let e = StreamError::ReconnectExhausted { url: "ws://x".into(), attempts: 5 };
+        assert!(e.is_connection_error());
+    }
+
+    #[test]
+    fn test_is_connection_error_false_for_book_crossed() {
+        let e = StreamError::BookCrossed {
+            symbol: "AAPL".into(),
+            bid: rust_decimal_macros::dec!(101),
+            ask: rust_decimal_macros::dec!(100),
+        };
+        assert!(!e.is_connection_error());
+    }
 }

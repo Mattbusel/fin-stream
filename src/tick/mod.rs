@@ -386,6 +386,13 @@ impl NormalizedTick {
         self.quantity < threshold
     }
 
+    /// Returns `true` if this tick occurred above the given midpoint price.
+    ///
+    /// A tick above the midpoint is typically associated with buying pressure.
+    pub fn is_buying_pressure(&self, midpoint: Decimal) -> bool {
+        self.price > midpoint
+    }
+
 }
 
 impl std::fmt::Display for NormalizedTick {
@@ -1472,5 +1479,49 @@ mod tests {
         // Clock skew: now < received_at → saturating_sub = 0 ≤ max_age
         let tick = make_tick_at(5_000);
         assert!(tick.is_fresh(3_000, 100));
+    }
+
+    // --- NormalizedTick::age_ms ---
+    #[test]
+    fn test_age_ms_correct_elapsed() {
+        let tick = make_tick_at(10_000);
+        assert_eq!(tick.age_ms(10_500), 500);
+    }
+
+    #[test]
+    fn test_age_ms_zero_when_now_equals_received() {
+        let tick = make_tick_at(10_000);
+        assert_eq!(tick.age_ms(10_000), 0);
+    }
+
+    #[test]
+    fn test_age_ms_zero_when_now_before_received() {
+        let tick = make_tick_at(10_000);
+        assert_eq!(tick.age_ms(9_000), 0);
+    }
+
+    // --- NormalizedTick::is_buying_pressure ---
+    #[test]
+    fn test_is_buying_pressure_true_above_midpoint() {
+        use rust_decimal_macros::dec;
+        let mut tick = make_tick_at(0);
+        tick.price = dec!(100.50);
+        assert!(tick.is_buying_pressure(dec!(100)));
+    }
+
+    #[test]
+    fn test_is_buying_pressure_false_below_midpoint() {
+        use rust_decimal_macros::dec;
+        let mut tick = make_tick_at(0);
+        tick.price = dec!(99.50);
+        assert!(!tick.is_buying_pressure(dec!(100)));
+    }
+
+    #[test]
+    fn test_is_buying_pressure_false_at_midpoint() {
+        use rust_decimal_macros::dec;
+        let mut tick = make_tick_at(0);
+        tick.price = dec!(100);
+        assert!(!tick.is_buying_pressure(dec!(100)));
     }
 }

@@ -545,6 +545,17 @@ impl OhlcvBar {
         lower >= body * Decimal::TWO && upper <= body
     }
 
+    /// Upper wick as a percentage of the total range (0–100).
+    ///
+    /// Returns `None` when the range is zero.
+    pub fn upper_wick_pct(&self) -> Option<Decimal> {
+        let range = self.range();
+        if range.is_zero() {
+            return None;
+        }
+        Some(self.wick_upper() / range * Decimal::ONE_HUNDRED)
+    }
+
     /// Duration of this bar's timeframe in milliseconds.
     pub fn bar_duration_ms(&self) -> u64 {
         self.timeframe.duration_ms()
@@ -2441,6 +2452,51 @@ mod tests {
     fn test_is_bullish_hammer_false_for_doji() {
         let b = bar(100, 110, 90, 100); // open == close, body = 0
         assert!(!b.is_bullish_hammer());
+    }
+
+    // --- OhlcvBar::is_marubozu ---
+    #[test]
+    fn test_is_marubozu_true_when_full_body() {
+        // open=100, high=100, low=100, close=110 → body=10, range=10 → 100%
+        let b = bar(100, 110, 100, 110);
+        assert!(b.is_marubozu());
+    }
+
+    #[test]
+    fn test_is_marubozu_false_when_large_wicks() {
+        // open=100, high=120, low=80, close=110 → body=10, range=40 → 25%
+        let b = bar(100, 120, 80, 110);
+        assert!(!b.is_marubozu());
+    }
+
+    #[test]
+    fn test_is_marubozu_true_for_zero_range_flat_bar() {
+        // flat bar has no wicks → qualifies as marubozu under "no wicks" definition
+        let b = bar(100, 100, 100, 100);
+        assert!(b.is_marubozu());
+    }
+
+    // --- OhlcvBar::upper_wick_pct ---
+    #[test]
+    fn test_upper_wick_pct_zero_when_no_upper_wick() {
+        // close is the high
+        let b = bar(100, 110, 90, 110);
+        let pct = b.upper_wick_pct().unwrap();
+        assert!(pct.is_zero(), "expected 0, got {pct}");
+    }
+
+    #[test]
+    fn test_upper_wick_pct_50_when_half_range() {
+        // open=100, high=120, low=100, close=110 → upper_wick=10, range=20 → 50%
+        let b = bar(100, 120, 100, 110);
+        let pct = b.upper_wick_pct().unwrap();
+        assert_eq!(pct, dec!(50));
+    }
+
+    #[test]
+    fn test_upper_wick_pct_none_for_zero_range() {
+        let b = bar(100, 100, 100, 100);
+        assert!(b.upper_wick_pct().is_none());
     }
 
     #[test]

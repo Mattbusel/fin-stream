@@ -576,6 +576,23 @@ impl HealthMonitor {
         self.total_tick_count() as f64 / total as f64
     }
 
+    /// Count of feeds whose `tick_count` exceeds `threshold`.
+    pub fn feeds_above_tick_count(&self, threshold: u64) -> usize {
+        self.feeds.iter().filter(|e| e.tick_count > threshold).count()
+    }
+
+    /// Age in milliseconds of the feed with the oldest `last_tick_ms`
+    /// (the most stale one) relative to `now_ms`.
+    ///
+    /// Returns `None` if no feed has ever received a tick.
+    pub fn oldest_feed_age_ms(&self, now_ms: u64) -> Option<u64> {
+        self.feeds
+            .iter()
+            .filter_map(|e| e.last_tick_ms)
+            .map(|t| now_ms.saturating_sub(t))
+            .max()
+    }
+
     /// Returns `true` if at least one feed currently has
     /// [`HealthStatus::Unknown`] status.
     pub fn has_any_unknown(&self) -> bool {
@@ -1616,6 +1633,50 @@ mod tests {
         m.heartbeat("B", 1_000).unwrap(); // B: 1 tick
         // avg = (2 + 1) / 2 = 1.5
         assert!((m.average_tick_count() - 1.5).abs() < 1e-10);
+    }
+
+    // --- HealthMonitor::feeds_above_tick_count ---
+    #[test]
+    fn test_feeds_above_tick_count_correct() {
+        let mut m = monitor();
+        m.register("A", None);
+        m.register("B", None);
+        m.register("C", None);
+        m.heartbeat("A", 1_000).unwrap();
+        m.heartbeat("A", 2_000).unwrap();
+        m.heartbeat("A", 3_000).unwrap(); // A: 3 ticks
+        m.heartbeat("B", 1_000).unwrap(); // B: 1 tick
+        // threshold=1: A(3) and B(1) → only A > 1
+        // Wait: "above" means > threshold
+        assert_eq!(m.feeds_above_tick_count(1), 1);
+        assert_eq!(m.feeds_above_tick_count(0), 2);
+        assert_eq!(m.feeds_above_tick_count(5), 0);
+    }
+
+    #[test]
+    fn test_feeds_above_tick_count_zero_when_no_feeds() {
+        let m = HealthMonitor::new(5_000);
+        assert_eq!(m.feeds_above_tick_count(0), 0);
+    }
+
+    // --- HealthMonitor::oldest_feed_age_ms ---
+    #[test]
+    fn test_oldest_feed_age_ms_returns_max_age() {
+        let mut m = monitor();
+        m.register("A", None);
+        m.register("B", None);
+        m.heartbeat("A", 5_000).unwrap();
+        m.heartbeat("B", 8_000).unwrap();
+        // A is older (ts=5000), B more recent (ts=8000)
+        // At now=10_000: A age=5000, B age=2000 → oldest = 5000
+        assert_eq!(m.oldest_feed_age_ms(10_000), Some(5_000));
+    }
+
+    #[test]
+    fn test_oldest_feed_age_ms_none_when_no_ticks() {
+        let mut m = monitor();
+        m.register("A", None);
+        assert!(m.oldest_feed_age_ms(10_000).is_none());
     }
 
     // ── HealthMonitor::stale_ratio ────────────────────────────────────────────
