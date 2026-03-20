@@ -1255,6 +1255,15 @@ impl ZScoreNormalizer {
         self.window.iter().min().and_then(|v| v.to_f64())
     }
 
+    /// Difference between the window maximum and minimum, as `f64`.
+    ///
+    /// Returns `None` if the window is empty.
+    pub fn window_span_f64(&self) -> Option<f64> {
+        let max = self.window_max_f64()?;
+        let min = self.window_min_f64()?;
+        Some(max - min)
+    }
+
     /// Excess kurtosis of the window: `(Σ((x-mean)⁴/n) / std_dev⁴) - 3`.
     ///
     /// Returns `None` if the window has fewer than 4 observations or std dev is zero.
@@ -2184,5 +2193,28 @@ mod zscore_tests {
         for _ in 0..4 { n.update(dec!(7)); }
         let change = n.rolling_mean_change().unwrap();
         assert!(change.abs() < 1e-9);
+    }
+
+    // ── window_span_f64 ───────────────────────────────────────────────────────
+
+    #[test]
+    fn test_window_span_f64_none_when_empty() {
+        let n = znorm(4);
+        assert!(n.window_span_f64().is_none());
+    }
+
+    #[test]
+    fn test_window_span_f64_zero_when_all_same() {
+        let mut n = znorm(4);
+        for _ in 0..4 { n.update(dec!(5)); }
+        assert_eq!(n.window_span_f64(), Some(0.0));
+    }
+
+    #[test]
+    fn test_window_span_f64_correct_value() {
+        let mut n = znorm(4);
+        for v in [dec!(10), dec!(20), dec!(30), dec!(40)] { n.update(v); }
+        // max=40, min=10, span=30
+        assert!((n.window_span_f64().unwrap() - 30.0).abs() < 1e-9);
     }
 }

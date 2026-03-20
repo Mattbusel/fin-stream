@@ -194,6 +194,13 @@ impl SessionAwareness {
         self.next_open_ms(utc_ms).saturating_sub(utc_ms)
     }
 
+    /// Seconds until the session next opens as `f64`.
+    ///
+    /// Returns `0.0` if the session is already open.
+    pub fn seconds_until_open(&self, utc_ms: u64) -> f64 {
+        self.time_until_open_ms(utc_ms) as f64 / 1_000.0
+    }
+
     /// Whole minutes until the session enters [`TradingStatus::Closed`].
     ///
     /// Returns `0` if the session is already closed or will close in less than
@@ -288,6 +295,11 @@ impl SessionAwareness {
     /// after-hours) for `UsEquity`. Always `false` for other sessions.
     pub fn is_extended_hours(&self, utc_ms: u64) -> bool {
         self.is_pre_market(utc_ms) || self.is_after_hours(utc_ms)
+    }
+
+    /// Returns `true` if the session is active: either `Open` or `Extended` (not `Closed`).
+    pub fn is_active(&self, utc_ms: u64) -> bool {
+        matches!(self.status(utc_ms), Ok(TradingStatus::Open) | Ok(TradingStatus::Extended))
     }
 
     /// Return the UTC millisecond timestamp of the next time this session
@@ -2535,5 +2547,23 @@ mod tests {
     fn test_holiday_adjacent_false_for_normal_day() {
         let d = NaiveDate::from_ymd_opt(2024, 6, 15).unwrap();
         assert!(!SessionAwareness::is_market_holiday_adjacent(d));
+    }
+
+    // ── seconds_until_open ────────────────────────────────────────────────────
+
+    #[test]
+    fn test_seconds_until_open_zero_when_session_is_open() {
+        // Monday 16:00 UTC = well within US equity session
+        let sa = SessionAwareness::new(MarketSession::UsEquity);
+        let mon_16h_utc: u64 = 4 * 24 * 3_600_000 + 16 * 3_600_000;
+        assert_eq!(sa.seconds_until_open(mon_16h_utc), 0.0);
+    }
+
+    #[test]
+    fn test_seconds_until_open_positive_when_before_open() {
+        // Saturday midnight → well before next Monday open
+        let sa = SessionAwareness::new(MarketSession::UsEquity);
+        let sat_midnight: u64 = 5 * 24 * 3_600_000;
+        assert!(sa.seconds_until_open(sat_midnight) > 0.0);
     }
 }

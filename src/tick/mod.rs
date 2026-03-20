@@ -558,6 +558,11 @@ impl NormalizedTick {
         self.price * self.quantity
     }
 
+    /// Contract value using a futures/options multiplier: `price * quantity * multiplier`.
+    pub fn contract_value(&self, multiplier: Decimal) -> Decimal {
+        self.price * self.quantity * multiplier
+    }
+
 }
 
 impl std::fmt::Display for NormalizedTick {
@@ -2042,5 +2047,33 @@ mod tests {
     fn test_price_change_from_zero_when_equal() {
         let tick = make_tick_at(0); // price=100
         assert_eq!(tick.price_change_from(rust_decimal_macros::dec!(100)), rust_decimal_macros::dec!(0));
+    }
+
+    // ── is_below_price ────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_is_below_price_true_when_strictly_below() {
+        let tick = make_tick_at(0); // price=100
+        assert!(tick.is_below_price(rust_decimal_macros::dec!(101)));
+    }
+
+    #[test]
+    fn test_is_below_price_false_when_equal() {
+        let tick = make_tick_at(0); // price=100
+        assert!(!tick.is_below_price(rust_decimal_macros::dec!(100)));
+    }
+
+    // ── quantity_above ────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_quantity_above_true_when_quantity_exceeds_threshold() {
+        let tick = make_tick_at(0); // quantity=1
+        assert!(tick.quantity_above(rust_decimal_macros::dec!(0)));
+    }
+
+    #[test]
+    fn test_quantity_above_false_when_quantity_equals_threshold() {
+        let tick = make_tick_at(0); // quantity=1
+        assert!(!tick.quantity_above(rust_decimal_macros::dec!(1)));
     }
 }

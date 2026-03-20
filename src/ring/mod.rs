@@ -480,6 +480,26 @@ impl<T, const N: usize> SpscRing<T, N> {
         count
     }
 
+    /// Returns the `n`th oldest element in the ring (0 = oldest), cloned.
+    ///
+    /// Returns `None` if `n` is out of bounds.
+    ///
+    /// # Complexity: O(1).
+    pub fn peek_nth(&self, n: usize) -> Option<T>
+    where
+        T: Clone,
+    {
+        let head = self.head.load(Ordering::Acquire);
+        let tail = self.tail.load(Ordering::Acquire);
+        let len = tail.wrapping_sub(head);
+        if n >= len {
+            return None;
+        }
+        let slot = head.wrapping_add(n) % N;
+        // SAFETY: slots in [head, tail) are initialized
+        Some(unsafe { (*self.buf[slot].get()).assume_init_ref() }.clone())
+    }
+
     /// Mean of all elements in the ring as `f64`.
     ///
     /// Returns `None` if the ring is empty.
@@ -1760,5 +1780,33 @@ mod tests {
         let ring: SpscRing<f64, 8> = SpscRing::new();
         for v in [2.0f64, 4.0, 6.0, 8.0] { ring.push(v).unwrap(); }
         assert_eq!(ring.average_cloned(), Some(5.0));
+    }
+
+    // ── peek_nth ──────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_peek_nth_returns_oldest_at_index_zero() {
+        let ring: SpscRing<u32, 8> = SpscRing::new();
+        ring.push(10u32).unwrap();
+        ring.push(20u32).unwrap();
+        ring.push(30u32).unwrap();
+        assert_eq!(ring.peek_nth(0), Some(10));
+    }
+
+    #[test]
+    fn test_peek_nth_returns_correct_element() {
+        let ring: SpscRing<u32, 8> = SpscRing::new();
+        ring.push(10u32).unwrap();
+        ring.push(20u32).unwrap();
+        ring.push(30u32).unwrap();
+        assert_eq!(ring.peek_nth(1), Some(20));
+        assert_eq!(ring.peek_nth(2), Some(30));
+    }
+
+    #[test]
+    fn test_peek_nth_returns_none_when_out_of_bounds() {
+        let ring: SpscRing<u32, 4> = SpscRing::new();
+        ring.push(5u32).unwrap();
+        assert!(ring.peek_nth(1).is_none());
     }
 }

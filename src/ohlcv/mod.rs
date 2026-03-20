@@ -632,6 +632,22 @@ impl OhlcvBar {
         (self.lower_shadow() / range).to_f64()
     }
 
+    /// Ratio of close to open: `close / open` as `f64`.
+    ///
+    /// Returns `None` if `open` is zero. Values above 1.0 indicate a bullish bar.
+    pub fn open_close_ratio(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.open.is_zero() {
+            return None;
+        }
+        (self.close / self.open).to_f64()
+    }
+
+    /// Returns `true` if this bar's range (`high - low`) exceeds `threshold`.
+    pub fn is_wide_range_bar(&self, threshold: Decimal) -> bool {
+        (self.high - self.low) > threshold
+    }
+
     /// Classifies this bar as `"bullish"`, `"bearish"`, or `"doji"`.
     ///
     /// A doji is a bar whose body is zero (open equals close). Otherwise the
@@ -3167,5 +3183,41 @@ mod tests {
         let bar = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
         let pct = bar.lower_shadow_pct().unwrap();
         assert!((pct - 0.5).abs() < 1e-10);
+    }
+
+    // ── open_close_ratio ──────────────────────────────────────────────────────
+
+    #[test]
+    fn test_open_close_ratio_none_when_open_zero() {
+        let bar = make_ohlcv_bar(dec!(0), dec!(10), dec!(0), dec!(5));
+        assert!(bar.open_close_ratio().is_none());
+    }
+
+    #[test]
+    fn test_open_close_ratio_one_when_flat() {
+        let bar = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100));
+        let ratio = bar.open_close_ratio().unwrap();
+        assert!((ratio - 1.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_open_close_ratio_above_one_for_bullish_bar() {
+        let bar = make_ohlcv_bar(dec!(100), dec!(115), dec!(95), dec!(110));
+        let ratio = bar.open_close_ratio().unwrap();
+        assert!(ratio > 1.0);
+    }
+
+    // ── is_wide_range_bar ─────────────────────────────────────────────────────
+
+    #[test]
+    fn test_is_wide_range_bar_true_when_range_exceeds_threshold() {
+        let bar = make_ohlcv_bar(dec!(100), dec!(120), dec!(95), dec!(110)); // range=25
+        assert!(bar.is_wide_range_bar(dec!(20)));
+    }
+
+    #[test]
+    fn test_is_wide_range_bar_false_when_range_equals_threshold() {
+        let bar = make_ohlcv_bar(dec!(100), dec!(120), dec!(100), dec!(110)); // range=20
+        assert!(!bar.is_wide_range_bar(dec!(20)));
     }
 }

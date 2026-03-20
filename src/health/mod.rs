@@ -469,6 +469,20 @@ impl HealthMonitor {
         self.feeds.iter().filter(|e| e.status == HealthStatus::Stale).count()
     }
 
+    /// IDs of all feeds that are Stale or Unknown — feeds that require attention.
+    ///
+    /// Healthy feeds are excluded. The returned list is sorted.
+    pub fn feeds_needing_check(&self) -> Vec<String> {
+        let mut ids: Vec<String> = self
+            .feeds
+            .iter()
+            .filter(|e| e.status != HealthStatus::Healthy)
+            .map(|e| e.feed_id.clone())
+            .collect();
+        ids.sort();
+        ids
+    }
+
     /// Average age in milliseconds across all feeds that have received at least one tick.
     ///
     /// Returns `None` if no feed has ever received a tick.
@@ -2176,5 +2190,37 @@ mod tests {
     fn test_unknown_feed_ids_empty_when_no_feeds() {
         let m = HealthMonitor::new(5_000);
         assert!(m.unknown_feed_ids().is_empty());
+    }
+
+    // ── feeds_needing_check ───────────────────────────────────────────────────
+
+    #[test]
+    fn test_feeds_needing_check_returns_stale_and_unknown() {
+        let m = HealthMonitor::new(5_000);
+        m.register("BTC", None);  // Unknown
+        m.register("ETH", None);
+        m.heartbeat("ETH", 0).unwrap();
+        m.check_all(100); // ETH → Healthy
+        let needing = m.feeds_needing_check();
+        assert!(needing.contains(&"BTC".to_string()));
+        assert!(!needing.contains(&"ETH".to_string()));
+    }
+
+    #[test]
+    fn test_feeds_needing_check_empty_when_all_healthy() {
+        let m = HealthMonitor::new(5_000);
+        m.register("BTC", None);
+        m.heartbeat("BTC", 0).unwrap();
+        m.check_all(100);
+        assert!(m.feeds_needing_check().is_empty());
+    }
+
+    #[test]
+    fn test_feeds_needing_check_sorted() {
+        let m = HealthMonitor::new(5_000);
+        m.register("ZZZ", None);
+        m.register("AAA", None);
+        let needing = m.feeds_needing_check();
+        assert_eq!(needing, vec!["AAA".to_string(), "ZZZ".to_string()]);
     }
 }

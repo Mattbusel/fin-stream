@@ -274,6 +274,14 @@ impl LorentzTransform {
         self.beta.atanh()
     }
 
+    /// Relativistic parameter `β·γ` — proportional to the particle's 3-momentum.
+    ///
+    /// Defined as `β * γ = β / √(1 - β²)`. Useful for comparing relativistic
+    /// momenta of different particles without specifying rest mass.
+    pub fn beta_times_gamma(&self) -> f64 {
+        self.beta * self.gamma
+    }
+
     /// Converts a rapidity value back to a velocity `β = tanh(η)`.
     ///
     /// This is the inverse of `rapidity()`. Always returns a value in `(-1, 1)`.
@@ -777,6 +785,13 @@ impl LorentzTransform {
     pub fn proper_acceleration(&self, force: f64, mass: f64) -> Option<f64> {
         if mass == 0.0 { return None; }
         Some(force / (self.gamma.powi(3) * mass))
+    }
+
+    /// Relativistic momentum proxy: `gamma * beta` (natural units, rest mass = 1).
+    ///
+    /// Spatial component of the four-velocity; additive in rapidity space.
+    pub fn momentum_rapidity(&self) -> f64 {
+        self.gamma * self.beta
     }
 }
 
@@ -1935,5 +1950,28 @@ mod tests {
         let contracted = t.length_contraction(rest);
         let recovered = t.proper_length(contracted);
         assert!((recovered - rest).abs() < 1e-9);
+    }
+
+    // ── beta_times_gamma ──────────────────────────────────────────────────────
+
+    #[test]
+    fn test_beta_times_gamma_zero_at_rest() {
+        let t = LorentzTransform::new(0.0).unwrap();
+        assert_eq!(t.beta_times_gamma(), 0.0);
+    }
+
+    #[test]
+    fn test_beta_times_gamma_positive_for_nonzero_velocity() {
+        let t = LorentzTransform::new(0.6).unwrap();
+        // beta=0.6, gamma=1.25 → beta*gamma=0.75
+        let bg = t.beta_times_gamma();
+        assert!((bg - 0.75).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_beta_times_gamma_increases_with_velocity() {
+        let t1 = LorentzTransform::new(0.5).unwrap();
+        let t2 = LorentzTransform::new(0.9).unwrap();
+        assert!(t2.beta_times_gamma() > t1.beta_times_gamma());
     }
 }

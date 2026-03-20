@@ -1044,6 +1044,21 @@ impl OrderBook {
         Ok(())
     }
 
+    /// Estimated trading fee for a market order of `qty` on `side`, given a fee in basis points.
+    ///
+    /// `fee ≈ fill_price * qty * fee_bps / 10_000`. Returns fee in base currency.
+    /// Returns `None` if the side is empty, qty ≤ 0, or not enough liquidity to fill.
+    pub fn fee_estimate(&self, side: BookSide, qty: Decimal, fee_bps: Decimal) -> Option<Decimal> {
+        if qty <= Decimal::ZERO { return None; }
+        let best_price = match side {
+            BookSide::Bid => self.bids.keys().next_back().copied()?,
+            BookSide::Ask => self.asks.keys().next().copied()?,
+        };
+        let impact = self.price_impact(side, qty).unwrap_or(Decimal::ZERO);
+        let fill_price = best_price + impact;
+        Some(fill_price * qty * fee_bps / Decimal::from(10_000u32))
+    }
+
     /// Spread expressed as number of ticks: `spread / tick_size`.
     ///
     /// Returns `None` if either side is empty or tick_size is zero.
@@ -2659,5 +2674,41 @@ mod tests {
     fn test_total_value_at_level_none_when_price_missing() {
         let b = book("X");
         assert!(b.total_value_at_level(BookSide::Bid, dec!(100)).is_none());
+    }
+
+    // ── ask_volume_above / bid_volume_below ───────────────────────────────────
+
+    #[test]
+    fn test_ask_volume_above_sums_asks_above_price() {
+        let mut b = book("X");
+        b.apply(delta("X", BookSide::Ask, dec!(101), dec!(5))).unwrap();
+        b.apply(delta("X", BookSide::Ask, dec!(102), dec!(3))).unwrap();
+        b.apply(delta("X", BookSide::Ask, dec!(103), dec!(2))).unwrap();
+        // volume above 101: 3+2=5
+        assert_eq!(b.ask_volume_above(dec!(101)), dec!(5));
+    }
+
+    #[test]
+    fn test_ask_volume_above_zero_when_no_asks_above() {
+        let mut b = book("X");
+        b.apply(delta("X", BookSide::Ask, dec!(100), dec!(10))).unwrap();
+        assert_eq!(b.ask_volume_above(dec!(100)), dec!(0));
+    }
+
+    #[test]
+    fn test_bid_volume_below_sums_bids_below_price() {
+        let mut b = book("X");
+        b.apply(delta("X", BookSide::Bid, dec!(98), dec!(4))).unwrap();
+        b.apply(delta("X", BookSide::Bid, dec!(99), dec!(6))).unwrap();
+        b.apply(delta("X", BookSide::Bid, dec!(100), dec!(2))).unwrap();
+        // volume below 100: 4+6=10
+        assert_eq!(b.bid_volume_below(dec!(100)), dec!(10));
+    }
+
+    #[test]
+    fn test_bid_volume_below_zero_when_no_bids_below() {
+        let mut b = book("X");
+        b.apply(delta("X", BookSide::Bid, dec!(100), dec!(5))).unwrap();
+        assert_eq!(b.bid_volume_below(dec!(100)), dec!(0));
     }
 }
