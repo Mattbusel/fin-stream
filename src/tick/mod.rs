@@ -1243,6 +1243,72 @@ impl NormalizedTick {
         Some(ticks.iter().filter(|t| t.price > vwap).count())
     }
 
+    /// Mean quantity per trade across all ticks.
+    ///
+    /// Returns `None` if the slice is empty.
+    pub fn avg_trade_size(ticks: &[NormalizedTick]) -> Option<Decimal> {
+        if ticks.is_empty() {
+            return None;
+        }
+        let total: Decimal = ticks.iter().map(|t| t.quantity).sum();
+        Some(total / Decimal::from(ticks.len() as u32))
+    }
+
+    /// Fraction of total volume contributed by the largest quarter of trades.
+    ///
+    /// Trades are sorted by quantity descending; the top 25% (rounded up) are
+    /// summed and divided by total volume. Returns `None` if total volume is
+    /// zero or the slice is empty.
+    pub fn volume_concentration(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() {
+            return None;
+        }
+        let total: Decimal = ticks.iter().map(|t| t.quantity).sum();
+        if total.is_zero() {
+            return None;
+        }
+        let mut qtys: Vec<Decimal> = ticks.iter().map(|t| t.quantity).collect();
+        qtys.sort_by(|a, b| b.cmp(a));
+        let top_n = ((ticks.len() + 3) / 4).max(1);
+        let top_vol: Decimal = qtys.iter().take(top_n).copied().sum();
+        (top_vol / total).to_f64()
+    }
+
+    /// Signed trade imbalance: `(buy_count − sell_count) / total`.
+    ///
+    /// Returns a value in [-1, 1]. Returns `None` if the slice is empty.
+    pub fn trade_imbalance_score(ticks: &[NormalizedTick]) -> Option<f64> {
+        if ticks.is_empty() {
+            return None;
+        }
+        let n = ticks.len() as f64;
+        let buys = Self::buy_count(ticks) as f64;
+        let sells = Self::sell_count(ticks) as f64;
+        Some((buys - sells) / n)
+    }
+
+    /// Shannon entropy of the price distribution across ticks.
+    ///
+    /// Each unique price is treated as a category. Returns `None` if the
+    /// slice is empty or all ticks have the same price (zero entropy is
+    /// returned as `Some(0.0)`).
+    pub fn price_entropy(ticks: &[NormalizedTick]) -> Option<f64> {
+        if ticks.is_empty() {
+            return None;
+        }
+        let n = ticks.len() as f64;
+        let mut counts: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+        for t in ticks {
+            *counts.entry(t.price.to_string()).or_insert(0) += 1;
+        }
+        let entropy = counts.values().map(|&c| {
+            let p = c as f64 / n;
+            -p * p.ln()
+        }).sum();
+        Some(entropy)
+    }
+
 }
 
 impl std::fmt::Display for NormalizedTick {
@@ -4073,5 +4139,76 @@ mod tests {
         let mut t = make_tick_pq(dec!(100), dec!(20));
         t.side = Some(TradeSide::Sell);
         assert!(NormalizedTick::is_aggressive_sell(&t, dec!(10)));
+    }
+
+    // ── NormalizedTick::notional_volume ───────────────────────────────────────
+
+    #[test]
+    fn test_notional_volume_zero_for_empty() {
+        assert_eq!(NormalizedTick::notional_volume(&[]), rust_decimal_macros::dec!(0));
+    }
+
+    #[test]
+    fn test_notional_volume_correct() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(2)),  // 200
+            make_tick_pq(dec!(50), dec!(4)),   // 200
+        ];
+        assert_eq!(NormalizedTick::notional_volume(&ticks), dec!(400));
+    }
+
+    // ── NormalizedTick::weighted_side_score ───────────────────────────────────
+
+    #[test]
+    fn test_weighted_side_score_none_for_empty() {
+        assert!(NormalizedTick::weighted_side_score(&[]).is_none());
+    }
+
+    #[test]
+    fn test_weighted_side_score_correct_for_all_buys() {
+        use rust_decimal_macros::dec;
+        let mut t = make_tick_pq(dec!(100), dec!(10));
+        t.side = Some(TradeSide::Buy);
+        // buy=10, sell=0, total=10 → score=1.0
+        let score = NormalizedTick::weighted_side_score(&[t]).unwrap();
+        assert!((score - 1.0).abs() < 1e-9);
+    }
+
+    // ── NormalizedTick::time_span_ms ──────────────────────────────────────────
+
+    #[test]
+    fn test_time_span_none_for_single_tick() {
+        let t = make_tick_pq(rust_decimal_macros::dec!(100), rust_decimal_macros::dec!(1));
+        assert!(NormalizedTick::time_span_ms(&[t]).is_none());
+    }
+
+    #[test]
+    fn test_time_span_correct_for_two_ticks() {
+        use rust_decimal_macros::dec;
+        let mut t1 = make_tick_pq(dec!(100), dec!(1));
+        t1.received_at_ms = 1000;
+        let mut t2 = make_tick_pq(dec!(101), dec!(1));
+        t2.received_at_ms = 5000;
+        assert_eq!(NormalizedTick::time_span_ms(&[t1, t2]), Some(4000));
+    }
+
+    // ── NormalizedTick::price_above_vwap_count ────────────────────────────────
+
+    #[test]
+    fn test_price_above_vwap_count_none_for_empty() {
+        assert!(NormalizedTick::price_above_vwap_count(&[]).is_none());
+    }
+
+    #[test]
+    fn test_price_above_vwap_count_correct() {
+        use rust_decimal_macros::dec;
+        // Equal quantities: VWAP = (90+100+110)/3 = 100; above: 110 = 1 tick
+        let ticks = vec![
+            make_tick_pq(dec!(90), dec!(1)),
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(110), dec!(1)),
+        ];
+        assert_eq!(NormalizedTick::price_above_vwap_count(&ticks), Some(1));
     }
 }
