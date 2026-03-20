@@ -108,6 +108,16 @@ impl SessionAwareness {
         }
     }
 
+    /// Returns `true` if the session is currently in [`TradingStatus::Closed`] status.
+    ///
+    /// Shorthand for `self.status(utc_ms) == Ok(TradingStatus::Closed)`.
+    /// For [`MarketSession::Crypto`] this always returns `false`.
+    pub fn is_closed(&self, utc_ms: u64) -> bool {
+        self.status(utc_ms)
+            .map(|s| s == TradingStatus::Closed)
+            .unwrap_or(false)
+    }
+
     /// Returns `true` if the session is currently in [`TradingStatus::Extended`] status.
     ///
     /// For [`MarketSession::Crypto`] this always returns `false` (crypto is always
@@ -194,11 +204,10 @@ impl SessionAwareness {
         if duration_ms == u64::MAX {
             return None; // Crypto never closes
         }
-        let close_ms = self.next_close_ms(utc_ms);
-        if close_ms == u64::MAX {
-            return None;
-        }
-        let open_ms = close_ms.saturating_sub(duration_ms);
+        // Find the open time by locating the next open after (utc_ms - duration_ms).
+        // Since is_open is true, the session opened within the last duration_ms.
+        let look_before = utc_ms.saturating_sub(duration_ms);
+        let open_ms = self.next_open_ms(look_before);
         let elapsed = utc_ms.saturating_sub(open_ms);
         Some((elapsed as f64 / duration_ms as f64).clamp(0.0, 1.0))
     }
@@ -1045,5 +1054,68 @@ mod tests {
         let sa = sa(MarketSession::UsEquity);
         // MON_OPEN_UTC_MS is during regular Open hours
         assert!(!sa.is_extended(MON_OPEN_UTC_MS));
+    }
+
+    // ── SessionAwareness::session_progress ────────────────────────────────────
+
+    #[test]
+    fn test_session_progress_none_when_closed() {
+        let sa = sa(MarketSession::UsEquity);
+        // SAT_UTC_MS is on a weekend (closed)
+        assert!(sa.session_progress(SAT_UTC_MS).is_none());
+    }
+
+    #[test]
+    fn test_session_progress_none_for_crypto() {
+        let sa = sa(MarketSession::Crypto);
+        assert!(sa.session_progress(MON_OPEN_UTC_MS).is_none());
+    }
+
+    #[test]
+    fn test_session_progress_at_open_is_zero() {
+        let sa = sa(MarketSession::UsEquity);
+        // MON_OPEN_UTC_MS is exactly at 9:30 AM ET (session open)
+        let progress = sa.session_progress(MON_OPEN_UTC_MS).unwrap();
+        assert!(progress.abs() < 1e-6, "expected ~0.0 got {progress}");
+    }
+
+    #[test]
+    fn test_session_progress_midway() {
+        let sa = sa(MarketSession::UsEquity);
+        // US equity session is 6.5 hours = 23_400_000 ms
+        // Midway = open + 11_700_000 ms
+        let mid_ms = MON_OPEN_UTC_MS + 11_700_000;
+        let progress = sa.session_progress(mid_ms).unwrap();
+        assert!((progress - 0.5).abs() < 1e-6, "expected ~0.5 got {progress}");
+    }
+
+    #[test]
+    fn test_session_progress_in_range_zero_to_one() {
+        let sa = sa(MarketSession::UsEquity);
+        // One hour into the session
+        let one_hour_in = MON_OPEN_UTC_MS + 3_600_000;
+        let progress = sa.session_progress(one_hour_in).unwrap();
+        assert!(progress > 0.0 && progress < 1.0, "expected (0,1) got {progress}");
+    }
+
+    // ── SessionAwareness::is_closed ───────────────────────────────────────────
+
+    #[test]
+    fn test_is_closed_crypto_is_never_closed() {
+        let sa = sa(MarketSession::Crypto);
+        assert!(!sa.is_closed(MON_OPEN_UTC_MS));
+        assert!(!sa.is_closed(SAT_UTC_MS));
+    }
+
+    #[test]
+    fn test_is_closed_equity_on_weekend() {
+        let sa = sa(MarketSession::UsEquity);
+        assert!(sa.is_closed(SAT_UTC_MS));
+    }
+
+    #[test]
+    fn test_is_closed_equity_during_open_is_false() {
+        let sa = sa(MarketSession::UsEquity);
+        assert!(!sa.is_closed(MON_OPEN_UTC_MS));
     }
 }

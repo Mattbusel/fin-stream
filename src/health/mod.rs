@@ -292,6 +292,21 @@ impl HealthMonitor {
         Some(newest.saturating_sub(oldest))
     }
 
+    /// Feed identifiers that are currently in [`HealthStatus::Healthy`] state.
+    ///
+    /// Returns a sorted list of IDs. Complement of
+    /// [`unhealthy_feeds`](Self::unhealthy_feeds).
+    pub fn healthy_feeds(&self) -> Vec<String> {
+        let mut ids: Vec<String> = self
+            .feeds
+            .iter()
+            .filter(|e| e.status == HealthStatus::Healthy)
+            .map(|e| e.feed_id.clone())
+            .collect();
+        ids.sort();
+        ids
+    }
+
     /// Feed identifiers whose status is not [`HealthStatus::Healthy`].
     ///
     /// Returns a sorted list of IDs that are `Stale` or `Unknown`. Complement
@@ -822,5 +837,39 @@ mod tests {
         m.heartbeat("A", 1_001_000).unwrap();
         m.heartbeat("B", 1_000_000).unwrap();
         assert_eq!(m.total_tick_count(), 3);
+    }
+
+    // ── HealthMonitor::healthy_feeds ──────────────────────────────────────────
+
+    #[test]
+    fn test_healthy_feeds_empty_initially() {
+        let m = HealthMonitor::new(5_000);
+        m.register("A", None); // Unknown, not Healthy
+        assert!(m.healthy_feeds().is_empty());
+    }
+
+    #[test]
+    fn test_healthy_feeds_after_heartbeat() {
+        let m = HealthMonitor::new(5_000);
+        m.register("A", None);
+        m.register("B", None);
+        m.heartbeat("A", 1_000_000).unwrap();
+        m.check_all(1_001_000); // A healthy (1ms < 5s), B unknown
+        let healthy = m.healthy_feeds();
+        assert_eq!(healthy, vec!["A".to_string()]);
+    }
+
+    #[test]
+    fn test_healthy_feeds_sorted() {
+        let m = HealthMonitor::new(5_000);
+        m.register("C", None);
+        m.register("A", None);
+        m.register("B", None);
+        m.heartbeat("C", 1_000_000).unwrap();
+        m.heartbeat("A", 1_000_000).unwrap();
+        m.heartbeat("B", 1_000_000).unwrap();
+        m.check_all(1_001_000);
+        let healthy = m.healthy_feeds();
+        assert_eq!(healthy, vec!["A".to_string(), "B".to_string(), "C".to_string()]);
     }
 }

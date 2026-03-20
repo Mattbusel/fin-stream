@@ -26,6 +26,28 @@ pub struct WsStats {
     pub total_bytes_received: u64,
 }
 
+impl WsStats {
+    /// Messages per second over the given elapsed window.
+    ///
+    /// Returns `0.0` if `elapsed_ms` is zero (avoids division by zero).
+    pub fn message_rate(&self, elapsed_ms: u64) -> f64 {
+        if elapsed_ms == 0 {
+            return 0.0;
+        }
+        self.total_messages_received as f64 / (elapsed_ms as f64 / 1000.0)
+    }
+
+    /// Bytes per second over the given elapsed window.
+    ///
+    /// Returns `0.0` if `elapsed_ms` is zero.
+    pub fn byte_rate(&self, elapsed_ms: u64) -> f64 {
+        if elapsed_ms == 0 {
+            return 0.0;
+        }
+        self.total_bytes_received as f64 / (elapsed_ms as f64 / 1000.0)
+    }
+}
+
 /// Reconnection policy for a WebSocket feed.
 ///
 /// Controls exponential-backoff reconnect behaviour. Build with
@@ -829,5 +851,37 @@ mod tests {
     fn test_with_multiplier_exactly_one_accepted() {
         let p = ReconnectPolicy::default().with_multiplier(1.0).unwrap();
         assert_eq!(p.multiplier, 1.0);
+    }
+
+    // ── WsStats::message_rate / byte_rate ─────────────────────────────────────
+
+    #[test]
+    fn test_message_rate_zero_elapsed_returns_zero() {
+        let stats = WsStats {
+            total_messages_received: 100,
+            total_bytes_received: 50_000,
+        };
+        assert_eq!(stats.message_rate(0), 0.0);
+        assert_eq!(stats.byte_rate(0), 0.0);
+    }
+
+    #[test]
+    fn test_message_rate_100_messages_in_1s() {
+        let stats = WsStats {
+            total_messages_received: 100,
+            total_bytes_received: 0,
+        };
+        let rate = stats.message_rate(1_000); // 1 second = 1000ms
+        assert!((rate - 100.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_byte_rate_1mb_in_1s() {
+        let stats = WsStats {
+            total_messages_received: 0,
+            total_bytes_received: 1_000_000,
+        };
+        let rate = stats.byte_rate(1_000); // 1 second
+        assert!((rate - 1_000_000.0).abs() < 1.0);
     }
 }

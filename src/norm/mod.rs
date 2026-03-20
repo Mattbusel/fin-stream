@@ -584,6 +584,47 @@ mod tests {
         }
         assert_eq!(n.range(), Some(dec!(30))); // 40 - 10
     }
+
+    // ── MinMaxNormalizer::normalize_clamp ─────────────────────────────────────
+
+    #[test]
+    fn test_normalize_clamp_in_range_equals_normalize() {
+        let mut n = norm(4);
+        for v in [dec!(0), dec!(25), dec!(75), dec!(100)] {
+            n.update(v);
+        }
+        let clamped = n.normalize_clamp(dec!(50)).unwrap();
+        let normal = n.normalize(dec!(50)).unwrap();
+        assert!((clamped - normal).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_normalize_clamp_above_max_clamped_to_one() {
+        let mut n = norm(3);
+        for v in [dec!(0), dec!(50), dec!(100)] {
+            n.update(v);
+        }
+        // 200 is above the window max of 100; normalize would return > 1.0
+        let clamped = n.normalize_clamp(dec!(200)).unwrap();
+        assert!((clamped - 1.0).abs() < 1e-9, "expected 1.0 got {clamped}");
+    }
+
+    #[test]
+    fn test_normalize_clamp_below_min_clamped_to_zero() {
+        let mut n = norm(3);
+        for v in [dec!(10), dec!(50), dec!(100)] {
+            n.update(v);
+        }
+        // -50 is below the window min of 10; normalize would return < 0.0
+        let clamped = n.normalize_clamp(dec!(-50)).unwrap();
+        assert!((clamped - 0.0).abs() < 1e-9, "expected 0.0 got {clamped}");
+    }
+
+    #[test]
+    fn test_normalize_clamp_empty_window_returns_error() {
+        let mut n = norm(4);
+        assert!(n.normalize_clamp(dec!(5)).is_err());
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.

@@ -334,6 +334,12 @@ impl<T, const N: usize> SpscProducer<T, N> {
     pub fn available(&self) -> usize {
         self.inner.capacity() - self.inner.len()
     }
+
+    /// Maximum number of items this ring can hold (`N - 1`).
+    #[inline]
+    pub fn capacity(&self) -> usize {
+        self.inner.capacity()
+    }
 }
 
 /// Consumer half of a split [`SpscRing`].
@@ -376,6 +382,12 @@ impl<T, const N: usize> SpscConsumer<T, N> {
     #[inline]
     pub fn len(&self) -> usize {
         self.inner.len()
+    }
+
+    /// Maximum number of items this ring can hold (`N - 1`).
+    #[inline]
+    pub fn capacity(&self) -> usize {
+        self.inner.capacity()
     }
 
     /// Clone the next item without removing it.

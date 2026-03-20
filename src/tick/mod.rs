@@ -198,6 +198,15 @@ impl NormalizedTick {
     pub fn is_sell(&self) -> bool {
         self.side == Some(TradeSide::Sell)
     }
+
+    /// Return a copy of this tick with the exchange timestamp set to `ts_ms`.
+    ///
+    /// Useful in tests and feed normalizers to inject an authoritative exchange
+    /// timestamp after the tick has already been constructed.
+    pub fn with_exchange_ts(mut self, ts_ms: u64) -> Self {
+        self.exchange_ts_ms = Some(ts_ms);
+        self
+    }
 }
 
 impl std::fmt::Display for NormalizedTick {
@@ -818,5 +827,20 @@ mod tests {
         tick.side = None;
         assert!(!tick.is_buy());
         assert!(!tick.is_sell());
+    }
+
+    // ── NormalizedTick::with_exchange_ts ──────────────────────────────────────
+
+    #[test]
+    fn test_with_exchange_ts_sets_field() {
+        let tick = make_tick_at(5_000).with_exchange_ts(3_000);
+        assert_eq!(tick.exchange_ts_ms, Some(3_000));
+        assert_eq!(tick.received_at_ms, 5_000); // unchanged
+    }
+
+    #[test]
+    fn test_with_exchange_ts_overrides_existing() {
+        let tick = make_tick_at(1_000).with_exchange_ts(999).with_exchange_ts(888);
+        assert_eq!(tick.exchange_ts_ms, Some(888));
     }
 }

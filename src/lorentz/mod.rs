@@ -153,6 +153,24 @@ impl LorentzTransform {
         Ok(Self { beta, gamma })
     }
 
+    /// Compute beta from a known gamma value.
+    ///
+    /// Inverts `gamma = 1 / sqrt(1 - beta^2)` to recover `beta = sqrt(1 - 1/gamma^2)`.
+    /// Useful when a Lorentz factor is known from a source other than a velocity.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StreamError::LorentzConfigError`] if `gamma < 1.0` or is `NaN`
+    /// (gamma must be ≥ 1 for a physically valid boost).
+    pub fn beta_from_gamma(gamma: f64) -> Result<f64, StreamError> {
+        if gamma.is_nan() || gamma < 1.0 {
+            return Err(StreamError::LorentzConfigError {
+                reason: format!("gamma must be >= 1.0, got {gamma}"),
+            });
+        }
+        Ok((1.0 - 1.0 / (gamma * gamma)).sqrt())
+    }
+
     /// The configured velocity parameter `beta = v/c`.
     pub fn beta(&self) -> f64 {
         self.beta
@@ -864,5 +882,63 @@ mod tests {
         let boosted = lt.transform(p);
         let recovered = lt.inverse().transform(boosted);
         assert!(point_approx_eq(recovered, p));
+    }
+
+    // ── SpacetimePoint::norm_sq / is_timelike / is_lightlike / is_spacelike ──
+
+    #[test]
+    fn test_norm_sq_timelike() {
+        // t=3, x=1 → 9 - 1 = 8 > 0
+        let p = SpacetimePoint::new(3.0, 1.0);
+        assert!((p.norm_sq() - 8.0).abs() < EPS);
+        assert!(p.is_timelike());
+        assert!(!p.is_spacelike());
+        assert!(!p.is_lightlike());
+    }
+
+    #[test]
+    fn test_norm_sq_spacelike() {
+        // t=1, x=3 → 1 - 9 = -8 < 0
+        let p = SpacetimePoint::new(1.0, 3.0);
+        assert!((p.norm_sq() - (-8.0)).abs() < EPS);
+        assert!(p.is_spacelike());
+        assert!(!p.is_timelike());
+        assert!(!p.is_lightlike());
+    }
+
+    #[test]
+    fn test_norm_sq_lightlike() {
+        // t=1, x=1 → 1 - 1 = 0
+        let p = SpacetimePoint::new(1.0, 1.0);
+        assert!(p.norm_sq().abs() < EPS);
+        assert!(p.is_lightlike());
+        assert!(!p.is_timelike());
+        assert!(!p.is_spacelike());
+    }
+
+    #[test]
+    fn test_norm_sq_origin_is_lightlike() {
+        let p = SpacetimePoint::new(0.0, 0.0);
+        assert!(p.is_lightlike());
+    }
+
+    // ── LorentzTransform::is_identity ─────────────────────────────────────────
+
+    #[test]
+    fn test_is_identity_beta_zero() {
+        let lt = LorentzTransform::new(0.0).unwrap();
+        assert!(lt.is_identity());
+    }
+
+    #[test]
+    fn test_is_not_identity_nonzero_beta() {
+        let lt = LorentzTransform::new(0.5).unwrap();
+        assert!(!lt.is_identity());
+    }
+
+    #[test]
+    fn test_is_identity_empty_boost_chain() {
+        let lt = LorentzTransform::boost_chain(&[]).unwrap();
+        assert!(lt.is_identity());
     }
 }

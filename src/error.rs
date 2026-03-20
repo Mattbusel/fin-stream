@@ -221,6 +221,27 @@ impl StreamError {
         )
     }
 
+    /// Human-readable category string for this error.
+    ///
+    /// Returns one of `"connection"`, `"data"`, `"pipeline"`, `"book"`,
+    /// `"config"`, or `"other"`. Useful for metrics labels and structured
+    /// logging without pattern-matching every variant.
+    pub fn category(&self) -> &'static str {
+        if self.is_connection_error() {
+            "connection"
+        } else if self.is_data_error() {
+            "data"
+        } else if self.is_pipeline_error() {
+            "pipeline"
+        } else if self.is_book_error() {
+            "book"
+        } else if matches!(self, StreamError::ConfigError { .. }) {
+            "config"
+        } else {
+            "other"
+        }
+    }
+
     /// Returns `true` for errors that arise inside the processing pipeline.
     ///
     /// Pipeline errors indicate internal structural failures — ring buffer full

@@ -313,6 +313,17 @@ impl OrderBook {
         self.asks.get(&price).copied()
     }
 
+    /// Number of resting price levels on the given side.
+    ///
+    /// Unified version of [`bid_depth`](Self::bid_depth) /
+    /// [`ask_depth`](Self::ask_depth) for runtime dispatch by side.
+    pub fn level_count(&self, side: BookSide) -> usize {
+        match side {
+            BookSide::Bid => self.bids.len(),
+            BookSide::Ask => self.asks.len(),
+        }
+    }
+
     /// Resting quantity at an exact price level on the given side.
     ///
     /// Returns `None` if there is no resting order at that price. This is a
@@ -1037,5 +1048,24 @@ mod tests {
     fn test_total_volume_empty_is_zero() {
         let b = book("X");
         assert_eq!(b.total_volume(), dec!(0));
+    }
+
+    // ── OrderBook::level_count ────────────────────────────────────────────────
+
+    #[test]
+    fn test_level_count_empty() {
+        let b = book("BTC-USD");
+        assert_eq!(b.level_count(BookSide::Bid), 0);
+        assert_eq!(b.level_count(BookSide::Ask), 0);
+    }
+
+    #[test]
+    fn test_level_count_matches_depth_methods() {
+        let mut b = book("BTC-USD");
+        b.apply(delta("BTC-USD", BookSide::Bid, dec!(100), dec!(1))).unwrap();
+        b.apply(delta("BTC-USD", BookSide::Bid, dec!(99), dec!(1))).unwrap();
+        b.apply(delta("BTC-USD", BookSide::Ask, dec!(101), dec!(2))).unwrap();
+        assert_eq!(b.level_count(BookSide::Bid), b.bid_depth());
+        assert_eq!(b.level_count(BookSide::Ask), b.ask_depth());
     }
 }

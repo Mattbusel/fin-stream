@@ -192,6 +192,20 @@ impl OhlcvBar {
         pct.to_f64()
     }
 
+    /// Body ratio: `body / range`.
+    ///
+    /// The fraction of the total price range that is body (rather than wicks).
+    /// Ranges from `0.0` (pure wicks / doji) to `1.0` (no wicks at all).
+    /// Returns `None` if the bar's range is zero (all prices identical).
+    pub fn body_ratio(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let range = self.range();
+        if range.is_zero() {
+            return None;
+        }
+        (self.body() / range).to_f64()
+    }
+
     /// Wick ratio: `(wick_upper + wick_lower) / range`.
     ///
     /// The fraction of the bar's total range that consists of wicks (shadows)
@@ -430,6 +444,16 @@ impl OhlcvAggregator {
     /// [`reset`](Self::reset).
     pub fn total_volume(&self) -> Decimal {
         self.total_volume
+    }
+
+    /// Average volume per completed bar: `total_volume / bars_emitted`.
+    ///
+    /// Returns `None` if no bars have been completed yet (avoids division by zero).
+    pub fn average_volume(&self) -> Option<Decimal> {
+        if self.bars_emitted == 0 {
+            return None;
+        }
+        Some(self.total_volume / Decimal::from(self.bars_emitted))
     }
 
     /// The symbol this aggregator tracks.
@@ -1227,5 +1251,65 @@ mod tests {
         // all prices identical → range=0
         let bar = make_bar(dec!(5), dec!(5), dec!(5), dec!(5));
         assert!(bar.wick_ratio().is_none());
+    }
+
+    // ── OhlcvBar::body_ratio ──────────────────────────────────────────────────
+
+    #[test]
+    fn test_body_ratio_no_wicks_is_one() {
+        // open=low=0, close=high=10 → body=10, range=10 → ratio=1.0
+        let bar = make_bar(dec!(0), dec!(10), dec!(0), dec!(10));
+        let r = bar.body_ratio().unwrap();
+        assert!((r - 1.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_body_ratio_all_wicks_is_zero() {
+        // doji: open=close=5, high=10, low=0 → body=0, range=10 → ratio=0.0
+        let bar = make_bar(dec!(5), dec!(10), dec!(0), dec!(5));
+        let r = bar.body_ratio().unwrap();
+        assert!((r - 0.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_body_ratio_zero_range_returns_none() {
+        let bar = make_bar(dec!(5), dec!(5), dec!(5), dec!(5));
+        assert!(bar.body_ratio().is_none());
+    }
+
+    #[test]
+    fn test_body_ratio_plus_wick_ratio_equals_one() {
+        // body + wicks = range → ratios sum to 1
+        let bar = make_bar(dec!(4), dec!(10), dec!(0), dec!(8));
+        let body = bar.body_ratio().unwrap();
+        let wick = bar.wick_ratio().unwrap();
+        assert!((body + wick - 1.0).abs() < 1e-9);
+    }
+
+    // ── OhlcvAggregator::average_volume ──────────────────────────────────────
+
+    #[test]
+    fn test_average_volume_none_before_bars() {
+        let agg = agg("BTC-USD", Timeframe::Minutes(1));
+        assert!(agg.average_volume().is_none());
+    }
+
+    #[test]
+    fn test_average_volume_one_bar() {
+        let mut agg = agg("BTC-USD", Timeframe::Minutes(1));
+        agg.feed(&make_tick("BTC-USD", dec!(100), dec!(4), 60_000)).unwrap();
+        agg.feed(&make_tick("BTC-USD", dec!(101), dec!(1), 120_000)).unwrap();
+        // bar 1 complete with volume 4; bar 2 in progress, not counted
+        assert_eq!(agg.average_volume(), Some(dec!(4)));
+    }
+
+    #[test]
+    fn test_average_volume_two_bars() {
+        let mut agg = agg("BTC-USD", Timeframe::Minutes(1));
+        agg.feed(&make_tick("BTC-USD", dec!(100), dec!(4), 60_000)).unwrap();
+        agg.feed(&make_tick("BTC-USD", dec!(101), dec!(6), 120_000)).unwrap();
+        agg.feed(&make_tick("BTC-USD", dec!(102), dec!(1), 180_000)).unwrap();
+        // bar 1 vol=4, bar 2 vol=6 → avg=5
+        assert_eq!(agg.average_volume(), Some(dec!(5)));
     }
 }
