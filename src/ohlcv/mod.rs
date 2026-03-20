@@ -514,6 +514,18 @@ impl OhlcvBar {
         self.open < prev.low
     }
 
+    /// High-low range as a percentage of the open price: `(high - low) / open * 100`.
+    ///
+    /// Returns `None` if open is zero.
+    pub fn range_pct(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.open.is_zero() {
+            return None;
+        }
+        let range = (self.high - self.low) / self.open;
+        range.to_f64().map(|v| v * 100.0)
+    }
+
     /// Returns `true` if this bar is an outside bar (engulfs `prev`'s range).
     ///
     /// An outside bar has a higher high AND lower low than the previous bar.
@@ -2812,6 +2824,30 @@ mod tests {
         let prev = make_ohlcv_bar(dec!(95), dec!(100), dec!(90), dec!(92));
         let bar  = make_ohlcv_bar(dec!(91), dec!(95), dec!(89), dec!(93));
         assert!(!bar.gap_down(&prev));
+    }
+
+    // ── OhlcvBar::range_pct ──────────────────────────────────────────────────
+
+    #[test]
+    fn test_range_pct_correct() {
+        // open=100, high=110, low=90 → range=20, 20/100 * 100 = 20%
+        let bar = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100));
+        let pct = bar.range_pct().unwrap();
+        assert!((pct - 20.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_range_pct_none_when_open_zero() {
+        let bar = make_ohlcv_bar(dec!(0), dec!(10), dec!(0), dec!(5));
+        assert!(bar.range_pct().is_none());
+    }
+
+    #[test]
+    fn test_range_pct_zero_for_flat_bar() {
+        // high == low → range = 0
+        let bar = make_ohlcv_bar(dec!(100), dec!(100), dec!(100), dec!(100));
+        let pct = bar.range_pct().unwrap();
+        assert_eq!(pct, 0.0);
     }
 
     // ── OhlcvBar::price_at_pct ───────────────────────────────────────────────

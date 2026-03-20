@@ -578,6 +578,29 @@ impl StreamError {
         matches!(self, StreamError::SequenceGap { .. })
     }
 
+    /// Numeric severity level: 1 = informational, 2 = warning, 3 = error, 4 = critical.
+    ///
+    /// - 4 (critical): `ReconnectExhausted`
+    /// - 3 (error): connection, book, and lorentz config errors
+    /// - 2 (warning): stale feed, sequence gap, backpressure, buffer full/empty
+    /// - 1 (informational): parse, normalization, aggregation, unknown feed, invalid tick
+    pub fn severity_level(&self) -> u8 {
+        match self {
+            StreamError::ReconnectExhausted { .. } => 4,
+            StreamError::ConnectionFailed { .. }
+            | StreamError::Disconnected { .. }
+            | StreamError::BookReconstructionFailed { .. }
+            | StreamError::BookCrossed { .. }
+            | StreamError::LorentzConfigError { .. } => 3,
+            StreamError::StaleFeed { .. }
+            | StreamError::SequenceGap { .. }
+            | StreamError::Backpressure { .. }
+            | StreamError::RingBufferFull { .. }
+            | StreamError::RingBufferEmpty => 2,
+            _ => 1,
+        }
+    }
+
 }
 
 #[cfg(test)]
@@ -1558,5 +1581,36 @@ mod tests {
         let e = StreamError::BookCrossed { symbol: "BTC-USD".into(), bid: rust_decimal_macros::dec!(101), ask: rust_decimal_macros::dec!(100) };
         assert!(!e.is_sequence_error());
         assert!(e.is_book_error());
+    }
+
+    // ── StreamError::severity_level ───────────────────────────────────────────
+
+    #[test]
+    fn test_severity_level_4_for_reconnect_exhausted() {
+        let e = StreamError::ReconnectExhausted { url: "wss://x".into(), attempts: 5 };
+        assert_eq!(e.severity_level(), 4);
+    }
+
+    #[test]
+    fn test_severity_level_3_for_connection_failed() {
+        let e = StreamError::ConnectionFailed { url: "wss://x".into(), reason: "refused".into() };
+        assert_eq!(e.severity_level(), 3);
+    }
+
+    #[test]
+    fn test_severity_level_2_for_stale_feed() {
+        let e = StreamError::StaleFeed { feed_id: "BTC".into(), elapsed_ms: 10_000, threshold_ms: 5_000 };
+        assert_eq!(e.severity_level(), 2);
+    }
+
+    #[test]
+    fn test_severity_level_1_for_parse_error() {
+        let e = StreamError::ParseError { exchange: "binance".into(), reason: "bad".into() };
+        assert_eq!(e.severity_level(), 1);
+    }
+
+    #[test]
+    fn test_severity_level_2_for_ring_buffer_empty() {
+        assert_eq!(StreamError::RingBufferEmpty.severity_level(), 2);
     }
 }

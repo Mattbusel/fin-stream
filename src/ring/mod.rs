@@ -372,6 +372,28 @@ impl<T, const N: usize> SpscRing<T, N> {
         }
     }
 
+    /// Returns a snapshot of all items in FIFO order without removing them.
+    ///
+    /// Only valid before calling `split()`. Requires `T: Clone`.
+    ///
+    /// # Complexity: O(n).
+    pub fn to_vec_cloned(&self) -> Vec<T>
+    where
+        T: Clone,
+    {
+        let head = self.head.load(Ordering::Acquire);
+        let tail = self.tail.load(Ordering::Acquire);
+        let len = tail.wrapping_sub(head);
+        let mut out = Vec::with_capacity(len);
+        for i in 0..len {
+            let slot = (head.wrapping_add(i)) % N;
+            // SAFETY: slots in [head, tail) are initialized
+            let item = unsafe { (*self.buf[slot].get()).assume_init_ref() };
+            out.push(item.clone());
+        }
+        out
+    }
+
     /// Split the ring into a thread-safe producer/consumer pair.
     ///
     /// The original `SpscRing` is consumed. Both halves hold an `Arc` to the
@@ -1332,6 +1354,31 @@ mod tests {
         ring.push(10u32).unwrap();
         ring.push(20u32).unwrap();
         assert_eq!(ring.peek_back(), Some(&20u32));
+    }
+
+    // ── SpscRing::to_vec_cloned ──────────────────────────────────────────────
+
+    #[test]
+    fn test_to_vec_cloned_empty() {
+        let ring: SpscRing<u32, 8> = SpscRing::new();
+        assert_eq!(ring.to_vec_cloned(), Vec::<u32>::new());
+    }
+
+    #[test]
+    fn test_to_vec_cloned_preserves_fifo_order() {
+        let ring: SpscRing<u32, 8> = SpscRing::new();
+        ring.push(1u32).unwrap();
+        ring.push(2u32).unwrap();
+        ring.push(3u32).unwrap();
+        assert_eq!(ring.to_vec_cloned(), vec![1u32, 2, 3]);
+    }
+
+    #[test]
+    fn test_to_vec_cloned_does_not_drain() {
+        let ring: SpscRing<u32, 8> = SpscRing::new();
+        ring.push(42u32).unwrap();
+        let _ = ring.to_vec_cloned();
+        assert_eq!(ring.len(), 1);
     }
 
     // --- SpscRing::has_capacity ---
