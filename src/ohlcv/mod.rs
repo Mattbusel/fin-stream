@@ -71,6 +71,17 @@ impl std::fmt::Display for Timeframe {
     }
 }
 
+/// Direction of an OHLCV bar body.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BarDirection {
+    /// Close is strictly above open.
+    Bullish,
+    /// Close is strictly below open.
+    Bearish,
+    /// Close equals open (flat body).
+    Neutral,
+}
+
 /// A completed or partial OHLCV bar.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct OhlcvBar {
@@ -124,6 +135,19 @@ impl OhlcvBar {
     /// Returns `true` if this is a bearish bar (`close < open`).
     pub fn is_bearish(&self) -> bool {
         self.close < self.open
+    }
+
+    /// Directional classification of the bar body.
+    ///
+    /// Returns [`BarDirection::Bullish`] when `close > open`, [`BarDirection::Bearish`]
+    /// when `close < open`, and [`BarDirection::Neutral`] when they are equal.
+    pub fn body_direction(&self) -> BarDirection {
+        use std::cmp::Ordering;
+        match self.close.cmp(&self.open) {
+            Ordering::Greater => BarDirection::Bullish,
+            Ordering::Less => BarDirection::Bearish,
+            Ordering::Equal => BarDirection::Neutral,
+        }
     }
 
     /// Returns `true` if the bar body is a doji (indecision candle).
@@ -1751,5 +1775,67 @@ mod tests {
         agg.feed(&make_tick("BTC-USD", dec!(102), dec!(1), 180_000)).unwrap();
         // bar1=3, bar2=10 → min=3, peak=10
         assert_eq!(agg.volume_range(), Some((dec!(3), dec!(10))));
+    }
+
+    // ── OhlcvBar::body_to_range_ratio ─────────────────────────────────────────
+
+    fn make_ohlcv_bar(open: Decimal, high: Decimal, low: Decimal, close: Decimal) -> OhlcvBar {
+        OhlcvBar {
+            symbol: "X".into(),
+            timeframe: Timeframe::Minutes(1),
+            open,
+            high,
+            low,
+            close,
+            volume: dec!(1),
+            bar_start_ms: 0,
+            trade_count: 1,
+            is_complete: false,
+            is_gap_fill: false,
+            vwap: None,
+        }
+    }
+
+    #[test]
+    fn test_body_to_range_ratio_bullish_full_body() {
+        // open=100, close=110, high=110, low=100 → body=10, range=10 → ratio=1.0
+        let bar = make_ohlcv_bar(dec!(100), dec!(110), dec!(100), dec!(110));
+        assert_eq!(bar.body_to_range_ratio(), Some(dec!(1)));
+    }
+
+    #[test]
+    fn test_body_to_range_ratio_doji_like() {
+        // open=close → body=0, range>0 → ratio=0
+        let bar = make_ohlcv_bar(dec!(100), dec!(102), dec!(98), dec!(100));
+        assert_eq!(bar.body_to_range_ratio(), Some(dec!(0)));
+    }
+
+    #[test]
+    fn test_body_to_range_ratio_none_when_range_zero() {
+        let bar = make_ohlcv_bar(dec!(100), dec!(100), dec!(100), dec!(100));
+        assert!(bar.body_to_range_ratio().is_none());
+    }
+
+    // ── OhlcvAggregator::is_active ────────────────────────────────────────────
+
+    #[test]
+    fn test_is_active_false_before_any_ticks() {
+        let agg = agg("BTC-USD", Timeframe::Minutes(1));
+        assert!(!agg.is_active());
+    }
+
+    #[test]
+    fn test_is_active_true_after_first_tick() {
+        let mut agg = agg("BTC-USD", Timeframe::Minutes(1));
+        agg.feed(&make_tick("BTC-USD", dec!(100), dec!(1), 1_000)).unwrap();
+        assert!(agg.is_active());
+    }
+
+    #[test]
+    fn test_is_active_false_after_flush() {
+        let mut agg = agg("BTC-USD", Timeframe::Minutes(1));
+        agg.feed(&make_tick("BTC-USD", dec!(100), dec!(1), 1_000)).unwrap();
+        agg.flush();
+        assert!(!agg.is_active());
     }
 }

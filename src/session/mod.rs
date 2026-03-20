@@ -386,6 +386,16 @@ impl SessionAwareness {
         Some(duration_ms.saturating_sub(elapsed))
     }
 
+    /// Minutes elapsed since the current session opened.
+    ///
+    /// Returns `0` when the market is closed or for sessions without a defined
+    /// open time (Crypto). Rounds down.
+    pub fn minutes_since_open(&self, utc_ms: u64) -> u64 {
+        self.time_in_session_ms(utc_ms)
+            .map(|ms| ms / 60_000)
+            .unwrap_or(0)
+    }
+
     fn next_forex_close_ms(&self, utc_ms: u64) -> u64 {
         if self.forex_status(utc_ms) == TradingStatus::Closed {
             return utc_ms;
@@ -1422,5 +1432,26 @@ mod tests {
     fn test_is_weekend_monday_is_not_weekend() {
         // MON_OPEN_UTC_MS = 2024-01-08 14:30 UTC (Monday)
         assert!(!SessionAwareness::is_weekend(MON_OPEN_UTC_MS));
+    }
+
+    // ── SessionAwareness::minutes_since_open ──────────────────────────────────
+
+    #[test]
+    fn test_minutes_since_open_zero_at_open() {
+        let sa = sa(MarketSession::UsEquity);
+        assert_eq!(sa.minutes_since_open(MON_OPEN_UTC_MS), 0);
+    }
+
+    #[test]
+    fn test_minutes_since_open_one_hour_in() {
+        let sa = sa(MarketSession::UsEquity);
+        let one_hour_in = MON_OPEN_UTC_MS + 3_600_000;
+        assert_eq!(sa.minutes_since_open(one_hour_in), 60);
+    }
+
+    #[test]
+    fn test_minutes_since_open_zero_when_closed() {
+        let sa = sa(MarketSession::UsEquity);
+        assert_eq!(sa.minutes_since_open(SAT_UTC_MS), 0);
     }
 }

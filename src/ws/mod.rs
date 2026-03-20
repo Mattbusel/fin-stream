@@ -1024,4 +1024,30 @@ mod tests {
         assert_eq!(p.total_attempts_remaining(10), 0);
         assert_eq!(p.total_attempts_remaining(99), 0);
     }
+
+    // ── WsStats::has_traffic ──────────────────────────────────────────────────
+
+    #[test]
+    fn test_has_traffic_false_when_no_messages() {
+        let stats = WsStats::default();
+        assert!(!stats.has_traffic());
+    }
+
+    #[test]
+    fn test_has_traffic_true_after_one_message() {
+        let stats = WsStats {
+            total_messages_received: 1,
+            total_bytes_received: 0,
+        };
+        assert!(stats.has_traffic());
+    }
+
+    #[test]
+    fn test_has_traffic_true_with_many_messages() {
+        let stats = WsStats {
+            total_messages_received: 1_000,
+            total_bytes_received: 50_000,
+        };
+        assert!(stats.has_traffic());
+    }
 }

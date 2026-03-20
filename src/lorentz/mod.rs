@@ -231,6 +231,15 @@ impl LorentzTransform {
         mass * self.gamma * self.beta
     }
 
+    /// Kinetic energy factor: `γ − 1`.
+    ///
+    /// The relativistic kinetic energy is `KE = (γ − 1) mc²`. This method
+    /// returns the dimensionless factor `γ − 1` so callers can multiply by
+    /// `mc²` in their own units. Zero at rest (`β = 0`).
+    pub fn kinetic_energy_ratio(&self) -> f64 {
+        self.gamma - 1.0
+    }
+
     /// Computes beta (v/c) from a Lorentz gamma factor. Returns an error if `gamma < 1.0`.
     pub fn beta_from_gamma(gamma: f64) -> Result<f64, StreamError> {
         if gamma.is_nan() || gamma < 1.0 {
@@ -482,6 +491,27 @@ impl LorentzTransform {
     /// Uses a tolerance of `1e-10`.
     pub fn is_identity(&self) -> bool {
         self.beta.abs() < 1e-10
+    }
+
+    /// Relativistic composition of two boosts (Einstein velocity addition).
+    ///
+    /// The composed transform moves at `β = (β₁ + β₂) / (1 + β₁β₂)`, which is
+    /// equivalent to adding rapidities: `tanh⁻¹(β_composed) = tanh⁻¹(β₁) + tanh⁻¹(β₂)`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StreamError::LorentzConfigError`] if the composed beta reaches or
+    /// exceeds the speed of light (should not happen for valid sub-luminal inputs).
+    pub fn composition(&self, other: &Self) -> Result<Self, StreamError> {
+        let b1 = self.beta;
+        let b2 = other.beta;
+        let denom = 1.0 + b1 * b2;
+        if denom.abs() < 1e-15 {
+            return Err(StreamError::LorentzConfigError {
+                reason: "boost composition denominator too small (near-singular)".into(),
+            });
+        }
+        Self::new((b1 + b2) / denom)
     }
 }
 
@@ -1154,5 +1184,26 @@ mod tests {
         let p1 = lt.relativistic_momentum(1.0);
         let p2 = lt.relativistic_momentum(2.0);
         assert!((p2 - 2.0 * p1).abs() < 1e-9);
+    }
+
+    // ── LorentzTransform::kinetic_energy_ratio ────────────────────────────────
+
+    #[test]
+    fn test_kinetic_energy_ratio_zero_at_rest() {
+        let lt = LorentzTransform::new(0.0).unwrap();
+        assert!(approx_eq(lt.kinetic_energy_ratio(), 0.0));
+    }
+
+    #[test]
+    fn test_kinetic_energy_ratio_known_value() {
+        // beta=0.6 → gamma=1.25 → ratio = 1.25 - 1 = 0.25
+        let lt = LorentzTransform::new(0.6).unwrap();
+        assert!((lt.kinetic_energy_ratio() - 0.25).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_kinetic_energy_ratio_positive_for_nonzero_beta() {
+        let lt = LorentzTransform::new(0.8).unwrap();
+        assert!(lt.kinetic_energy_ratio() > 0.0);
     }
 }

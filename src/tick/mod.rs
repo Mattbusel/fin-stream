@@ -1029,4 +1029,27 @@ mod tests {
         tick.quantity = rust_decimal_macros::dec!(3);
         assert_eq!(tick.volume_notional(), rust_decimal_macros::dec!(600));
     }
+
+    // ── NormalizedTick::is_above ──────────────────────────────────────────────
+
+    #[test]
+    fn test_is_above_returns_true_when_price_higher() {
+        let mut tick = make_tick_at(1_000);
+        tick.price = rust_decimal_macros::dec!(200);
+        assert!(tick.is_above(rust_decimal_macros::dec!(150)));
+    }
+
+    #[test]
+    fn test_is_above_returns_false_when_price_equal() {
+        let mut tick = make_tick_at(1_000);
+        tick.price = rust_decimal_macros::dec!(200);
+        assert!(!tick.is_above(rust_decimal_macros::dec!(200)));
+    }
+
+    #[test]
+    fn test_is_above_returns_false_when_price_lower() {
+        let mut tick = make_tick_at(1_000);
+        tick.price = rust_decimal_macros::dec!(100);
+        assert!(!tick.is_above(rust_decimal_macros::dec!(200)));
+    }
 }

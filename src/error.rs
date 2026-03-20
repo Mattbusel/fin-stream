@@ -286,6 +286,36 @@ impl StreamError {
         )
     }
 
+    /// Returns the enum variant name as a static string.
+    ///
+    /// Useful for structured logging and metrics without allocating a dynamic
+    /// string from the `Display` impl.
+    pub fn variant_name(&self) -> &'static str {
+        match self {
+            StreamError::ConnectionFailed { .. } => "ConnectionFailed",
+            StreamError::Disconnected { .. } => "Disconnected",
+            StreamError::ReconnectExhausted { .. } => "ReconnectExhausted",
+            StreamError::ParseError { .. } => "ParseError",
+            StreamError::StaleFeed { .. } => "StaleFeed",
+            StreamError::UnknownFeed { .. } => "UnknownFeed",
+            StreamError::ConfigError { .. } => "ConfigError",
+            StreamError::BookReconstructionFailed { .. } => "BookReconstructionFailed",
+            StreamError::BookCrossed { .. } => "BookCrossed",
+            StreamError::SequenceGap { .. } => "SequenceGap",
+            StreamError::Backpressure { .. } => "Backpressure",
+            StreamError::UnknownExchange(_) => "UnknownExchange",
+            StreamError::Io(_) => "Io",
+            StreamError::WebSocket(_) => "WebSocket",
+            StreamError::RingBufferFull { .. } => "RingBufferFull",
+            StreamError::RingBufferEmpty => "RingBufferEmpty",
+            StreamError::AggregationError { .. } => "AggregationError",
+            StreamError::NormalizationError { .. } => "NormalizationError",
+            StreamError::InvalidTick { .. } => "InvalidTick",
+            StreamError::LorentzConfigError { .. } => "LorentzConfigError",
+            StreamError::FinPrimitives(_) => "FinPrimitives",
+        }
+    }
+
     /// Human-readable category string for this error.
     ///
     /// Returns one of `"connection"`, `"data"`, `"pipeline"`, `"book"`,
@@ -886,5 +916,49 @@ mod tests {
             ask: Decimal::from(99u32),
         }
         .is_network_error());
+    }
+
+    // ── StreamError::variant_name ─────────────────────────────────────────────
+
+    #[test]
+    fn test_variant_name_connection_failed() {
+        assert_eq!(
+            StreamError::ConnectionFailed { url: "u".into(), reason: "r".into() }.variant_name(),
+            "ConnectionFailed"
+        );
+    }
+
+    #[test]
+    fn test_variant_name_ring_buffer_empty() {
+        assert_eq!(StreamError::RingBufferEmpty.variant_name(), "RingBufferEmpty");
+    }
+
+    #[test]
+    fn test_variant_name_parse_error() {
+        assert_eq!(
+            StreamError::ParseError { exchange: "B".into(), reason: "bad".into() }.variant_name(),
+            "ParseError"
+        );
+    }
+
+    #[test]
+    fn test_variant_name_book_crossed() {
+        assert_eq!(
+            StreamError::BookCrossed {
+                symbol: "X".into(),
+                bid: Decimal::from(1u32),
+                ask: Decimal::from(1u32),
+            }
+            .variant_name(),
+            "BookCrossed"
+        );
+    }
+
+    #[test]
+    fn test_variant_name_lorentz_config_error() {
+        assert_eq!(
+            StreamError::LorentzConfigError { reason: "bad".into() }.variant_name(),
+            "LorentzConfigError"
+        );
     }
 }

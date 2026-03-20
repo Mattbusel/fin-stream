@@ -364,6 +364,42 @@ impl OrderBook {
         self.asks.values().take(n).copied().sum()
     }
 
+    /// Best `n` bid levels as [`PriceLevel`]s, sorted best-first (highest price first).
+    ///
+    /// If fewer than `n` levels exist, all are returned.
+    pub fn top_n_bids(&self, n: usize) -> Vec<PriceLevel> {
+        self.bids
+            .iter()
+            .rev()
+            .take(n)
+            .map(|(p, q)| PriceLevel::new(*p, *q))
+            .collect()
+    }
+
+    /// Best `n` ask levels as [`PriceLevel`]s, sorted best-first (lowest price first).
+    ///
+    /// If fewer than `n` levels exist, all are returned.
+    pub fn top_n_asks(&self, n: usize) -> Vec<PriceLevel> {
+        self.asks
+            .iter()
+            .take(n)
+            .map(|(p, q)| PriceLevel::new(*p, *q))
+            .collect()
+    }
+
+    /// Ratio of cumulative bid volume to cumulative ask volume across top `n` levels.
+    ///
+    /// Returns `None` when the ask side is empty (avoids division by zero).
+    /// Values > 1.0 indicate buy-side pressure; values < 1.0 indicate sell-side pressure.
+    pub fn depth_ratio(&self, n: usize) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let ask_vol = self.cumulative_ask_volume(n);
+        if ask_vol.is_zero() {
+            return None;
+        }
+        (self.cumulative_bid_volume(n) / ask_vol).to_f64()
+    }
+
     /// Spread as a percentage of the mid-price: `spread / mid × 100`.
     ///
     /// Returns `None` if either best bid or best ask is absent, or if the
@@ -1383,5 +1419,35 @@ mod tests {
         let b = book("BTC-USD");
         assert_eq!(b.cumulative_bid_volume(5), dec!(0));
         assert_eq!(b.cumulative_ask_volume(5), dec!(0));
+    }
+
+    // ── OrderBook::is_one_sided ───────────────────────────────────────────────
+
+    #[test]
+    fn test_is_one_sided_bids_only() {
+        let mut b = book("BTC-USD");
+        b.apply(delta("BTC-USD", BookSide::Bid, dec!(100), dec!(1))).unwrap();
+        assert!(b.is_one_sided());
+    }
+
+    #[test]
+    fn test_is_one_sided_asks_only() {
+        let mut b = book("BTC-USD");
+        b.apply(delta("BTC-USD", BookSide::Ask, dec!(101), dec!(1))).unwrap();
+        assert!(b.is_one_sided());
+    }
+
+    #[test]
+    fn test_is_one_sided_false_with_both_sides() {
+        let mut b = book("BTC-USD");
+        b.apply(delta("BTC-USD", BookSide::Bid, dec!(100), dec!(1))).unwrap();
+        b.apply(delta("BTC-USD", BookSide::Ask, dec!(101), dec!(1))).unwrap();
+        assert!(!b.is_one_sided());
+    }
+
+    #[test]
+    fn test_is_one_sided_false_for_empty_book() {
+        let b = book("BTC-USD");
+        assert!(!b.is_one_sided());
     }
 }

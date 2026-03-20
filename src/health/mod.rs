@@ -50,6 +50,11 @@ impl FeedHealth {
     pub fn is_healthy(&self) -> bool {
         self.status == HealthStatus::Healthy
     }
+
+    /// Returns `true` if this feed's status is [`HealthStatus::Stale`].
+    pub fn is_stale(&self) -> bool {
+        self.status == HealthStatus::Stale
+    }
 }
 
 /// Central health monitor for all active feeds.
@@ -418,6 +423,17 @@ impl HealthMonitor {
             .iter()
             .filter(|e| e.status == HealthStatus::Unknown)
             .count()
+    }
+
+    /// Average tick count per registered feed.
+    ///
+    /// Returns `0.0` if no feeds are registered.
+    pub fn avg_tick_count(&self) -> f64 {
+        let count = self.feeds.len();
+        if count == 0 {
+            return 0.0;
+        }
+        self.total_tick_count() as f64 / count as f64
     }
 }
 
@@ -1055,5 +1071,55 @@ mod tests {
         let m = monitor();
         m.register_many(&[], None);
         assert_eq!(m.feed_count(), 0);
+    }
+
+    // ── FeedHealth::is_stale ──────────────────────────────────────────────────
+
+    #[test]
+    fn test_feed_health_is_stale_true_when_stale() {
+        let m = monitor();
+        m.register("BTC-USD", None);
+        m.heartbeat("BTC-USD", 1_000_000).unwrap();
+        m.check_all(1_010_000); // 10s > 5s → stale
+        assert!(m.get("BTC-USD").unwrap().is_stale());
+    }
+
+    #[test]
+    fn test_feed_health_is_stale_false_when_healthy() {
+        let m = monitor();
+        m.register("BTC-USD", None);
+        m.heartbeat("BTC-USD", 1_000_000).unwrap();
+        assert!(!m.get("BTC-USD").unwrap().is_stale());
+    }
+
+    // ── HealthMonitor::avg_tick_count ─────────────────────────────────────────
+
+    #[test]
+    fn test_avg_tick_count_zero_with_no_feeds() {
+        let m = HealthMonitor::new(5_000);
+        assert!((m.avg_tick_count() - 0.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_avg_tick_count_with_equal_ticks() {
+        let m = HealthMonitor::new(5_000);
+        m.register("A", None);
+        m.register("B", None);
+        m.heartbeat("A", 1_000).unwrap();
+        m.heartbeat("B", 1_000).unwrap();
+        assert!((m.avg_tick_count() - 1.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_avg_tick_count_with_different_ticks() {
+        let m = HealthMonitor::new(5_000);
+        m.register("A", None);
+        m.register("B", None);
+        m.heartbeat("A", 1_000).unwrap();
+        m.heartbeat("A", 2_000).unwrap();
+        m.heartbeat("A", 3_000).unwrap();
+        m.heartbeat("B", 1_000).unwrap();
+        // A=3, B=1 → avg=2.0
+        assert!((m.avg_tick_count() - 2.0).abs() < 1e-9);
     }
 }
