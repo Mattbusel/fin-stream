@@ -98,6 +98,16 @@ impl WsStats {
         Some(self.total_bytes_received as f64 / self.total_messages_received as f64)
     }
 
+    /// Bits per second received over `elapsed_ms` (bytes × 8 / seconds).
+    ///
+    /// Returns `0.0` when `elapsed_ms` is zero.
+    pub fn bandwidth_kbps(&self, elapsed_ms: u64) -> f64 {
+        if elapsed_ms == 0 {
+            return 0.0;
+        }
+        self.total_bytes_received as f64 * 8.0 / 1_000.0 / (elapsed_ms as f64 / 1_000.0)
+    }
+
     /// Returns `true` if the current message rate is below `min_rate` (msgs/s).
     ///
     /// Returns `true` when `elapsed_ms` is zero (no time elapsed → rate = 0).

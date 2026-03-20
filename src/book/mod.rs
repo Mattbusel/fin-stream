@@ -548,6 +548,23 @@ impl OrderBook {
         (self.bids.len(), self.asks.len())
     }
 
+    /// Total volume across all bid and ask levels combined.
+    pub fn total_book_volume(&self) -> Decimal {
+        self.total_bid_volume() + self.total_ask_volume()
+    }
+
+    /// Price distance from the best bid to the worst (lowest) bid.
+    ///
+    /// Returns `None` if there are fewer than 2 bid levels.
+    pub fn price_range_bids(&self) -> Option<Decimal> {
+        if self.bids.len() < 2 {
+            return None;
+        }
+        let best = *self.bids.keys().next_back()?;
+        let worst = *self.bids.keys().next()?;
+        Some(best - worst)
+    }
+
     /// Spread as a percentage of the mid-price: `spread / mid × 100`.
     ///
     /// Returns `None` if either best bid or best ask is absent, or if the
@@ -909,6 +926,43 @@ impl OrderBook {
     /// Returns `true` if there is at least one ask level in the book.
     pub fn has_asks(&self) -> bool {
         !self.asks.is_empty()
+    }
+
+    /// Price distance from best ask to worst ask (highest ask price - lowest ask price).
+    ///
+    /// Returns `None` if the ask side is empty.
+    pub fn ask_price_range(&self) -> Option<Decimal> {
+        if self.asks.is_empty() {
+            return None;
+        }
+        let best = *self.asks.keys().next()?;
+        let worst = *self.asks.keys().next_back()?;
+        Some(worst - best)
+    }
+
+    /// Price distance from best bid to worst bid (highest bid price - lowest bid price).
+    ///
+    /// Returns `None` if the bid side is empty.
+    pub fn bid_price_range(&self) -> Option<Decimal> {
+        if self.bids.is_empty() {
+            return None;
+        }
+        let best = *self.bids.keys().next_back()?;
+        let worst = *self.bids.keys().next()?;
+        Some(best - worst)
+    }
+
+    /// Spread as a fraction of the mid price: `spread / mid_price`.
+    ///
+    /// Returns `None` if the book has no bid or ask, or mid price is zero.
+    pub fn mid_spread_ratio(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let spread = self.spread()?;
+        let mid = self.mid_price()?;
+        if mid.is_zero() {
+            return None;
+        }
+        (spread / mid).to_f64()
     }
 
     fn check_crossed(&self) -> Result<(), StreamError> {
@@ -2013,6 +2067,39 @@ mod tests {
         assert!(b.best_ask_qty().is_none());
     }
 
+    // --- OrderBook::total_book_volume ---
+    #[test]
+    fn test_total_book_volume_sum_of_bids_and_asks() {
+        let mut b = book("BTC-USD");
+        b.apply(delta("BTC-USD", BookSide::Bid, dec!(100), dec!(3))).unwrap();
+        b.apply(delta("BTC-USD", BookSide::Ask, dec!(101), dec!(2))).unwrap();
+        assert_eq!(b.total_book_volume(), dec!(5));
+    }
+
+    #[test]
+    fn test_total_book_volume_zero_on_empty_book() {
+        let b = book("BTC-USD");
+        assert_eq!(b.total_book_volume(), dec!(0));
+    }
+
+    // --- OrderBook::price_range_bids ---
+    #[test]
+    fn test_price_range_bids_correct_range() {
+        let mut b = book("BTC-USD");
+        b.apply(delta("BTC-USD", BookSide::Bid, dec!(100), dec!(1))).unwrap();
+        b.apply(delta("BTC-USD", BookSide::Bid, dec!(99), dec!(1))).unwrap();
+        b.apply(delta("BTC-USD", BookSide::Bid, dec!(97), dec!(1))).unwrap();
+        // best=100, worst=97 → range=3
+        assert_eq!(b.price_range_bids(), Some(dec!(3)));
+    }
+
+    #[test]
+    fn test_price_range_bids_none_with_single_bid() {
+        let mut b = book("BTC-USD");
+        b.apply(delta("BTC-USD", BookSide::Bid, dec!(100), dec!(1))).unwrap();
+        assert!(b.price_range_bids().is_none());
+    }
+
     // ── OrderBook::is_tight_spread ────────────────────────────────────────────
 
     #[test]
@@ -2106,5 +2193,60 @@ mod tests {
     #[test]
     fn test_has_asks_false_when_empty() {
         assert!(!book("X").has_asks());
+    }
+
+    // ── OrderBook::ask_price_range / bid_price_range ──────────────────────────
+
+    #[test]
+    fn test_ask_price_range_none_when_empty() {
+        assert_eq!(book("X").ask_price_range(), None);
+    }
+
+    #[test]
+    fn test_ask_price_range_zero_when_single_level() {
+        let mut b = book("X");
+        b.apply(delta("X", BookSide::Ask, dec!(100), dec!(1))).unwrap();
+        assert_eq!(b.ask_price_range(), Some(dec!(0)));
+    }
+
+    #[test]
+    fn test_ask_price_range_correct_with_multiple_levels() {
+        let mut b = book("X");
+        b.apply(delta("X", BookSide::Ask, dec!(100), dec!(1))).unwrap();
+        b.apply(delta("X", BookSide::Ask, dec!(102), dec!(1))).unwrap();
+        b.apply(delta("X", BookSide::Ask, dec!(105), dec!(1))).unwrap();
+        assert_eq!(b.ask_price_range(), Some(dec!(5)));
+    }
+
+    #[test]
+    fn test_bid_price_range_none_when_empty() {
+        assert_eq!(book("X").bid_price_range(), None);
+    }
+
+    #[test]
+    fn test_bid_price_range_correct_with_multiple_levels() {
+        let mut b = book("X");
+        b.apply(delta("X", BookSide::Bid, dec!(98), dec!(1))).unwrap();
+        b.apply(delta("X", BookSide::Bid, dec!(96), dec!(1))).unwrap();
+        b.apply(delta("X", BookSide::Bid, dec!(94), dec!(1))).unwrap();
+        // best = 98, worst = 94, range = 4
+        assert_eq!(b.bid_price_range(), Some(dec!(4)));
+    }
+
+    // ── OrderBook::mid_spread_ratio ───────────────────────────────────────────
+
+    #[test]
+    fn test_mid_spread_ratio_none_when_empty() {
+        assert_eq!(book("X").mid_spread_ratio(), None);
+    }
+
+    #[test]
+    fn test_mid_spread_ratio_correct() {
+        let mut b = book("X");
+        b.apply(delta("X", BookSide::Bid, dec!(99), dec!(1))).unwrap();
+        b.apply(delta("X", BookSide::Ask, dec!(101), dec!(1))).unwrap();
+        // spread = 2, mid = 100, ratio = 2/100 = 0.02
+        let ratio = b.mid_spread_ratio().unwrap();
+        assert!((ratio - 0.02).abs() < 1e-9);
     }
 }

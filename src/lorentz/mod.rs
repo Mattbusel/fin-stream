@@ -274,6 +274,13 @@ impl LorentzTransform {
         self.beta.atanh()
     }
 
+    /// Converts a rapidity value back to a velocity `β = tanh(η)`.
+    ///
+    /// This is the inverse of `rapidity()`. Always returns a value in `(-1, 1)`.
+    pub fn beta_from_rapidity(eta: f64) -> f64 {
+        eta.tanh()
+    }
+
     /// Proper velocity: `w = β × γ`.
     ///
     /// Unlike coordinate velocity `β`, proper velocity is unbounded and
@@ -630,6 +637,20 @@ impl LorentzTransform {
     pub fn aberration_angle(&self, cos_theta: f64) -> f64 {
         let cos_prime = (cos_theta + self.beta) / (1.0 + self.beta * cos_theta);
         cos_prime.clamp(-1.0, 1.0).acos()
+    }
+
+    /// Relativistic mass for a particle with `rest_mass` moving at `β`.
+    ///
+    /// `m = rest_mass × γ` where `γ` is the Lorentz factor.
+    pub fn relativistic_mass(&self, rest_mass: f64) -> f64 {
+        rest_mass * self.gamma()
+    }
+
+    /// Ratio of kinetic energy to rest energy: `γ - 1`.
+    ///
+    /// Zero at rest (β = 0); grows without bound as β → 1.
+    pub fn energy_ratio(&self) -> f64 {
+        self.gamma() - 1.0
     }
 }
 

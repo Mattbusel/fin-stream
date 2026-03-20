@@ -442,6 +442,27 @@ impl HealthMonitor {
         ids
     }
 
+    /// Count of feeds currently in `Stale` status.
+    pub fn total_stale_count(&self) -> usize {
+        self.feeds.iter().filter(|e| e.status == HealthStatus::Stale).count()
+    }
+
+    /// Average age in milliseconds across all feeds that have received at least one tick.
+    ///
+    /// Returns `None` if no feed has ever received a tick.
+    pub fn avg_feed_age_ms(&self, now_ms: u64) -> Option<f64> {
+        let ages: Vec<u64> = self
+            .feeds
+            .iter()
+            .filter_map(|e| e.last_tick_ms)
+            .map(|t| now_ms.saturating_sub(t))
+            .collect();
+        if ages.is_empty() {
+            return None;
+        }
+        Some(ages.iter().sum::<u64>() as f64 / ages.len() as f64)
+    }
+
     /// Number of feeds whose status is [`HealthStatus::Unknown`].
     ///
     /// Feeds start in `Unknown` state before the first heartbeat arrives.
@@ -611,6 +632,16 @@ impl HealthMonitor {
         }
         let healthy = self.healthy_count();
         healthy > 0 && healthy < total
+    }
+
+    /// Number of feeds that are not in the [`HealthStatus::Healthy`] state.
+    pub fn unhealthy_count(&self) -> usize {
+        self.feeds.len().saturating_sub(self.healthy_count())
+    }
+
+    /// Returns `true` if a feed with the given ID is registered.
+    pub fn feed_exists(&self, feed_id: &str) -> bool {
+        self.feeds.iter().any(|e| e.feed_id == feed_id)
     }
 
 }
@@ -1759,5 +1790,45 @@ mod tests {
     fn test_is_degraded_false_with_no_feeds() {
         let m = HealthMonitor::new(5_000);
         assert!(!m.is_degraded());
+    }
+
+    // ── HealthMonitor::unhealthy_count / feed_exists ────────────────────────
+
+    #[test]
+    fn test_unhealthy_count_all_unknown() {
+        let m = HealthMonitor::new(5_000);
+        m.register("A", None);
+        m.register("B", None);
+        // Both unknown → unhealthy_count = 2
+        assert_eq!(m.unhealthy_count(), 2);
+    }
+
+    #[test]
+    fn test_unhealthy_count_one_healthy() {
+        let m = HealthMonitor::new(5_000);
+        m.register("A", None);
+        m.register("B", None);
+        m.heartbeat("A", 1_000).unwrap();
+        // A is healthy (just received heartbeat), B still unknown
+        assert_eq!(m.unhealthy_count(), 1);
+    }
+
+    #[test]
+    fn test_unhealthy_count_zero_when_empty() {
+        let m = HealthMonitor::new(5_000);
+        assert_eq!(m.unhealthy_count(), 0);
+    }
+
+    #[test]
+    fn test_feed_exists_true_after_register() {
+        let m = HealthMonitor::new(5_000);
+        m.register("BTC-USD", None);
+        assert!(m.feed_exists("BTC-USD"));
+    }
+
+    #[test]
+    fn test_feed_exists_false_for_unknown_feed() {
+        let m = HealthMonitor::new(5_000);
+        assert!(!m.feed_exists("ETH-USD"));
     }
 }

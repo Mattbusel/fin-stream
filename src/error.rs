@@ -339,6 +339,21 @@ impl StreamError {
         matches!(self, StreamError::BookReconstructionFailed { .. })
     }
 
+    /// Returns `true` if this error is related to computation or physics transforms.
+    ///
+    /// Covers `LorentzConfigError` (invalid beta value).
+    pub fn is_computation_error(&self) -> bool {
+        matches!(self, StreamError::LorentzConfigError { .. })
+    }
+
+    /// Returns `true` if this error is related to the ring buffer (full or empty).
+    pub fn is_ring_error(&self) -> bool {
+        matches!(
+            self,
+            StreamError::RingBufferFull { .. } | StreamError::RingBufferEmpty
+        )
+    }
+
     /// Human-readable category string for this error.
     ///
     /// Returns one of `"connection"`, `"data"`, `"pipeline"`, `"book"`,
@@ -524,6 +539,18 @@ impl StreamError {
             StreamError::FinPrimitives(_) => 6004,
             StreamError::LorentzConfigError { .. } => 7001,
         }
+    }
+
+    /// Returns `true` if this error contains a URL field.
+    pub fn has_url(&self) -> bool {
+        matches!(self, StreamError::ConnectionFailed { .. })
+    }
+
+    /// Returns the high-level category code (thousands digit of `to_error_code`).
+    ///
+    /// - 1: connection, 2: feed/parse, 3: config, 4: book, 5: buffer, 6: data, 7: computation
+    pub fn error_category_code(&self) -> u32 {
+        self.to_error_code() / 1000
     }
 }
 

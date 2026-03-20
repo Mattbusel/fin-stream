@@ -393,6 +393,39 @@ impl NormalizedTick {
         self.price > midpoint
     }
 
+    /// Age of this tick in seconds: `(now_ms - received_at_ms) / 1000.0`.
+    ///
+    /// Returns `0.0` if `now_ms` is before `received_at_ms`.
+    pub fn age_secs(&self, now_ms: u64) -> f64 {
+        now_ms.saturating_sub(self.received_at_ms) as f64 / 1_000.0
+    }
+
+    /// Returns `true` if this tick originated from the same exchange as `other`.
+    pub fn is_same_exchange_as(&self, other: &NormalizedTick) -> bool {
+        self.exchange == other.exchange
+    }
+
+    /// Price rounded down to the nearest multiple of `tick_size`.
+    ///
+    /// Returns the original price if `tick_size` is zero.
+    pub fn rounded_price(&self, tick_size: Decimal) -> Decimal {
+        if tick_size.is_zero() {
+            return self.price;
+        }
+        (self.price / tick_size).floor() * tick_size
+    }
+
+    /// Returns `true` if the absolute price difference from `other` exceeds `threshold`.
+    pub fn is_large_spread_from(&self, other: &NormalizedTick, threshold: Decimal) -> bool {
+        (self.price - other.price).abs() > threshold
+    }
+
+    /// Notional value of this tick as `f64` (`price × quantity`).
+    pub fn volume_notional_f64(&self) -> f64 {
+        use rust_decimal::prelude::ToPrimitive;
+        self.volume_notional().to_f64().unwrap_or(0.0)
+    }
+
 }
 
 impl std::fmt::Display for NormalizedTick {
@@ -1523,5 +1556,42 @@ mod tests {
         let mut tick = make_tick_at(0);
         tick.price = dec!(100);
         assert!(!tick.is_buying_pressure(dec!(100)));
+    }
+
+    // ── NormalizedTick::age_secs ──────────────────────────────────────────────
+
+    #[test]
+    fn test_age_secs_correct() {
+        let tick = make_tick_at(1_000);
+        assert!((tick.age_secs(3_000) - 2.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_age_secs_zero_when_now_equals_received() {
+        let tick = make_tick_at(5_000);
+        assert_eq!(tick.age_secs(5_000), 0.0);
+    }
+
+    #[test]
+    fn test_age_secs_zero_when_now_before_received() {
+        let tick = make_tick_at(5_000);
+        assert_eq!(tick.age_secs(1_000), 0.0);
+    }
+
+    // ── NormalizedTick::is_same_exchange_as ───────────────────────────────────
+
+    #[test]
+    fn test_is_same_exchange_as_true_when_matching() {
+        let t1 = make_tick_at(1_000); // Binance
+        let t2 = make_tick_at(2_000); // Binance
+        assert!(t1.is_same_exchange_as(&t2));
+    }
+
+    #[test]
+    fn test_is_same_exchange_as_false_when_different() {
+        let t1 = make_tick_at(1_000); // Binance
+        let mut t2 = make_tick_at(2_000);
+        t2.exchange = Exchange::Coinbase;
+        assert!(!t1.is_same_exchange_as(&t2));
     }
 }

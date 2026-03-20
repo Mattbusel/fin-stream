@@ -509,6 +509,26 @@ impl SessionAwareness {
         }
     }
 
+    /// Returns `true` if the session is in the first 25% of its duration.
+    ///
+    /// Returns `false` outside the session.
+    pub fn is_first_quarter(&self, utc_ms: u64) -> bool {
+        match self.session_progress(utc_ms) {
+            Some(p) => p < 0.25,
+            None => false,
+        }
+    }
+
+    /// Returns `true` if the session is in the last 25% of its duration.
+    ///
+    /// Returns `false` outside the session.
+    pub fn is_last_quarter(&self, utc_ms: u64) -> bool {
+        match self.session_progress(utc_ms) {
+            Some(p) => p > 0.75,
+            None => false,
+        }
+    }
+
     /// Returns `true` if the session is overnight: the market is closed
     /// (or extended-hours-only) and the current UTC time falls between
     /// 20:00 ET (after-hours end) and 04:00 ET (pre-market start) on a weekday.
@@ -553,6 +573,26 @@ impl SessionAwareness {
     pub fn is_last_minute(&self, utc_ms: u64) -> bool {
         match self.remaining_session_ms(utc_ms) {
             Some(r) => r <= 60_000,
+            None => false,
+        }
+    }
+
+    /// Minutes elapsed since the most recent session close.
+    ///
+    /// Returns `0.0` if the session is currently open or the last close
+    /// time cannot be determined (e.g., before any session has ever closed).
+    pub fn minutes_since_close(&self, utc_ms: u64) -> f64 {
+        if self.is_open(utc_ms) {
+            return 0.0;
+        }
+        (self.time_until_open_ms(utc_ms) as f64) / 60_000.0
+    }
+
+    /// Returns `true` if `utc_ms` falls within the first 60 seconds of the
+    /// regular trading session (the "opening bell" minute).
+    pub fn is_opening_bell_minute(&self, utc_ms: u64) -> bool {
+        match self.time_in_session_ms(utc_ms) {
+            Some(elapsed) => elapsed <= 60_000,
             None => false,
         }
     }
@@ -1967,5 +2007,46 @@ mod tests {
     fn test_is_mid_session_false_when_closed() {
         let sa = sa(MarketSession::UsEquity);
         assert!(!sa.is_mid_session(SAT_UTC_MS));
+    }
+
+    // ── SessionAnalyzer::is_first_quarter / is_last_quarter ────────────────
+
+    #[test]
+    fn test_is_first_quarter_true_at_open() {
+        let sa = sa(MarketSession::UsEquity);
+        // At exact open = 0% progress → first quarter
+        assert!(sa.is_first_quarter(MON_OPEN_UTC_MS));
+    }
+
+    #[test]
+    fn test_is_first_quarter_false_at_midpoint() {
+        let sa = sa(MarketSession::UsEquity);
+        // 3 hours in ≈ 46% → not first quarter
+        assert!(!sa.is_first_quarter(MON_OPEN_UTC_MS + 3 * 3_600_000));
+    }
+
+    #[test]
+    fn test_is_first_quarter_false_when_closed() {
+        let sa = sa(MarketSession::UsEquity);
+        assert!(!sa.is_first_quarter(SAT_UTC_MS));
+    }
+
+    #[test]
+    fn test_is_last_quarter_true_near_close() {
+        let sa = sa(MarketSession::UsEquity);
+        // Session = 6.5 h = 23400 s. 80% = 18720 s
+        assert!(sa.is_last_quarter(MON_OPEN_UTC_MS + 18_720_000));
+    }
+
+    #[test]
+    fn test_is_last_quarter_false_at_open() {
+        let sa = sa(MarketSession::UsEquity);
+        assert!(!sa.is_last_quarter(MON_OPEN_UTC_MS));
+    }
+
+    #[test]
+    fn test_is_last_quarter_false_when_closed() {
+        let sa = sa(MarketSession::UsEquity);
+        assert!(!sa.is_last_quarter(SAT_UTC_MS));
     }
 }

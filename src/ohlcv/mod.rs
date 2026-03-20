@@ -556,6 +556,24 @@ impl OhlcvBar {
         Some(self.wick_upper() / range * Decimal::ONE_HUNDRED)
     }
 
+    /// Lower wick as a percentage of the total range (0–100).
+    ///
+    /// Returns `None` when the range is zero.
+    pub fn lower_wick_pct(&self) -> Option<Decimal> {
+        let range = self.range();
+        if range.is_zero() {
+            return None;
+        }
+        Some(self.wick_lower() / range * Decimal::ONE_HUNDRED)
+    }
+
+    /// Returns `true` if this bar is a bearish engulfing candle relative to `prev`.
+    ///
+    /// A bearish engulfing has: current bar bearish, body entirely engulfs prev body.
+    pub fn is_bearish_engulfing(&self, prev: &OhlcvBar) -> bool {
+        self.is_bearish() && self.is_engulfing(prev)
+    }
+
     /// Duration of this bar's timeframe in milliseconds.
     pub fn bar_duration_ms(&self) -> u64 {
         self.timeframe.duration_ms()
@@ -575,6 +593,25 @@ impl OhlcvBar {
     /// zero and close within `epsilon` of the high), with a long lower wick.
     pub fn is_dragonfly_doji(&self, epsilon: Decimal) -> bool {
         self.body() <= epsilon && (self.high - self.close).abs() <= epsilon
+    }
+
+    /// Returns `true` if this bar is completely flat (open == close == high == low).
+    pub fn is_flat(&self) -> bool {
+        self.open == self.close && self.high == self.low && self.open == self.high
+    }
+
+    /// Returns the ratio of close to high, or `None` if high is zero.
+    pub fn close_to_high_ratio(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.high.is_zero() { return None; }
+        (self.close / self.high).to_f64()
+    }
+
+    /// Returns the ratio of close to open, or `None` if open is zero.
+    pub fn close_open_ratio(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.open.is_zero() { return None; }
+        (self.close / self.open).to_f64()
     }
 
     /// Interpolates a price within the bar's high-low range.
@@ -2499,6 +2536,44 @@ mod tests {
         assert!(b.upper_wick_pct().is_none());
     }
 
+    // --- OhlcvBar::lower_wick_pct ---
+    #[test]
+    fn test_lower_wick_pct_zero_when_no_lower_wick() {
+        // open is the low
+        let b = bar(100, 110, 100, 105);
+        let pct = b.lower_wick_pct().unwrap();
+        assert!(pct.is_zero(), "expected 0, got {pct}");
+    }
+
+    #[test]
+    fn test_lower_wick_pct_50_when_half_range() {
+        // open=110, high=120, low=100, close=115 → lower_wick=10, range=20 → 50%
+        let b = bar(110, 120, 100, 115);
+        let pct = b.lower_wick_pct().unwrap();
+        assert_eq!(pct, dec!(50));
+    }
+
+    #[test]
+    fn test_lower_wick_pct_none_for_zero_range() {
+        let b = bar(100, 100, 100, 100);
+        assert!(b.lower_wick_pct().is_none());
+    }
+
+    // --- OhlcvBar::is_bearish_engulfing ---
+    #[test]
+    fn test_is_bearish_engulfing_true_for_bearish_engulf() {
+        let prev = bar(100, 115, 95, 110); // bullish, body 100-110
+        let curr = bar(112, 115, 88, 90);  // bearish, body 112-90, engulfs 100-110
+        assert!(curr.is_bearish_engulfing(&prev));
+    }
+
+    #[test]
+    fn test_is_bearish_engulfing_false_for_bullish_engulf() {
+        let prev = bar(110, 115, 95, 100); // bearish, body 110-100
+        let curr = bar(98, 120, 95, 115);  // bullish, body 98-115 engulfs but not bearish
+        assert!(!curr.is_bearish_engulfing(&prev));
+    }
+
     #[test]
     fn test_is_engulfing_true_when_body_contains_prev_body() {
         let prev = bar(100, 110, 95, 105); // prev body: 100-105
@@ -2580,6 +2655,48 @@ mod tests {
         // close=105, high=110 → close not near high
         let bar = make_ohlcv_bar(dec!(105), dec!(110), dec!(100), dec!(105));
         assert!(!bar.is_dragonfly_doji(dec!(1)));
+    }
+
+    // ── OhlcvBar::is_flat / close_to_high_ratio / close_open_ratio ──────────
+
+    #[test]
+    fn test_is_flat_true() {
+        let bar = make_ohlcv_bar(dec!(100), dec!(100), dec!(100), dec!(100));
+        assert!(bar.is_flat());
+    }
+
+    #[test]
+    fn test_is_flat_false_when_range_exists() {
+        let bar = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100));
+        assert!(!bar.is_flat());
+    }
+
+    #[test]
+    fn test_close_to_high_ratio_normal() {
+        let bar = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(110));
+        // close=110, high=110 → ratio=1.0
+        let r = bar.close_to_high_ratio().unwrap();
+        assert!((r - 1.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_close_to_high_ratio_none_when_high_zero() {
+        let bar = make_ohlcv_bar(dec!(0), dec!(0), dec!(0), dec!(0));
+        assert!(bar.close_to_high_ratio().is_none());
+    }
+
+    #[test]
+    fn test_close_open_ratio_normal() {
+        // close=110, open=100 → ratio=1.1
+        let bar = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(110));
+        let r = bar.close_open_ratio().unwrap();
+        assert!((r - 1.1).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_close_open_ratio_none_when_open_zero() {
+        let bar = make_ohlcv_bar(dec!(0), dec!(10), dec!(0), dec!(5));
+        assert!(bar.close_open_ratio().is_none());
     }
 
     // ── OhlcvBar::price_at_pct ───────────────────────────────────────────────

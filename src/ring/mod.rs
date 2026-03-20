@@ -261,6 +261,24 @@ impl<T, const N: usize> SpscRing<T, N> {
         Some(unsafe { *(*self.buf[slot].get()).assume_init_ref() })
     }
 
+    /// Peek at the oldest item in the ring (the one that would be returned next by `pop`)
+    /// without removing it.
+    ///
+    /// Returns `None` when the ring is empty.
+    pub fn peek_oldest(&self) -> Option<T>
+    where
+        T: Copy,
+    {
+        let head = self.head.load(Ordering::Acquire);
+        let tail = self.tail.load(Ordering::Acquire);
+        if tail == head {
+            return None;
+        }
+        let slot = head & (N - 1);
+        // SAFETY: head < tail means this slot holds an initialised item.
+        Some(unsafe { *(*self.buf[slot].get()).assume_init_ref() })
+    }
+
     /// Current fill level as a fraction of capacity: `len / capacity`.
     ///
     /// Returns `0.0` when empty and `1.0` when full.
@@ -284,6 +302,12 @@ impl<T, const N: usize> SpscRing<T, N> {
     /// Returns `0.0` when empty and `100.0` when full.
     pub fn utilization_pct(&self) -> f64 {
         self.fill_ratio() * 100.0
+    }
+
+    /// Number of additional items that can be pushed before the buffer is full.
+    #[inline]
+    pub fn remaining_capacity(&self) -> usize {
+        self.capacity().saturating_sub(self.len())
     }
 
     /// Drain all items currently in the ring into a `Vec`, in FIFO order.

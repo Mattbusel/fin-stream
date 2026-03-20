@@ -1111,6 +1111,22 @@ impl ZScoreNormalizer {
         self.sum.to_f64().unwrap_or(0.0)
     }
 
+    /// Maximum value currently in the window as `f64`.
+    ///
+    /// Returns `None` when the window is empty.
+    pub fn window_max_f64(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        self.window.iter().max().and_then(|v| v.to_f64())
+    }
+
+    /// Minimum value currently in the window as `f64`.
+    ///
+    /// Returns `None` when the window is empty.
+    pub fn window_min_f64(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        self.window.iter().min().and_then(|v| v.to_f64())
+    }
+
     /// Excess kurtosis of the window: `(Σ((x-mean)⁴/n) / std_dev⁴) - 3`.
     ///
     /// Returns `None` if the window has fewer than 4 observations or std dev is zero.
@@ -1146,6 +1162,11 @@ impl ZScoreNormalizer {
             .ok()
             .map(|z| z.abs() > sigma)
             .unwrap_or(false)
+    }
+
+    /// The most recently added value, or `None` if the window is empty.
+    pub fn latest(&self) -> Option<Decimal> {
+        self.window.back().copied()
     }
 }
 
