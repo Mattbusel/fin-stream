@@ -441,6 +441,11 @@ impl NormalizedTick {
         self.quantity.is_zero()
     }
 
+    /// Returns `true` if this tick's quantity is strictly above `threshold`.
+    pub fn is_large_tick(&self, threshold: Decimal) -> bool {
+        self.quantity > threshold
+    }
+
     /// Returns `true` if this tick's price is within `[low, high]` (inclusive).
     pub fn price_in_range(&self, low: Decimal, high: Decimal) -> bool {
         self.price >= low && self.price <= high
@@ -494,6 +499,14 @@ impl NormalizedTick {
     pub fn is_reversal(&self, prev: &NormalizedTick, min_move: Decimal) -> bool {
         let move_size = (self.price - prev.price).abs();
         move_size >= min_move
+    }
+
+    /// Returns `true` if a trade crossed the spread: `bid_tick.price >= ask_tick.price`.
+    ///
+    /// A spread-crossed condition indicates an aggressive order consumed
+    /// the best opposing quote.
+    pub fn spread_crossed(bid_tick: &NormalizedTick, ask_tick: &NormalizedTick) -> bool {
+        bid_tick.price >= ask_tick.price
     }
 
 }
@@ -1823,5 +1836,28 @@ mod tests {
         let mut tick = make_tick_at(0);
         tick.quantity = Decimal::ONE;
         assert!(!tick.is_zero_quantity());
+    }
+
+    // ── NormalizedTick::is_large_tick ─────────────────────────────────────────
+
+    #[test]
+    fn test_is_large_tick_true_when_above_threshold() {
+        let mut tick = make_tick_at(0);
+        tick.quantity = Decimal::from(10u32);
+        assert!(tick.is_large_tick(Decimal::from(5u32)));
+    }
+
+    #[test]
+    fn test_is_large_tick_false_when_at_threshold() {
+        let mut tick = make_tick_at(0);
+        tick.quantity = Decimal::from(5u32);
+        assert!(!tick.is_large_tick(Decimal::from(5u32)));
+    }
+
+    #[test]
+    fn test_is_large_tick_false_when_below_threshold() {
+        let mut tick = make_tick_at(0);
+        tick.quantity = Decimal::from(1u32);
+        assert!(!tick.is_large_tick(Decimal::from(5u32)));
     }
 }

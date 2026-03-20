@@ -394,6 +394,30 @@ impl<T, const N: usize> SpscRing<T, N> {
         out
     }
 
+    /// Count items in the ring that satisfy `predicate`, without removing them.
+    ///
+    /// Only valid before calling `split()`. Requires `T` to be readable via shared ref.
+    ///
+    /// # Complexity: O(n).
+    pub fn count_if<F>(&self, predicate: F) -> usize
+    where
+        F: Fn(&T) -> bool,
+    {
+        let head = self.head.load(Ordering::Acquire);
+        let tail = self.tail.load(Ordering::Acquire);
+        let len = tail.wrapping_sub(head);
+        let mut count = 0;
+        for i in 0..len {
+            let slot = head.wrapping_add(i) % N;
+            // SAFETY: slots in [head, tail) are initialized
+            let item = unsafe { (*self.buf[slot].get()).assume_init_ref() };
+            if predicate(item) {
+                count += 1;
+            }
+        }
+        count
+    }
+
     /// Split the ring into a thread-safe producer/consumer pair.
     ///
     /// The original `SpscRing` is consumed. Both halves hold an `Arc` to the
@@ -1379,6 +1403,32 @@ mod tests {
         ring.push(42u32).unwrap();
         let _ = ring.to_vec_cloned();
         assert_eq!(ring.len(), 1);
+    }
+
+    // ── SpscRing::count_if ───────────────────────────────────────────────────
+
+    #[test]
+    fn test_count_if_zero_when_empty() {
+        let ring: SpscRing<u32, 8> = SpscRing::new();
+        assert_eq!(ring.count_if(|_| true), 0);
+    }
+
+    #[test]
+    fn test_count_if_counts_matching_items() {
+        let ring: SpscRing<u32, 8> = SpscRing::new();
+        for i in 1u32..=6 {
+            ring.push(i).unwrap();
+        }
+        // Even numbers: 2, 4, 6
+        assert_eq!(ring.count_if(|x| x % 2 == 0), 3);
+    }
+
+    #[test]
+    fn test_count_if_all_match() {
+        let ring: SpscRing<u32, 8> = SpscRing::new();
+        ring.push(10u32).unwrap();
+        ring.push(20u32).unwrap();
+        assert_eq!(ring.count_if(|_| true), 2);
     }
 
     // --- SpscRing::has_capacity ---

@@ -1045,6 +1045,76 @@ impl OrderBook {
         if total_qty.is_zero() { return None; }
         Some((ask_qty * best_bid + bid_qty * best_ask) / total_qty)
     }
+
+    /// Returns the top `n` price levels on a given side as `(price, quantity)` pairs.
+    ///
+    /// Bid levels are returned in descending price order (best bid first).
+    /// Ask levels are returned in ascending price order (best ask first).
+    /// Returns fewer than `n` entries if the side has fewer levels.
+    pub fn best_n_levels(&self, side: BookSide, n: usize) -> Vec<(Decimal, Decimal)> {
+        match side {
+            BookSide::Bid => self.bids.iter().rev().take(n)
+                .map(|(&p, &q)| (p, q)).collect(),
+            BookSide::Ask => self.asks.iter().take(n)
+                .map(|(&p, &q)| (p, q)).collect(),
+        }
+    }
+
+    /// Estimated price impact of a market order of `qty` on the given side.
+    ///
+    /// Walks the book, consuming levels until `qty` is filled. Returns the
+    /// weighted average fill price minus the best price (positive = adverse).
+    /// Returns `None` if the side is empty or `qty` is zero/negative.
+    pub fn price_impact(&self, side: BookSide, qty: Decimal) -> Option<Decimal> {
+        if qty <= Decimal::ZERO { return None; }
+        let best_price = match side {
+            BookSide::Bid => self.bids.keys().next_back().copied()?,
+            BookSide::Ask => self.asks.keys().next().copied()?,
+        };
+        let mut remaining = qty;
+        let mut cost = Decimal::ZERO;
+        let levels: Box<dyn Iterator<Item = (&Decimal, &Decimal)>> = match side {
+            BookSide::Bid => Box::new(self.bids.iter().rev()),
+            BookSide::Ask => Box::new(self.asks.iter()),
+        };
+        for (&price, &level_qty) in levels {
+            if remaining <= Decimal::ZERO { break; }
+            let filled = remaining.min(level_qty);
+            cost += price * filled;
+            remaining -= filled;
+        }
+        if remaining > Decimal::ZERO { return None; } // not enough liquidity
+        let avg_fill = cost / qty;
+        Some((avg_fill - best_price).abs())
+    }
+
+    /// Cumulative ask volume at levels within `price_range` of the best ask.
+    ///
+    /// Sums all ask quantities where `price <= best_ask + price_range`.
+    /// Returns `Decimal::ZERO` if the ask side is empty.
+    pub fn ask_volume_within(&self, price_range: Decimal) -> Decimal {
+        match self.best_ask() {
+            None => Decimal::ZERO,
+            Some(best) => {
+                let ceiling = best.price + price_range;
+                self.asks.range(..=ceiling).map(|(_, &q)| q).sum()
+            }
+        }
+    }
+
+    /// Cumulative bid volume at levels within `price_range` of the best bid.
+    ///
+    /// Sums all bid quantities where `price >= best_bid - price_range`.
+    /// Returns `Decimal::ZERO` if the bid side is empty.
+    pub fn bid_volume_within(&self, price_range: Decimal) -> Decimal {
+        match self.best_bid() {
+            None => Decimal::ZERO,
+            Some(best) => {
+                let floor = best.price - price_range;
+                self.bids.range(floor..).map(|(_, &q)| q).sum()
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -2339,5 +2409,39 @@ mod tests {
         b.apply(delta("X", BookSide::Ask, dec!(101), dec!(2))).unwrap();
         let imb = b.volume_imbalance().unwrap();
         assert!(imb.abs() < 1e-9);
+    }
+
+    // ── OrderBook::ask_volume_within / bid_volume_within ─────────────────────
+
+    #[test]
+    fn test_ask_volume_within_sums_levels_in_range() {
+        let mut b = book("X");
+        b.apply(delta("X", BookSide::Ask, dec!(100), dec!(2))).unwrap();
+        b.apply(delta("X", BookSide::Ask, dec!(101), dec!(3))).unwrap();
+        b.apply(delta("X", BookSide::Ask, dec!(105), dec!(10))).unwrap();
+        // best ask = 100, range = 2 → include 100 and 101 (102 is limit, 105 outside)
+        let vol = b.ask_volume_within(dec!(2));
+        assert_eq!(vol, dec!(5)); // 2 + 3
+    }
+
+    #[test]
+    fn test_ask_volume_within_zero_when_empty() {
+        assert_eq!(book("X").ask_volume_within(dec!(10)), dec!(0));
+    }
+
+    #[test]
+    fn test_bid_volume_within_sums_levels_in_range() {
+        let mut b = book("X");
+        b.apply(delta("X", BookSide::Bid, dec!(100), dec!(5))).unwrap();
+        b.apply(delta("X", BookSide::Bid, dec!(99), dec!(3))).unwrap();
+        b.apply(delta("X", BookSide::Bid, dec!(95), dec!(10))).unwrap();
+        // best bid = 100, range = 2 → include 100 and 99 (floor=98, 95 outside)
+        let vol = b.bid_volume_within(dec!(2));
+        assert_eq!(vol, dec!(8)); // 5 + 3
+    }
+
+    #[test]
+    fn test_bid_volume_within_zero_when_empty() {
+        assert_eq!(book("X").bid_volume_within(dec!(10)), dec!(0));
     }
 }

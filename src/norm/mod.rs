@@ -1217,6 +1217,12 @@ impl ZScoreNormalizer {
         self.normalize(latest).ok()
     }
 
+    /// Chainable alias for `update`: feeds `value` into the window and returns `&mut Self`.
+    pub fn add_observation(&mut self, value: Decimal) -> &mut Self {
+        self.update(value);
+        self
+    }
+
     /// Signed deviation of `value` from the window mean, as `f64`.
     ///
     /// Returns `None` if the window is empty.
@@ -1246,6 +1252,18 @@ impl ZScoreNormalizer {
                     .unwrap_or(false)
             })
             .collect()
+    }
+
+    /// Batch normalize: returns z-scores for each value as if they were added one-by-one.
+    ///
+    /// Each z-score uses only the window state after incorporating that value.
+    /// The internal state is modified; call `reset()` if you need to restore it.
+    /// Returns `None` entries where normalization fails (window warming up or zero std-dev).
+    pub fn rolling_zscore_batch(&mut self, values: &[Decimal]) -> Vec<Option<f64>> {
+        values.iter().map(|&v| {
+            self.update(v);
+            self.normalize(v).ok()
+        }).collect()
     }
 }
 
@@ -1868,5 +1886,27 @@ mod zscore_tests {
         // mean = 2.5, value = 4 → deviation = 1.5
         let d = n.deviation_from_mean(dec!(4)).unwrap();
         assert!((d - 1.5).abs() < 1e-9);
+    }
+
+    // ── ZScoreNormalizer::add_observation ─────────────────────────────────────
+
+    #[test]
+    fn test_add_observation_same_as_update() {
+        let mut n1 = znorm(4);
+        let mut n2 = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] {
+            n1.update(v);
+            n2.add_observation(v);
+        }
+        assert_eq!(n1.mean(), n2.mean());
+    }
+
+    #[test]
+    fn test_add_observation_chainable() {
+        let mut n = znorm(4);
+        n.add_observation(dec!(1))
+         .add_observation(dec!(2))
+         .add_observation(dec!(3));
+        assert_eq!(n.len(), 3);
     }
 }

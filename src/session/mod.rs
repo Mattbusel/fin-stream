@@ -536,6 +536,13 @@ impl SessionAwareness {
         self.is_open(utc_ms) && other.is_open(utc_ms)
     }
 
+    /// Milliseconds elapsed since the session opened at `utc_ms`.
+    ///
+    /// Returns `0` if the session is not open.
+    pub fn open_ms(&self, utc_ms: u64) -> u64 {
+        self.time_in_session_ms(utc_ms).unwrap_or(0)
+    }
+
     /// Returns `true` if the session is in the first 25% of its duration.
     ///
     /// Returns `false` outside the session.
@@ -649,6 +656,27 @@ impl SessionAwareness {
         // Third Friday: day is in [15, 21]
         let day = date.day();
         day >= 15 && day <= 21
+    }
+
+    /// Count of weekdays (Mon–Fri) between `from` and `to`, inclusive.
+    ///
+    /// Returns 0 if `from > to`. Does not account for US market holidays.
+    pub fn trading_days_elapsed(from: NaiveDate, to: NaiveDate) -> u32 {
+        if from > to {
+            return 0;
+        }
+        let total_days = (to - from).num_days() + 1;
+        let mut weekdays = 0u32;
+        let mut d = from;
+        for _ in 0..total_days {
+            if !matches!(d.weekday(), Weekday::Sat | Weekday::Sun) {
+                weekdays += 1;
+            }
+            if let Some(next) = d.succ_opt() {
+                d = next;
+            }
+        }
+        weekdays
     }
 
     /// Fraction of the session remaining: `1.0 - session_progress`.
@@ -2302,5 +2330,35 @@ mod tests {
         // 2024-03-20 = Wednesday, third week of March
         let date = NaiveDate::from_ymd_opt(2024, 3, 20).unwrap();
         assert!(!SessionAwareness::is_triple_witching(date));
+    }
+
+    // ── SessionAwareness::trading_days_elapsed ────────────────────────────────
+
+    #[test]
+    fn test_trading_days_elapsed_same_day_weekday() {
+        let d = NaiveDate::from_ymd_opt(2024, 1, 8).unwrap(); // Monday
+        assert_eq!(SessionAwareness::trading_days_elapsed(d, d), 1);
+    }
+
+    #[test]
+    fn test_trading_days_elapsed_full_week() {
+        let from = NaiveDate::from_ymd_opt(2024, 1, 8).unwrap();  // Monday
+        let to   = NaiveDate::from_ymd_opt(2024, 1, 12).unwrap(); // Friday
+        assert_eq!(SessionAwareness::trading_days_elapsed(from, to), 5);
+    }
+
+    #[test]
+    fn test_trading_days_elapsed_excludes_weekends() {
+        let from = NaiveDate::from_ymd_opt(2024, 1, 8).unwrap();  // Monday
+        let to   = NaiveDate::from_ymd_opt(2024, 1, 14).unwrap(); // Sunday
+        // Mon-Fri = 5 trading days, Sat+Sun = 0
+        assert_eq!(SessionAwareness::trading_days_elapsed(from, to), 5);
+    }
+
+    #[test]
+    fn test_trading_days_elapsed_zero_when_reversed() {
+        let from = NaiveDate::from_ymd_opt(2024, 1, 12).unwrap();
+        let to   = NaiveDate::from_ymd_opt(2024, 1, 8).unwrap();
+        assert_eq!(SessionAwareness::trading_days_elapsed(from, to), 0);
     }
 }

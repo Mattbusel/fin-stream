@@ -689,6 +689,14 @@ impl LorentzTransform {
         1.0 + 0.5 * self.beta * self.beta
     }
 
+    /// Ratio of this transform's β to another's: `self.beta / other.beta`.
+    ///
+    /// Returns `f64::INFINITY` if `other.beta` is zero and `self.beta > 0`,
+    /// and `f64::NAN` if both are zero.
+    pub fn velocity_ratio(&self, other: &Self) -> f64 {
+        self.beta / other.beta
+    }
+
     /// Classifies a spacetime interval `(dt, dx)` as `"timelike"`, `"lightlike"`, or `"spacelike"`.
     ///
     /// Spacetime interval: `s² = dt² - dx²` (in natural units, c = 1).
@@ -713,6 +721,24 @@ impl LorentzTransform {
         let m_sq = energy * energy - momentum * momentum;
         if m_sq < 0.0 { return None; }
         Some(m_sq.sqrt())
+    }
+
+    /// Relativistic aberration: corrected cosine of angle when viewed from boosted frame.
+    ///
+    /// `cos_theta' = (cos_theta - beta) / (1 - beta * cos_theta)`.
+    /// Returns `None` if the denominator is zero (numerically degenerate case).
+    pub fn aberration_correction(&self, cos_theta: f64) -> Option<f64> {
+        let denom = 1.0 - self.beta * cos_theta;
+        if denom.abs() < 1e-15 { return None; }
+        Some((cos_theta - self.beta) / denom)
+    }
+
+    /// Relativistic Doppler ratio: `sqrt((1 + beta) / (1 - beta))`.
+    ///
+    /// Values > 1 represent blue-shift (approaching); < 1 red-shift (receding).
+    /// At rest (beta = 0) returns 1.0.
+    pub fn doppler_ratio(&self) -> f64 {
+        ((1.0 + self.beta) / (1.0 - self.beta)).sqrt()
     }
 }
 
@@ -1809,5 +1835,27 @@ mod tests {
     fn test_lorentz_factor_approx_always_gte_one() {
         let t = LorentzTransform::new(0.5).unwrap();
         assert!(t.lorentz_factor_approx() >= 1.0);
+    }
+
+    // ── LorentzTransform::velocity_ratio ─────────────────────────────────────
+
+    #[test]
+    fn test_velocity_ratio_equals_one_for_same_beta() {
+        let t = LorentzTransform::new(0.6).unwrap();
+        assert!((t.velocity_ratio(&t) - 1.0).abs() < 1e-12);
+    }
+
+    #[test]
+    fn test_velocity_ratio_correct() {
+        let a = LorentzTransform::new(0.6).unwrap();
+        let b = LorentzTransform::new(0.3).unwrap();
+        assert!((a.velocity_ratio(&b) - 2.0).abs() < 1e-12);
+    }
+
+    #[test]
+    fn test_velocity_ratio_less_than_one_when_slower() {
+        let a = LorentzTransform::new(0.3).unwrap();
+        let b = LorentzTransform::new(0.6).unwrap();
+        assert!(a.velocity_ratio(&b) < 1.0);
     }
 }
