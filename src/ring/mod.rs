@@ -71,16 +71,27 @@ pub struct SpscRing<T, const N: usize> {
 unsafe impl<T: Send, const N: usize> Send for SpscRing<T, N> {}
 
 impl<T, const N: usize> SpscRing<T, N> {
+    /// Compile-time guard: N must be >= 2.
+    ///
+    /// One slot is reserved as the full/empty sentinel, so the usable capacity
+    /// is N - 1. Enforced as a `const` assertion so invalid sizes are caught at
+    /// compile time rather than at runtime.
+    const _ASSERT_N_GE_2: () = assert!(N >= 2, "SpscRing: N must be >= 2 (capacity = N-1)");
+
+    /// Compile-time guard: N must be a power of two.
+    ///
+    /// Power-of-two sizes enable replacing `% N` with `& (N - 1)` on the hot
+    /// path and guarantee uniform slot distribution when counters wrap.
+    const _ASSERT_N_POW2: () = assert!(
+        N.is_power_of_two(),
+        "SpscRing: N must be a power of two (e.g. 4, 8, 16, 32, 64, 128, 256, 512, 1024)"
+    );
+
     /// Construct an empty ring buffer.
-    ///
-    /// # Panics
-    ///
-    /// Panics if `N <= 1`. The const generic `N` must be at least 2 to hold at
-    /// least one item (one slot is reserved as the full/empty sentinel).
     pub fn new() -> Self {
-        if N <= 1 {
-            panic!("SpscRing capacity N must be > 1 (N={N})");
-        }
+        // Trigger compile-time assertions.
+        let _ = Self::_ASSERT_N_GE_2;
+        let _ = Self::_ASSERT_N_POW2;
         let buf: Vec<UnsafeCell<MaybeUninit<T>>> =
             (0..N).map(|_| UnsafeCell::new(MaybeUninit::uninit())).collect();
         let buf: Box<[UnsafeCell<MaybeUninit<T>>; N]> = buf
@@ -135,8 +146,10 @@ impl<T, const N: usize> SpscRing<T, N> {
         if tail.wrapping_sub(head) >= N - 1 {
             return Err(StreamError::RingBufferFull { capacity: N - 1 });
         }
-        let slot = tail % N;
-        // SAFETY: Only the producer writes to `tail % N` after checking the
+        // N is a power of two (compile-time guaranteed), so `& (N - 1)` == `% N`
+        // but avoids the division instruction on every push.
+        let slot = tail & (N - 1);
+        // SAFETY: Only the producer writes to `tail & (N-1)` after checking the
         // distance invariant. No aliased mutable reference exists.
         unsafe {
             (*self.buf[slot].get()).write(item);
@@ -159,13 +172,27 @@ impl<T, const N: usize> SpscRing<T, N> {
         if head == tail {
             return Err(StreamError::RingBufferEmpty);
         }
-        let slot = head % N;
+        let slot = head & (N - 1);
         // SAFETY: The slot was written by the producer (tail > head guarantees
         // it). assume_init_read() moves the value out; advancing head then
         // marks the slot available for the producer to overwrite.
         let item = unsafe { (*self.buf[slot].get()).assume_init_read() };
         self.head.store(head.wrapping_add(1), Ordering::Release);
         Ok(item)
+    }
+
+    /// Drain all items currently in the ring into a `Vec`, in FIFO order.
+    ///
+    /// Only safe to call when no producer/consumer pair is active (i.e., before
+    /// calling `split()`).
+    ///
+    /// # Complexity: O(n).
+    pub fn drain(&self) -> Vec<T> {
+        let mut out = Vec::with_capacity(self.len());
+        while let Ok(item) = self.pop() {
+            out.push(item);
+        }
+        out
     }
 
     /// Split the ring into a thread-safe producer/consumer pair.
@@ -208,7 +235,7 @@ impl<T, const N: usize> Drop for SpscRing<T, N> {
         let tail = self.tail.load(Ordering::Relaxed);
         let mut idx = head;
         while idx != tail {
-            let slot = idx % N;
+            let slot = idx & (N - 1);
             // SAFETY: All slots in [head, tail) are initialized.
             unsafe {
                 (*self.buf[slot].get()).assume_init_drop();
@@ -267,6 +294,20 @@ impl<T, const N: usize> SpscConsumer<T, N> {
     #[inline]
     pub fn pop(&self) -> Result<T, StreamError> {
         self.inner.pop()
+    }
+
+    /// Drain all items currently in the ring into a `Vec`, in FIFO order.
+    ///
+    /// Useful for clean shutdown: call `drain()` after the producer has
+    /// stopped to collect any in-flight items before dropping the consumer.
+    ///
+    /// # Complexity: O(n) where n is the number of items drained.
+    pub fn drain(&self) -> Vec<T> {
+        let mut out = Vec::with_capacity(self.inner.len());
+        while let Ok(item) = self.inner.pop() {
+            out.push(item);
+        }
+        out
     }
 
     /// Returns `true` if the ring is empty.
@@ -549,5 +590,25 @@ mod tests {
         prod.push(2).unwrap();
         assert_eq!(cons.len(), 2);
         assert!(!cons.is_empty());
+    }
+
+    // ── Power-of-two constraint ───────────────────────────────────────────────
+
+    /// Verify that a ring with N=2 (smallest valid power of two) works correctly.
+    #[test]
+    fn test_minimum_power_of_two_size() {
+        let ring: SpscRing<u32, 2> = SpscRing::new(); // capacity = 1
+        assert_eq!(ring.capacity(), 1);
+        ring.push(99).unwrap();
+        assert!(ring.is_full());
+        assert_eq!(ring.pop().unwrap(), 99);
+        assert!(ring.is_empty());
+    }
+
+    /// Verify that a large power-of-two ring (1024) works correctly.
+    #[test]
+    fn test_large_power_of_two_size() {
+        let ring: SpscRing<u64, 1024> = SpscRing::new();
+        assert_eq!(ring.capacity(), 1023);
     }
 }

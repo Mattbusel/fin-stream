@@ -108,6 +108,30 @@ pub enum TradeSide {
     Sell,
 }
 
+impl FromStr for TradeSide {
+    type Err = StreamError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "buy" => Ok(TradeSide::Buy),
+            "sell" => Ok(TradeSide::Sell),
+            _ => Err(StreamError::ParseError {
+                exchange: "TradeSide".into(),
+                reason: format!("unknown trade side '{s}'"),
+            }),
+        }
+    }
+}
+
+impl std::fmt::Display for TradeSide {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            TradeSide::Buy => write!(f, "buy"),
+            TradeSide::Sell => write!(f, "sell"),
+        }
+    }
+}
+
 /// Normalizes raw ticks from any supported exchange into [`NormalizedTick`] form.
 ///
 /// `TickNormalizer` is stateless and cheap to clone; a single instance can be
@@ -121,6 +145,12 @@ impl TickNormalizer {
     }
 
     /// Normalize a raw tick into canonical form.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StreamError::ParseError`] if required fields are missing or
+    /// malformed, and [`StreamError::InvalidTick`] if price is not positive or
+    /// quantity is negative.
     pub fn normalize(&self, raw: RawTick) -> Result<NormalizedTick, StreamError> {
         let tick = match raw.exchange {
             Exchange::Binance => self.normalize_binance(raw),
@@ -128,6 +158,16 @@ impl TickNormalizer {
             Exchange::Alpaca => self.normalize_alpaca(raw),
             Exchange::Polygon => self.normalize_polygon(raw),
         }?;
+        if tick.price <= Decimal::ZERO {
+            return Err(StreamError::InvalidTick {
+                reason: format!("price must be positive, got {}", tick.price),
+            });
+        }
+        if tick.quantity < Decimal::ZERO {
+            return Err(StreamError::InvalidTick {
+                reason: format!("quantity must be non-negative, got {}", tick.quantity),
+            });
+        }
         trace!(
             exchange = %tick.exchange,
             symbol = %tick.symbol,
@@ -452,5 +492,80 @@ mod tests {
         };
         let tick = normalizer().normalize(raw).unwrap();
         assert!(tick.price > Decimal::ZERO);
+    }
+
+    #[test]
+    fn test_trade_side_from_str_buy() {
+        assert_eq!("buy".parse::<TradeSide>().unwrap(), TradeSide::Buy);
+        assert_eq!("Buy".parse::<TradeSide>().unwrap(), TradeSide::Buy);
+        assert_eq!("BUY".parse::<TradeSide>().unwrap(), TradeSide::Buy);
+    }
+
+    #[test]
+    fn test_trade_side_from_str_sell() {
+        assert_eq!("sell".parse::<TradeSide>().unwrap(), TradeSide::Sell);
+        assert_eq!("Sell".parse::<TradeSide>().unwrap(), TradeSide::Sell);
+        assert_eq!("SELL".parse::<TradeSide>().unwrap(), TradeSide::Sell);
+    }
+
+    #[test]
+    fn test_trade_side_from_str_invalid() {
+        let err = "long".parse::<TradeSide>().unwrap_err();
+        assert!(matches!(err, StreamError::ParseError { .. }));
+    }
+
+    #[test]
+    fn test_trade_side_display() {
+        assert_eq!(TradeSide::Buy.to_string(), "buy");
+        assert_eq!(TradeSide::Sell.to_string(), "sell");
+    }
+
+    #[test]
+    fn test_normalize_zero_price_returns_invalid_tick() {
+        let raw = RawTick {
+            exchange: Exchange::Binance,
+            symbol: "BTCUSDT".into(),
+            payload: json!({ "p": "0", "q": "1" }),
+            received_at_ms: 0,
+        };
+        let err = normalizer().normalize(raw).unwrap_err();
+        assert!(matches!(err, StreamError::InvalidTick { .. }));
+    }
+
+    #[test]
+    fn test_normalize_negative_price_returns_invalid_tick() {
+        let raw = RawTick {
+            exchange: Exchange::Binance,
+            symbol: "BTCUSDT".into(),
+            payload: json!({ "p": "-1", "q": "1" }),
+            received_at_ms: 0,
+        };
+        let err = normalizer().normalize(raw).unwrap_err();
+        assert!(matches!(err, StreamError::InvalidTick { .. }));
+    }
+
+    #[test]
+    fn test_normalize_negative_quantity_returns_invalid_tick() {
+        let raw = RawTick {
+            exchange: Exchange::Binance,
+            symbol: "BTCUSDT".into(),
+            payload: json!({ "p": "100", "q": "-1" }),
+            received_at_ms: 0,
+        };
+        let err = normalizer().normalize(raw).unwrap_err();
+        assert!(matches!(err, StreamError::InvalidTick { .. }));
+    }
+
+    #[test]
+    fn test_normalize_zero_quantity_is_valid() {
+        // Zero quantity is allowed (e.g., remove from book), just not negative
+        let raw = RawTick {
+            exchange: Exchange::Binance,
+            symbol: "BTCUSDT".into(),
+            payload: json!({ "p": "100", "q": "0" }),
+            received_at_ms: 0,
+        };
+        let tick = normalizer().normalize(raw).unwrap();
+        assert_eq!(tick.quantity, Decimal::ZERO);
     }
 }

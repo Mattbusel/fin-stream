@@ -73,6 +73,11 @@ pub struct OhlcvBar {
     pub trade_count: u64,
     /// `true` once the bar's time window has been closed by a tick in a later window.
     pub is_complete: bool,
+    /// `true` if this bar was synthesized to fill a gap — no real ticks were received
+    /// during its window. Gap-fill bars have `trade_count == 0` and all OHLC fields set
+    /// to the last known close price. Callers may use this flag to filter synthetic bars
+    /// out of indicator calculations or storage.
+    pub is_gap_fill: bool,
 }
 
 /// Aggregates ticks into OHLCV bars.
@@ -170,6 +175,7 @@ impl OhlcvAggregator {
                         volume: Decimal::ZERO,
                         trade_count: 0,
                         is_complete: true,
+                        is_gap_fill: true,
                     });
                     gap_start += dur;
                 }
@@ -200,6 +206,7 @@ impl OhlcvAggregator {
                     volume: tick.quantity,
                     trade_count: 1,
                     is_complete: false,
+                    is_gap_fill: false,
                 });
             }
         }

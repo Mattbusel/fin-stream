@@ -168,6 +168,13 @@ impl HealthMonitor {
         self.feeds.len()
     }
 
+    /// Sorted list of all registered feed identifiers.
+    pub fn feed_ids(&self) -> Vec<String> {
+        let mut ids: Vec<String> = self.feeds.iter().map(|e| e.feed_id.clone()).collect();
+        ids.sort();
+        ids
+    }
+
     /// Number of feeds currently in the [`HealthStatus::Healthy`] state.
     pub fn healthy_count(&self) -> usize {
         self.feeds
@@ -399,6 +406,31 @@ mod tests {
     fn test_deregister_unknown_feed_returns_none() {
         let m = monitor();
         assert!(m.deregister("ghost").is_none());
+    }
+
+    #[test]
+    fn test_feed_ids_returns_sorted_ids() {
+        let m = monitor();
+        m.register("ETH-USD", None);
+        m.register("BTC-USD", None);
+        m.register("SOL-USD", None);
+        let ids = m.feed_ids();
+        assert_eq!(ids, vec!["BTC-USD", "ETH-USD", "SOL-USD"]);
+    }
+
+    #[test]
+    fn test_feed_ids_empty_when_no_feeds() {
+        let m = monitor();
+        assert!(m.feed_ids().is_empty());
+    }
+
+    #[test]
+    fn test_feed_ids_updates_after_deregister() {
+        let m = monitor();
+        m.register("BTC-USD", None);
+        m.register("ETH-USD", None);
+        m.deregister("BTC-USD");
+        assert_eq!(m.feed_ids(), vec!["ETH-USD"]);
     }
 
     #[test]

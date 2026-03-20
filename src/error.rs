@@ -191,6 +191,53 @@ pub enum StreamError {
         /// Description of the configuration error.
         reason: String,
     },
+
+    /// An error propagated from the `fin-primitives` crate.
+    ///
+    /// Allows `?` to be used on `fin_primitives` operations inside `fin-stream`
+    /// pipelines without an explicit `.map_err()`.
+    #[error("fin-primitives error: {0}")]
+    FinPrimitives(String),
+}
+
+impl From<fin_primitives::error::FinError> for StreamError {
+    fn from(e: fin_primitives::error::FinError) -> Self {
+        StreamError::FinPrimitives(e.to_string())
+    }
+}
+
+impl StreamError {
+    /// Returns `true` for errors that are transient and worth retrying.
+    ///
+    /// Transient errors arise from external conditions (network drops, full
+    /// buffers, stale feeds) that may resolve on their own. Permanent errors
+    /// indicate misconfiguration or invalid data that will not self-heal.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use fin_stream::StreamError;
+    ///
+    /// let e = StreamError::WebSocket("connection reset".into());
+    /// assert!(e.is_transient());
+    ///
+    /// let e = StreamError::ConfigError { reason: "multiplier < 1".into() };
+    /// assert!(!e.is_transient());
+    /// ```
+    pub fn is_transient(&self) -> bool {
+        matches!(
+            self,
+            StreamError::ConnectionFailed { .. }
+                | StreamError::Disconnected { .. }
+                | StreamError::ReconnectExhausted { .. }
+                | StreamError::StaleFeed { .. }
+                | StreamError::Backpressure { .. }
+                | StreamError::RingBufferFull { .. }
+                | StreamError::RingBufferEmpty
+                | StreamError::Io(_)
+                | StreamError::WebSocket(_)
+        )
+    }
 }
 
 #[cfg(test)]
@@ -351,5 +398,38 @@ mod tests {
             reason: "beta >= 1".into(),
         };
         assert!(e.to_string().contains("beta >= 1"));
+    }
+
+    #[test]
+    fn test_is_transient_websocket_is_transient() {
+        assert!(StreamError::WebSocket("reset".into()).is_transient());
+        assert!(StreamError::ConnectionFailed {
+            url: "wss://x.io".into(),
+            reason: "timeout".into()
+        }
+        .is_transient());
+        assert!(StreamError::RingBufferFull { capacity: 8 }.is_transient());
+        assert!(StreamError::RingBufferEmpty.is_transient());
+    }
+
+    #[test]
+    fn test_is_transient_config_errors_are_not_transient() {
+        assert!(!StreamError::ConfigError {
+            reason: "bad param".into()
+        }
+        .is_transient());
+        assert!(!StreamError::ParseError {
+            exchange: "Binance".into(),
+            reason: "bad field".into()
+        }
+        .is_transient());
+        assert!(!StreamError::InvalidTick {
+            reason: "neg price".into()
+        }
+        .is_transient());
+        assert!(!StreamError::LorentzConfigError {
+            reason: "beta>=1".into()
+        }
+        .is_transient());
     }
 }

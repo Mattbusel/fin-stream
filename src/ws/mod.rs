@@ -10,9 +10,10 @@
 //! - Configurable: reconnect policy and buffer sizes are constructor params
 
 use crate::error::StreamError;
-use futures_util::StreamExt;
+use futures_util::{SinkExt, StreamExt};
 use std::time::Duration;
 use tokio::sync::mpsc;
+use tokio::time;
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 use tracing::{debug, info, warn};
 
@@ -172,15 +173,23 @@ impl WsManager {
     /// - `message_tx` is closed (receiver dropped), or
     /// - reconnect attempts are exhausted ([`StreamError::ReconnectExhausted`]).
     ///
+    /// `outbound_rx` is an optional channel for sending messages **to** the
+    /// server (e.g., subscription requests). When provided, any string received
+    /// on this channel is forwarded to the WebSocket as a text frame.
+    ///
     /// # Errors
     ///
     /// Returns [`StreamError::ReconnectExhausted`] after all reconnect slots
     /// are consumed, or the underlying connection error if reconnects are
     /// exhausted immediately on the first attempt.
-    pub async fn run(&mut self, message_tx: mpsc::Sender<String>) -> Result<(), StreamError> {
+    pub async fn run(
+        &mut self,
+        message_tx: mpsc::Sender<String>,
+        mut outbound_rx: Option<mpsc::Receiver<String>>,
+    ) -> Result<(), StreamError> {
         loop {
             info!(url = %self.config.url, attempt = self.connect_attempts, "connecting");
-            match self.try_connect(&message_tx).await {
+            match self.try_connect(&message_tx, &mut outbound_rx).await {
                 Ok(()) => {
                     // Clean close — receiver dropped or server sent Close frame.
                     self.is_connected = false;
@@ -208,7 +217,11 @@ impl WsManager {
     }
 
     /// Attempt a single connection, reading messages until close or error.
-    async fn try_connect(&mut self, message_tx: &mpsc::Sender<String>) -> Result<(), StreamError> {
+    async fn try_connect(
+        &mut self,
+        message_tx: &mpsc::Sender<String>,
+        outbound_rx: &mut Option<mpsc::Receiver<String>>,
+    ) -> Result<(), StreamError> {
         let (ws_stream, _response) =
             connect_async(&self.config.url)
                 .await
@@ -221,33 +234,49 @@ impl WsManager {
         self.connect_attempts += 1;
         info!(url = %self.config.url, "connected");
 
-        let (_write, mut read) = ws_stream.split();
+        let (mut write, mut read) = ws_stream.split();
+        let mut ping_interval = time::interval(self.config.ping_interval);
+        // Skip the first tick so we don't ping immediately on connect.
+        ping_interval.tick().await;
 
         loop {
-            match read.next().await {
-                Some(Ok(Message::Text(text))) => {
-                    if message_tx.send(text.to_string()).await.is_err() {
-                        // Receiver dropped — clean shutdown.
-                        return Ok(());
-                    }
-                }
-                Some(Ok(Message::Binary(bytes))) => {
-                    // Convert binary frames to UTF-8 strings where possible.
-                    if let Ok(text) = String::from_utf8(bytes.to_vec()) {
-                        if message_tx.send(text).await.is_err() {
+            tokio::select! {
+                msg = read.next() => {
+                    match msg {
+                        Some(Ok(Message::Text(text))) => {
+                            if message_tx.send(text.to_string()).await.is_err() {
+                                // Receiver dropped — clean shutdown.
+                                return Ok(());
+                            }
+                        }
+                        Some(Ok(Message::Binary(bytes))) => {
+                            if let Ok(text) = String::from_utf8(bytes.to_vec()) {
+                                if message_tx.send(text).await.is_err() {
+                                    return Ok(());
+                                }
+                            }
+                        }
+                        Some(Ok(Message::Ping(_) | Message::Pong(_) | Message::Frame(_))) => {
+                            // Control frames handled by tungstenite internally.
+                        }
+                        Some(Ok(Message::Close(_))) | None => {
                             return Ok(());
+                        }
+                        Some(Err(e)) => {
+                            return Err(StreamError::WebSocket(e.to_string()));
                         }
                     }
                 }
-                Some(Ok(Message::Ping(_) | Message::Pong(_) | Message::Frame(_))) => {
-                    // Control frames handled by tungstenite internally.
+                _ = ping_interval.tick() => {
+                    debug!(url = %self.config.url, "sending keepalive ping");
+                    if write.send(Message::Ping(vec![].into())).await.is_err() {
+                        return Ok(());
+                    }
                 }
-                Some(Ok(Message::Close(_))) | None => {
-                    // Graceful close from server or stream exhausted.
-                    return Ok(());
-                }
-                Some(Err(e)) => {
-                    return Err(StreamError::WebSocket(e.to_string()));
+                outbound = recv_outbound(outbound_rx) => {
+                    if let Some(text) = outbound {
+                        let _ = write.send(Message::Text(text.into())).await;
+                    }
                 }
             }
         }
@@ -299,6 +328,17 @@ impl WsManager {
             .backoff_for_attempt(self.connect_attempts);
         self.connect_attempts += 1;
         Ok(backoff)
+    }
+}
+
+/// Helper: receive from an optional mpsc channel, or never resolve if `None`.
+///
+/// Used in `tokio::select!` to make the outbound branch dormant when no
+/// outbound channel was supplied, without allocating or spinning.
+async fn recv_outbound(rx: &mut Option<mpsc::Receiver<String>>) -> Option<String> {
+    match rx {
+        Some(rx) => rx.recv().await,
+        None => std::future::pending().await,
     }
 }
 
@@ -447,5 +487,34 @@ mod tests {
         let mgr = WsManager::new(default_config());
         assert_eq!(mgr.config().url, "wss://example.com/ws");
         assert_eq!(mgr.config().channel_capacity, 1024);
+    }
+
+    /// Verify that `recv_outbound` with `None` never resolves (returns pending).
+    /// We test this by racing it against a resolved future and confirming the
+    /// resolved future always wins.
+    #[tokio::test]
+    async fn test_recv_outbound_none_is_always_pending() {
+        let mut rx: Option<mpsc::Receiver<String>> = None;
+        // Race recv_outbound(None) against an immediately-ready future.
+        tokio::select! {
+            _ = recv_outbound(&mut rx) => {
+                panic!("recv_outbound(None) should never resolve");
+            }
+            _ = std::future::ready(()) => {
+                // Expected: the ready() future wins.
+            }
+        }
+    }
+
+    /// Verify that `recv_outbound` with `Some(rx)` resolves when a message arrives.
+    #[tokio::test]
+    async fn test_recv_outbound_some_resolves_with_message() {
+        let (tx, mut channel_rx) = mpsc::channel::<String>(1);
+        tx.send("subscribe".into()).await.unwrap();
+        let mut rx: Option<mpsc::Receiver<String>> = Some(channel_rx);
+        let msg = recv_outbound(&mut rx).await;
+        assert_eq!(msg.as_deref(), Some("subscribe"));
+        // Re-borrow to confirm the channel holds the receiver
+        let _ = rx;
     }
 }

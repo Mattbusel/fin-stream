@@ -42,7 +42,7 @@ impl PriceLevel {
 }
 
 /// Incremental order book update.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct BookDelta {
     /// Symbol this delta applies to.
     pub symbol: String,
@@ -225,6 +225,16 @@ impl OrderBook {
         self.last_sequence
     }
 
+    /// Returns `true` if a bid level exists at exactly `price`.
+    pub fn contains_bid(&self, price: Decimal) -> bool {
+        self.bids.contains_key(&price)
+    }
+
+    /// Returns `true` if an ask level exists at exactly `price`.
+    pub fn contains_ask(&self, price: Decimal) -> bool {
+        self.asks.contains_key(&price)
+    }
+
     /// Top N bids (descending by price).
     pub fn top_bids(&self, n: usize) -> Vec<PriceLevel> {
         self.bids
@@ -242,6 +252,30 @@ impl OrderBook {
             .take(n)
             .map(|(p, q)| PriceLevel::new(*p, *q))
             .collect()
+    }
+
+    /// Return a full snapshot of all bid and ask levels.
+    ///
+    /// The returned tuple is `(bids, asks)`:
+    /// - `bids` are sorted descending by price (highest first).
+    /// - `asks` are sorted ascending by price (lowest first).
+    ///
+    /// Use this after receiving a [`StreamError::SequenceGap`] to rebuild the
+    /// book from a fresh exchange snapshot: call [`reset`](Self::reset) with
+    /// the snapshot levels, then resume applying deltas from the new sequence.
+    pub fn snapshot(&self) -> (Vec<PriceLevel>, Vec<PriceLevel>) {
+        let bids = self
+            .bids
+            .iter()
+            .rev()
+            .map(|(p, q)| PriceLevel::new(*p, *q))
+            .collect();
+        let asks = self
+            .asks
+            .iter()
+            .map(|(p, q)| PriceLevel::new(*p, *q))
+            .collect();
+        (bids, asks)
     }
 
     fn check_crossed(&self) -> Result<(), StreamError> {
@@ -494,5 +528,44 @@ mod tests {
         let lvl = PriceLevel::new(dec!(100), dec!(5));
         assert_eq!(lvl.price, dec!(100));
         assert_eq!(lvl.quantity, dec!(5));
+    }
+
+    #[test]
+    fn test_contains_bid_present() {
+        let mut b = book("BTC-USD");
+        b.apply(delta("BTC-USD", BookSide::Bid, dec!(50000), dec!(1)))
+            .unwrap();
+        assert!(b.contains_bid(dec!(50000)));
+        assert!(!b.contains_bid(dec!(49999)));
+    }
+
+    #[test]
+    fn test_contains_ask_present() {
+        let mut b = book("BTC-USD");
+        b.apply(delta("BTC-USD", BookSide::Ask, dec!(50100), dec!(2)))
+            .unwrap();
+        assert!(b.contains_ask(dec!(50100)));
+        assert!(!b.contains_ask(dec!(50200)));
+    }
+
+    #[test]
+    fn test_contains_bid_removed_after_zero_qty() {
+        let mut b = book("BTC-USD");
+        b.apply(delta("BTC-USD", BookSide::Bid, dec!(50000), dec!(1)))
+            .unwrap();
+        b.apply(delta("BTC-USD", BookSide::Bid, dec!(50000), dec!(0)))
+            .unwrap();
+        assert!(!b.contains_bid(dec!(50000)));
+    }
+
+    #[test]
+    fn test_book_delta_serde_roundtrip() {
+        let d = BookDelta::new("BTC-USD", BookSide::Bid, dec!(50000), dec!(1))
+            .with_sequence(42);
+        let json = serde_json::to_string(&d).unwrap();
+        let d2: BookDelta = serde_json::from_str(&json).unwrap();
+        assert_eq!(d2.symbol, "BTC-USD");
+        assert_eq!(d2.price, dec!(50000));
+        assert_eq!(d2.sequence, Some(42));
     }
 }

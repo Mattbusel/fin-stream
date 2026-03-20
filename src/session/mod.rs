@@ -35,6 +35,26 @@ pub enum TradingStatus {
     Closed,
 }
 
+impl std::fmt::Display for MarketSession {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            MarketSession::UsEquity => write!(f, "UsEquity"),
+            MarketSession::Crypto => write!(f, "Crypto"),
+            MarketSession::Forex => write!(f, "Forex"),
+        }
+    }
+}
+
+impl std::fmt::Display for TradingStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            TradingStatus::Open => write!(f, "Open"),
+            TradingStatus::Extended => write!(f, "Extended"),
+            TradingStatus::Closed => write!(f, "Closed"),
+        }
+    }
+}
+
 /// Determines trading status for a market session.
 pub struct SessionAwareness {
     session: MarketSession,
@@ -58,6 +78,82 @@ impl SessionAwareness {
     /// The market session this classifier was constructed for.
     pub fn session(&self) -> MarketSession {
         self.session
+    }
+
+    /// Return the UTC millisecond timestamp of the next time this session
+    /// enters [`TradingStatus::Open`] status.
+    ///
+    /// If the session is already `Open` at `utc_ms`, returns `utc_ms`
+    /// unchanged. For [`MarketSession::Crypto`] this always returns `utc_ms`.
+    pub fn next_open_ms(&self, utc_ms: u64) -> u64 {
+        match self.session {
+            MarketSession::Crypto => utc_ms,
+            MarketSession::Forex => self.next_forex_open_ms(utc_ms),
+            MarketSession::UsEquity => self.next_us_equity_open_ms(utc_ms),
+        }
+    }
+
+    fn next_forex_open_ms(&self, utc_ms: u64) -> u64 {
+        if self.forex_status(utc_ms) == TradingStatus::Open {
+            return utc_ms;
+        }
+        // Forex is closed on Saturday, Sunday before 22:00, or Friday >= 22:00.
+        // The next open is always Sunday 22:00 UTC.
+        let day_of_week = (utc_ms / (24 * 3600 * 1000) + 4) % 7; // 0=Sun, ..., 6=Sat
+        let day_ms = utc_ms % (24 * 3600 * 1000);
+        let start_of_day = utc_ms - day_ms;
+        let hour_22_ms: u64 = 22 * 3600 * 1000;
+
+        let days_to_sunday: u64 = match day_of_week {
+            0 => 0, // Sunday before 22:00 → today at 22:00
+            5 => 2, // Friday after 22:00 → 2 days to Sunday
+            6 => 1, // Saturday → 1 day to Sunday
+            _ => 0, // other days shouldn't happen (forex is open)
+        };
+        start_of_day + days_to_sunday * 24 * 3600 * 1000 + hour_22_ms
+    }
+
+    fn next_us_equity_open_ms(&self, utc_ms: u64) -> u64 {
+        if self.us_equity_status(utc_ms) == TradingStatus::Open {
+            return utc_ms;
+        }
+        let secs = (utc_ms / 1000) as i64;
+        let dt = Utc.timestamp_opt(secs, 0).single().unwrap_or_else(Utc::now);
+        let et_offset_secs: i64 = if is_us_dst(utc_ms) { -4 * 3600 } else { -5 * 3600 };
+        let et_dt = dt + Duration::seconds(et_offset_secs);
+
+        let dow = et_dt.weekday();
+        let et_time_secs = et_dt.num_seconds_from_midnight() as u64;
+        let open_s: u64 = 9 * 3600 + 30 * 60; // 09:30 ET
+
+        // Days to advance in ET to reach the next trading-day open.
+        let days_ahead: i64 = match dow {
+            Weekday::Mon | Weekday::Tue | Weekday::Wed | Weekday::Thu => {
+                if et_time_secs < open_s {
+                    0 // Before today's open
+                } else {
+                    1 // After today's open: next weekday
+                }
+            }
+            Weekday::Fri => {
+                if et_time_secs < open_s {
+                    0 // Before today's open
+                } else {
+                    3 // After Friday: skip to Monday
+                }
+            }
+            Weekday::Sat => 2, // Skip to Monday
+            Weekday::Sun => 1, // Skip to Monday
+        };
+
+        let et_date = et_dt.date_naive();
+        let target_date = et_date + Duration::days(days_ahead);
+
+        // Approximate UTC hour for 9:30 ET, then correct for target-date DST.
+        let open_hour_utc: u32 = if is_us_dst(utc_ms) { 13 } else { 14 };
+        let approx_ms = date_to_utc_ms(target_date, open_hour_utc, 30);
+        let open_hour_utc_corrected: u32 = if is_us_dst(approx_ms) { 13 } else { 14 };
+        date_to_utc_ms(target_date, open_hour_utc_corrected, 30)
     }
 
     fn us_equity_status(&self, utc_ms: u64) -> TradingStatus {
@@ -319,5 +415,73 @@ mod tests {
         let date = nth_weekday_of_month(2024, 11, Weekday::Sun, 1);
         assert_eq!(date.month(), 11);
         assert_eq!(date.day(), 3);
+    }
+
+    // ── next_open_ms ──────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_next_open_crypto_is_always_now() {
+        let sa = sa(MarketSession::Crypto);
+        assert_eq!(sa.next_open_ms(SAT_UTC_MS), SAT_UTC_MS);
+        assert_eq!(sa.next_open_ms(MON_OPEN_UTC_MS), MON_OPEN_UTC_MS);
+    }
+
+    #[test]
+    fn test_next_open_equity_already_open_returns_same() {
+        // MON_OPEN_UTC_MS = Monday 14:30 UTC = 09:30 ET (market is open)
+        let sa = sa(MarketSession::UsEquity);
+        let next = sa.next_open_ms(MON_OPEN_UTC_MS);
+        assert_eq!(next, MON_OPEN_UTC_MS);
+    }
+
+    #[test]
+    fn test_next_open_equity_saturday_returns_monday_open() {
+        // SAT_UTC_MS = Saturday 12:00 UTC; market closed. Next open = Mon 14:30 UTC (EST).
+        let sa = sa(MarketSession::UsEquity);
+        let next = sa.next_open_ms(SAT_UTC_MS);
+        // The result should be after SAT_UTC_MS and should be Open when checked.
+        assert!(next > SAT_UTC_MS, "next open must be after Saturday");
+        assert_eq!(
+            sa.status(next).unwrap(),
+            TradingStatus::Open,
+            "next_open_ms must return a time when market is Open"
+        );
+    }
+
+    #[test]
+    fn test_next_open_equity_sunday_returns_monday_open() {
+        // Sunday 10:00 UTC → next open is Monday 9:30 ET
+        let sa = sa(MarketSession::UsEquity);
+        let next = sa.next_open_ms(SUN_BEFORE_UTC_MS);
+        assert!(next > SUN_BEFORE_UTC_MS);
+        assert_eq!(sa.status(next).unwrap(), TradingStatus::Open);
+    }
+
+    #[test]
+    fn test_next_open_forex_already_open_returns_same() {
+        let sa = sa(MarketSession::Forex);
+        assert_eq!(sa.next_open_ms(MON_OPEN_UTC_MS), MON_OPEN_UTC_MS);
+    }
+
+    #[test]
+    fn test_next_open_forex_saturday_returns_sunday_22_utc() {
+        // Saturday 12:00 UTC → next open is Sunday 22:00 UTC (1 day later).
+        let sa = sa(MarketSession::Forex);
+        let next = sa.next_open_ms(SAT_UTC_MS);
+        assert!(next > SAT_UTC_MS);
+        assert_eq!(sa.status(next).unwrap(), TradingStatus::Open);
+        // Should be exactly Sunday 22:00 UTC.
+        let expected_hour_ms = 22 * 3600 * 1000;
+        assert_eq!(next % (24 * 3600 * 1000), expected_hour_ms);
+    }
+
+    #[test]
+    fn test_next_open_forex_sunday_before_22_returns_same_day_22() {
+        // SUN_BEFORE_UTC_MS = Sunday 10:00 UTC → next open is Sunday 22:00 UTC.
+        let sa = sa(MarketSession::Forex);
+        let next = sa.next_open_ms(SUN_BEFORE_UTC_MS);
+        let day_ms = SUN_BEFORE_UTC_MS - (SUN_BEFORE_UTC_MS % (24 * 3600 * 1000));
+        let expected = day_ms + 22 * 3600 * 1000;
+        assert_eq!(next, expected);
     }
 }
