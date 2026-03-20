@@ -810,6 +810,30 @@ impl MinMaxNormalizer {
         Some(mad)
     }
 
+    /// Percentile rank of the most recently added value within the window.
+    ///
+    /// Returns `None` if no value has been added yet. Uses the same `<=`
+    /// semantics as [`percentile_rank`](Self::percentile_rank).
+    pub fn percentile_of_latest(&self) -> Option<f64> {
+        let latest = self.latest()?;
+        self.percentile_rank(latest)
+    }
+
+    /// Tail ratio: `max(window) / 75th-percentile(window)`.
+    ///
+    /// A simple fat-tail indicator. Values well above 1.0 signal that the
+    /// maximum observation is an outlier relative to the upper quartile.
+    /// Returns `None` if the window is empty or the 75th percentile is zero.
+    pub fn tail_ratio(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let max = self.window.iter().copied().reduce(Decimal::max)?;
+        let p75 = self.percentile_value(0.75)?;
+        if p75.is_zero() {
+            return None;
+        }
+        (max / p75).to_f64()
+    }
+
 }
 
 #[cfg(test)]
@@ -1975,6 +1999,52 @@ mod tests {
         let mad = n.mean_absolute_deviation().unwrap();
         assert!(mad > 0.0);
     }
+
+    // ── MinMaxNormalizer::percentile_of_latest ────────────────────────────────
+
+    #[test]
+    fn test_minmax_percentile_of_latest_none_for_empty() {
+        assert!(norm(3).percentile_of_latest().is_none());
+    }
+
+    #[test]
+    fn test_minmax_percentile_of_latest_returns_some_after_update() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        assert!(n.percentile_of_latest().is_some());
+    }
+
+    #[test]
+    fn test_minmax_percentile_of_latest_max_has_high_rank() {
+        let mut n = norm(5);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4), dec!(5)] { n.update(v); }
+        let rank = n.percentile_of_latest().unwrap();
+        assert!(rank >= 0.9, "max value should have rank near 1.0, got {}", rank);
+    }
+
+    // ── MinMaxNormalizer::tail_ratio ──────────────────────────────────────────
+
+    #[test]
+    fn test_minmax_tail_ratio_none_for_empty() {
+        assert!(norm(4).tail_ratio().is_none());
+    }
+
+    #[test]
+    fn test_minmax_tail_ratio_one_for_identical_values() {
+        let mut n = norm(4);
+        for _ in 0..4 { n.update(dec!(7)); }
+        // p75 == max == 7 → ratio = 1.0
+        let r = n.tail_ratio().unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "expected 1.0, got {}", r);
+    }
+
+    #[test]
+    fn test_minmax_tail_ratio_above_one_with_outlier() {
+        let mut n = norm(5);
+        for v in [dec!(1), dec!(1), dec!(1), dec!(1), dec!(10)] { n.update(v); }
+        let r = n.tail_ratio().unwrap();
+        assert!(r > 1.0, "outlier should push ratio above 1.0, got {}", r);
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -2849,6 +2919,30 @@ impl ZScoreNormalizer {
         let mean = vals.iter().sum::<f64>() / n as f64;
         let mad = vals.iter().map(|v| (v - mean).abs()).sum::<f64>() / n as f64;
         Some(mad)
+    }
+
+    /// Percentile rank of the most recently added value within the window.
+    ///
+    /// Returns `None` if no value has been added yet. Uses the same `<=`
+    /// semantics as [`percentile`](Self::percentile).
+    pub fn percentile_of_latest(&self) -> Option<f64> {
+        let latest = self.latest()?;
+        self.percentile(latest)
+    }
+
+    /// Tail ratio: `max(window) / 75th-percentile(window)`.
+    ///
+    /// A simple fat-tail indicator. Values well above 1.0 signal that the
+    /// maximum observation is an outlier relative to the upper quartile.
+    /// Returns `None` if the window is empty or the 75th percentile is zero.
+    pub fn tail_ratio(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let max = self.running_max()?;
+        let p75 = self.percentile_value(0.75)?;
+        if p75.is_zero() {
+            return None;
+        }
+        (max / p75).to_f64()
     }
 
 }
@@ -4336,5 +4430,50 @@ mod zscore_stability_tests {
         for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
         let mad = n.mean_absolute_deviation().unwrap();
         assert!(mad > 0.0);
+    }
+
+    // ── ZScoreNormalizer::percentile_of_latest ────────────────────────────────
+
+    #[test]
+    fn test_zscore_percentile_of_latest_none_for_empty() {
+        assert!(znorm(3).percentile_of_latest().is_none());
+    }
+
+    #[test]
+    fn test_zscore_percentile_of_latest_returns_some_after_update() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        assert!(n.percentile_of_latest().is_some());
+    }
+
+    #[test]
+    fn test_zscore_percentile_of_latest_max_has_high_rank() {
+        let mut n = znorm(5);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4), dec!(5)] { n.update(v); }
+        let rank = n.percentile_of_latest().unwrap();
+        assert!(rank >= 0.9, "max value should have rank near 1.0, got {}", rank);
+    }
+
+    // ── ZScoreNormalizer::tail_ratio ──────────────────────────────────────────
+
+    #[test]
+    fn test_zscore_tail_ratio_none_for_empty() {
+        assert!(znorm(4).tail_ratio().is_none());
+    }
+
+    #[test]
+    fn test_zscore_tail_ratio_one_for_identical_values() {
+        let mut n = znorm(4);
+        for _ in 0..4 { n.update(dec!(7)); }
+        let r = n.tail_ratio().unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "expected 1.0, got {}", r);
+    }
+
+    #[test]
+    fn test_zscore_tail_ratio_above_one_with_outlier() {
+        let mut n = znorm(5);
+        for v in [dec!(1), dec!(1), dec!(1), dec!(1), dec!(10)] { n.update(v); }
+        let r = n.tail_ratio().unwrap();
+        assert!(r > 1.0, "outlier should push ratio above 1.0, got {}", r);
     }
 }

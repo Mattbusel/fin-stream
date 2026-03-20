@@ -1715,6 +1715,70 @@ impl OhlcvBar {
         ((last_close - lo) / range).to_f64()
     }
 
+    /// Count of bars where `close > open` (bullish bars).
+    pub fn close_above_open_count(bars: &[OhlcvBar]) -> usize {
+        bars.iter().filter(|b| b.close > b.open).count()
+    }
+
+    /// Pearson correlation between per-bar volume and close price.
+    ///
+    /// Returns `None` if fewer than 2 bars or if either series has zero
+    /// variance.
+    pub fn volume_price_correlation(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let n = bars.len();
+        if n < 2 {
+            return None;
+        }
+        let vols: Vec<f64> = bars.iter().filter_map(|b| b.volume.to_f64()).collect();
+        let closes: Vec<f64> = bars.iter().filter_map(|b| b.close.to_f64()).collect();
+        if vols.len() != n || closes.len() != n {
+            return None;
+        }
+        let nf = n as f64;
+        let mean_v = vols.iter().sum::<f64>() / nf;
+        let mean_c = closes.iter().sum::<f64>() / nf;
+        let cov: f64 = vols.iter().zip(closes.iter()).map(|(v, c)| (v - mean_v) * (c - mean_c)).sum::<f64>() / nf;
+        let std_v = (vols.iter().map(|v| (v - mean_v).powi(2)).sum::<f64>() / nf).sqrt();
+        let std_c = (closes.iter().map(|c| (c - mean_c).powi(2)).sum::<f64>() / nf).sqrt();
+        if std_v == 0.0 || std_c == 0.0 {
+            return None;
+        }
+        Some(cov / (std_v * std_c))
+    }
+
+    /// Fraction of bars where body size exceeds 50% of the bar's total range.
+    ///
+    /// Returns `None` if the slice is empty or all bars have zero range.
+    pub fn body_consistency(bars: &[OhlcvBar]) -> Option<f64> {
+        if bars.is_empty() {
+            return None;
+        }
+        let valid: Vec<_> = bars.iter().filter(|b| !b.range().is_zero()).collect();
+        if valid.is_empty() {
+            return None;
+        }
+        let consistent = valid.iter().filter(|b| {
+            b.body() * Decimal::TWO > b.range()
+        }).count();
+        Some(consistent as f64 / valid.len() as f64)
+    }
+
+    /// Coefficient of variation of close prices: `std_dev(close) / mean(close)`.
+    ///
+    /// A dimensionless measure of close price dispersion. Returns `None` if
+    /// fewer than 2 bars or if mean close is zero.
+    pub fn close_volatility_ratio(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let mean = Self::mean_close(bars)?;
+        if mean.is_zero() {
+            return None;
+        }
+        let std = Self::close_std_dev(bars)?;
+        let mean_f = mean.to_f64()?;
+        Some(std / mean_f.abs())
+    }
+
 }
 
 impl std::fmt::Display for OhlcvBar {
@@ -5705,5 +5769,77 @@ mod tests {
         let b2 = make_ohlcv_bar(dec!(110), dec!(120), dec!(100), dec!(120));
         let pos = OhlcvBar::price_position(&[b1, b2]).unwrap();
         assert!((pos - 1.0).abs() < 1e-9);
+    }
+
+    // ── OhlcvBar::close_above_open_count ──────────────────────────────────────
+
+    #[test]
+    fn test_close_above_open_count_zero_for_empty() {
+        assert_eq!(OhlcvBar::close_above_open_count(&[]), 0);
+    }
+
+    #[test]
+    fn test_close_above_open_count_correct() {
+        // bar1: bullish (close > open), bar2: bearish
+        let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(95), dec!(108));
+        let b2 = make_ohlcv_bar(dec!(110), dec!(115), dec!(100), dec!(102));
+        assert_eq!(OhlcvBar::close_above_open_count(&[b1, b2]), 1);
+    }
+
+    // ── OhlcvBar::volume_price_correlation ────────────────────────────────────
+
+    #[test]
+    fn test_volume_price_correlation_none_for_single_bar() {
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        assert!(OhlcvBar::volume_price_correlation(&[b]).is_none());
+    }
+
+    #[test]
+    fn test_volume_price_correlation_positive_for_comoving() {
+        // Both volume and close rise together
+        let mut b1 = make_ohlcv_bar(dec!(100), dec!(105), dec!(98), dec!(102)); b1.volume = dec!(100);
+        let mut b2 = make_ohlcv_bar(dec!(102), dec!(110), dec!(100), dec!(108)); b2.volume = dec!(200);
+        let corr = OhlcvBar::volume_price_correlation(&[b1, b2]).unwrap();
+        assert!(corr > 0.0, "expected positive correlation, got {}", corr);
+    }
+
+    // ── OhlcvBar::body_consistency ────────────────────────────────────────────
+
+    #[test]
+    fn test_body_consistency_none_for_empty() {
+        assert!(OhlcvBar::body_consistency(&[]).is_none());
+    }
+
+    #[test]
+    fn test_body_consistency_one_for_all_big_bodies() {
+        // body = |close - open| = 8, range = high - low = 10 → 8 > 5 ✓
+        let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(100), dec!(108));
+        let b2 = make_ohlcv_bar(dec!(110), dec!(120), dec!(110), dec!(118));
+        let r = OhlcvBar::body_consistency(&[b1, b2]).unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "expected 1.0, got {}", r);
+    }
+
+    // ── OhlcvBar::close_volatility_ratio ──────────────────────────────────────
+
+    #[test]
+    fn test_close_volatility_ratio_none_for_single_bar() {
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        assert!(OhlcvBar::close_volatility_ratio(&[b]).is_none());
+    }
+
+    #[test]
+    fn test_close_volatility_ratio_positive_for_varied_closes() {
+        let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100));
+        let b2 = make_ohlcv_bar(dec!(110), dec!(120), dec!(105), dec!(115));
+        let r = OhlcvBar::close_volatility_ratio(&[b1, b2]).unwrap();
+        assert!(r > 0.0, "expected positive ratio, got {}", r);
+    }
+
+    #[test]
+    fn test_close_volatility_ratio_zero_for_identical_closes() {
+        let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let b2 = make_ohlcv_bar(dec!(100), dec!(112), dec!(88), dec!(105));
+        let r = OhlcvBar::close_volatility_ratio(&[b1, b2]).unwrap();
+        assert!((r - 0.0).abs() < 1e-9, "expected 0.0 for identical closes, got {}", r);
     }
 }
