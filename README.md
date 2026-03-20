@@ -23,7 +23,7 @@ features ready for downstream models or trade execution. Built on Tokio. Targets
 | `ohlcv` | Bar construction at any `Seconds / Minutes / Hours` timeframe with optional gap-fill bars | `OhlcvAggregator`, `OhlcvBar`, `Timeframe` |
 | `health` | Per-feed staleness detection with configurable thresholds and a circuit-breaker | `HealthMonitor`, `FeedHealth`, `HealthStatus` |
 | `session` | Trading-status classification (Open / Extended / Closed) for US Equity, Crypto, Forex | `SessionAwareness`, `MarketSession`, `TradingStatus` |
-| `norm` | Rolling min-max normalizer mapping streaming observations into `[0.0, 1.0]` | `MinMaxNormalizer` |
+| `norm` | Rolling min-max and z-score normalizers for streaming observations | `MinMaxNormalizer`, `ZScoreNormalizer` |
 | `lorentz` | Lorentz spacetime transforms for feature engineering on price-time coordinates | `LorentzTransform`, `SpacetimePoint` |
 | `error` | Unified typed error hierarchy covering every pipeline failure mode | `StreamError` |
 
@@ -62,7 +62,7 @@ Tick Source (WebSocket / simulation)
    [ OHLCV Aggregator ]    -- streaming bar construction at any timeframe
             |
             v
-   [ MinMax Normalizer ]   -- rolling-window coordinate normalization to [0, 1]
+   [ MinMax / ZScore Normalizer ]  -- rolling-window coordinate normalization
             |
             +---> [ Lorentz Transform ]   -- relativistic spacetime boost for features
             |
@@ -89,6 +89,18 @@ x_norm = 0.0                  when M == m  (degenerate; all window values identi
 
 The result is clamped to `[0.0, 1.0]`. This ensures that observations falling
 outside the current window range are mapped to the boundary rather than outside it.
+
+### Z-Score Normalization
+
+Given a rolling window of `W` observations with mean `μ` and standard deviation `σ`:
+
+```
+z = (x - μ) / σ    when σ != 0
+z = 0.0            when σ == 0  (degenerate; all window values identical)
+```
+
+`ZScoreNormalizer` also provides IQR, percentile rank, variance, EMA of z-scores,
+and rolling mean change across the window.
 
 ### Lorentz Transform
 
@@ -237,6 +249,26 @@ fn main() -> Result<(), fin_stream::StreamError> {
 }
 ```
 
+### Z-score normalization with analytics
+
+```rust
+use fin_stream::norm::ZScoreNormalizer;
+
+fn main() -> Result<(), fin_stream::StreamError> {
+    let mut z = ZScoreNormalizer::new(30);
+
+    for v in [100.0, 102.5, 99.0, 103.0, 101.5] {
+        z.update(v);
+    }
+
+    let score = z.normalize(104.0)?;
+    println!("z-score: {score:.4}");
+    println!("positive z count: {}", z.count_positive_z_scores());
+    println!("mean stable: {}", z.is_mean_stable(0.5));
+    Ok(())
+}
+```
+
 ### Lorentz feature engineering
 
 ```rust
@@ -268,6 +300,7 @@ fn main() -> Result<(), fin_stream::StreamError> {
 
     println!("mid: {}", book.mid_price().unwrap());
     println!("spread: {}", book.spread().unwrap());
+    println!("notional: {}", book.total_notional_both_sides());
     Ok(())
 }
 ```
@@ -290,6 +323,7 @@ fn main() -> Result<(), fin_stream::StreamError> {
     }
 
     println!("circuit open: {}", monitor.is_circuit_open("BTC-USD"));
+    println!("ratio healthy: {:.2}", monitor.ratio_healthy());
     Ok(())
 }
 ```
@@ -303,6 +337,7 @@ fn main() -> Result<(), fin_stream::StreamError> {
     let sa = SessionAwareness::new(MarketSession::UsEquity);
     let status = sa.status(1_700_000_000_000)?; // some UTC ms timestamp
     println!("US equity status: {status:?}");
+    println!("session name: {}", sa.session_name());
     Ok(())
 }
 ```
@@ -322,6 +357,29 @@ RawTick::new(exchange: Exchange, symbol: impl Into<String>, payload: serde_json:
 // Normalize a raw tick into a canonical representation.
 TickNormalizer::new() -> TickNormalizer
 TickNormalizer::normalize(&self, raw: RawTick) -> Result<NormalizedTick, StreamError>
+
+// NormalizedTick query methods
+NormalizedTick::is_above_price(&self, reference: Decimal) -> bool
+NormalizedTick::is_below_price(&self, reference: Decimal) -> bool
+NormalizedTick::is_at_price(&self, target: Decimal) -> bool
+NormalizedTick::price_change_from(&self, reference: Decimal) -> Decimal
+NormalizedTick::quantity_above(&self, threshold: Decimal) -> bool
+NormalizedTick::is_round_number(&self, step: Decimal) -> bool
+NormalizedTick::is_market_open_tick(&self, session_start_ms: u64, session_end_ms: u64) -> bool
+NormalizedTick::signed_quantity(&self) -> Decimal   // +qty Buy, -qty Sell, 0 Unknown
+NormalizedTick::as_price_level(&self) -> (Decimal, Decimal)  // (price, quantity)
+NormalizedTick::is_buy(&self) -> bool
+NormalizedTick::is_sell(&self) -> bool
+NormalizedTick::age_ms(&self, now_ms: u64) -> u64
+NormalizedTick::has_exchange_ts(&self) -> bool
+NormalizedTick::exchange_latency_ms(&self, now_ms: u64) -> Option<u64>
+NormalizedTick::price_change_pct(&self, reference: Decimal) -> Option<f64>
+NormalizedTick::is_same_symbol_as(&self, other: &NormalizedTick) -> bool
+NormalizedTick::side_str(&self) -> &'static str
+NormalizedTick::is_large_tick(&self, threshold: Decimal) -> bool
+NormalizedTick::is_zero_quantity(&self) -> bool
+NormalizedTick::dollar_value(&self) -> Decimal      // price * quantity
+NormalizedTick::vwap(&self, total_volume: Decimal, cumulative_pv: Decimal) -> Option<Decimal>
 ```
 
 ### `ring` module
@@ -338,6 +396,18 @@ SpscConsumer::pop(&self) -> Result<T, StreamError>              // StreamError::
 SpscRing::len(&self) -> usize                                   // items currently queued
 SpscRing::is_empty(&self) -> bool
 SpscRing::capacity(&self) -> usize                              // always N
+
+// Analytics on a populated ring (clone-based reads on initialized slots)
+SpscRing::sum_cloned(&self) -> T                where T: Clone + Sum + Default
+SpscRing::average_cloned(&self) -> Option<f64>  where T: Clone + Into<f64>
+SpscRing::peek_nth(&self, n: usize) -> Option<T> where T: Clone   // 0 = oldest
+SpscRing::contains_cloned(&self, value: &T) -> bool where T: Clone + PartialEq
+SpscRing::max_cloned_by<F, K>(&self, key: F) -> Option<T>  where F: Fn(&T) -> K, K: Ord
+SpscRing::min_cloned_by<F, K>(&self, key: F) -> Option<T>  where F: Fn(&T) -> K, K: Ord
+SpscRing::to_vec_sorted(&self) -> Vec<T>        where T: Clone + Ord
+SpscRing::to_vec_cloned(&self) -> Vec<T>        where T: Clone
+SpscRing::first(&self) -> Option<T>             where T: Clone   // oldest item
+SpscRing::drain_into(&self, dest: &mut Vec<T>)  where T: Clone
 ```
 
 ### `book` module
@@ -350,13 +420,38 @@ BookDelta::with_sequence(self, seq: u64) -> BookDelta
 // Apply deltas and query the book.
 OrderBook::new(symbol: impl Into<String>) -> OrderBook
 OrderBook::apply(&mut self, delta: BookDelta) -> Result<(), StreamError>
-OrderBook::reset(&mut self, bids: Vec<PriceLevel>, asks: Vec<PriceLevel>) // full snapshot reset
+OrderBook::reset(&mut self, bids: Vec<PriceLevel>, asks: Vec<PriceLevel>)
 OrderBook::best_bid(&self) -> Option<Decimal>
 OrderBook::best_ask(&self) -> Option<Decimal>
 OrderBook::mid_price(&self) -> Option<Decimal>
 OrderBook::spread(&self) -> Option<Decimal>
+OrderBook::spread_bps(&self) -> Option<Decimal>
 OrderBook::top_bids(&self, n: usize) -> Vec<PriceLevel>
 OrderBook::top_asks(&self, n: usize) -> Vec<PriceLevel>
+OrderBook::total_bid_volume(&self) -> Decimal
+OrderBook::total_ask_volume(&self) -> Decimal
+OrderBook::bid_ask_volume_ratio(&self) -> Option<f64>
+OrderBook::depth_imbalance(&self) -> Option<f64>
+OrderBook::weighted_mid_price(&self) -> Option<Decimal>
+OrderBook::bid_levels_above(&self, price: Decimal) -> usize
+OrderBook::ask_levels_below(&self, price: Decimal) -> usize
+OrderBook::bid_volume_at_price(&self, price: Decimal) -> Option<Decimal>
+OrderBook::ask_volume_at_price(&self, price: Decimal) -> Option<Decimal>
+OrderBook::cumulative_bid_volume(&self, n: usize) -> Decimal
+OrderBook::cumulative_ask_volume(&self, n: usize) -> Decimal
+OrderBook::is_within_spread(&self, price: Decimal) -> bool
+OrderBook::bid_wall(&self, threshold: Decimal) -> Option<Decimal>
+OrderBook::ask_wall(&self, threshold: Decimal) -> Option<Decimal>
+
+// Extended book analytics (added rounds 36–40)
+OrderBook::total_value_at_level(&self, side: BookSide, price: Decimal) -> Option<Decimal>
+OrderBook::ask_volume_above(&self, price: Decimal) -> Decimal
+OrderBook::bid_volume_below(&self, price: Decimal) -> Decimal
+OrderBook::total_notional_both_sides(&self) -> Decimal
+OrderBook::price_level_exists(&self, side: BookSide, price: Decimal) -> bool
+OrderBook::level_count_both_sides(&self) -> usize
+OrderBook::ask_price_at_rank(&self, n: usize) -> Option<Decimal>  // 0 = best ask
+OrderBook::bid_price_at_rank(&self, n: usize) -> Option<Decimal>  // 0 = best bid
 ```
 
 ### `ohlcv` module
@@ -372,11 +467,58 @@ OhlcvAggregator::feed(&mut self, tick: &NormalizedTick) -> Result<Vec<OhlcvBar>,
 // Bar boundary alignment.
 Timeframe::duration_ms(self) -> u64
 Timeframe::bar_start_ms(self, ts_ms: u64) -> u64
+
+// OhlcvBar computed properties
+OhlcvBar::true_range(&self, prev_close: Decimal) -> Decimal
+OhlcvBar::body_ratio(&self) -> Option<f64>          // body / range
+OhlcvBar::upper_shadow(&self) -> Decimal
+OhlcvBar::lower_shadow(&self) -> Decimal
+OhlcvBar::hlc3(&self) -> Decimal                    // (high + low + close) / 3
+OhlcvBar::ohlc4(&self) -> Decimal                   // (open + high + low + close) / 4
+OhlcvBar::typical_price(&self) -> Decimal           // hlc3 alias
+OhlcvBar::weighted_close(&self) -> Decimal          // (high + low + 2*close) / 4
+OhlcvBar::close_location_value(&self) -> Option<f64>  // (close - low) / (high - low)
+OhlcvBar::is_bullish(&self) -> bool
+OhlcvBar::is_bearish(&self) -> bool
+OhlcvBar::is_doji(&self, threshold: Decimal) -> bool
+OhlcvBar::is_marubozu(&self, wick_threshold: Decimal) -> bool
+OhlcvBar::is_spinning_top(&self, body_threshold: Decimal) -> bool
+OhlcvBar::is_shooting_star(&self) -> bool
+OhlcvBar::is_inside_bar(&self, prev: &OhlcvBar) -> bool
+OhlcvBar::is_outside_bar(&self, prev: &OhlcvBar) -> bool
+OhlcvBar::is_harami(&self, prev: &OhlcvBar) -> bool
+OhlcvBar::is_engulfing(&self, prev: &OhlcvBar) -> bool
+OhlcvBar::has_upper_wick(&self) -> bool
+OhlcvBar::has_lower_wick(&self) -> bool
+OhlcvBar::volume_notional(&self) -> Decimal         // volume * close
+OhlcvBar::range_pct(&self) -> Option<f64>           // (high - low) / open
+OhlcvBar::price_change_pct(&self, prev: &OhlcvBar) -> Option<f64>
+OhlcvBar::body_size(&self) -> Decimal               // |close - open|
+
+// Analytics added in rounds 35–41
+OhlcvBar::mean_volume(bars: &[OhlcvBar]) -> Option<Decimal>   // static
+OhlcvBar::vwap_deviation(&self) -> Option<f64>
+OhlcvBar::relative_volume(&self, avg_volume: Decimal) -> Option<f64>
+OhlcvBar::intraday_reversal(&self, prev: &OhlcvBar) -> bool
+OhlcvBar::high_close_ratio(&self) -> Option<f64>
+OhlcvBar::lower_shadow_pct(&self) -> Option<f64>
+OhlcvBar::open_close_ratio(&self) -> Option<f64>
+OhlcvBar::is_wide_range_bar(&self, threshold: Decimal) -> bool
+OhlcvBar::close_to_low_ratio(&self) -> Option<f64>   // (close - low) / (high - low)
+OhlcvBar::volume_per_trade(&self) -> Option<Decimal>
+OhlcvBar::price_range_overlap(&self, other: &OhlcvBar) -> bool
+OhlcvBar::bar_height_pct(&self) -> Option<f64>        // (high - low) / open
+OhlcvBar::is_bullish_engulfing(&self, prev: &OhlcvBar) -> bool
+OhlcvBar::close_gap(&self, prev: &OhlcvBar) -> Decimal  // open - prev.close
+OhlcvBar::close_above_midpoint(&self) -> bool
+OhlcvBar::close_momentum(&self, prev: &OhlcvBar) -> Decimal  // close - prev.close
+OhlcvBar::bar_range(&self) -> Decimal                 // high - low
 ```
 
 ### `norm` module
 
 ```rust
+// Min-max rolling normalizer
 MinMaxNormalizer::new(window_size: usize) -> MinMaxNormalizer  // panics if window_size == 0
 MinMaxNormalizer::update(&mut self, value: f64)                // O(1) amortized
 MinMaxNormalizer::normalize(&mut self, value: f64) -> Result<f64, StreamError>  // [0.0, 1.0]
@@ -385,6 +527,31 @@ MinMaxNormalizer::reset(&mut self)
 MinMaxNormalizer::len(&self) -> usize
 MinMaxNormalizer::is_empty(&self) -> bool
 MinMaxNormalizer::window_size(&self) -> usize
+MinMaxNormalizer::count_above(&self, threshold: f64) -> usize
+MinMaxNormalizer::normalized_range(&mut self) -> Option<f64>   // (max - min) / max
+MinMaxNormalizer::fraction_above_mid(&mut self) -> Option<f64> // fraction of window above midpoint
+
+// Z-score rolling normalizer
+ZScoreNormalizer::new(window_size: usize) -> ZScoreNormalizer
+ZScoreNormalizer::update(&mut self, value: f64)
+ZScoreNormalizer::normalize(&mut self, value: f64) -> Result<f64, StreamError>
+ZScoreNormalizer::mean(&self) -> Option<f64>
+ZScoreNormalizer::std_dev(&self) -> Option<f64>
+ZScoreNormalizer::variance_f64(&self) -> Option<f64>
+ZScoreNormalizer::len(&self) -> usize
+ZScoreNormalizer::is_empty(&self) -> bool
+ZScoreNormalizer::window_size(&self) -> usize
+ZScoreNormalizer::interquartile_range(&self) -> Option<f64>
+ZScoreNormalizer::percentile_rank(&self, value: f64) -> Option<f64>
+ZScoreNormalizer::ema_of_z_scores(&self, alpha: f64) -> Option<f64>
+ZScoreNormalizer::trim_outliers(&self, z_threshold: f64) -> Vec<f64>
+ZScoreNormalizer::is_outlier(&self, value: f64, z_threshold: f64) -> bool
+ZScoreNormalizer::clamp_to_window(&self, value: f64) -> f64
+ZScoreNormalizer::rolling_mean_change(&self) -> Option<f64>   // second_half_mean - first_half_mean
+ZScoreNormalizer::count_positive_z_scores(&self) -> usize
+ZScoreNormalizer::above_threshold_count(&self, z_threshold: f64) -> usize
+ZScoreNormalizer::window_span_f64(&self) -> Option<f64>       // max - min over window
+ZScoreNormalizer::is_mean_stable(&self, threshold: f64) -> bool
 ```
 
 ### `lorentz` module
@@ -398,6 +565,17 @@ LorentzTransform::inverse_transform(&self, p: SpacetimePoint) -> SpacetimePoint
 LorentzTransform::transform_batch(&self, points: &[SpacetimePoint]) -> Vec<SpacetimePoint>
 LorentzTransform::dilate_time(&self, t: f64) -> f64        // t' = gamma * t (x = 0)
 LorentzTransform::contract_length(&self, x: f64) -> f64   // x' = x / gamma (t = 0)
+LorentzTransform::spacetime_interval(&self, p: SpacetimePoint) -> f64  // t^2 - x^2
+LorentzTransform::rapidity(&self) -> f64                   // atanh(beta)
+LorentzTransform::relativistic_momentum(&self, mass: f64) -> f64  // gamma * mass * beta
+LorentzTransform::four_momentum(&self, mass: f64) -> (f64, f64)   // (E, p)
+LorentzTransform::velocity_addition(&self, other_beta: f64) -> Result<f64, StreamError>
+LorentzTransform::proper_acceleration(&self, coordinate_accel: f64) -> f64
+LorentzTransform::proper_length(&self, coordinate_length: f64) -> f64
+LorentzTransform::time_dilation_ms(&self, coordinate_time_ms: f64) -> f64
+LorentzTransform::boost_composition(&self, other: &LorentzTransform) -> Result<LorentzTransform, StreamError>
+LorentzTransform::beta_times_gamma(&self) -> f64           // β·γ
+LorentzTransform::energy_momentum_invariant(&self, mass: f64) -> f64  // E² - p² = m²
 
 SpacetimePoint::new(t: f64, x: f64) -> SpacetimePoint
 SpacetimePoint { t: f64, x: f64 }  // public fields
@@ -409,6 +587,8 @@ SpacetimePoint { t: f64, x: f64 }  // public fields
 HealthMonitor::new(default_stale_threshold_ms: u64) -> HealthMonitor
 HealthMonitor::with_circuit_breaker_threshold(self, threshold: u32) -> HealthMonitor
 HealthMonitor::register(&self, feed_id: impl Into<String>, stale_threshold_ms: Option<u64>)
+HealthMonitor::register_many(&self, feed_ids: &[impl AsRef<str>])
+HealthMonitor::register_batch(&self, feeds: &[(impl AsRef<str>, u64)])  // per-feed custom thresholds
 HealthMonitor::heartbeat(&self, feed_id: &str, ts_ms: u64) -> Result<(), StreamError>
 HealthMonitor::check_all(&self, now_ms: u64) -> Vec<StreamError>
 HealthMonitor::is_circuit_open(&self, feed_id: &str) -> bool
@@ -417,6 +597,15 @@ HealthMonitor::all_feeds(&self) -> Vec<FeedHealth>
 HealthMonitor::feed_count(&self) -> usize
 HealthMonitor::healthy_count(&self) -> usize
 HealthMonitor::stale_count(&self) -> usize
+HealthMonitor::degraded_count(&self) -> usize
+HealthMonitor::healthy_feed_ids(&self) -> Vec<String>
+HealthMonitor::unknown_feed_ids(&self) -> Vec<String>      // feeds with no heartbeat yet
+HealthMonitor::feeds_needing_check(&self) -> Vec<String>   // sorted non-Healthy feed IDs
+HealthMonitor::ratio_healthy(&self) -> f64                 // healthy / total
+HealthMonitor::total_tick_count(&self) -> u64
+HealthMonitor::last_updated_feed_id(&self) -> Option<String>
+HealthMonitor::is_any_stale(&self) -> bool
+HealthMonitor::min_healthy_age_ms(&self, now_ms: u64) -> Option<u64>
 
 FeedHealth::elapsed_ms(&self, now_ms: u64) -> Option<u64>
 ```
@@ -426,6 +615,21 @@ FeedHealth::elapsed_ms(&self, now_ms: u64) -> Option<u64>
 ```rust
 SessionAwareness::new(session: MarketSession) -> SessionAwareness
 SessionAwareness::status(&self, utc_ms: u64) -> Result<TradingStatus, StreamError>
+SessionAwareness::is_active(&self, utc_ms: u64) -> bool          // Open or Extended
+SessionAwareness::remaining_ms(&self, utc_ms: u64) -> Option<u64>
+SessionAwareness::time_until_close(&self, utc_ms: u64) -> Option<u64>
+SessionAwareness::minutes_until_close(&self, utc_ms: u64) -> Option<f64>
+SessionAwareness::session_duration(&self) -> u64
+SessionAwareness::is_pre_market(&self, utc_ms: u64) -> bool
+SessionAwareness::is_after_hours(&self, utc_ms: u64) -> bool
+SessionAwareness::session_label(&self) -> &'static str
+SessionAwareness::session_name(&self) -> &'static str
+SessionAwareness::seconds_until_open(&self, utc_ms: u64) -> f64
+SessionAwareness::is_closing_bell_minute(&self, utc_ms: u64) -> bool
+SessionAwareness::is_expiry_week(&self, date: chrono::NaiveDate) -> bool
+SessionAwareness::is_fomc_blackout_window(&self, date: chrono::NaiveDate) -> bool
+SessionAwareness::is_market_holiday_adjacent(&self, date: chrono::NaiveDate) -> bool
+SessionAwareness::day_of_week_name(&self, date: chrono::NaiveDate) -> &'static str
 
 is_tradeable(session: MarketSession, utc_ms: u64) -> Result<bool, StreamError>
 ```
@@ -542,9 +746,10 @@ use fin_stream::ohlcv::OhlcvBar;
 
 fn process_bar(bar: &OhlcvBar) {
     // Access typed fields: bar.open, bar.high, bar.low, bar.close, bar.volume
-    let range = bar.high - bar.low;
-    let body = (bar.close - bar.open).abs();
+    let range = bar.bar_range();
+    let body = bar.body_size();
     println!("range={range} body={body} trades={}", bar.trade_count);
+    println!("close_location={:.4}", bar.close_location_value().unwrap_or(0.0));
 }
 ```
 

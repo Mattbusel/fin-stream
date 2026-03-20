@@ -9,6 +9,98 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.1.0] - 2026-03-20
+
+### Added
+
+**`ohlcv` module — `OhlcvBar` analytics (rounds 35–41)**
+- `mean_volume(bars: &[OhlcvBar]) -> Option<Decimal>` — static helper; average volume across a slice
+- `vwap_deviation() -> Option<f64>` — deviation of close from VWAP
+- `relative_volume(avg_volume: Decimal) -> Option<f64>` — current volume / average volume
+- `intraday_reversal(prev: &OhlcvBar) -> bool` — detects close reversals against prior bar direction
+- `high_close_ratio() -> Option<f64>` — (high - close) / high
+- `lower_shadow_pct() -> Option<f64>` — lower shadow as fraction of total range
+- `open_close_ratio() -> Option<f64>` — open / close
+- `is_wide_range_bar(threshold: Decimal) -> bool` — true when high - low exceeds threshold
+- `close_to_low_ratio() -> Option<f64>` — (close - low) / (high - low)
+- `volume_per_trade() -> Option<Decimal>` — volume / trade_count
+- `price_range_overlap(other: &OhlcvBar) -> bool` — true when two bars share a price range
+- `bar_height_pct() -> Option<f64>` — (high - low) / open
+- `is_bullish_engulfing(prev: &OhlcvBar) -> bool` — classic two-bar bullish engulfing pattern
+- `close_gap(prev: &OhlcvBar) -> Decimal` — open - prev.close (gap between bars)
+- `close_above_midpoint() -> bool` — close > (high + low) / 2
+- `close_momentum(prev: &OhlcvBar) -> Decimal` — close - prev.close
+- `bar_range() -> Decimal` — high - low
+
+**`tick` module — `NormalizedTick` query methods (rounds 36–40)**
+- `is_above_price(reference: Decimal) -> bool`
+- `is_below_price(reference: Decimal) -> bool`
+- `is_at_price(target: Decimal) -> bool`
+- `price_change_from(reference: Decimal) -> Decimal`
+- `quantity_above(threshold: Decimal) -> bool`
+- `is_round_number(step: Decimal) -> bool`
+- `is_market_open_tick(session_start_ms: u64, session_end_ms: u64) -> bool`
+- `signed_quantity() -> Decimal` — positive for Buy, negative for Sell, zero for Unknown
+- `as_price_level() -> (Decimal, Decimal)` — (price, quantity) tuple
+
+**`book` module — `OrderBook` extended analytics (rounds 36–40)**
+- `total_value_at_level(side, price) -> Option<Decimal>` — price × quantity at a level
+- `ask_volume_above(price: Decimal) -> Decimal` — cumulative ask qty strictly above price
+- `bid_volume_below(price: Decimal) -> Decimal` — cumulative bid qty strictly below price
+- `total_notional_both_sides() -> Decimal` — sum of price × qty across all levels
+- `price_level_exists(side, price) -> bool`
+- `level_count_both_sides() -> usize`
+- `ask_price_at_rank(n: usize) -> Option<Decimal>` — nth best ask (0 = best)
+- `bid_price_at_rank(n: usize) -> Option<Decimal>` — nth best bid (0 = best)
+
+**`norm` module — rolling normalizer analytics (rounds 35–41)**
+- `MinMaxNormalizer::count_above(threshold: f64) -> usize`
+- `MinMaxNormalizer::normalized_range(&mut self) -> Option<f64>` — (max - min) / max
+- `MinMaxNormalizer::fraction_above_mid(&mut self) -> Option<f64>`
+- `ZScoreNormalizer::rolling_mean_change() -> Option<f64>` — second_half_mean − first_half_mean
+- `ZScoreNormalizer::count_positive_z_scores() -> usize`
+- `ZScoreNormalizer::above_threshold_count(z_threshold: f64) -> usize`
+- `ZScoreNormalizer::window_span_f64() -> Option<f64>` — max − min over the window
+- `ZScoreNormalizer::is_mean_stable(threshold: f64) -> bool`
+
+**`session` module — `SessionAwareness` calendar helpers (rounds 35–40)**
+- `is_fomc_blackout_window(date: NaiveDate) -> bool`
+- `is_market_holiday_adjacent(date: NaiveDate) -> bool`
+- `seconds_until_open(utc_ms: u64) -> f64`
+- `is_closing_bell_minute(utc_ms: u64) -> bool`
+- `day_of_week_name(date: NaiveDate) -> &'static str`
+- `is_expiry_week(date: NaiveDate) -> bool`
+- `session_name() -> &'static str`
+
+**`health` module — `HealthMonitor` batch/query helpers (rounds 35–41)**
+- `register_batch(feeds: &[(impl AsRef<str>, u64)])` — register multiple feeds with custom thresholds
+- `unknown_feed_ids() -> Vec<String>` — feeds registered but never heartbeated
+- `feeds_needing_check() -> Vec<String>` — sorted list of non-Healthy feed IDs
+- `ratio_healthy() -> f64` — healthy / total
+- `total_tick_count() -> u64`
+- `last_updated_feed_id() -> Option<String>`
+- `is_any_stale() -> bool`
+
+**`ring` module — `SpscRing` analytics (rounds 35–41)**
+- `sum_cloned() -> T` where `T: Clone + Sum + Default`
+- `average_cloned() -> Option<f64>` where `T: Clone + Into<f64>`
+- `peek_nth(n: usize) -> Option<T>` where `T: Clone` — 0 = oldest
+- `contains_cloned(value: &T) -> bool` where `T: Clone + PartialEq`
+- `max_cloned_by<F, K>(key: F) -> Option<T>`
+- `min_cloned_by<F, K>(key: F) -> Option<T>`
+- `to_vec_sorted() -> Vec<T>` where `T: Clone + Ord`
+
+**`lorentz` module — `LorentzTransform` invariants (round 41)**
+- `beta_times_gamma() -> f64` — β·γ (proper velocity component)
+- `energy_momentum_invariant(mass: f64) -> f64` — E² − p² = m² invariant check
+
+### Changed
+- Version bumped to `2.1.0`.
+- README expanded: all new methods documented in API Reference; ZScoreNormalizer
+  quickstart example added; module table updated to mention `ZScoreNormalizer`.
+
+---
+
 ## [1.1.0] - 2026-03-18
 
 ### Added
