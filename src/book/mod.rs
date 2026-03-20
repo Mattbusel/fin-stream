@@ -597,10 +597,7 @@ impl OrderBook {
     ///
     /// Returns `false` when either side is empty (no spread to compare).
     pub fn is_tight_spread(&self, threshold: Decimal) -> bool {
-        match self.spread() {
-            Some(s) => s <= threshold,
-            None => false,
-        }
+        self.spread().map_or(false, |s| s <= threshold)
     }
 
     /// Total number of price levels across both sides of the book.
@@ -1290,13 +1287,9 @@ impl OrderBook {
     /// Sums all ask quantities where `price <= best_ask + price_range`.
     /// Returns `Decimal::ZERO` if the ask side is empty.
     pub fn ask_volume_within(&self, price_range: Decimal) -> Decimal {
-        match self.best_ask() {
-            None => Decimal::ZERO,
-            Some(best) => {
-                let ceiling = best.price + price_range;
-                self.asks.range(..=ceiling).map(|(_, &q)| q).sum()
-            }
-        }
+        self.best_ask().map_or(Decimal::ZERO, |best| {
+            self.asks.range(..=(best.price + price_range)).map(|(_, &q)| q).sum()
+        })
     }
 
     /// Cumulative bid volume at levels within `price_range` of the best bid.
@@ -1304,13 +1297,9 @@ impl OrderBook {
     /// Sums all bid quantities where `price >= best_bid - price_range`.
     /// Returns `Decimal::ZERO` if the bid side is empty.
     pub fn bid_volume_within(&self, price_range: Decimal) -> Decimal {
-        match self.best_bid() {
-            None => Decimal::ZERO,
-            Some(best) => {
-                let floor = best.price - price_range;
-                self.bids.range(floor..).map(|(_, &q)| q).sum()
-            }
-        }
+        self.best_bid().map_or(Decimal::ZERO, |best| {
+            self.bids.range((best.price - price_range)..).map(|(_, &q)| q).sum()
+        })
     }
 
     /// Total ask quantity at price levels strictly above `price`.

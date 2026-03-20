@@ -1314,6 +1314,44 @@ impl OhlcvBar {
         let total: Decimal = bars.iter().map(|b| b.low).sum();
         Some(total / Decimal::from(bars.len() as u64))
     }
+
+    /// Minimum bar body size (|close − open|) across the slice.
+    ///
+    /// Returns `None` if the slice is empty.
+    pub fn min_body(bars: &[OhlcvBar]) -> Option<Decimal> {
+        bars.iter().map(|b| b.body()).reduce(Decimal::min)
+    }
+
+    /// Maximum bar body size (|close − open|) across the slice.
+    ///
+    /// Returns `None` if the slice is empty.
+    pub fn max_body(bars: &[OhlcvBar]) -> Option<Decimal> {
+        bars.iter().map(|b| b.body()).reduce(Decimal::max)
+    }
+
+    /// Average True Range expressed as a fraction of the mean close price.
+    ///
+    /// Returns `None` if the slice has fewer than 2 bars or mean close is zero.
+    pub fn atr_pct(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let atr = Self::average_true_range(bars)?;
+        let mean = Self::mean_close(bars)?;
+        if mean.is_zero() {
+            return None;
+        }
+        (atr / mean).to_f64()
+    }
+
+    /// Count of bars (from index 1 onward) whose close strictly exceeds the
+    /// previous bar's high — i.e., upside breakout bars.
+    pub fn breakout_count(bars: &[OhlcvBar]) -> usize {
+        if bars.len() < 2 {
+            return 0;
+        }
+        bars.windows(2)
+            .filter(|w| w[1].close > w[0].high)
+            .count()
+    }
 }
 
 impl std::fmt::Display for OhlcvBar {

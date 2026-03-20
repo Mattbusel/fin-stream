@@ -872,6 +872,36 @@ impl NormalizedTick {
         ticks.iter().max_by(|a, b| a.quantity.cmp(&b.quantity))
     }
 
+    /// Count of ticks whose quantity strictly exceeds `threshold`.
+    pub fn large_trade_count(ticks: &[NormalizedTick], threshold: Decimal) -> usize {
+        ticks.iter().filter(|t| t.quantity > threshold).count()
+    }
+
+    /// Interquartile range (Q3 − Q1) of tick prices.
+    ///
+    /// Returns `None` if the slice has fewer than 4 elements.
+    pub fn price_iqr(ticks: &[NormalizedTick]) -> Option<Decimal> {
+        let n = ticks.len();
+        if n < 4 {
+            return None;
+        }
+        let mut prices: Vec<Decimal> = ticks.iter().map(|t| t.price).collect();
+        prices.sort();
+        let q1_idx = n / 4;
+        let q3_idx = 3 * n / 4;
+        Some(prices[q3_idx] - prices[q1_idx])
+    }
+
+    /// Fraction of ticks that are buy-side.
+    ///
+    /// Returns `None` if the slice is empty.
+    pub fn fraction_buy(ticks: &[NormalizedTick]) -> Option<f64> {
+        if ticks.is_empty() {
+            return None;
+        }
+        Some(Self::buy_count(ticks) as f64 / ticks.len() as f64)
+    }
+
 }
 
 impl std::fmt::Display for NormalizedTick {
@@ -2965,5 +2995,76 @@ mod tests {
         let ticks = [t1, t2, t3];
         let largest = NormalizedTick::largest_trade(&ticks).unwrap();
         assert_eq!(largest.quantity, rust_decimal_macros::dec!(10));
+    }
+
+    #[test]
+    fn test_large_trade_count_zero_for_empty_slice() {
+        assert_eq!(NormalizedTick::large_trade_count(&[], rust_decimal_macros::dec!(1)), 0);
+    }
+
+    #[test]
+    fn test_large_trade_count_counts_trades_above_threshold() {
+        use rust_decimal_macros::dec;
+        let t1 = make_tick_pq(dec!(100), dec!(0.5));
+        let t2 = make_tick_pq(dec!(100), dec!(5));
+        let t3 = make_tick_pq(dec!(100), dec!(10));
+        assert_eq!(NormalizedTick::large_trade_count(&[t1, t2, t3], dec!(1)), 2);
+    }
+
+    #[test]
+    fn test_large_trade_count_strict_greater_than() {
+        use rust_decimal_macros::dec;
+        let t = make_tick_pq(dec!(100), dec!(1));
+        // quantity == threshold → not counted (strict >)
+        assert_eq!(NormalizedTick::large_trade_count(&[t], dec!(1)), 0);
+    }
+
+    #[test]
+    fn test_price_iqr_none_for_small_slice() {
+        let t = make_tick_pq(rust_decimal_macros::dec!(100), rust_decimal_macros::dec!(1));
+        assert!(NormalizedTick::price_iqr(&[t.clone(), t.clone(), t]).is_none());
+    }
+
+    #[test]
+    fn test_price_iqr_positive_for_varied_prices() {
+        use rust_decimal_macros::dec;
+        let ticks: Vec<_> = [dec!(10), dec!(20), dec!(30), dec!(40), dec!(50), dec!(60), dec!(70), dec!(80)]
+            .iter()
+            .map(|&p| make_tick_pq(p, dec!(1)))
+            .collect();
+        let iqr = NormalizedTick::price_iqr(&ticks).unwrap();
+        assert!(iqr > dec!(0));
+    }
+
+    #[test]
+    fn test_fraction_buy_none_for_empty_slice() {
+        assert!(NormalizedTick::fraction_buy(&[]).is_none());
+    }
+
+    #[test]
+    fn test_fraction_buy_zero_when_no_buys() {
+        use rust_decimal_macros::dec;
+        let mut t = make_tick_pq(dec!(100), dec!(1));
+        t.side = Some(TradeSide::Sell);
+        assert_eq!(NormalizedTick::fraction_buy(&[t]), Some(0.0));
+    }
+
+    #[test]
+    fn test_fraction_buy_one_when_all_buys() {
+        use rust_decimal_macros::dec;
+        let mut t = make_tick_pq(dec!(100), dec!(1));
+        t.side = Some(TradeSide::Buy);
+        assert_eq!(NormalizedTick::fraction_buy(&[t]), Some(1.0));
+    }
+
+    #[test]
+    fn test_fraction_buy_half_for_equal_mix() {
+        use rust_decimal_macros::dec;
+        let mut buy = make_tick_pq(dec!(100), dec!(1));
+        buy.side = Some(TradeSide::Buy);
+        let mut sell = make_tick_pq(dec!(100), dec!(1));
+        sell.side = Some(TradeSide::Sell);
+        let frac = NormalizedTick::fraction_buy(&[buy, sell]).unwrap();
+        assert!((frac - 0.5).abs() < 1e-9);
     }
 }

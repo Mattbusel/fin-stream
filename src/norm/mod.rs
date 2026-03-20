@@ -211,10 +211,7 @@ impl MinMaxNormalizer {
     ///
     /// Returns `value` unchanged if the window is empty (no clamping possible).
     pub fn clamp_to_window(&mut self, value: Decimal) -> Decimal {
-        match self.min_max() {
-            None => value,
-            Some((min, max)) => value.max(min).min(max),
-        }
+        self.min_max().map_or(value, |(min, max)| value.max(min).min(max))
     }
 
     /// Midpoint of the current window: `(min + max) / 2`.
@@ -651,6 +648,24 @@ impl MinMaxNormalizer {
             .copied()
             .filter(|&v| !self.is_outlier(v, sigma))
             .collect()
+    }
+
+    /// Z-score of the most recently added value.
+    ///
+    /// Returns `None` if the window has fewer than 2 elements or standard
+    /// deviation is zero.
+    pub fn z_score_of_latest(&self) -> Option<f64> {
+        self.z_score(self.latest()?)
+    }
+
+    /// Signed deviation of `value` from the window mean, expressed as a
+    /// floating-point number.
+    ///
+    /// Returns `None` if the window is empty.
+    pub fn deviation_from_mean(&self, value: Decimal) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let mean = self.mean()?;
+        (value - mean).to_f64()
     }
 }
 
@@ -1448,6 +1463,53 @@ mod tests {
         let trimmed = n.trim_outliers(0.0);
         assert_eq!(trimmed.len(), 1); // only the mean value (z=0) passes
     }
+
+    // ── MinMaxNormalizer::z_score_of_latest ───────────────────────────────────
+
+    #[test]
+    fn test_minmax_z_score_of_latest_none_for_empty_window() {
+        assert!(norm(3).z_score_of_latest().is_none());
+    }
+
+    #[test]
+    fn test_minmax_z_score_of_latest_zero_for_single_value() {
+        let mut n = norm(5);
+        n.update(dec!(10));
+        // std_dev is zero for single value → None
+        assert!(n.z_score_of_latest().is_none());
+    }
+
+    #[test]
+    fn test_minmax_z_score_of_latest_positive_for_above_mean() {
+        let mut n = norm(5);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4), dec!(10)] { n.update(v); }
+        let z = n.z_score_of_latest().unwrap();
+        assert!(z > 0.0, "latest value is above mean → positive z-score");
+    }
+
+    // ── MinMaxNormalizer::deviation_from_mean ─────────────────────────────────
+
+    #[test]
+    fn test_minmax_deviation_from_mean_none_for_empty_window() {
+        assert!(norm(3).deviation_from_mean(dec!(5)).is_none());
+    }
+
+    #[test]
+    fn test_minmax_deviation_from_mean_zero_at_mean() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        // mean = 2.5
+        let dev = n.deviation_from_mean(dec!(2.5)).unwrap();
+        assert!(dev.abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_minmax_deviation_from_mean_positive_above_mean() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let dev = n.deviation_from_mean(dec!(5)).unwrap();
+        assert!(dev > 0.0);
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -1682,10 +1744,7 @@ impl ZScoreNormalizer {
         if sd == 0.0 {
             return false;
         }
-        let mean_f64 = match self.mean().and_then(|m| m.to_f64()) {
-            Some(m) => m,
-            None => return false,
-        };
+        let Some(mean_f64) = self.mean().and_then(|m| m.to_f64()) else { return false; };
         let val_f64 = value.to_f64().unwrap_or(mean_f64);
         ((val_f64 - mean_f64) / sd).abs() > z_threshold
     }
@@ -1768,17 +1827,11 @@ impl ZScoreNormalizer {
         if self.window.len() < 2 {
             return false;
         }
-        let std_dev = match self.std_dev() {
-            None => return false,
-            Some(sd) => sd,
-        };
+        let Some(std_dev) = self.std_dev() else { return false; };
         if std_dev == 0.0 {
             return true;
         }
-        let mean = match self.mean() {
-            None => return false,
-            Some(m) => m,
-        };
+        let Some(mean) = self.mean() else { return false; };
         use rust_decimal::prelude::ToPrimitive;
         let diff = (value - mean).abs().to_f64().unwrap_or(f64::MAX);
         diff / std_dev <= sigma_tolerance
@@ -1995,12 +2048,12 @@ impl ZScoreNormalizer {
     pub fn trim_outliers(&self, sigma: f64) -> Vec<Decimal> {
         use rust_decimal::prelude::ToPrimitive;
         if self.window.is_empty() { return vec![]; }
-        let mean = match self.mean() { Some(m) => m, None => return vec![] };
+        let Some(mean) = self.mean() else { return vec![]; };
         let std = match self.std_dev() {
             Some(s) if s > 0.0 => s,
             _ => return self.window.iter().copied().collect(),
         };
-        let mean_f64 = match mean.to_f64() { Some(m) => m, None => return vec![] };
+        let Some(mean_f64) = mean.to_f64() else { return vec![]; };
         self.window.iter().copied()
             .filter(|v| {
                 v.to_f64()
@@ -2203,6 +2256,13 @@ impl ZScoreNormalizer {
             return None;
         }
         (span / mean).to_f64()
+    }
+
+    /// Returns the (running_min, running_max) pair for the current window.
+    ///
+    /// Returns `None` if the window is empty.
+    pub fn min_max(&self) -> Option<(Decimal, Decimal)> {
+        Some((self.running_min()?, self.running_max()?))
     }
 }
 
@@ -3318,5 +3378,26 @@ mod zscore_stability_tests {
         let mut n = znorm(3);
         for v in [dec!(10), dec!(20), dec!(30)] { n.update(v); }
         assert_eq!(n.clamp_to_window(dec!(15)), dec!(15));
+    }
+
+    // ── ZScoreNormalizer::min_max ─────────────────────────────────────────────
+
+    #[test]
+    fn test_zscore_min_max_none_for_empty_window() {
+        assert!(znorm(3).min_max().is_none());
+    }
+
+    #[test]
+    fn test_zscore_min_max_returns_correct_pair() {
+        let mut n = znorm(4);
+        for v in [dec!(5), dec!(15), dec!(10), dec!(20)] { n.update(v); }
+        assert_eq!(n.min_max(), Some((dec!(5), dec!(20))));
+    }
+
+    #[test]
+    fn test_zscore_min_max_single_value() {
+        let mut n = znorm(3);
+        n.update(dec!(42));
+        assert_eq!(n.min_max(), Some((dec!(42), dec!(42))));
     }
 }
