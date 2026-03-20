@@ -624,6 +624,34 @@ impl MinMaxNormalizer {
     pub fn latest(&self) -> Option<Decimal> {
         self.window.back().copied()
     }
+
+    /// Sum of all values currently in the window.
+    ///
+    /// Returns `None` if the window is empty.
+    pub fn sum(&self) -> Option<Decimal> {
+        if self.window.is_empty() {
+            return None;
+        }
+        Some(self.window.iter().copied().sum())
+    }
+
+    /// Returns `true` if the absolute z-score of `value` exceeds `z_threshold`.
+    pub fn is_outlier(&self, value: Decimal, z_threshold: f64) -> bool {
+        self.z_score(value).map_or(false, |z| z.abs() > z_threshold)
+    }
+
+    /// Returns a copy of the window values that fall within `sigma` standard
+    /// deviations of the mean. Values whose absolute z-score exceeds `sigma`
+    /// are excluded.
+    ///
+    /// Returns an empty `Vec` if the window has fewer than 2 elements.
+    pub fn trim_outliers(&self, sigma: f64) -> Vec<Decimal> {
+        self.window
+            .iter()
+            .copied()
+            .filter(|&v| !self.is_outlier(v, sigma))
+            .collect()
+    }
 }
 
 #[cfg(test)]
@@ -1359,6 +1387,67 @@ mod tests {
         // p=0.5 → idx=2.0 → exact middle = 30
         assert_eq!(n.percentile_value(0.5), Some(dec!(30)));
     }
+
+    // ── MinMaxNormalizer::sum ─────────────────────────────────────────────────
+
+    #[test]
+    fn test_minmax_sum_none_for_empty_window() {
+        assert!(norm(3).sum().is_none());
+    }
+
+    #[test]
+    fn test_minmax_sum_single_value() {
+        let mut n = norm(3);
+        n.update(dec!(7));
+        assert_eq!(n.sum(), Some(dec!(7)));
+    }
+
+    #[test]
+    fn test_minmax_sum_multiple_values() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        assert_eq!(n.sum(), Some(dec!(10)));
+    }
+
+    // ── MinMaxNormalizer::is_outlier ──────────────────────────────────────────
+
+    #[test]
+    fn test_minmax_is_outlier_false_for_empty_window() {
+        assert!(!norm(3).is_outlier(dec!(100), 2.0));
+    }
+
+    #[test]
+    fn test_minmax_is_outlier_false_for_in_range_value() {
+        let mut n = norm(5);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4), dec!(5)] { n.update(v); }
+        assert!(!n.is_outlier(dec!(3), 2.0));
+    }
+
+    #[test]
+    fn test_minmax_is_outlier_true_for_extreme_value() {
+        let mut n = norm(5);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4), dec!(5)] { n.update(v); }
+        assert!(n.is_outlier(dec!(100), 2.0));
+    }
+
+    // ── MinMaxNormalizer::trim_outliers ───────────────────────────────────────
+
+    #[test]
+    fn test_minmax_trim_outliers_returns_all_when_no_outliers() {
+        let mut n = norm(5);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4), dec!(5)] { n.update(v); }
+        let trimmed = n.trim_outliers(10.0);
+        assert_eq!(trimmed.len(), 5);
+    }
+
+    #[test]
+    fn test_minmax_trim_outliers_removes_extreme_values() {
+        let mut n = norm(5);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4), dec!(5)] { n.update(v); }
+        // sigma=0 means everything is an outlier
+        let trimmed = n.trim_outliers(0.0);
+        assert_eq!(trimmed.len(), 1); // only the mean value (z=0) passes
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -2066,6 +2155,25 @@ impl ZScoreNormalizer {
             alpha * vf + (1.0 - alpha) * acc
         });
         Some(result)
+    }
+
+    /// Midpoint between the running minimum and maximum in the window.
+    ///
+    /// Returns `None` if the window is empty.
+    pub fn midpoint(&self) -> Option<Decimal> {
+        let lo = self.running_min()?;
+        let hi = self.running_max()?;
+        Some((lo + hi) / Decimal::from(2u64))
+    }
+
+    /// Clamps `value` to the [running_min, running_max] range of the window.
+    ///
+    /// Returns `value` unchanged if the window is empty.
+    pub fn clamp_to_window(&self, value: Decimal) -> Decimal {
+        match (self.running_min(), self.running_max()) {
+            (Some(lo), Some(hi)) => value.max(lo).min(hi),
+            _ => value,
+        }
     }
 
     /// Fraction of window values strictly above the midpoint between the
@@ -3166,5 +3274,49 @@ mod zscore_stability_tests {
         // span = 12 - 8 = 4, mean = 10, ratio = 0.4
         let nr = n.normalized_range().unwrap();
         assert!((nr - 0.4).abs() < 1e-9);
+    }
+
+    // ── ZScoreNormalizer::midpoint ────────────────────────────────────────────
+
+    #[test]
+    fn test_zscore_midpoint_none_for_empty_window() {
+        assert!(znorm(3).midpoint().is_none());
+    }
+
+    #[test]
+    fn test_zscore_midpoint_correct_for_known_range() {
+        let mut n = znorm(4);
+        for v in [dec!(10), dec!(20), dec!(30), dec!(40)] { n.update(v); }
+        // min=10, max=40, midpoint=25
+        assert_eq!(n.midpoint(), Some(dec!(25)));
+    }
+
+    // ── ZScoreNormalizer::clamp_to_window ─────────────────────────────────────
+
+    #[test]
+    fn test_zscore_clamp_returns_value_unchanged_on_empty_window() {
+        let n = znorm(3);
+        assert_eq!(n.clamp_to_window(dec!(50)), dec!(50));
+    }
+
+    #[test]
+    fn test_zscore_clamp_clamps_to_min() {
+        let mut n = znorm(3);
+        for v in [dec!(10), dec!(20), dec!(30)] { n.update(v); }
+        assert_eq!(n.clamp_to_window(dec!(-5)), dec!(10));
+    }
+
+    #[test]
+    fn test_zscore_clamp_clamps_to_max() {
+        let mut n = znorm(3);
+        for v in [dec!(10), dec!(20), dec!(30)] { n.update(v); }
+        assert_eq!(n.clamp_to_window(dec!(100)), dec!(30));
+    }
+
+    #[test]
+    fn test_zscore_clamp_passes_through_in_range_value() {
+        let mut n = znorm(3);
+        for v in [dec!(10), dec!(20), dec!(30)] { n.update(v); }
+        assert_eq!(n.clamp_to_window(dec!(15)), dec!(15));
     }
 }

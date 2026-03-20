@@ -1259,6 +1259,61 @@ impl OhlcvBar {
         }
         Some(Self::bullish_count(bars) as f64 / down as f64)
     }
+
+    /// Volume-weighted average close price across the slice.
+    ///
+    /// Returns `None` if the slice is empty or total volume is zero.
+    pub fn volume_weighted_close(bars: &[OhlcvBar]) -> Option<Decimal> {
+        if bars.is_empty() {
+            return None;
+        }
+        let total_volume: Decimal = bars.iter().map(|b| b.volume).sum();
+        if total_volume.is_zero() {
+            return None;
+        }
+        let weighted_sum: Decimal = bars.iter().map(|b| b.close * b.volume).sum();
+        Some(weighted_sum / total_volume)
+    }
+
+    /// Percentage change in close price from the first bar to the last.
+    ///
+    /// Returns `None` if the slice has fewer than 2 bars or the first
+    /// close is zero.
+    pub fn rolling_return(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let n = bars.len();
+        if n < 2 {
+            return None;
+        }
+        let first = bars[0].close;
+        let last = bars[n - 1].close;
+        if first.is_zero() {
+            return None;
+        }
+        ((last - first) / first).to_f64()
+    }
+
+    /// Mean of the high prices across the slice.
+    ///
+    /// Returns `None` if the slice is empty.
+    pub fn average_high(bars: &[OhlcvBar]) -> Option<Decimal> {
+        if bars.is_empty() {
+            return None;
+        }
+        let total: Decimal = bars.iter().map(|b| b.high).sum();
+        Some(total / Decimal::from(bars.len() as u64))
+    }
+
+    /// Mean of the low prices across the slice.
+    ///
+    /// Returns `None` if the slice is empty.
+    pub fn average_low(bars: &[OhlcvBar]) -> Option<Decimal> {
+        if bars.is_empty() {
+            return None;
+        }
+        let total: Decimal = bars.iter().map(|b| b.low).sum();
+        Some(total / Decimal::from(bars.len() as u64))
+    }
 }
 
 impl std::fmt::Display for OhlcvBar {
@@ -4393,5 +4448,87 @@ mod tests {
         let bars = vec![bull.clone(), bull, bear];
         let ratio = OhlcvBar::up_down_ratio(&bars).unwrap();
         assert!((ratio - 2.0).abs() < 1e-9);
+    }
+
+    // ── OhlcvBar::volume_weighted_close ───────────────────────────────────────
+
+    #[test]
+    fn test_volume_weighted_close_none_for_empty_slice() {
+        assert!(OhlcvBar::volume_weighted_close(&[]).is_none());
+    }
+
+    #[test]
+    fn test_volume_weighted_close_single_bar() {
+        let mut bar = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        bar.volume = dec!(10);
+        assert_eq!(OhlcvBar::volume_weighted_close(&[bar]), Some(dec!(105)));
+    }
+
+    #[test]
+    fn test_volume_weighted_close_weights_by_volume() {
+        let mut b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100));
+        b1.volume = dec!(1);
+        let mut b2 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(200));
+        b2.volume = dec!(3);
+        // vwc = (100*1 + 200*3) / (1+3) = 700 / 4 = 175
+        assert_eq!(OhlcvBar::volume_weighted_close(&[b1, b2]), Some(dec!(175)));
+    }
+
+    // ── OhlcvBar::rolling_return ──────────────────────────────────────────────
+
+    #[test]
+    fn test_rolling_return_none_for_empty_slice() {
+        assert!(OhlcvBar::rolling_return(&[]).is_none());
+    }
+
+    #[test]
+    fn test_rolling_return_none_for_single_bar() {
+        assert!(OhlcvBar::rolling_return(&[make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105))]).is_none());
+    }
+
+    #[test]
+    fn test_rolling_return_positive_when_close_rises() {
+        let b1 = make_ohlcv_bar(dec!(100), dec!(105), dec!(95), dec!(100));
+        let b2 = make_ohlcv_bar(dec!(100), dec!(115), dec!(95), dec!(110));
+        let ret = OhlcvBar::rolling_return(&[b1, b2]).unwrap();
+        assert!((ret - 0.1).abs() < 1e-9);
+    }
+
+    // ── OhlcvBar::average_high / average_low ─────────────────────────────────
+
+    #[test]
+    fn test_average_high_none_for_empty_slice() {
+        assert!(OhlcvBar::average_high(&[]).is_none());
+    }
+
+    #[test]
+    fn test_average_high_single_bar() {
+        let bar = make_ohlcv_bar(dec!(100), dec!(120), dec!(90), dec!(105));
+        assert_eq!(OhlcvBar::average_high(&[bar]), Some(dec!(120)));
+    }
+
+    #[test]
+    fn test_average_high_multiple_bars() {
+        let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let b2 = make_ohlcv_bar(dec!(100), dec!(130), dec!(90), dec!(105));
+        assert_eq!(OhlcvBar::average_high(&[b1, b2]), Some(dec!(120)));
+    }
+
+    #[test]
+    fn test_average_low_none_for_empty_slice() {
+        assert!(OhlcvBar::average_low(&[]).is_none());
+    }
+
+    #[test]
+    fn test_average_low_single_bar() {
+        let bar = make_ohlcv_bar(dec!(100), dec!(120), dec!(80), dec!(105));
+        assert_eq!(OhlcvBar::average_low(&[bar]), Some(dec!(80)));
+    }
+
+    #[test]
+    fn test_average_low_multiple_bars() {
+        let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(80), dec!(105));
+        let b2 = make_ohlcv_bar(dec!(100), dec!(130), dec!(60), dec!(105));
+        assert_eq!(OhlcvBar::average_low(&[b1, b2]), Some(dec!(70)));
     }
 }

@@ -500,10 +500,7 @@ impl SessionAwareness {
     /// Returns `true` if the current time is within the final 60 minutes of
     /// the regular session.
     pub fn is_last_trading_hour(&self, utc_ms: u64) -> bool {
-        match self.remaining_session_ms(utc_ms) {
-            Some(remaining) => remaining <= 3_600_000,
-            None => false,
-        }
+        self.remaining_session_ms(utc_ms).map_or(false, |r| r <= 3_600_000)
     }
 
     /// Returns `true` if the session is open and `utc_ms` is within
@@ -513,10 +510,7 @@ impl SessionAwareness {
     /// etc.).  Uses the same remaining-time calculation as
     /// [`remaining_session_ms`](Self::remaining_session_ms).
     pub fn is_near_close(&self, utc_ms: u64, margin_ms: u64) -> bool {
-        match self.remaining_session_ms(utc_ms) {
-            Some(remaining) => remaining <= margin_ms,
-            None => false,
-        }
+        self.remaining_session_ms(utc_ms).map_or(false, |r| r <= margin_ms)
     }
 
     /// Duration of the regular (non-extended) session in milliseconds.
@@ -533,10 +527,7 @@ impl SessionAwareness {
     /// The opening range is a commonly watched period for establishing the
     /// day's initial price range. Returns `false` outside the session.
     pub fn is_opening_range(&self, utc_ms: u64) -> bool {
-        match self.time_in_session_ms(utc_ms) {
-            Some(elapsed) => elapsed < 30 * 60 * 1_000,
-            None => false,
-        }
+        self.time_in_session_ms(utc_ms).map_or(false, |e| e < 30 * 60 * 1_000)
     }
 
     /// Returns `true` if the session is between 25 % and 75 % complete.
@@ -545,20 +536,14 @@ impl SessionAwareness {
     /// Returns `false` outside the session or when session progress is
     /// unavailable (e.g. `Crypto`).
     pub fn is_mid_session(&self, utc_ms: u64) -> bool {
-        match self.session_progress(utc_ms) {
-            Some(p) => p >= 0.25 && p <= 0.75,
-            None => false,
-        }
+        self.session_progress(utc_ms).map_or(false, |p| p >= 0.25 && p <= 0.75)
     }
 
     /// Returns `true` if the session is in the first half (< 50%) of its duration.
     ///
     /// Returns `false` outside the session.
     pub fn is_first_half(&self, utc_ms: u64) -> bool {
-        match self.session_progress(utc_ms) {
-            Some(p) => p < 0.5,
-            None => false,
-        }
+        self.session_progress(utc_ms).map_or(false, |p| p < 0.5)
     }
 
     /// Returns which half of the trading session we are in: `1` for the first half,
@@ -606,20 +591,14 @@ impl SessionAwareness {
     ///
     /// Returns `false` outside the session.
     pub fn is_first_quarter(&self, utc_ms: u64) -> bool {
-        match self.session_progress(utc_ms) {
-            Some(p) => p < 0.25,
-            None => false,
-        }
+        self.session_progress(utc_ms).map_or(false, |p| p < 0.25)
     }
 
     /// Returns `true` if the session is in the last 25% of its duration.
     ///
     /// Returns `false` outside the session.
     pub fn is_last_quarter(&self, utc_ms: u64) -> bool {
-        match self.session_progress(utc_ms) {
-            Some(p) => p > 0.75,
-            None => false,
-        }
+        self.session_progress(utc_ms).map_or(false, |p| p > 0.75)
     }
 
     /// Minutes elapsed since the session opened.
@@ -633,10 +612,7 @@ impl SessionAwareness {
     ///
     /// Returns `false` outside the session.
     pub fn is_power_hour(&self, utc_ms: u64) -> bool {
-        match self.session_progress(utc_ms) {
-            Some(p) => p > (5.5 / 6.5),
-            None => false,
-        }
+        self.session_progress(utc_ms).map_or(false, |p| p > (5.5 / 6.5))
     }
 
     /// Returns `true` if the session is overnight: the market is closed
@@ -672,10 +648,7 @@ impl SessionAwareness {
     /// Returns `true` if the session is open and within the last 60 seconds of
     /// the regular trading session.
     pub fn is_last_minute(&self, utc_ms: u64) -> bool {
-        match self.remaining_session_ms(utc_ms) {
-            Some(r) => r <= 60_000,
-            None => false,
-        }
+        self.remaining_session_ms(utc_ms).map_or(false, |r| r <= 60_000)
     }
 
     /// Returns the week of the month (1–5) for `date`.
@@ -735,10 +708,7 @@ impl SessionAwareness {
         if self.session != MarketSession::UsEquity {
             return false;
         }
-        match self.time_in_session_ms(utc_ms) {
-            Some(elapsed) => elapsed >= 150 * 60 * 1_000 && elapsed < 210 * 60 * 1_000,
-            None => false,
-        }
+        self.time_in_session_ms(utc_ms).map_or(false, |e| e >= 150 * 60 * 1_000 && e < 210 * 60 * 1_000)
     }
 
     /// Returns `true` if `date` is a triple witching day (third Friday of March, June,
@@ -799,10 +769,7 @@ impl SessionAwareness {
     /// Returns `true` if `utc_ms` falls within the first 60 seconds of the
     /// regular trading session (the "opening bell" minute).
     pub fn is_opening_bell_minute(&self, utc_ms: u64) -> bool {
-        match self.time_in_session_ms(utc_ms) {
-            Some(elapsed) => elapsed <= 60_000,
-            None => false,
-        }
+        self.time_in_session_ms(utc_ms).map_or(false, |e| e <= 60_000)
     }
 
     /// Returns `true` if `utc_ms` falls within the final 60 seconds of the session.
@@ -812,13 +779,8 @@ impl SessionAwareness {
         if self.session != MarketSession::UsEquity {
             return false;
         }
-        match self.time_in_session_ms(utc_ms) {
-            Some(elapsed) => {
-                let session_length_ms = 6 * 3_600_000 + 30 * 60_000; // 6.5h
-                elapsed + 60_000 >= session_length_ms
-            }
-            None => false,
-        }
+        const SESSION_LENGTH_MS: u64 = 6 * 3_600_000 + 30 * 60_000; // 6.5h
+        self.time_in_session_ms(utc_ms).map_or(false, |e| e + 60_000 >= SESSION_LENGTH_MS)
     }
 
     /// Returns `true` if `date` is the day immediately before or after a major

@@ -786,6 +786,41 @@ impl NormalizedTick {
         ticks.iter().map(|t| t.quantity).reduce(Decimal::max)
     }
 
+    /// Minimum single-trade quantity across the slice.
+    ///
+    /// Returns `None` if the slice is empty.
+    pub fn min_quantity(ticks: &[NormalizedTick]) -> Option<Decimal> {
+        ticks.iter().map(|t| t.quantity).reduce(Decimal::min)
+    }
+
+    /// Number of buy-side ticks in the slice.
+    pub fn buy_count(ticks: &[NormalizedTick]) -> usize {
+        ticks.iter().filter(|t| t.is_buy()).count()
+    }
+
+    /// Number of sell-side ticks in the slice.
+    pub fn sell_count(ticks: &[NormalizedTick]) -> usize {
+        ticks.iter().filter(|t| t.is_sell()).count()
+    }
+
+    /// Percentage price change from the first to the last tick.
+    ///
+    /// Returns `None` if the slice has fewer than 2 ticks or the first
+    /// tick's price is zero.
+    pub fn price_momentum(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let n = ticks.len();
+        if n < 2 {
+            return None;
+        }
+        let first = ticks[0].price;
+        let last = ticks[n - 1].price;
+        if first.is_zero() {
+            return None;
+        }
+        ((last - first) / first).to_f64()
+    }
+
     /// Minimum price across the slice.
     ///
     /// Returns `None` if the slice is empty.
@@ -2762,6 +2797,81 @@ mod tests {
         let t2 = make_tick_pq(rust_decimal_macros::dec!(100), rust_decimal_macros::dec!(10));
         let t3 = make_tick_pq(rust_decimal_macros::dec!(100), rust_decimal_macros::dec!(5));
         assert_eq!(NormalizedTick::max_quantity(&[t1, t2, t3]), Some(rust_decimal_macros::dec!(10)));
+    }
+
+    #[test]
+    fn test_min_quantity_none_for_empty_slice() {
+        assert!(NormalizedTick::min_quantity(&[]).is_none());
+    }
+
+    #[test]
+    fn test_min_quantity_returns_smallest() {
+        let t1 = make_tick_pq(rust_decimal_macros::dec!(100), rust_decimal_macros::dec!(5));
+        let t2 = make_tick_pq(rust_decimal_macros::dec!(100), rust_decimal_macros::dec!(1));
+        let t3 = make_tick_pq(rust_decimal_macros::dec!(100), rust_decimal_macros::dec!(3));
+        assert_eq!(NormalizedTick::min_quantity(&[t1, t2, t3]), Some(rust_decimal_macros::dec!(1)));
+    }
+
+    #[test]
+    fn test_buy_count_zero_for_empty_slice() {
+        assert_eq!(NormalizedTick::buy_count(&[]), 0);
+    }
+
+    #[test]
+    fn test_buy_count_counts_only_buys() {
+        use rust_decimal_macros::dec;
+        let mut buy = make_tick_pq(dec!(100), dec!(1));
+        buy.side = Some(TradeSide::Buy);
+        let mut sell = make_tick_pq(dec!(100), dec!(1));
+        sell.side = Some(TradeSide::Sell);
+        let neutral = make_tick_pq(dec!(100), dec!(1));
+        assert_eq!(NormalizedTick::buy_count(&[buy, sell, neutral]), 1);
+    }
+
+    #[test]
+    fn test_sell_count_zero_for_empty_slice() {
+        assert_eq!(NormalizedTick::sell_count(&[]), 0);
+    }
+
+    #[test]
+    fn test_sell_count_counts_only_sells() {
+        use rust_decimal_macros::dec;
+        let mut buy = make_tick_pq(dec!(100), dec!(1));
+        buy.side = Some(TradeSide::Buy);
+        let mut sell1 = make_tick_pq(dec!(100), dec!(1));
+        sell1.side = Some(TradeSide::Sell);
+        let mut sell2 = make_tick_pq(dec!(100), dec!(1));
+        sell2.side = Some(TradeSide::Sell);
+        assert_eq!(NormalizedTick::sell_count(&[buy, sell1, sell2]), 2);
+    }
+
+    #[test]
+    fn test_price_momentum_none_for_empty_slice() {
+        assert!(NormalizedTick::price_momentum(&[]).is_none());
+    }
+
+    #[test]
+    fn test_price_momentum_none_for_single_tick() {
+        let t = make_tick_pq(rust_decimal_macros::dec!(100), rust_decimal_macros::dec!(1));
+        assert!(NormalizedTick::price_momentum(&[t]).is_none());
+    }
+
+    #[test]
+    fn test_price_momentum_positive_when_price_rises() {
+        use rust_decimal_macros::dec;
+        let t1 = make_tick_pq(dec!(100), dec!(1));
+        let t2 = make_tick_pq(dec!(110), dec!(1));
+        let mom = NormalizedTick::price_momentum(&[t1, t2]).unwrap();
+        assert!((mom - 0.1).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_price_momentum_negative_when_price_falls() {
+        use rust_decimal_macros::dec;
+        let t1 = make_tick_pq(dec!(100), dec!(1));
+        let t2 = make_tick_pq(dec!(90), dec!(1));
+        let mom = NormalizedTick::price_momentum(&[t1, t2]).unwrap();
+        assert!(mom < 0.0);
     }
 
     #[test]
