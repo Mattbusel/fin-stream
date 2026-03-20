@@ -319,7 +319,7 @@ impl OhlcvBar {
     /// The standard ATR (Average True Range) input. Accounts for overnight gaps by
     /// including the distance from the previous close to today's high and low.
     pub fn true_range(&self, prev_close: Decimal) -> Decimal {
-        let hl = self.high - self.low;
+        let hl = self.range();
         let hpc = (self.high - prev_close).abs();
         let lpc = (self.low - prev_close).abs();
         hl.max(hpc).max(lpc)
@@ -600,12 +600,11 @@ impl OhlcvBar {
     ///
     /// Indicates price consolidation / compression.
     pub fn is_consolidating(&self, prev: &OhlcvBar) -> bool {
-        let prev_range = prev.high - prev.low;
+        let prev_range = prev.range();
         if prev_range.is_zero() {
             return false;
         }
-        let this_range = self.high - self.low;
-        this_range < prev_range / Decimal::TWO
+        self.range() < prev_range / Decimal::TWO
     }
 
     /// Mean volume across a slice of bars.
@@ -664,7 +663,7 @@ impl OhlcvBar {
         if self.open.is_zero() {
             return None;
         }
-        let range = (self.high - self.low) / self.open;
+        let range = self.range() / self.open;
         range.to_f64().map(|v| v * 100.0)
     }
 
@@ -678,8 +677,10 @@ impl OhlcvBar {
     }
 
     /// Midpoint of the high-low range: `(high + low) / 2`.
+    ///
+    /// Alias for [`median_price`](Self::median_price).
     pub fn high_low_midpoint(&self) -> Decimal {
-        (self.high + self.low) / Decimal::TWO
+        self.median_price()
     }
 
     /// Ratio of close to high: `close / high` as `f64`.
@@ -699,7 +700,7 @@ impl OhlcvBar {
     /// Returns `None` if the bar's range is zero.
     pub fn lower_shadow_pct(&self) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        let range = self.high - self.low;
+        let range = self.range();
         if range.is_zero() {
             return None;
         }
@@ -719,7 +720,7 @@ impl OhlcvBar {
 
     /// Returns `true` if this bar's range (`high - low`) exceeds `threshold`.
     pub fn is_wide_range_bar(&self, threshold: Decimal) -> bool {
-        (self.high - self.low) > threshold
+        self.range() > threshold
     }
 
     /// Position of close within the bar's high-low range: `(close - low) / (high - low)`.
@@ -729,7 +730,7 @@ impl OhlcvBar {
     /// - `1.0` → closed at the high (bullish)
     pub fn close_to_low_ratio(&self) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        let range = self.high - self.low;
+        let range = self.range();
         if range.is_zero() {
             return None;
         }
@@ -762,7 +763,7 @@ impl OhlcvBar {
         if self.open.is_zero() {
             return None;
         }
-        ((self.high - self.low) / self.open).to_f64()
+        (self.range() / self.open).to_f64()
     }
 
     /// Classifies this bar as `"bullish"`, `"bearish"`, or `"doji"`.
@@ -1044,6 +1045,39 @@ impl OhlcvBar {
             }
         }
         Some(max_dd)
+    }
+
+    /// Ordinary least-squares slope of close prices across a slice of bars.
+    ///
+    /// Fits the line `close[i] = slope × i + intercept` using simple linear
+    /// regression, where `i` is the bar index (0-based). A positive slope
+    /// indicates an upward trend; negative indicates a downtrend.
+    ///
+    /// Returns `None` if the slice has fewer than 2 bars or if the closes
+    /// cannot be converted to `f64`.
+    pub fn linear_regression_slope(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let n = bars.len();
+        if n < 2 {
+            return None;
+        }
+        let n_f = n as f64;
+        let xs: Vec<f64> = (0..n).map(|i| i as f64).collect();
+        let ys: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| b.close.to_f64())
+            .collect();
+        if ys.len() < n {
+            return None;
+        }
+        let x_mean = xs.iter().sum::<f64>() / n_f;
+        let y_mean = ys.iter().sum::<f64>() / n_f;
+        let numerator: f64 = xs.iter().zip(ys.iter()).map(|(x, y)| (x - x_mean) * (y - y_mean)).sum();
+        let denominator: f64 = xs.iter().map(|x| (x - x_mean).powi(2)).sum();
+        if denominator == 0.0 {
+            return None;
+        }
+        Some(numerator / denominator)
     }
 }
 

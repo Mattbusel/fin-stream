@@ -311,6 +311,21 @@ impl MinMaxNormalizer {
         self.variance()?.to_f64().map(f64::sqrt)
     }
 
+    /// Coefficient of variation: `std_dev / |mean|`.
+    ///
+    /// A dimensionless measure of relative dispersion. Returns `None` when the
+    /// window has fewer than 2 observations or when the mean is zero.
+    pub fn coefficient_of_variation(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let mean = self.mean()?;
+        if mean.is_zero() {
+            return None;
+        }
+        let std_dev = self.std_dev()?;
+        let mean_f = mean.abs().to_f64()?;
+        Some(std_dev / mean_f)
+    }
+
     /// Feed a slice of values into the window and return normalized forms of each.
     ///
     /// Each value in `values` is first passed through [`update`](Self::update) to
@@ -359,25 +374,15 @@ impl MinMaxNormalizer {
     /// Useful for detecting outliers and standardising features for ML models
     /// when a bounded `[0, 1]` range is not required.
     pub fn z_score(&self, value: Decimal) -> Option<f64> {
-        if self.window.len() < 2 {
-            return None;
-        }
-        let n = Decimal::from(self.window.len() as u64);
-        let mean: Decimal = self.window.iter().copied().sum::<Decimal>() / n;
-        let variance: Decimal = self
-            .window
-            .iter()
-            .map(|&v| { let d = v - mean; d * d })
-            .sum::<Decimal>()
-            / n;
-        if variance.is_zero() {
-            return None;
-        }
         use rust_decimal::prelude::ToPrimitive;
-        let std_dev_f64 = variance.to_f64()?.sqrt();
+        let std_dev = self.std_dev()?; // None for < 2 obs
+        if std_dev == 0.0 {
+            return None;
+        }
+        let mean = self.mean()?;
         let value_f64 = value.to_f64()?;
         let mean_f64 = mean.to_f64()?;
-        Some((value_f64 - mean_f64) / std_dev_f64)
+        Some((value_f64 - mean_f64) / std_dev)
     }
 
     /// Returns the percentile rank of `value` within the current window.
@@ -1021,6 +1026,30 @@ mod tests {
         n.update(dec!(200));
         n.update(dec!(300)); // oldest (100) evicted
         assert_eq!(n.latest(), Some(dec!(300)));
+    }
+
+    // ── MinMaxNormalizer::coefficient_of_variation ────────────────────────────
+
+    #[test]
+    fn test_minmax_cv_none_fewer_than_2_obs() {
+        let mut n = norm(4);
+        n.update(dec!(10));
+        assert!(n.coefficient_of_variation().is_none());
+    }
+
+    #[test]
+    fn test_minmax_cv_none_when_mean_zero() {
+        let mut n = norm(4);
+        for v in [dec!(-5), dec!(5)] { n.update(v); }
+        assert!(n.coefficient_of_variation().is_none());
+    }
+
+    #[test]
+    fn test_minmax_cv_positive_for_positive_mean() {
+        let mut n = norm(4);
+        for v in [dec!(10), dec!(20), dec!(30), dec!(40)] { n.update(v); }
+        let cv = n.coefficient_of_variation().unwrap();
+        assert!(cv > 0.0, "CV should be positive");
     }
 
     // ── MinMaxNormalizer::variance / std_dev ─────────────────────────────────
