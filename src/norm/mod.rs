@@ -1168,6 +1168,19 @@ impl ZScoreNormalizer {
     pub fn latest(&self) -> Option<Decimal> {
         self.window.back().copied()
     }
+
+    /// Median of the current window, or `None` if empty.
+    pub fn median(&self) -> Option<Decimal> {
+        if self.window.is_empty() { return None; }
+        let mut vals: Vec<Decimal> = self.window.iter().copied().collect();
+        vals.sort();
+        let mid = vals.len() / 2;
+        if vals.len() % 2 == 0 {
+            Some((vals[mid - 1] + vals[mid]) / Decimal::TWO)
+        } else {
+            Some(vals[mid])
+        }
+    }
 }
 
 #[cfg(test)]
@@ -1651,5 +1664,61 @@ mod zscore_tests {
         n.update(dec!(300)); // 100 rolls out
         // window contains 200, 300 → sum = 500
         assert!((n.window_sum_f64() - 500.0).abs() < 1e-10);
+    }
+
+    // ── ZScoreNormalizer::latest ────────────────────────────────────────────
+
+    #[test]
+    fn test_zscore_latest_none_when_empty() {
+        let n = znorm(5);
+        assert!(n.latest().is_none());
+    }
+
+    #[test]
+    fn test_zscore_latest_returns_most_recent() {
+        let mut n = znorm(5);
+        n.update(dec!(10));
+        n.update(dec!(20));
+        assert_eq!(n.latest(), Some(dec!(20)));
+    }
+
+    #[test]
+    fn test_zscore_latest_updates_on_roll() {
+        let mut n = znorm(2);
+        n.update(dec!(1));
+        n.update(dec!(2));
+        n.update(dec!(3)); // rolls out 1
+        assert_eq!(n.latest(), Some(dec!(3)));
+    }
+
+    // --- ZScoreNormalizer::window_max_f64 / window_min_f64 ---
+    #[test]
+    fn test_window_max_f64_none_on_empty() {
+        let n = znorm(5);
+        assert!(n.window_max_f64().is_none());
+    }
+
+    #[test]
+    fn test_window_max_f64_correct_value() {
+        let mut n = znorm(5);
+        for v in [dec!(3), dec!(7), dec!(1), dec!(5)] {
+            n.update(v);
+        }
+        assert!((n.window_max_f64().unwrap() - 7.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_window_min_f64_none_on_empty() {
+        let n = znorm(5);
+        assert!(n.window_min_f64().is_none());
+    }
+
+    #[test]
+    fn test_window_min_f64_correct_value() {
+        let mut n = znorm(5);
+        for v in [dec!(3), dec!(7), dec!(1), dec!(5)] {
+            n.update(v);
+        }
+        assert!((n.window_min_f64().unwrap() - 1.0).abs() < 1e-10);
     }
 }

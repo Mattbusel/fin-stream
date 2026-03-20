@@ -1936,6 +1936,39 @@ mod tests {
         assert!(!sa.is_last_minute(SAT_UTC_MS));
     }
 
+    // --- SessionAnalyzer::minutes_since_close ---
+    #[test]
+    fn test_minutes_since_close_zero_when_open() {
+        let sa = sa(MarketSession::UsEquity);
+        assert_eq!(sa.minutes_since_close(MON_OPEN_UTC_MS + 30 * 60_000), 0.0);
+    }
+
+    #[test]
+    fn test_minutes_since_close_positive_when_closed() {
+        let sa = sa(MarketSession::UsEquity);
+        let mins = sa.minutes_since_close(SAT_UTC_MS);
+        assert!(mins > 0.0, "expected positive value when closed");
+    }
+
+    // --- SessionAnalyzer::is_opening_bell_minute ---
+    #[test]
+    fn test_is_opening_bell_minute_true_at_open() {
+        let sa = sa(MarketSession::UsEquity);
+        assert!(sa.is_opening_bell_minute(MON_OPEN_UTC_MS + 30_000));
+    }
+
+    #[test]
+    fn test_is_opening_bell_minute_false_after_first_minute() {
+        let sa = sa(MarketSession::UsEquity);
+        assert!(!sa.is_opening_bell_minute(MON_OPEN_UTC_MS + 90_000));
+    }
+
+    #[test]
+    fn test_is_opening_bell_minute_false_when_closed() {
+        let sa = sa(MarketSession::UsEquity);
+        assert!(!sa.is_opening_bell_minute(SAT_UTC_MS));
+    }
+
     // ── SessionAnalyzer::is_extended_hours ────────────────────────────────────
 
     #[test]

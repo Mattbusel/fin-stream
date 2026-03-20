@@ -1558,6 +1558,53 @@ mod tests {
         assert!(!tick.is_buying_pressure(dec!(100)));
     }
 
+    // --- NormalizedTick::rounded_price ---
+    #[test]
+    fn test_rounded_price_rounds_to_nearest_tick() {
+        use rust_decimal_macros::dec;
+        let mut tick = make_tick_at(0);
+        tick.price = dec!(100.37);
+        // tick_size = 0.25 → 100.25
+        assert_eq!(tick.rounded_price(dec!(0.25)), dec!(100.25));
+    }
+
+    #[test]
+    fn test_rounded_price_unchanged_when_already_aligned() {
+        use rust_decimal_macros::dec;
+        let mut tick = make_tick_at(0);
+        tick.price = dec!(100.50);
+        assert_eq!(tick.rounded_price(dec!(0.25)), dec!(100.50));
+    }
+
+    #[test]
+    fn test_rounded_price_returns_original_for_zero_tick_size() {
+        use rust_decimal_macros::dec;
+        let mut tick = make_tick_at(0);
+        tick.price = dec!(99.99);
+        assert_eq!(tick.rounded_price(dec!(0)), dec!(99.99));
+    }
+
+    // --- NormalizedTick::is_large_spread_from ---
+    #[test]
+    fn test_is_large_spread_from_true_when_large() {
+        use rust_decimal_macros::dec;
+        let mut t1 = make_tick_at(0);
+        let mut t2 = make_tick_at(0);
+        t1.price = dec!(100);
+        t2.price = dec!(110);
+        assert!(t1.is_large_spread_from(&t2, dec!(5)));
+    }
+
+    #[test]
+    fn test_is_large_spread_from_false_when_small() {
+        use rust_decimal_macros::dec;
+        let mut t1 = make_tick_at(0);
+        let mut t2 = make_tick_at(0);
+        t1.price = dec!(100);
+        t2.price = dec!(101);
+        assert!(!t1.is_large_spread_from(&t2, dec!(5)));
+    }
+
     // ── NormalizedTick::age_secs ──────────────────────────────────────────────
 
     #[test]

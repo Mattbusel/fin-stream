@@ -1212,6 +1212,31 @@ mod tests {
         assert!((ring.utilization_pct() - ratio * 100.0).abs() < 1e-10);
     }
 
+    // ── SpscRing::remaining_capacity ──────────────────────────────────────────
+
+    #[test]
+    fn test_remaining_capacity_full_when_empty() {
+        let ring: SpscRing<u32, 8> = SpscRing::new(); // capacity = 7
+        assert_eq!(ring.remaining_capacity(), 7);
+    }
+
+    #[test]
+    fn test_remaining_capacity_decreases_on_push() {
+        let ring: SpscRing<u32, 8> = SpscRing::new();
+        ring.push(1u32).unwrap();
+        ring.push(2u32).unwrap();
+        assert_eq!(ring.remaining_capacity(), 5);
+    }
+
+    #[test]
+    fn test_remaining_capacity_zero_when_full() {
+        let ring: SpscRing<u32, 8> = SpscRing::new();
+        for i in 0..7u32 {
+            ring.push(i).unwrap();
+        }
+        assert_eq!(ring.remaining_capacity(), 0);
+    }
+
     // --- SpscRing::has_capacity ---
     #[test]
     fn test_has_capacity_true_on_empty_ring() {
@@ -1265,5 +1290,41 @@ mod tests {
         ring.push(1u32).unwrap();
         let _ = ring.pop();
         assert!(ring.is_empty());
+    }
+
+    // --- SpscRing::peek_oldest ---
+    #[test]
+    fn test_peek_oldest_none_on_empty_ring() {
+        let ring: SpscRing<u32, 8> = SpscRing::new();
+        assert!(ring.peek_oldest().is_none());
+    }
+
+    #[test]
+    fn test_peek_oldest_returns_first_pushed_item() {
+        let ring: SpscRing<u32, 8> = SpscRing::new();
+        ring.push(10u32).unwrap();
+        ring.push(20u32).unwrap();
+        ring.push(30u32).unwrap();
+        // oldest = 10 (first in)
+        assert_eq!(ring.peek_oldest(), Some(10));
+    }
+
+    #[test]
+    fn test_peek_oldest_does_not_remove_item() {
+        let ring: SpscRing<u32, 4> = SpscRing::new();
+        ring.push(5u32).unwrap();
+        let _ = ring.peek_oldest();
+        // item still present
+        assert_eq!(ring.pop().unwrap(), 5);
+    }
+
+    #[test]
+    fn test_peek_oldest_different_from_peek_newest_when_multiple_items() {
+        let ring: SpscRing<u32, 8> = SpscRing::new();
+        ring.push(1u32).unwrap();
+        ring.push(2u32).unwrap();
+        ring.push(3u32).unwrap();
+        assert_eq!(ring.peek_oldest(), Some(1));
+        assert_eq!(ring.peek_newest(), Some(3));
     }
 }

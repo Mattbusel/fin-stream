@@ -136,6 +136,15 @@ impl WsStats {
         Some(self.total_bytes_received as f64 / self.total_messages_received as f64)
     }
 
+    /// Total bytes received expressed as gibibytes (GiB): `total_bytes / 1_073_741_824.0`.
+    pub fn total_data_gb(&self) -> f64 {
+        self.total_bytes_received as f64 / 1_073_741_824.0
+    }
+
+    /// Returns `true` if at least `min_messages` have been received.
+    pub fn is_active(&self, min_messages: u64) -> bool {
+        self.total_messages_received >= min_messages
+    }
 
 }
 
@@ -1341,5 +1350,64 @@ mod tests {
     fn test_avg_message_size_bytes_one_message() {
         let stats = WsStats { total_messages_received: 1, total_bytes_received: 256 };
         assert!((stats.avg_message_size_bytes().unwrap() - 256.0).abs() < 1e-12);
+    }
+
+    // --- WsStats::bandwidth_kbps ---
+    #[test]
+    fn test_bandwidth_kbps_zero_when_elapsed_zero() {
+        let stats = WsStats { total_messages_received: 10, total_bytes_received: 50_000 };
+        assert_eq!(stats.bandwidth_kbps(0), 0.0);
+    }
+
+    #[test]
+    fn test_bandwidth_kbps_correct_value() {
+        // 100_000 bytes in 1_000ms = 100KB/s = 100*8 = 800 kbps
+        let stats = WsStats { total_messages_received: 1, total_bytes_received: 100_000 };
+        let kbps = stats.bandwidth_kbps(1_000);
+        assert!((kbps - 800.0).abs() < 1e-10, "got {kbps}");
+    }
+
+    #[test]
+    fn test_bandwidth_kbps_zero_when_no_data() {
+        let stats = WsStats { total_messages_received: 0, total_bytes_received: 0 };
+        assert_eq!(stats.bandwidth_kbps(5_000), 0.0);
+    }
+
+    // ── WsStats::total_data_gb / is_active ─────────────────────────────────
+
+    #[test]
+    fn test_total_data_gb_zero_when_no_bytes() {
+        let stats = WsStats { total_messages_received: 0, total_bytes_received: 0 };
+        assert_eq!(stats.total_data_gb(), 0.0);
+    }
+
+    #[test]
+    fn test_total_data_gb_one_gib() {
+        let stats = WsStats { total_messages_received: 1, total_bytes_received: 1_073_741_824 };
+        assert!((stats.total_data_gb() - 1.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_total_data_gb_equals_1024_times_mb() {
+        let stats = WsStats { total_messages_received: 1, total_bytes_received: 2_147_483_648 };
+        assert!((stats.total_data_gb() - stats.total_data_mb() / 1_024.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_is_active_false_when_no_messages() {
+        let stats = WsStats { total_messages_received: 0, total_bytes_received: 0 };
+        assert!(!stats.is_active(1));
+    }
+
+    #[test]
+    fn test_is_active_true_at_threshold() {
+        let stats = WsStats { total_messages_received: 100, total_bytes_received: 0 };
+        assert!(stats.is_active(100));
+    }
+
+    #[test]
+    fn test_is_active_false_below_threshold() {
+        let stats = WsStats { total_messages_received: 50, total_bytes_received: 0 };
+        assert!(!stats.is_active(100));
     }
 }

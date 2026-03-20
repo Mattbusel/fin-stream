@@ -652,6 +652,14 @@ impl LorentzTransform {
     pub fn energy_ratio(&self) -> f64 {
         self.gamma() - 1.0
     }
+
+    /// Warp factor in the Star Trek convention: `w = γ^(1/3)`.
+    ///
+    /// A pure curiosity / educational mapping; warp 1 corresponds to β = 0 (rest), and
+    /// higher warp values correspond to higher Lorentz factors.
+    pub fn warp_factor(&self) -> f64 {
+        self.gamma().cbrt()
+    }
 }
 
 #[cfg(test)]
@@ -1573,6 +1581,27 @@ mod tests {
         assert!(proper < 0.02, "expected near-zero proper time at 0.9999c: {proper}");
     }
 
+    // --- LorentzTransform::beta_from_rapidity ---
+    #[test]
+    fn test_beta_from_rapidity_zero_rapidity_gives_zero_beta() {
+        assert!((LorentzTransform::beta_from_rapidity(0.0)).abs() < 1e-12);
+    }
+
+    #[test]
+    fn test_beta_from_rapidity_roundtrip_with_rapidity() {
+        let t = LorentzTransform::new(0.7).unwrap();
+        let eta = t.rapidity();
+        let beta = LorentzTransform::beta_from_rapidity(eta);
+        assert!((beta - 0.7).abs() < 1e-10, "roundtrip failed: {beta}");
+    }
+
+    #[test]
+    fn test_beta_from_rapidity_bounded_below_one() {
+        // Rapidity of 10 → very close to c but below 1.0
+        let beta = LorentzTransform::beta_from_rapidity(10.0);
+        assert!(beta < 1.0 && beta > 0.9999);
+    }
+
     // ── LorentzTransform::rapidity ────────────────────────────────────────────
 
     #[test]
@@ -1642,5 +1671,33 @@ mod tests {
         let t = LorentzTransform::new(0.8).unwrap();
         let angle = t.aberration_angle(0.0);
         assert!(angle >= 0.0 && angle <= std::f64::consts::PI);
+    }
+
+    // ── LorentzTransform::relativistic_mass / energy_ratio ──────────────────
+
+    #[test]
+    fn test_relativistic_mass_at_rest_equals_rest_mass() {
+        let t = LorentzTransform::new(0.0).unwrap();
+        assert!((t.relativistic_mass(1.0) - 1.0).abs() < 1e-12);
+    }
+
+    #[test]
+    fn test_relativistic_mass_increases_with_speed() {
+        let t = LorentzTransform::new(0.6).unwrap();
+        // gamma(0.6) = 1/sqrt(1-0.36) = 1/sqrt(0.64) = 1/0.8 = 1.25
+        assert!((t.relativistic_mass(1.0) - 1.25).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_energy_ratio_zero_at_rest() {
+        let t = LorentzTransform::new(0.0).unwrap();
+        assert!(t.energy_ratio().abs() < 1e-12);
+    }
+
+    #[test]
+    fn test_energy_ratio_positive_for_nonzero_beta() {
+        let t = LorentzTransform::new(0.6).unwrap();
+        // gamma(0.6) = 1.25 → energy_ratio = 0.25
+        assert!((t.energy_ratio() - 0.25).abs() < 1e-10);
     }
 }

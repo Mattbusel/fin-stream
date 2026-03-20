@@ -1710,6 +1710,48 @@ mod tests {
         assert!(m.oldest_feed_age_ms(10_000).is_none());
     }
 
+    // --- HealthMonitor::total_stale_count ---
+    #[test]
+    fn test_total_stale_count_zero_when_all_healthy() {
+        let mut m = HealthMonitor::new(5_000);
+        m.register("A", None);
+        m.heartbeat("A", 9_500).unwrap();
+        let _ = m.check_all(10_000);
+        assert_eq!(m.total_stale_count(), 0);
+    }
+
+    #[test]
+    fn test_total_stale_count_correct_when_stale() {
+        let mut m = HealthMonitor::new(5_000);
+        m.register("A", None);
+        m.register("B", None);
+        m.heartbeat("A", 1_000).unwrap();
+        m.heartbeat("B", 1_000).unwrap();
+        // at t=10000, both stale (9s elapsed > 5s threshold)
+        let _ = m.check_all(10_000);
+        assert_eq!(m.total_stale_count(), 2);
+    }
+
+    // --- HealthMonitor::avg_feed_age_ms ---
+    #[test]
+    fn test_avg_feed_age_ms_none_when_no_ticks() {
+        let mut m = monitor();
+        m.register("A", None);
+        assert!(m.avg_feed_age_ms(10_000).is_none());
+    }
+
+    #[test]
+    fn test_avg_feed_age_ms_correct_average() {
+        let mut m = monitor();
+        m.register("A", None);
+        m.register("B", None);
+        m.heartbeat("A", 5_000).unwrap(); // age at t=10000: 5000
+        m.heartbeat("B", 8_000).unwrap(); // age at t=10000: 2000
+        // avg = (5000 + 2000) / 2 = 3500
+        let avg = m.avg_feed_age_ms(10_000).unwrap();
+        assert!((avg - 3500.0).abs() < 1e-10, "got {avg}");
+    }
+
     // ── HealthMonitor::stale_ratio ────────────────────────────────────────────
 
     #[test]

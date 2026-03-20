@@ -1386,4 +1386,70 @@ mod tests {
         };
         assert!(!e.is_connection_error());
     }
+
+    // --- StreamError::is_computation_error / is_ring_error ---
+    #[test]
+    fn test_is_computation_error_true_for_lorentz() {
+        let e = StreamError::LorentzConfigError { reason: "beta >= 1".into() };
+        assert!(e.is_computation_error());
+    }
+
+    #[test]
+    fn test_is_computation_error_false_for_connection() {
+        let e = StreamError::ConnectionFailed { url: "ws://x".into(), reason: "refused".into() };
+        assert!(!e.is_computation_error());
+    }
+
+    #[test]
+    fn test_is_ring_error_true_for_ring_buffer_full() {
+        let e = StreamError::RingBufferFull { capacity: 10 };
+        assert!(e.is_ring_error());
+    }
+
+    #[test]
+    fn test_is_ring_error_true_for_ring_buffer_empty() {
+        assert!(StreamError::RingBufferEmpty.is_ring_error());
+    }
+
+    #[test]
+    fn test_is_ring_error_false_for_other_errors() {
+        let e = StreamError::ConnectionFailed { url: "ws://x".into(), reason: "timeout".into() };
+        assert!(!e.is_ring_error());
+    }
+
+    // ── StreamError::has_url / error_category_code ──────────────────────────
+
+    #[test]
+    fn test_has_url_true_for_connection_failed() {
+        let e = StreamError::ConnectionFailed { url: "wss://x".into(), reason: "timeout".into() };
+        assert!(e.has_url());
+    }
+
+    #[test]
+    fn test_has_url_false_for_other_errors() {
+        assert!(!StreamError::RingBufferEmpty.has_url());
+        assert!(!StreamError::ConfigError { reason: "bad".into() }.has_url());
+    }
+
+    #[test]
+    fn test_error_category_code_connection_is_1() {
+        let e = StreamError::ConnectionFailed { url: "wss://x".into(), reason: "x".into() };
+        assert_eq!(e.error_category_code(), 1);
+    }
+
+    #[test]
+    fn test_error_category_code_book_is_4() {
+        let e = StreamError::BookCrossed {
+            symbol: "X".into(),
+            bid: rust_decimal_macros::dec!(100),
+            ask: rust_decimal_macros::dec!(99),
+        };
+        assert_eq!(e.error_category_code(), 4);
+    }
+
+    #[test]
+    fn test_error_category_code_lorentz_is_7() {
+        let e = StreamError::LorentzConfigError { reason: "bad beta".into() };
+        assert_eq!(e.error_category_code(), 7);
+    }
 }
