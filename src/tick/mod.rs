@@ -722,6 +722,27 @@ impl NormalizedTick {
         ticks.iter().filter(|t| t.price < threshold).count()
     }
 
+    /// Total notional value (`Σ price × quantity`) across all ticks.
+    pub fn total_notional(ticks: &[NormalizedTick]) -> Decimal {
+        ticks.iter().map(|t| t.value()).sum()
+    }
+
+    /// Total notional for buy-side ticks (`side == Some(TradeSide::Buy)`).
+    pub fn buy_notional(ticks: &[NormalizedTick]) -> Decimal {
+        ticks.iter()
+            .filter(|t| t.side == Some(TradeSide::Buy))
+            .map(|t| t.value())
+            .sum()
+    }
+
+    /// Total notional for sell-side ticks (`side == Some(TradeSide::Sell)`).
+    pub fn sell_notional(ticks: &[NormalizedTick]) -> Decimal {
+        ticks.iter()
+            .filter(|t| t.side == Some(TradeSide::Sell))
+            .map(|t| t.value())
+            .sum()
+    }
+
 }
 
 impl std::fmt::Display for NormalizedTick {

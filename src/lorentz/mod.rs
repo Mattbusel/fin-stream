@@ -551,12 +551,8 @@ impl LorentzTransform {
 
     /// Coordinate (lab-frame) time for a given proper time.
     ///
-    /// Returns `proper_time * gamma`. This is the inverse of
-    /// [`proper_time`](Self::proper_time): given elapsed proper time τ measured
-    /// by a clock in the moving frame, returns the corresponding coordinate time
-    /// `t = γτ` observed in the lab frame.
-    ///
-    /// # Complexity: O(1)
+    /// Alias for [`dilate_time`](Self::dilate_time).
+    #[deprecated(since = "2.2.0", note = "Use `dilate_time` instead")]
     pub fn time_dilation(&self, proper_time: f64) -> f64 {
         self.dilate_time(proper_time)
     }
@@ -633,11 +629,10 @@ impl LorentzTransform {
 
     /// Relativistic Doppler factor for a source moving toward the observer at `β`.
     ///
-    /// `D = √((1 + β) / (1 − β))`.
-    /// `D > 1` (blue-shift) when approaching; `D < 1` (red-shift) when receding;
-    /// `D = 1` at rest.
+    /// Alias for [`doppler_ratio`](Self::doppler_ratio).
+    #[deprecated(since = "2.2.0", note = "Use `doppler_ratio` instead")]
     pub fn doppler_factor(&self) -> f64 {
-        ((1.0 + self.beta) / (1.0 - self.beta)).sqrt()
+        self.doppler_ratio()
     }
 
     /// Relativistic aberration angle for a light ray with direction cosine `cos_theta`.
@@ -651,14 +646,17 @@ impl LorentzTransform {
 
     /// Relativistic mass for a particle with `rest_mass` moving at `β`.
     ///
-    /// `m = rest_mass × γ` where `γ` is the Lorentz factor.
+    /// `m = rest_mass × γ`. Alias for [`relativistic_energy`](Self::relativistic_energy)
+    /// in natural units (c = 1).
+    #[deprecated(since = "2.2.0", note = "Use `relativistic_energy` instead")]
     pub fn relativistic_mass(&self, rest_mass: f64) -> f64 {
         self.relativistic_energy(rest_mass)
     }
 
     /// Ratio of kinetic energy to rest energy: `γ - 1`.
     ///
-    /// Zero at rest (β = 0); grows without bound as β → 1.
+    /// Alias for [`kinetic_energy_ratio`](Self::kinetic_energy_ratio).
+    #[deprecated(since = "2.2.0", note = "Use `kinetic_energy_ratio` instead")]
     pub fn energy_ratio(&self) -> f64 {
         self.kinetic_energy_ratio()
     }
@@ -682,7 +680,8 @@ impl LorentzTransform {
 
     /// Relativistic momentum per unit rest mass: `γ × β`.
     ///
-    /// Scales linearly with β at low speeds; diverges as β → 1.
+    /// Alias for [`beta_times_gamma`](Self::beta_times_gamma).
+    #[deprecated(since = "2.2.0", note = "Use `beta_times_gamma` instead")]
     pub fn momentum_ratio(&self) -> f64 {
         self.beta_times_gamma()
     }
