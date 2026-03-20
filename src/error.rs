@@ -626,4 +626,44 @@ mod tests {
         }
         .is_pipeline_error());
     }
+
+    // ── StreamError::category ─────────────────────────────────────────────────
+
+    #[test]
+    fn test_category_connection_errors() {
+        assert_eq!(
+            StreamError::ConnectionFailed { url: "u".into(), reason: "r".into() }.category(),
+            "connection"
+        );
+        assert_eq!(
+            StreamError::Disconnected { url: "u".into() }.category(),
+            "connection"
+        );
+    }
+
+    #[test]
+    fn test_category_data_errors() {
+        assert_eq!(
+            StreamError::ParseError { exchange: "B".into(), reason: "r".into() }.category(),
+            "data"
+        );
+        assert_eq!(
+            StreamError::InvalidTick { reason: "neg price".into() }.category(),
+            "data"
+        );
+    }
+
+    #[test]
+    fn test_category_pipeline_errors() {
+        assert_eq!(StreamError::RingBufferFull { capacity: 8 }.category(), "pipeline");
+        assert_eq!(StreamError::RingBufferEmpty.category(), "pipeline");
+    }
+
+    #[test]
+    fn test_category_config_errors() {
+        assert_eq!(
+            StreamError::ConfigError { reason: "bad param".into() }.category(),
+            "config"
+        );
+    }
 }

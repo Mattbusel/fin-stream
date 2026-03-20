@@ -483,6 +483,28 @@ impl OrderBook {
         Some(notional / filled)
     }
 
+    /// Volume imbalance over the top-`n` price levels on each side: `(bid_vol - ask_vol) / (bid_vol + ask_vol)`.
+    ///
+    /// Returns a value in `[-1, 1]`: positive means more resting bid volume, negative means
+    /// more resting ask volume. Returns `None` if both sides have zero volume or `n == 0`.
+    ///
+    /// Unlike [`imbalance`](Self::imbalance) which only uses the best bid/ask quantity,
+    /// `depth_imbalance` aggregates across up to `n` levels providing a broader picture of
+    /// order book pressure.
+    pub fn depth_imbalance(&self, n: usize) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if n == 0 {
+            return None;
+        }
+        let bid_vol: Decimal = self.bids.values().rev().take(n).copied().sum();
+        let ask_vol: Decimal = self.asks.values().take(n).copied().sum();
+        let total = bid_vol + ask_vol;
+        if total.is_zero() {
+            return None;
+        }
+        ((bid_vol - ask_vol) / total).to_f64()
+    }
+
     /// Return a full snapshot of all bid and ask levels.
     ///
     /// The returned tuple is `(bids, asks)`:

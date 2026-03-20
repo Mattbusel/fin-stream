@@ -175,6 +175,32 @@ impl SessionAwareness {
         }
     }
 
+    /// Returns `true` if the equity session is currently in the pre-market window (4:00–9:30 ET).
+    ///
+    /// Always returns `false` for non-equity sessions. Pre-market is a subset of
+    /// [`TradingStatus::Extended`]; this method distinguishes it from after-hours.
+    pub fn is_pre_market(&self, utc_ms: u64) -> bool {
+        if self.session != MarketSession::UsEquity {
+            return false;
+        }
+        let secs = (utc_ms / 1000) as i64;
+        let dt = chrono::DateTime::<chrono::Utc>::from_timestamp(secs, 0)
+            .unwrap_or_else(chrono::Utc::now);
+        let et_offset_secs: i64 = if is_us_dst(utc_ms) { -4 * 3600 } else { -5 * 3600 };
+        let et_dt = dt + chrono::Duration::seconds(et_offset_secs);
+        let dow = et_dt.weekday();
+        if dow == chrono::Weekday::Sat || dow == chrono::Weekday::Sun {
+            return false;
+        }
+        if is_us_market_holiday(et_dt.date_naive()) {
+            return false;
+        }
+        let t = et_dt.num_seconds_from_midnight() as u64;
+        let pre_open = 4 * 3600_u64;
+        let market_open = 9 * 3600 + 30 * 60_u64;
+        t >= pre_open && t < market_open
+    }
+
     /// Return the UTC millisecond timestamp of the next time this session
     /// enters [`TradingStatus::Closed`] status.
     ///

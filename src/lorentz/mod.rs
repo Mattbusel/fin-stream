@@ -941,4 +941,27 @@ mod tests {
         let lt = LorentzTransform::boost_chain(&[]).unwrap();
         assert!(lt.is_identity());
     }
+
+    // ── LorentzTransform::beta_from_gamma ─────────────────────────────────────
+
+    #[test]
+    fn test_beta_from_gamma_identity() {
+        // gamma=1.0 → beta=0.0
+        let beta = LorentzTransform::beta_from_gamma(1.0).unwrap();
+        assert!(approx_eq(beta, 0.0));
+    }
+
+    #[test]
+    fn test_beta_from_gamma_roundtrip() {
+        let lt = LorentzTransform::new(0.6).unwrap();
+        let recovered = LorentzTransform::beta_from_gamma(lt.gamma()).unwrap();
+        assert!(approx_eq(recovered, 0.6));
+    }
+
+    #[test]
+    fn test_beta_from_gamma_invalid_rejected() {
+        assert!(LorentzTransform::beta_from_gamma(0.5).is_err()); // < 1
+        assert!(LorentzTransform::beta_from_gamma(f64::NAN).is_err());
+        assert!(LorentzTransform::beta_from_gamma(-1.0).is_err());
+    }
 }

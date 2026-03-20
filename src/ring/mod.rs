@@ -874,4 +874,26 @@ mod tests {
         assert_eq!(batch.len(), 3);
         assert!(consumer.is_empty());
     }
+
+    // ── SpscProducer::capacity / SpscConsumer::capacity ───────────────────────
+
+    #[test]
+    fn test_producer_capacity_equals_ring_capacity() {
+        let ring: SpscRing<u32, 8> = SpscRing::new(); // capacity = 7
+        let (producer, consumer) = ring.split();
+        assert_eq!(producer.capacity(), 7);
+        assert_eq!(consumer.capacity(), 7);
+    }
+
+    #[test]
+    fn test_capacity_consistent_with_max_items() {
+        let ring: SpscRing<u32, 4> = SpscRing::new(); // capacity = 3
+        let (producer, consumer) = ring.split();
+        for i in 0..3 {
+            producer.push(i).unwrap();
+        }
+        // Ring is full at capacity
+        assert_eq!(consumer.capacity(), 3);
+        assert_eq!(consumer.len(), 3);
+    }
 }
