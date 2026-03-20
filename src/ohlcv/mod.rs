@@ -1661,6 +1661,23 @@ impl OhlcvBar {
         }
         count
     }
+
+    /// Percentage change in volume from one bar to the next (last bar vs prior bar).
+    ///
+    /// Returns `None` if fewer than 2 bars or prior volume is zero.
+    pub fn volume_change_pct(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.len() < 2 {
+            return None;
+        }
+        let prior = bars[bars.len() - 2].volume;
+        if prior.is_zero() {
+            return None;
+        }
+        let current = bars[bars.len() - 1].volume;
+        ((current - prior) / prior * Decimal::ONE_HUNDRED).to_f64()
+    }
+
 }
 
 impl std::fmt::Display for OhlcvBar {
@@ -5530,5 +5547,79 @@ mod tests {
         let b2 = make_ohlcv_bar(dec!(95), dec!(108), dec!(80), dec!(100));
         let b3 = make_ohlcv_bar(dec!(90), dec!(102), dec!(70), dec!(95));
         assert_eq!(OhlcvBar::consecutive_lows(&[b1, b2, b3]), 2);
+    }
+
+    // ── OhlcvBar::volume_change_pct ───────────────────────────────────────────
+
+    #[test]
+    fn test_volume_change_pct_none_for_single_bar() {
+        let mut b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        b.volume = dec!(100);
+        assert!(OhlcvBar::volume_change_pct(&[b]).is_none());
+    }
+
+    #[test]
+    fn test_volume_change_pct_correct() {
+        // prior vol=100, current vol=150 → +50%
+        let mut b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105)); b1.volume = dec!(100);
+        let mut b2 = make_ohlcv_bar(dec!(105), dec!(115), dec!(103), dec!(110)); b2.volume = dec!(150);
+        let pct = OhlcvBar::volume_change_pct(&[b1, b2]).unwrap();
+        assert!((pct - 50.0).abs() < 1e-9);
+    }
+
+    // ── OhlcvBar::close_location_value (instance method) ─────────────────────
+
+    #[test]
+    fn test_clv_r67_plus_one_at_high() {
+        // symmetric CLV: +1 when close=high
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(110));
+        let clv = b.close_location_value().unwrap();
+        assert!((clv - 1.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_clv_r67_minus_one_at_low() {
+        // symmetric CLV: -1 when close=low
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(90));
+        let clv = b.close_location_value().unwrap();
+        assert!((clv - (-1.0)).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_clv_r67_none_for_zero_range() {
+        let b = make_ohlcv_bar(dec!(100), dec!(100), dec!(100), dec!(100));
+        assert!(b.close_location_value().is_none());
+    }
+
+    // ── OhlcvBar::body_pct (instance method) ──────────────────────────────────
+
+    #[test]
+    fn test_body_pct_r67_none_for_zero_range() {
+        let b = make_ohlcv_bar(dec!(100), dec!(100), dec!(100), dec!(100));
+        assert!(b.body_pct().is_none());
+    }
+
+    #[test]
+    fn test_body_pct_r67_100_for_full_body() {
+        // open=90, close=110, high=110, low=90 → body_pct=100%
+        let b = make_ohlcv_bar(dec!(90), dec!(110), dec!(90), dec!(110));
+        assert_eq!(b.body_pct(), Some(dec!(100)));
+    }
+
+    // ── OhlcvBar::bullish_count / bearish_count ───────────────────────────────
+
+    #[test]
+    fn test_bullish_count_r67_correct() {
+        let b1 = make_ohlcv_bar(dec!(100), dec!(115), dec!(98), dec!(112)); // bullish
+        let b2 = make_ohlcv_bar(dec!(112), dec!(120), dec!(105), dec!(108)); // bearish
+        let b3 = make_ohlcv_bar(dec!(108), dec!(125), dec!(106), dec!(120)); // bullish
+        assert_eq!(OhlcvBar::bullish_count(&[b1, b2, b3]), 2);
+    }
+
+    #[test]
+    fn test_bearish_count_r67_correct() {
+        let b1 = make_ohlcv_bar(dec!(115), dec!(118), dec!(100), dec!(105)); // bearish
+        let b2 = make_ohlcv_bar(dec!(105), dec!(115), dec!(103), dec!(112)); // bullish
+        assert_eq!(OhlcvBar::bearish_count(&[b1, b2]), 1);
     }
 }

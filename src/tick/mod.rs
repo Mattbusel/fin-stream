@@ -1175,6 +1175,38 @@ impl NormalizedTick {
         ticks.len()
     }
 
+    /// Price acceleration: change in price velocity between consecutive ticks.
+    ///
+    /// Returns the difference of the last two consecutive price changes.
+    /// Returns `None` if fewer than 3 ticks.
+    pub fn price_acceleration(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let n = ticks.len();
+        if n < 3 {
+            return None;
+        }
+        let v1 = (ticks[n - 2].price - ticks[n - 3].price).to_f64()?;
+        let v2 = (ticks[n - 1].price - ticks[n - 2].price).to_f64()?;
+        Some(v2 - v1)
+    }
+
+    /// Net difference between buy volume and sell volume.
+    ///
+    /// Positive means more buying pressure, negative means more selling pressure.
+    pub fn buy_sell_diff(ticks: &[NormalizedTick]) -> Decimal {
+        Self::buy_volume(ticks) - Self::sell_volume(ticks)
+    }
+
+    /// Returns `true` if the tick is a buy that exceeds the average buy quantity.
+    pub fn is_aggressive_buy(tick: &NormalizedTick, avg_buy_qty: Decimal) -> bool {
+        tick.is_buy() && tick.quantity > avg_buy_qty
+    }
+
+    /// Returns `true` if the tick is a sell that exceeds the average sell quantity.
+    pub fn is_aggressive_sell(tick: &NormalizedTick, avg_sell_qty: Decimal) -> bool {
+        tick.is_sell() && tick.quantity > avg_sell_qty
+    }
+
 }
 
 impl std::fmt::Display for NormalizedTick {
@@ -3927,5 +3959,83 @@ mod tests {
         use rust_decimal_macros::dec;
         let ticks = vec![make_tick_pq(dec!(100), dec!(1)), make_tick_pq(dec!(101), dec!(2))];
         assert_eq!(NormalizedTick::trade_count(&ticks), 2);
+    }
+
+    // ── NormalizedTick::price_acceleration ───────────────────────────────────
+
+    #[test]
+    fn test_price_acceleration_none_for_fewer_than_3() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![make_tick_pq(dec!(100), dec!(1)), make_tick_pq(dec!(101), dec!(1))];
+        assert!(NormalizedTick::price_acceleration(&ticks).is_none());
+    }
+
+    #[test]
+    fn test_price_acceleration_zero_for_constant_velocity() {
+        use rust_decimal_macros::dec;
+        // prices: 100, 102, 104 → v1=2, v2=2 → accel=0
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(102), dec!(1)),
+            make_tick_pq(dec!(104), dec!(1)),
+        ];
+        let acc = NormalizedTick::price_acceleration(&ticks).unwrap();
+        assert!((acc - 0.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_price_acceleration_positive_when_speeding_up() {
+        use rust_decimal_macros::dec;
+        // prices: 100, 101, 103 → v1=1, v2=2 → accel=1
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(101), dec!(1)),
+            make_tick_pq(dec!(103), dec!(1)),
+        ];
+        let acc = NormalizedTick::price_acceleration(&ticks).unwrap();
+        assert!((acc - 1.0).abs() < 1e-9);
+    }
+
+    // ── NormalizedTick::buy_sell_diff ─────────────────────────────────────────
+
+    #[test]
+    fn test_buy_sell_diff_zero_for_empty() {
+        assert_eq!(NormalizedTick::buy_sell_diff(&[]), rust_decimal_macros::dec!(0));
+    }
+
+    #[test]
+    fn test_buy_sell_diff_positive_for_net_buying() {
+        use rust_decimal_macros::dec;
+        let mut t1 = make_tick_pq(dec!(100), dec!(10));
+        t1.side = Some(TradeSide::Buy);
+        let mut t2 = make_tick_pq(dec!(100), dec!(3));
+        t2.side = Some(TradeSide::Sell);
+        assert_eq!(NormalizedTick::buy_sell_diff(&[t1, t2]), dec!(7));
+    }
+
+    // ── NormalizedTick::is_aggressive_buy / is_aggressive_sell ───────────────
+
+    #[test]
+    fn test_is_aggressive_buy_true_when_exceeds_avg() {
+        use rust_decimal_macros::dec;
+        let mut t = make_tick_pq(dec!(100), dec!(15));
+        t.side = Some(TradeSide::Buy);
+        assert!(NormalizedTick::is_aggressive_buy(&t, dec!(10)));
+    }
+
+    #[test]
+    fn test_is_aggressive_buy_false_when_not_buy_side() {
+        use rust_decimal_macros::dec;
+        let mut t = make_tick_pq(dec!(100), dec!(15));
+        t.side = Some(TradeSide::Sell);
+        assert!(!NormalizedTick::is_aggressive_buy(&t, dec!(10)));
+    }
+
+    #[test]
+    fn test_is_aggressive_sell_true_when_exceeds_avg() {
+        use rust_decimal_macros::dec;
+        let mut t = make_tick_pq(dec!(100), dec!(20));
+        t.side = Some(TradeSide::Sell);
+        assert!(NormalizedTick::is_aggressive_sell(&t, dec!(10)));
     }
 }

@@ -758,6 +758,43 @@ impl MinMaxNormalizer {
         Some(hi - lo)
     }
 
+    /// Lag-1 autocorrelation of the window values.
+    ///
+    /// Measures how much each value predicts the next.
+    /// Returns `None` if fewer than 2 values or variance is zero.
+    pub fn autocorrelation_lag1(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let n = self.window.len();
+        if n < 2 {
+            return None;
+        }
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.len() < 2 {
+            return None;
+        }
+        let mean = vals.iter().sum::<f64>() / vals.len() as f64;
+        let var: f64 = vals.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / vals.len() as f64;
+        if var == 0.0 {
+            return None;
+        }
+        let cov: f64 = vals.windows(2).map(|w| (w[0] - mean) * (w[1] - mean)).sum::<f64>()
+            / (vals.len() - 1) as f64;
+        Some(cov / var)
+    }
+
+    /// Fraction of consecutive pairs where the second value > first (trending upward).
+    ///
+    /// Returns `None` if fewer than 2 values.
+    pub fn trend_consistency(&self) -> Option<f64> {
+        let n = self.window.len();
+        if n < 2 {
+            return None;
+        }
+        let up = self.window.iter().collect::<Vec<_>>().windows(2)
+            .filter(|w| w[1] > w[0]).count();
+        Some(up as f64 / (n - 1) as f64)
+    }
+
 }
 
 #[cfg(test)]
@@ -1841,6 +1878,48 @@ mod tests {
         for v in [dec!(1), dec!(2), dec!(3), dec!(4), dec!(5)] { n.update(v); }
         assert!(n.kurtosis().is_some());
     }
+
+    // ── MinMaxNormalizer::autocorrelation_lag1 ────────────────────────────────
+
+    #[test]
+    fn test_minmax_autocorrelation_none_for_single_value() {
+        let mut n = norm(3);
+        n.update(dec!(1));
+        assert!(n.autocorrelation_lag1().is_none());
+    }
+
+    #[test]
+    fn test_minmax_autocorrelation_positive_for_trending_data() {
+        let mut n = norm(5);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4), dec!(5)] { n.update(v); }
+        let ac = n.autocorrelation_lag1().unwrap();
+        assert!(ac > 0.0);
+    }
+
+    // ── MinMaxNormalizer::trend_consistency ───────────────────────────────────
+
+    #[test]
+    fn test_minmax_trend_consistency_none_for_single_value() {
+        let mut n = norm(3);
+        n.update(dec!(1));
+        assert!(n.trend_consistency().is_none());
+    }
+
+    #[test]
+    fn test_minmax_trend_consistency_one_for_strictly_rising() {
+        let mut n = norm(5);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4), dec!(5)] { n.update(v); }
+        let tc = n.trend_consistency().unwrap();
+        assert!((tc - 1.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_minmax_trend_consistency_zero_for_strictly_falling() {
+        let mut n = norm(5);
+        for v in [dec!(5), dec!(4), dec!(3), dec!(2), dec!(1)] { n.update(v); }
+        let tc = n.trend_consistency().unwrap();
+        assert!((tc - 0.0).abs() < 1e-9);
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -2664,6 +2743,42 @@ impl ZScoreNormalizer {
         let lo = self.running_min()?;
         let hi = self.running_max()?;
         Some(hi - lo)
+    }
+
+    /// Lag-1 autocorrelation of the window values.
+    ///
+    /// Returns `None` if fewer than 2 values or variance is zero.
+    pub fn autocorrelation_lag1(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let n = self.window.len();
+        if n < 2 {
+            return None;
+        }
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.len() < 2 {
+            return None;
+        }
+        let mean = vals.iter().sum::<f64>() / vals.len() as f64;
+        let var: f64 = vals.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / vals.len() as f64;
+        if var == 0.0 {
+            return None;
+        }
+        let cov: f64 = vals.windows(2).map(|w| (w[0] - mean) * (w[1] - mean)).sum::<f64>()
+            / (vals.len() - 1) as f64;
+        Some(cov / var)
+    }
+
+    /// Fraction of consecutive pairs where the second value > first (trending upward).
+    ///
+    /// Returns `None` if fewer than 2 values.
+    pub fn trend_consistency(&self) -> Option<f64> {
+        let n = self.window.len();
+        if n < 2 {
+            return None;
+        }
+        let up = self.window.iter().collect::<Vec<_>>().windows(2)
+            .filter(|w| w[1] > w[0]).count();
+        Some(up as f64 / (n - 1) as f64)
     }
 
 }
@@ -4071,5 +4186,47 @@ mod zscore_stability_tests {
         let mut n = znorm(5);
         for v in [dec!(1), dec!(2), dec!(3), dec!(4), dec!(5)] { n.update(v); }
         assert!(n.kurtosis().is_some());
+    }
+
+    // ── ZScoreNormalizer::autocorrelation_lag1 ────────────────────────────────
+
+    #[test]
+    fn test_zscore_autocorrelation_none_for_single_value() {
+        let mut n = znorm(3);
+        n.update(dec!(1));
+        assert!(n.autocorrelation_lag1().is_none());
+    }
+
+    #[test]
+    fn test_zscore_autocorrelation_positive_for_trending_data() {
+        let mut n = znorm(5);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4), dec!(5)] { n.update(v); }
+        let ac = n.autocorrelation_lag1().unwrap();
+        assert!(ac > 0.0);
+    }
+
+    // ── ZScoreNormalizer::trend_consistency ───────────────────────────────────
+
+    #[test]
+    fn test_zscore_trend_consistency_none_for_single_value() {
+        let mut n = znorm(3);
+        n.update(dec!(1));
+        assert!(n.trend_consistency().is_none());
+    }
+
+    #[test]
+    fn test_zscore_trend_consistency_one_for_strictly_rising() {
+        let mut n = znorm(5);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4), dec!(5)] { n.update(v); }
+        let tc = n.trend_consistency().unwrap();
+        assert!((tc - 1.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_zscore_trend_consistency_zero_for_strictly_falling() {
+        let mut n = znorm(5);
+        for v in [dec!(5), dec!(4), dec!(3), dec!(2), dec!(1)] { n.update(v); }
+        let tc = n.trend_consistency().unwrap();
+        assert!((tc - 0.0).abs() < 1e-9);
     }
 }
