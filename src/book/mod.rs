@@ -379,13 +379,11 @@ impl OrderBook {
     /// Returns `None` if either side of the book is empty or the mid-price is zero.
     pub fn bid_ask_spread_bps(&self) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        let bid = self.best_bid()?.price;
-        let ask = self.best_ask()?.price;
-        let mid = (bid + ask) / Decimal::from(2);
+        let mid = self.mid_price()?;
         if mid.is_zero() {
             return None;
         }
-        let spread_f = (ask - bid).to_f64()?;
+        let spread_f = self.spread()?.to_f64()?;
         let mid_f = mid.to_f64()?;
         Some(spread_f / mid_f * 10_000.0)
     }
@@ -519,7 +517,7 @@ impl OrderBook {
     /// If there are fewer than `n` levels, the volume of all existing levels is
     /// returned. Returns `Decimal::ZERO` for an empty bid side.
     pub fn top_n_bid_volume(&self, n: usize) -> Decimal {
-        self.bids.iter().rev().take(n).map(|(_, qty)| *qty).sum()
+        self.cumulative_bid_volume(n)
     }
 
     /// Normalised order-book imbalance: `(bid_vol − ask_vol) / (bid_vol + ask_vol)`.
@@ -548,7 +546,7 @@ impl OrderBook {
     /// If there are fewer than `n` levels, the volume of all existing levels is
     /// returned. Returns `Decimal::ZERO` for an empty ask side.
     pub fn top_n_ask_volume(&self, n: usize) -> Decimal {
-        self.asks.iter().take(n).map(|(_, qty)| *qty).sum()
+        self.cumulative_ask_volume(n)
     }
 
     /// Returns `true` if there is a non-zero ask entry at exactly `price`.
@@ -559,7 +557,7 @@ impl OrderBook {
     /// Returns `(bid_levels, ask_levels)` — the number of distinct price levels
     /// on each side of the book.
     pub fn bid_ask_depth(&self) -> (usize, usize) {
-        (self.bids.len(), self.asks.len())
+        (self.bid_depth(), self.ask_depth())
     }
 
     /// Total volume across all bid and ask levels combined.
@@ -609,7 +607,7 @@ impl OrderBook {
     ///
     /// Equivalent to `bid_depth() + ask_depth()`.
     pub fn total_depth(&self) -> usize {
-        self.bids.len() + self.asks.len()
+        self.bid_depth() + self.ask_depth()
     }
 
     /// Total resting quantity across both sides of the book.
@@ -635,8 +633,8 @@ impl OrderBook {
     /// dominates. Returns `None` when either side is empty or both quantities are zero.
     pub fn quote_imbalance(&self) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        let bid_qty = *self.bids.iter().next_back()?.1;
-        let ask_qty = *self.asks.iter().next()?.1;
+        let bid_qty = self.best_bid_qty()?;
+        let ask_qty = self.best_ask_qty()?;
         let total = bid_qty + ask_qty;
         if total.is_zero() {
             return None;
