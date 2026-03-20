@@ -62,7 +62,7 @@ impl WsStats {
 
     /// Total bytes received expressed as kibibytes (KiB): `total_bytes / 1_024.0`.
     pub fn total_data_kb(&self) -> f64 {
-        self.total_bytes_received as f64 / 1_024.0
+        self.total_data_mb() * 1_024.0
     }
 
     /// Average received bandwidth in bytes per second over `elapsed_ms`.
@@ -93,10 +93,7 @@ impl WsStats {
     ///
     /// Returns `0.0` when `elapsed_ms` is zero.
     pub fn bandwidth_kbps(&self, elapsed_ms: u64) -> f64 {
-        if elapsed_ms == 0 {
-            return 0.0;
-        }
-        self.total_bytes_received as f64 * 8.0 / 1_000.0 / (elapsed_ms as f64 / 1_000.0)
+        self.byte_rate(elapsed_ms) * 8.0 / 1_000.0
     }
 
     /// Returns `true` if the current message rate is below `min_rate` (msgs/s).
@@ -137,7 +134,7 @@ impl WsStats {
 
     /// Total bytes received expressed as gibibytes (GiB): `total_bytes / 1_073_741_824.0`.
     pub fn total_data_gb(&self) -> f64 {
-        self.total_bytes_received as f64 / 1_073_741_824.0
+        self.total_data_mb() / 1_024.0
     }
 
     /// Returns `true` if at least `min_messages` have been received.

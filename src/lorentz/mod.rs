@@ -372,7 +372,7 @@ impl LorentzTransform {
     ///
     /// # Complexity: O(1)
     pub fn dilate_time(&self, t: f64) -> f64 {
-        self.gamma * t
+        self.gamma() * t
     }
 
     /// Length-contraction: the transformed spatial coordinate for an event at
@@ -383,7 +383,7 @@ impl LorentzTransform {
     ///
     /// # Complexity: O(1)
     pub fn contract_length(&self, x: f64) -> f64 {
-        self.gamma * x
+        self.gamma() * x
     }
 
     /// Proper time: `coordinate_time / gamma`.
@@ -395,7 +395,7 @@ impl LorentzTransform {
     ///
     /// # Complexity: O(1)
     pub fn time_contraction(&self, coordinate_time: f64) -> f64 {
-        coordinate_time / self.gamma
+        coordinate_time / self.gamma()
     }
 
     /// Returns `true` if this boost is ultrarelativistic (`beta > 0.9`).
@@ -574,10 +574,7 @@ impl LorentzTransform {
     /// reaches or exceeds 1 (the speed of light), which cannot happen for
     /// valid inputs but is checked defensively.
     pub fn compose(&self, other: &LorentzTransform) -> Result<Self, StreamError> {
-        let b1 = self.beta;
-        let b2 = other.beta;
-        let composed = (b1 + b2) / (1.0 + b1 * b2);
-        LorentzTransform::new(composed)
+        self.composition(other)
     }
 
     /// Compose a sequence of boosts into a single equivalent transform.
@@ -632,7 +629,7 @@ impl LorentzTransform {
     /// `D = √((1 + β) / (1 − β))`. Alias for [`doppler_ratio`](Self::doppler_ratio).
     #[deprecated(since = "2.2.0", note = "Use `doppler_ratio` instead")]
     pub fn doppler_factor(&self) -> f64 {
-        ((1.0 + self.beta) / (1.0 - self.beta)).sqrt()
+        self.doppler_ratio()
     }
 
     /// Relativistic aberration angle for a light ray with direction cosine `cos_theta`.
