@@ -1680,7 +1680,7 @@ impl ZScoreNormalizer {
         use rust_decimal::prelude::ToPrimitive;
         if self.window.is_empty() { return vec![]; }
         let mean = match self.mean() { Some(m) => m, None => return vec![] };
-        let std = match self.std_dev().and_then(|s| s.to_f64()) {
+        let std = match self.std_dev() {
             Some(s) if s > 0.0 => s,
             _ => return self.window.iter().copied().collect(),
         };

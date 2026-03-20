@@ -749,7 +749,7 @@ impl<T, const N: usize> SpscProducer<T, N> {
     /// Available capacity (free slots).
     #[inline]
     pub fn available(&self) -> usize {
-        self.inner.capacity() - self.inner.len()
+        self.inner.remaining_capacity()
     }
 
     /// Maximum number of items this ring can hold (`N - 1`).
@@ -764,7 +764,7 @@ impl<T, const N: usize> SpscProducer<T, N> {
     /// on the producer side.
     #[inline]
     pub fn fill_ratio(&self) -> f64 {
-        self.inner.len() as f64 / self.inner.capacity() as f64
+        self.inner.fill_ratio()
     }
 }
 
@@ -821,7 +821,7 @@ impl<T, const N: usize> SpscConsumer<T, N> {
     /// Returns a value in `[0.0, 1.0]`. Useful for backpressure monitoring.
     #[inline]
     pub fn fill_ratio(&self) -> f64 {
-        self.inner.len() as f64 / self.inner.capacity() as f64
+        self.inner.fill_ratio()
     }
 
     /// Clone the next item without removing it.
