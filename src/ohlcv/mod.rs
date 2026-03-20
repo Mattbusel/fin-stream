@@ -3036,4 +3036,53 @@ mod tests {
         let bar = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100));
         assert_eq!(bar.price_at_pct(2.0), dec!(110));
     }
+
+    // ── mean_volume ───────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_mean_volume_none_when_empty() {
+        assert!(OhlcvBar::mean_volume(&[]).is_none());
+    }
+
+    #[test]
+    fn test_mean_volume_single_bar() {
+        let mut bar = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100));
+        bar.volume = dec!(200);
+        assert_eq!(OhlcvBar::mean_volume(&[bar]), Some(dec!(200)));
+    }
+
+    #[test]
+    fn test_mean_volume_multiple_bars() {
+        let mut b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100));
+        b1.volume = dec!(100);
+        let mut b2 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100));
+        b2.volume = dec!(200);
+        let mut b3 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100));
+        b3.volume = dec!(300);
+        assert_eq!(OhlcvBar::mean_volume(&[b1, b2, b3]), Some(dec!(200)));
+    }
+
+    // ── vwap_deviation ────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_vwap_deviation_none_when_vwap_not_set() {
+        let bar = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100));
+        assert!(bar.vwap_deviation().is_none());
+    }
+
+    #[test]
+    fn test_vwap_deviation_zero_when_close_equals_vwap() {
+        let mut bar = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100));
+        bar.vwap = Some(dec!(100));
+        assert_eq!(bar.vwap_deviation(), Some(0.0));
+    }
+
+    #[test]
+    fn test_vwap_deviation_correct_value() {
+        let mut bar = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(110));
+        bar.vwap = Some(dec!(100));
+        // |110-100|/100 = 0.10
+        let dev = bar.vwap_deviation().unwrap();
+        assert!((dev - 0.1).abs() < 1e-10);
+    }
 }

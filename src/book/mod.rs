@@ -687,6 +687,20 @@ impl OrderBook {
         (self.bid_volume_total() / ask_vol).to_f64()
     }
 
+    /// Quantity resting at the best bid price.
+    ///
+    /// Returns `None` if the bid side is empty.
+    pub fn top_bid_qty(&self) -> Option<Decimal> {
+        self.bids.iter().next_back().map(|(_, &q)| q)
+    }
+
+    /// Quantity resting at the best ask price.
+    ///
+    /// Returns `None` if the ask side is empty.
+    pub fn top_ask_qty(&self) -> Option<Decimal> {
+        self.asks.iter().next().map(|(_, &q)| q)
+    }
+
     /// Ratio of ask levels to bid levels: `ask_count / bid_count`.
     ///
     /// Values > 1 indicate more ask granularity; < 1 more bid granularity.
@@ -2595,5 +2609,27 @@ mod tests {
         let mut b = book("X");
         b.apply(delta("X", BookSide::Bid, dec!(99), dec!(10))).unwrap();
         assert_eq!(b.price_impact_sell(dec!(5)), Some(dec!(99)));
+    }
+
+    // ── total_value_at_level ──────────────────────────────────────────────────
+
+    #[test]
+    fn test_total_value_at_level_bid_returns_price_times_qty() {
+        let mut b = book("X");
+        b.apply(delta("X", BookSide::Bid, dec!(100), dec!(5))).unwrap();
+        assert_eq!(b.total_value_at_level(BookSide::Bid, dec!(100)), Some(dec!(500)));
+    }
+
+    #[test]
+    fn test_total_value_at_level_ask_returns_price_times_qty() {
+        let mut b = book("X");
+        b.apply(delta("X", BookSide::Ask, dec!(105), dec!(3))).unwrap();
+        assert_eq!(b.total_value_at_level(BookSide::Ask, dec!(105)), Some(dec!(315)));
+    }
+
+    #[test]
+    fn test_total_value_at_level_none_when_price_missing() {
+        let b = book("X");
+        assert!(b.total_value_at_level(BookSide::Bid, dec!(100)).is_none());
     }
 }

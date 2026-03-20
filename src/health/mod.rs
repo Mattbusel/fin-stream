@@ -689,6 +689,16 @@ impl HealthMonitor {
             .collect()
     }
 
+    /// Register multiple feeds, each with its own staleness threshold.
+    ///
+    /// `feeds` is a slice of `(feed_id, threshold_ms)` pairs. Useful when
+    /// different feeds have different latency requirements.
+    pub fn register_batch(&self, feeds: &[(&str, u64)]) {
+        for (id, threshold) in feeds {
+            self.register(*id, Some(*threshold));
+        }
+    }
+
     /// Age in milliseconds of the most recently-ticked healthy feed at `now_ms`.
     ///
     /// Returns `None` if no healthy feeds have received a tick.
@@ -2102,5 +2112,33 @@ mod tests {
     fn test_time_since_last_heartbeat_none_when_unknown_feed() {
         let m = HealthMonitor::new(5_000);
         assert!(m.time_since_last_heartbeat("MISSING", 10_000).is_none());
+    }
+
+    // ── register_batch ────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_register_batch_registers_all_feeds() {
+        let m = HealthMonitor::new(5_000);
+        m.register_batch(&[("BTC", 1_000), ("ETH", 2_000), ("SOL", 3_000)]);
+        assert!(m.feed_exists("BTC"));
+        assert!(m.feed_exists("ETH"));
+        assert!(m.feed_exists("SOL"));
+    }
+
+    #[test]
+    fn test_register_batch_uses_custom_thresholds() {
+        let m = HealthMonitor::new(10_000);
+        m.register_batch(&[("BTC", 500)]);
+        // Heartbeat at t=0, check at t=600 → should be stale (threshold=500)
+        m.heartbeat("BTC", 0).unwrap();
+        m.check_all(600);
+        assert_eq!(m.stale_count(), 1);
+    }
+
+    #[test]
+    fn test_register_batch_empty_slice_is_noop() {
+        let m = HealthMonitor::new(5_000);
+        m.register_batch(&[]);
+        assert_eq!(m.feed_count(), 0);
     }
 }

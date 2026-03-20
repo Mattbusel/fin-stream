@@ -1380,6 +1380,24 @@ impl ZScoreNormalizer {
             self.normalize(v).ok()
         }).collect()
     }
+
+    /// Change in mean between the first half and second half of the current window.
+    ///
+    /// Splits the window in two, computes the mean of each half, and returns
+    /// `second_half_mean - first_half_mean` as `f64`. Returns `None` if the
+    /// window has fewer than 2 observations.
+    pub fn rolling_mean_change(&self) -> Option<f64> {
+        let n = self.window.len();
+        if n < 2 {
+            return None;
+        }
+        let mid = n / 2;
+        let first: Decimal = self.window.iter().take(mid).copied().sum::<Decimal>()
+            / Decimal::from(mid as u64);
+        let second: Decimal = self.window.iter().skip(mid).copied().sum::<Decimal>()
+            / Decimal::from((n - mid) as u64);
+        (second - first).to_f64()
+    }
 }
 
 #[cfg(test)]
@@ -2098,5 +2116,39 @@ mod zscore_tests {
         let var = n.variance_f64().unwrap();
         let std = n.std_dev_f64().unwrap();
         assert!((std - var.sqrt()).abs() < 1e-12);
+    }
+
+    // ── rolling_mean_change ───────────────────────────────────────────────────
+
+    #[test]
+    fn test_rolling_mean_change_none_when_one_observation() {
+        let mut n = znorm(4);
+        n.update(dec!(5));
+        assert!(n.rolling_mean_change().is_none());
+    }
+
+    #[test]
+    fn test_rolling_mean_change_positive_when_rising() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        // first half [1,2] mean=1.5, second half [3,4] mean=3.5 → change=2.0
+        let change = n.rolling_mean_change().unwrap();
+        assert!((change - 2.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_rolling_mean_change_negative_when_falling() {
+        let mut n = znorm(4);
+        for v in [dec!(4), dec!(3), dec!(2), dec!(1)] { n.update(v); }
+        let change = n.rolling_mean_change().unwrap();
+        assert!(change < 0.0);
+    }
+
+    #[test]
+    fn test_rolling_mean_change_zero_when_flat() {
+        let mut n = znorm(4);
+        for _ in 0..4 { n.update(dec!(7)); }
+        let change = n.rolling_mean_change().unwrap();
+        assert!(change.abs() < 1e-9);
     }
 }

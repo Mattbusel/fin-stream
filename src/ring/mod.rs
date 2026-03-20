@@ -480,6 +480,30 @@ impl<T, const N: usize> SpscRing<T, N> {
         count
     }
 
+    /// Sum of all elements currently in the ring, cloned out of initialized slots.
+    ///
+    /// Returns `T::default()` (typically `0`) when the ring is empty.
+    ///
+    /// # Complexity: O(n).
+    pub fn sum_cloned(&self) -> T
+    where
+        T: Clone + std::iter::Sum + Default,
+    {
+        let head = self.head.load(Ordering::Acquire);
+        let tail = self.tail.load(Ordering::Acquire);
+        let len = tail.wrapping_sub(head);
+        if len == 0 {
+            return T::default();
+        }
+        (0..len)
+            .map(|i| {
+                let slot = head.wrapping_add(i) % N;
+                // SAFETY: slots in [head, tail) are initialized
+                unsafe { (*self.buf[slot].get()).assume_init_ref() }.clone()
+            })
+            .sum()
+    }
+
     /// Split the ring into a thread-safe producer/consumer pair.
     ///
     /// The original `SpscRing` is consumed. Both halves hold an `Arc` to the
@@ -1658,5 +1682,36 @@ mod tests {
         ring.push(3u32).unwrap();
         assert_eq!(ring.peek_oldest(), Some(1));
         assert_eq!(ring.peek_newest(), Some(3));
+    }
+
+    // ── sum_cloned ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_sum_cloned_empty_returns_default() {
+        let ring: SpscRing<u32, 4> = SpscRing::new();
+        assert_eq!(ring.sum_cloned(), 0u32);
+    }
+
+    #[test]
+    fn test_sum_cloned_single_element() {
+        let ring: SpscRing<u32, 4> = SpscRing::new();
+        ring.push(42u32).unwrap();
+        assert_eq!(ring.sum_cloned(), 42u32);
+    }
+
+    #[test]
+    fn test_sum_cloned_multiple_elements() {
+        let ring: SpscRing<u32, 8> = SpscRing::new();
+        for v in [1u32, 2, 3, 4, 5] { ring.push(v).unwrap(); }
+        assert_eq!(ring.sum_cloned(), 15u32);
+    }
+
+    #[test]
+    fn test_sum_cloned_after_pop_reflects_remaining() {
+        let ring: SpscRing<u32, 4> = SpscRing::new();
+        ring.push(10u32).unwrap();
+        ring.push(20u32).unwrap();
+        ring.pop().unwrap(); // removes 10
+        assert_eq!(ring.sum_cloned(), 20u32);
     }
 }

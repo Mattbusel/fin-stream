@@ -739,6 +739,19 @@ impl SessionAwareness {
         }
     }
 
+    /// Returns `true` if `date` falls within an approximate FOMC blackout window.
+    ///
+    /// The Fed's blackout rule prohibits public commentary in the 10 calendar days
+    /// before each FOMC decision. FOMC meetings are scheduled roughly 8 times per
+    /// year; this heuristic marks days 18–31 of odd months (Jan, Mar, May, Jul,
+    /// Sep, Nov) as blackout candidates — a conservative approximation.
+    pub fn is_fomc_blackout_window(date: NaiveDate) -> bool {
+        let day = date.day();
+        // Meetings land in odd-numbered months; blackout starts ~10 days before
+        // the typical mid/late-month decision date.
+        matches!(date.month(), 1 | 3 | 5 | 7 | 9 | 11) && day >= 18
+    }
+
     fn next_forex_close_ms(&self, utc_ms: u64) -> u64 {
         if self.forex_status(utc_ms) == TradingStatus::Closed {
             return utc_ms;
@@ -2433,5 +2446,31 @@ mod tests {
     fn test_week_of_month_15th_is_week_three() {
         let d = NaiveDate::from_ymd_opt(2024, 3, 15).unwrap();
         assert_eq!(SessionAwareness::week_of_month(d), 3);
+    }
+
+    // ── is_fomc_blackout_window ───────────────────────────────────────────────
+
+    #[test]
+    fn test_fomc_blackout_true_for_late_odd_month() {
+        let d = NaiveDate::from_ymd_opt(2024, 3, 20).unwrap(); // March 20
+        assert!(SessionAwareness::is_fomc_blackout_window(d));
+    }
+
+    #[test]
+    fn test_fomc_blackout_false_for_early_odd_month() {
+        let d = NaiveDate::from_ymd_opt(2024, 3, 5).unwrap(); // March 5
+        assert!(!SessionAwareness::is_fomc_blackout_window(d));
+    }
+
+    #[test]
+    fn test_fomc_blackout_false_for_even_month() {
+        let d = NaiveDate::from_ymd_opt(2024, 4, 25).unwrap(); // April — even month
+        assert!(!SessionAwareness::is_fomc_blackout_window(d));
+    }
+
+    #[test]
+    fn test_fomc_blackout_boundary_day_18() {
+        let d = NaiveDate::from_ymd_opt(2024, 1, 18).unwrap();
+        assert!(SessionAwareness::is_fomc_blackout_window(d));
     }
 }
