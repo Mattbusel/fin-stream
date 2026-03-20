@@ -273,6 +273,15 @@ impl NormalizedTick {
         self.price * self.quantity
     }
 
+    /// Returns `true` if this tick carries an exchange-provided timestamp.
+    ///
+    /// When `false`, only the local `received_at_ms` is available. Use
+    /// [`latency_ms`](Self::latency_ms) to measure round-trip latency when
+    /// this returns `true`.
+    pub fn has_exchange_ts(&self) -> bool {
+        self.exchange_ts_ms.is_some()
+    }
+
     /// Returns `true` if this tick's price is strictly above `price`.
     pub fn is_above(&self, price: Decimal) -> bool {
         self.price > price
@@ -1056,5 +1065,42 @@ mod tests {
         let mut tick = make_tick_at(1_000);
         tick.price = rust_decimal_macros::dec!(100);
         assert!(!tick.is_above(rust_decimal_macros::dec!(200)));
+    }
+
+    // ── NormalizedTick::is_below ──────────────────────────────────────────────
+
+    #[test]
+    fn test_is_below_returns_true_when_price_lower() {
+        let mut tick = make_tick_at(1_000);
+        tick.price = rust_decimal_macros::dec!(100);
+        assert!(tick.is_below(rust_decimal_macros::dec!(150)));
+    }
+
+    #[test]
+    fn test_is_below_returns_false_when_price_equal() {
+        let mut tick = make_tick_at(1_000);
+        tick.price = rust_decimal_macros::dec!(100);
+        assert!(!tick.is_below(rust_decimal_macros::dec!(100)));
+    }
+
+    #[test]
+    fn test_is_below_returns_false_when_price_higher() {
+        let mut tick = make_tick_at(1_000);
+        tick.price = rust_decimal_macros::dec!(200);
+        assert!(!tick.is_below(rust_decimal_macros::dec!(100)));
+    }
+
+    // --- has_exchange_ts ---
+
+    #[test]
+    fn test_has_exchange_ts_false_when_none() {
+        let tick = make_tick_at(1_000);
+        assert!(!tick.has_exchange_ts());
+    }
+
+    #[test]
+    fn test_has_exchange_ts_true_when_some() {
+        let tick = make_tick_at(1_000).with_exchange_ts(900);
+        assert!(tick.has_exchange_ts());
     }
 }

@@ -386,6 +386,17 @@ impl SessionAwareness {
         Some(duration_ms.saturating_sub(elapsed))
     }
 
+    /// UTC fraction of the 24-hour day elapsed at `utc_ms`.
+    ///
+    /// Returns a value in `[0.0, 1.0)` representing how far through the calendar
+    /// day the timestamp is: `0.0` at midnight UTC, approaching `1.0` just before
+    /// the next midnight. Independent of session status.
+    pub fn fraction_of_day_elapsed(&self, utc_ms: u64) -> f64 {
+        const MS_PER_DAY: f64 = 24.0 * 60.0 * 60.0 * 1000.0;
+        let ms_in_day = utc_ms % (24 * 60 * 60 * 1000);
+        ms_in_day as f64 / MS_PER_DAY
+    }
+
     /// Minutes elapsed since the current session opened.
     ///
     /// Returns `0` when the market is closed or for sessions without a defined
@@ -1461,5 +1472,54 @@ mod tests {
     fn test_minutes_since_open_zero_when_closed() {
         let sa = sa(MarketSession::UsEquity);
         assert_eq!(sa.minutes_since_open(SAT_UTC_MS), 0);
+    }
+
+    // ── SessionAnalyzer::is_regular_session ───────────────────────────────────
+
+    #[test]
+    fn test_is_regular_session_true_during_open() {
+        let sa = sa(MarketSession::UsEquity);
+        assert!(sa.is_regular_session(MON_OPEN_UTC_MS));
+    }
+
+    #[test]
+    fn test_is_regular_session_false_on_weekend() {
+        let sa = sa(MarketSession::UsEquity);
+        assert!(!sa.is_regular_session(SAT_UTC_MS));
+    }
+
+    #[test]
+    fn test_is_regular_session_false_before_open() {
+        let sa = sa(MarketSession::UsEquity);
+        // Sunday before open
+        assert!(!sa.is_regular_session(SUN_BEFORE_UTC_MS));
+    }
+
+    // --- fraction_of_day_elapsed ---
+
+    #[test]
+    fn test_fraction_of_day_elapsed_midnight_is_zero() {
+        let sa = sa(MarketSession::Crypto);
+        // Midnight UTC = 0 ms into the day
+        let midnight_ms: u64 = 24 * 60 * 60 * 1000; // exactly one full day = another midnight
+        assert!((sa.fraction_of_day_elapsed(midnight_ms) - 0.0).abs() < 1e-12);
+    }
+
+    #[test]
+    fn test_fraction_of_day_elapsed_noon_is_half() {
+        let sa = sa(MarketSession::Crypto);
+        // 12:00 UTC = 12 * 3600 * 1000 ms after midnight
+        let noon_offset_ms: u64 = 12 * 60 * 60 * 1000;
+        let frac = sa.fraction_of_day_elapsed(noon_offset_ms);
+        assert!((frac - 0.5).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_fraction_of_day_elapsed_range_zero_to_one() {
+        let sa = sa(MarketSession::Crypto);
+        for ms in [0u64, 1_000, 43_200_000, 86_399_999] {
+            let frac = sa.fraction_of_day_elapsed(ms);
+            assert!((0.0..1.0).contains(&frac));
+        }
     }
 }

@@ -356,6 +356,18 @@ impl LorentzTransform {
         self.gamma * x
     }
 
+    /// Proper time: `coordinate_time / gamma`.
+    ///
+    /// The inverse of [`dilate_time`](Self::dilate_time). Converts a dilated
+    /// coordinate time back to the proper time measured by a clock co-moving
+    /// with the boosted frame — always shorter than the coordinate time by
+    /// a factor of `gamma`.
+    ///
+    /// # Complexity: O(1)
+    pub fn time_contraction(&self, coordinate_time: f64) -> f64 {
+        coordinate_time / self.gamma
+    }
+
     /// Computes the Lorentz-invariant spacetime interval between two events.
     ///
     /// The interval is defined as `ds² = (Δt)² - (Δx)²` (signature `+−`).
@@ -1240,5 +1252,48 @@ mod tests {
         let t2 = LorentzTransform::new(0.5).unwrap();
         let composed = t1.composition(&t2).unwrap();
         assert!((composed.beta() - 0.8).abs() < 1e-12);
+    }
+
+    // ── LorentzTransform::time_dilation_factor ────────────────────────────────
+
+    #[test]
+    fn test_time_dilation_factor_one_at_rest() {
+        let t = LorentzTransform::new(0.0).unwrap();
+        assert!((t.time_dilation_factor() - 1.0).abs() < 1e-12);
+    }
+
+    #[test]
+    fn test_time_dilation_factor_equals_gamma() {
+        let t = LorentzTransform::new(0.6).unwrap();
+        assert!((t.time_dilation_factor() - t.gamma()).abs() < 1e-12);
+    }
+
+    #[test]
+    fn test_time_dilation_factor_greater_than_one_for_nonzero_beta() {
+        let t = LorentzTransform::new(0.8).unwrap();
+        assert!(t.time_dilation_factor() > 1.0);
+    }
+
+    // --- time_contraction ---
+
+    #[test]
+    fn test_time_contraction_inverse_of_dilate_time() {
+        let t = LorentzTransform::new(0.6).unwrap();
+        let original = 100.0_f64;
+        let dilated = t.dilate_time(original);
+        let contracted = t.time_contraction(dilated);
+        assert!((contracted - original).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_time_contraction_at_zero_beta_equals_input() {
+        let t = LorentzTransform::new(0.0).unwrap();
+        assert!((t.time_contraction(42.0) - 42.0).abs() < 1e-12);
+    }
+
+    #[test]
+    fn test_time_contraction_less_than_input_for_nonzero_beta() {
+        let t = LorentzTransform::new(0.8).unwrap();
+        assert!(t.time_contraction(100.0) < 100.0);
     }
 }

@@ -219,6 +219,15 @@ impl ReconnectPolicy {
         self.max_attempts.saturating_sub(current_attempt)
     }
 
+    /// Backoff delay that will be applied *after* `current_attempt` completes.
+    ///
+    /// Equivalent to `backoff_for_attempt(current_attempt + 1)`, capped at
+    /// `max_backoff`. Saturates rather than wrapping when `current_attempt`
+    /// is `u32::MAX`.
+    pub fn delay_for_next(&self, current_attempt: u32) -> Duration {
+        self.backoff_for_attempt(current_attempt.saturating_add(1))
+    }
+
     /// Backoff duration for attempt N (0-indexed).
     pub fn backoff_for_attempt(&self, attempt: u32) -> Duration {
         let factor = self.multiplier.powi(attempt as i32);
@@ -1054,5 +1063,59 @@ mod tests {
             total_bytes_received: 50_000,
         };
         assert!(stats.has_traffic());
+    }
+
+    // ── WsStats::is_high_volume ───────────────────────────────────────────────
+
+    #[test]
+    fn test_is_high_volume_true_at_threshold() {
+        let stats = WsStats { total_messages_received: 1_000, total_bytes_received: 0 };
+        assert!(stats.is_high_volume(1_000));
+    }
+
+    #[test]
+    fn test_is_high_volume_false_below_threshold() {
+        let stats = WsStats { total_messages_received: 500, total_bytes_received: 0 };
+        assert!(!stats.is_high_volume(1_000));
+    }
+
+    #[test]
+    fn test_is_high_volume_true_above_threshold() {
+        let stats = WsStats { total_messages_received: 2_000, total_bytes_received: 0 };
+        assert!(stats.is_high_volume(1_000));
+    }
+
+    // --- delay_for_next ---
+
+    #[test]
+    fn test_delay_for_next_is_backoff_for_attempt_plus_one() {
+        let policy = ReconnectPolicy::new(
+            10,
+            Duration::from_millis(100),
+            Duration::from_secs(60),
+            2.0,
+        )
+        .unwrap();
+        assert_eq!(
+            policy.delay_for_next(0),
+            policy.backoff_for_attempt(1)
+        );
+        assert_eq!(
+            policy.delay_for_next(3),
+            policy.backoff_for_attempt(4)
+        );
+    }
+
+    #[test]
+    fn test_delay_for_next_saturates_at_max_backoff() {
+        let policy = ReconnectPolicy::new(
+            10,
+            Duration::from_millis(100),
+            Duration::from_secs(1),
+            2.0,
+        )
+        .unwrap();
+        // After many attempts the delay is capped at max_backoff
+        assert!(policy.delay_for_next(100) <= Duration::from_secs(1));
     }
 }

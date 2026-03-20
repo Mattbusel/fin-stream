@@ -463,6 +463,19 @@ impl HealthMonitor {
             .max()
             .unwrap_or(0)
     }
+
+    /// All feeds whose current status exactly matches `status`.
+    ///
+    /// Returns a `Vec` of cloned [`FeedHealth`] entries. Order is unspecified.
+    /// Use [`stale_feeds`](Self::stale_feeds) as a shorthand for the common
+    /// `Stale` case.
+    pub fn feeds_by_status(&self, status: HealthStatus) -> Vec<FeedHealth> {
+        self.feeds
+            .iter()
+            .filter(|e| e.status == status)
+            .map(|e| e.clone())
+            .collect()
+    }
 }
 
 #[cfg(test)]
@@ -1149,6 +1162,38 @@ mod tests {
         m.heartbeat("B", 1_000).unwrap();
         // A=3, B=1 → avg=2.0
         assert!((m.avg_tick_count() - 2.0).abs() < 1e-9);
+    }
+
+    // ── HealthMonitor::max_consecutive_stale ──────────────────────────────────
+
+    #[test]
+    fn test_max_consecutive_stale_zero_with_no_feeds() {
+        let m = HealthMonitor::new(5_000);
+        assert_eq!(m.max_consecutive_stale(), 0);
+    }
+
+    #[test]
+    fn test_max_consecutive_stale_picks_highest() {
+        let m = HealthMonitor::new(1_000);
+        m.register("A", None);
+        m.register("B", None);
+        // Give each feed a heartbeat, then let them go stale
+        m.heartbeat("A", 1_000).unwrap();
+        m.heartbeat("B", 1_000).unwrap();
+        // 3s later → both exceed 1s threshold
+        m.check_all(4_000);
+        m.check_all(5_000);
+        // Both feeds are stale; consecutive_stale should be at least 2
+        assert!(m.max_consecutive_stale() >= 2);
+    }
+
+    #[test]
+    fn test_max_consecutive_stale_zero_after_heartbeat() {
+        let m = HealthMonitor::new(1_000);
+        m.register("A", None);
+        m.check_all(10_000);
+        m.heartbeat("A", 10_001).unwrap();
+        assert_eq!(m.max_consecutive_stale(), 0);
     }
 
     #[test]

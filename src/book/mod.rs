@@ -416,6 +416,29 @@ impl OrderBook {
         (self.cumulative_bid_volume(n) / ask_vol).to_f64()
     }
 
+    /// The cheapest ask level with quantity ≥ `min_qty`, or `None` if no such level exists.
+    ///
+    /// Scans ask levels from the tightest (best) price outward. Useful for
+    /// detecting large sell walls sitting near the top of the book.
+    pub fn ask_wall(&self, min_qty: Decimal) -> Option<PriceLevel> {
+        self.asks
+            .iter()
+            .find(|(_, qty)| **qty >= min_qty)
+            .map(|(price, qty)| PriceLevel::new(*price, *qty))
+    }
+
+    /// The highest bid level with quantity ≥ `min_qty`, or `None` if no such level exists.
+    ///
+    /// Scans bid levels from the best (highest) price downward. Useful for
+    /// detecting large buy walls sitting near the top of the book.
+    pub fn bid_wall(&self, min_qty: Decimal) -> Option<PriceLevel> {
+        self.bids
+            .iter()
+            .rev()
+            .find(|(_, qty)| **qty >= min_qty)
+            .map(|(price, qty)| PriceLevel::new(*price, *qty))
+    }
+
     /// Spread as a percentage of the mid-price: `spread / mid × 100`.
     ///
     /// Returns `None` if either best bid or best ask is absent, or if the
@@ -452,6 +475,21 @@ impl OrderBook {
     /// The sequence number of the most recently applied delta, if any.
     pub fn last_sequence(&self) -> Option<u64> {
         self.last_sequence
+    }
+
+    /// Best-bid quantity as a fraction of `(best_bid_qty + best_ask_qty)`.
+    ///
+    /// Values near `1.0` indicate the best bid has dominant size; near `0.0` the best ask
+    /// dominates. Returns `None` when either side is empty or both quantities are zero.
+    pub fn quote_imbalance(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let bid_qty = *self.bids.iter().next_back()?.1;
+        let ask_qty = *self.asks.iter().next()?.1;
+        let total = bid_qty + ask_qty;
+        if total.is_zero() {
+            return None;
+        }
+        (bid_qty / total).to_f64()
     }
 
     /// Returns `true` if a bid level exists at exactly `price`.
@@ -1505,5 +1543,68 @@ mod tests {
     fn test_is_one_sided_false_for_empty_book() {
         let b = book("BTC-USD");
         assert!(!b.is_one_sided());
+    }
+
+    // ── OrderBook::bid_ask_spread_bps ─────────────────────────────────────────
+
+    #[test]
+    fn test_bid_ask_spread_bps_known_value() {
+        let mut b = book("BTC-USD");
+        b.apply(delta("BTC-USD", BookSide::Bid, dec!(100), dec!(1))).unwrap();
+        b.apply(delta("BTC-USD", BookSide::Ask, dec!(101), dec!(1))).unwrap();
+        // spread=1, mid=100.5, bps = 1/100.5*10000 ≈ 99.5
+        let bps = b.bid_ask_spread_bps().unwrap();
+        assert!((bps - 1.0 / 100.5 * 10_000.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_bid_ask_spread_bps_none_when_one_sided() {
+        let mut b = book("BTC-USD");
+        b.apply(delta("BTC-USD", BookSide::Bid, dec!(100), dec!(1))).unwrap();
+        assert!(b.bid_ask_spread_bps().is_none());
+    }
+
+    #[test]
+    fn test_bid_ask_spread_bps_none_for_empty_book() {
+        let b = book("BTC-USD");
+        assert!(b.bid_ask_spread_bps().is_none());
+    }
+
+    // --- ask_wall / bid_wall ---
+
+    #[test]
+    fn test_ask_wall_returns_cheapest_ask_above_threshold() {
+        let mut b = book("BTC-USD");
+        b.apply(delta("BTC-USD", BookSide::Ask, dec!(50100), dec!(2))).unwrap();
+        b.apply(delta("BTC-USD", BookSide::Ask, dec!(50200), dec!(10))).unwrap();
+        // ask_wall(5) should find 50200 (qty=10 >= 5); 50100 has qty=2 < 5
+        let wall = b.ask_wall(dec!(5)).unwrap();
+        assert_eq!(wall.price, dec!(50200));
+        assert_eq!(wall.quantity, dec!(10));
+    }
+
+    #[test]
+    fn test_ask_wall_none_when_no_level_meets_threshold() {
+        let mut b = book("BTC-USD");
+        b.apply(delta("BTC-USD", BookSide::Ask, dec!(50100), dec!(1))).unwrap();
+        assert!(b.ask_wall(dec!(5)).is_none());
+    }
+
+    #[test]
+    fn test_bid_wall_returns_highest_bid_above_threshold() {
+        let mut b = book("BTC-USD");
+        b.apply(delta("BTC-USD", BookSide::Bid, dec!(49900), dec!(10))).unwrap();
+        b.apply(delta("BTC-USD", BookSide::Bid, dec!(49800), dec!(2))).unwrap();
+        // bid_wall(5) scans from best (49900) → qty=10 >= 5, so returns 49900
+        let wall = b.bid_wall(dec!(5)).unwrap();
+        assert_eq!(wall.price, dec!(49900));
+        assert_eq!(wall.quantity, dec!(10));
+    }
+
+    #[test]
+    fn test_bid_wall_none_when_no_level_meets_threshold() {
+        let mut b = book("BTC-USD");
+        b.apply(delta("BTC-USD", BookSide::Bid, dec!(49900), dec!(1))).unwrap();
+        assert!(b.bid_wall(dec!(5)).is_none());
     }
 }

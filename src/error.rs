@@ -966,4 +966,23 @@ mod tests {
             "LorentzConfigError"
         );
     }
+
+    // ── StreamError::is_config_error ──────────────────────────────────────────
+
+    #[test]
+    fn test_is_config_error_true_for_config_error() {
+        let e = StreamError::ConfigError { reason: "bad config".into() };
+        assert!(e.is_config_error());
+    }
+
+    #[test]
+    fn test_is_config_error_false_for_connection_failed() {
+        let e = StreamError::ConnectionFailed { url: "ws://x".into(), reason: "timeout".into() };
+        assert!(!e.is_config_error());
+    }
+
+    #[test]
+    fn test_is_config_error_false_for_ring_buffer_empty() {
+        assert!(!StreamError::RingBufferEmpty.is_config_error());
+    }
 }

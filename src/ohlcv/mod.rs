@@ -390,6 +390,43 @@ impl OhlcvBar {
     pub fn price_change_abs(&self) -> Decimal {
         (self.close - self.open).abs()
     }
+
+    /// Upper shadow length — alias for [`wick_upper`](Self::wick_upper).
+    ///
+    /// Returns `high − max(open, close)`.
+    pub fn upper_shadow(&self) -> Decimal {
+        self.wick_upper()
+    }
+
+    /// Lower shadow length — alias for [`wick_lower`](Self::wick_lower).
+    ///
+    /// Returns `min(open, close) − low`.
+    pub fn lower_shadow(&self) -> Decimal {
+        self.wick_lower()
+    }
+
+    /// Returns `true` if this bar has a spinning-top pattern.
+    ///
+    /// A spinning top has a small body (≤ `body_pct` of range) with significant
+    /// wicks on both sides (each wick strictly greater than the body). Signals
+    /// market indecision — neither buyers nor sellers controlled the period.
+    ///
+    /// `body_pct` is a fraction in `[0.0, 1.0]`, e.g. `dec!(0.3)` for 30%.
+    /// Returns `false` if the bar's range is zero.
+    pub fn is_spinning_top(&self, body_pct: Decimal) -> bool {
+        let range = self.range();
+        if range.is_zero() {
+            return false;
+        }
+        let body = self.body();
+        let max_body = range * body_pct;
+        body <= max_body && self.wick_upper() > body && self.wick_lower() > body
+    }
+
+    /// HLC3: `(high + low + close) / 3` — alias for [`typical_price`](Self::typical_price).
+    pub fn hlc3(&self) -> Decimal {
+        self.typical_price()
+    }
 }
 
 impl std::fmt::Display for OhlcvBar {
@@ -1879,5 +1916,137 @@ mod tests {
         agg.feed(&make_tick("BTC-USD", dec!(100), dec!(1), 1_000)).unwrap();
         agg.flush();
         assert!(!agg.is_active());
+    }
+
+    // ── OhlcvBar::is_long_upper_wick ──────────────────────────────────────────
+
+    #[test]
+    fn test_is_long_upper_wick_true_when_upper_wick_dominates() {
+        // open=100, close=101, high=110, low=100 → body=1, upper_wick=9
+        let bar = make_ohlcv_bar(dec!(100), dec!(110), dec!(100), dec!(101));
+        assert!(bar.is_long_upper_wick());
+    }
+
+    #[test]
+    fn test_is_long_upper_wick_false_for_full_body() {
+        // open=100, close=110, high=110, low=100 → body=10, upper_wick=0
+        let bar = make_ohlcv_bar(dec!(100), dec!(110), dec!(100), dec!(110));
+        assert!(!bar.is_long_upper_wick());
+    }
+
+    #[test]
+    fn test_is_long_upper_wick_false_when_equal() {
+        // open=100, close=105, high=110, low=100 → body=5, upper_wick=5
+        let bar = make_ohlcv_bar(dec!(100), dec!(110), dec!(100), dec!(105));
+        assert!(!bar.is_long_upper_wick());
+    }
+
+    // ── OhlcvBar::price_change_abs ────────────────────────────────────────────
+
+    #[test]
+    fn test_price_change_abs_bullish_bar() {
+        let bar = make_ohlcv_bar(dec!(100), dec!(110), dec!(100), dec!(108));
+        assert_eq!(bar.price_change_abs(), dec!(8));
+    }
+
+    #[test]
+    fn test_price_change_abs_bearish_bar() {
+        let bar = make_ohlcv_bar(dec!(110), dec!(110), dec!(100), dec!(102));
+        assert_eq!(bar.price_change_abs(), dec!(8));
+    }
+
+    #[test]
+    fn test_price_change_abs_doji_zero() {
+        let bar = make_ohlcv_bar(dec!(100), dec!(105), dec!(95), dec!(100));
+        assert_eq!(bar.price_change_abs(), dec!(0));
+    }
+
+    // ── OhlcvAggregator::vwap_current ────────────────────────────────────────
+
+    #[test]
+    fn test_vwap_current_none_before_any_ticks() {
+        let agg = agg("BTC-USD", Timeframe::Minutes(1));
+        assert!(agg.vwap_current().is_none());
+    }
+
+    #[test]
+    fn test_vwap_current_equals_price_for_single_tick() {
+        let mut agg = agg("BTC-USD", Timeframe::Minutes(1));
+        agg.feed(&make_tick("BTC-USD", dec!(200), dec!(5), 1_000)).unwrap();
+        // vwap = price*qty / qty = 200
+        assert_eq!(agg.vwap_current(), Some(dec!(200)));
+    }
+
+    #[test]
+    fn test_vwap_current_weighted_average() {
+        let mut agg = agg("BTC-USD", Timeframe::Minutes(1));
+        agg.feed(&make_tick("BTC-USD", dec!(100), dec!(1), 1_000)).unwrap();
+        agg.feed(&make_tick("BTC-USD", dec!(200), dec!(3), 2_000)).unwrap();
+        // vwap = (100*1 + 200*3) / (1+3) = 700/4 = 175
+        assert_eq!(agg.vwap_current(), Some(dec!(175)));
+    }
+
+    // --- upper_shadow / lower_shadow / is_spinning_top / hlc3 ---
+
+    fn bar(o: i64, h: i64, l: i64, c: i64) -> OhlcvBar {
+        OhlcvBar {
+            symbol: "X".into(),
+            timeframe: Timeframe::Minutes(1),
+            open: Decimal::from(o),
+            high: Decimal::from(h),
+            low: Decimal::from(l),
+            close: Decimal::from(c),
+            volume: Decimal::ZERO,
+            bar_start_ms: 0,
+            trade_count: 0,
+            is_complete: false,
+            is_gap_fill: false,
+            vwap: None,
+        }
+    }
+
+    #[test]
+    fn test_upper_shadow_equals_wick_upper() {
+        let b = bar(100, 120, 90, 110);
+        assert_eq!(b.upper_shadow(), b.wick_upper());
+        assert_eq!(b.upper_shadow(), Decimal::from(10)); // 120 - max(100,110)
+    }
+
+    #[test]
+    fn test_lower_shadow_equals_wick_lower() {
+        let b = bar(100, 120, 90, 110);
+        assert_eq!(b.lower_shadow(), b.wick_lower());
+        assert_eq!(b.lower_shadow(), Decimal::from(10)); // min(100,110) - 90
+    }
+
+    #[test]
+    fn test_is_spinning_top_true_when_small_body_large_wicks() {
+        // body = |110-100| = 10, range = 130-80 = 50
+        // body_pct = 0.3 → max_body = 15; body(10) <= 15
+        // wick_upper = 130 - 110 = 20 > 10 ✓
+        // wick_lower = 100 - 80 = 20 > 10 ✓
+        let b = bar(100, 130, 80, 110);
+        assert!(b.is_spinning_top(dec!(0.3)));
+    }
+
+    #[test]
+    fn test_is_spinning_top_false_when_body_too_large() {
+        // body = 40, range = 50; body_pct=0.3 → max_body=15; 40 > 15
+        let b = bar(80, 130, 80, 120);
+        assert!(!b.is_spinning_top(dec!(0.3)));
+    }
+
+    #[test]
+    fn test_is_spinning_top_false_when_zero_range() {
+        let b = bar(100, 100, 100, 100);
+        assert!(!b.is_spinning_top(dec!(0.3)));
+    }
+
+    #[test]
+    fn test_hlc3_equals_typical_price() {
+        let b = bar(100, 120, 80, 110);
+        assert_eq!(b.hlc3(), b.typical_price());
+        // (120 + 80 + 110) / 3 = 310/3
+        assert_eq!(b.hlc3(), (Decimal::from(120) + Decimal::from(80) + Decimal::from(110)) / Decimal::from(3));
     }
 }
