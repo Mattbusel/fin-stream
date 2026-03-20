@@ -185,6 +185,20 @@ impl OhlcvBar {
         (self.close - self.open).abs()
     }
 
+    /// Higher of open and close: `max(open, close)`.
+    ///
+    /// The top of the candle body, regardless of direction.
+    pub fn body_high(&self) -> Decimal {
+        self.open.max(self.close)
+    }
+
+    /// Lower of open and close: `min(open, close)`.
+    ///
+    /// The bottom of the candle body, regardless of direction.
+    pub fn body_low(&self) -> Decimal {
+        self.open.min(self.close)
+    }
+
     /// Returns `true` if this is a bullish bar (`close > open`).
     pub fn is_bullish(&self) -> bool {
         self.close > self.open
@@ -230,14 +244,14 @@ impl OhlcvBar {
     ///
     /// The upper wick is the portion of the candle above the body.
     pub fn wick_upper(&self) -> Decimal {
-        self.high - self.open.max(self.close)
+        self.high - self.body_high()
     }
 
     /// Lower wick (shadow) length: `min(open, close) - low`.
     ///
     /// The lower wick is the portion of the candle below the body.
     pub fn wick_lower(&self) -> Decimal {
-        self.open.min(self.close) - self.low
+        self.body_low() - self.low
     }
 
     /// Signed price change: `close - open`.
@@ -536,11 +550,7 @@ impl OhlcvBar {
     /// [`is_bullish`](Self::is_bullish) / [`is_bearish`](Self::is_bearish) if
     /// classic engulfing patterns are needed.
     pub fn is_engulfing(&self, prev: &OhlcvBar) -> bool {
-        let self_lo = self.open.min(self.close);
-        let self_hi = self.open.max(self.close);
-        let prev_lo = prev.open.min(prev.close);
-        let prev_hi = prev.open.max(prev.close);
-        self_lo < prev_lo && self_hi > prev_hi
+        self.body_low() < prev.body_low() && self.body_high() > prev.body_high()
     }
 
     /// Returns `true` if this bar is a harami: its body is entirely contained
@@ -549,11 +559,7 @@ impl OhlcvBar {
     /// A harami is the opposite of an engulfing pattern. Neither bar needs to
     /// be bullish or bearish — only the body ranges are compared.
     pub fn is_harami(&self, prev: &OhlcvBar) -> bool {
-        let self_lo = self.open.min(self.close);
-        let self_hi = self.open.max(self.close);
-        let prev_lo = prev.open.min(prev.close);
-        let prev_hi = prev.open.max(prev.close);
-        self_lo > prev_lo && self_hi < prev_hi
+        self.body_low() > prev.body_low() && self.body_high() < prev.body_high()
     }
 
     /// The longer of the upper and lower wicks.
@@ -1526,23 +1532,18 @@ impl OhlcvBar {
     /// `(close - open).abs() / (high - low)`.  Returns `None` for a zero-range bar.
     pub fn bar_efficiency(bar: &OhlcvBar) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        let range = bar.high - bar.low;
+        let range = bar.range();
         if range.is_zero() {
             return None;
         }
-        let body = (bar.close - bar.open).abs();
-        (body / range).to_f64()
+        (bar.body() / range).to_f64()
     }
 
     /// Sum of upper and lower wick lengths for each bar.
     ///
     /// Upper wick = `high - close.max(open)`, lower wick = `close.min(open) - low`.
     pub fn wicks_sum(bars: &[OhlcvBar]) -> Decimal {
-        bars.iter().map(|b| {
-            let body_top = b.close.max(b.open);
-            let body_bot = b.close.min(b.open);
-            (b.high - body_top) + (body_bot - b.low)
-        }).sum()
+        bars.iter().map(|b| b.wick_upper() + b.wick_lower()).sum()
     }
 
     /// Mean of `(high - close)` across all bars — average distance from close to high.
@@ -5324,5 +5325,69 @@ mod tests {
         let b2 = make_ohlcv_bar(dec!(110), dec!(120), dec!(108), dec!(115));
         let avg = OhlcvBar::avg_close_to_high(&[b1, b2]).unwrap();
         assert!((avg - 5.0).abs() < 1e-9);
+    }
+
+    // ── OhlcvBar::avg_range ───────────────────────────────────────────────────
+
+    #[test]
+    fn test_avg_range_r65_none_for_empty() {
+        assert!(OhlcvBar::avg_range(&[]).is_none());
+    }
+
+    #[test]
+    fn test_avg_range_r65_correct() {
+        let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let b2 = make_ohlcv_bar(dec!(105), dec!(120), dec!(100), dec!(115));
+        let avg = OhlcvBar::avg_range(&[b1, b2]).unwrap();
+        assert!((avg - 20.0).abs() < 1e-9);
+    }
+
+    // ── OhlcvBar::max_close / min_close ───────────────────────────────────────
+
+    #[test]
+    fn test_max_close_r65_none_empty() {
+        assert!(OhlcvBar::max_close(&[]).is_none());
+    }
+
+    #[test]
+    fn test_max_close_r65_highest() {
+        let b1 = make_ohlcv_bar(dec!(100), dec!(115), dec!(95), dec!(110));
+        let b2 = make_ohlcv_bar(dec!(110), dec!(130), dec!(108), dec!(125));
+        let b3 = make_ohlcv_bar(dec!(115), dec!(120), dec!(112), dec!(118));
+        assert_eq!(OhlcvBar::max_close(&[b1, b2, b3]), Some(dec!(125)));
+    }
+
+    #[test]
+    fn test_min_close_r65_lowest() {
+        let b1 = make_ohlcv_bar(dec!(100), dec!(115), dec!(95), dec!(110));
+        let b2 = make_ohlcv_bar(dec!(110), dec!(130), dec!(108), dec!(125));
+        let b3 = make_ohlcv_bar(dec!(90), dec!(105), dec!(88), dec!(95));
+        assert_eq!(OhlcvBar::min_close(&[b1, b2, b3]), Some(dec!(95)));
+    }
+
+    // ── OhlcvBar::trend_strength ──────────────────────────────────────────────
+
+    #[test]
+    fn test_trend_strength_r65_none_single() {
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        assert!(OhlcvBar::trend_strength(&[b]).is_none());
+    }
+
+    #[test]
+    fn test_trend_strength_r65_one_bullish() {
+        let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(95), dec!(105));
+        let b2 = make_ohlcv_bar(dec!(105), dec!(120), dec!(103), dec!(115));
+        let b3 = make_ohlcv_bar(dec!(115), dec!(130), dec!(113), dec!(128));
+        let s = OhlcvBar::trend_strength(&[b1, b2, b3]).unwrap();
+        assert!((s - 1.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_trend_strength_r65_zero_bearish() {
+        let b1 = make_ohlcv_bar(dec!(128), dec!(130), dec!(113), dec!(128));
+        let b2 = make_ohlcv_bar(dec!(115), dec!(120), dec!(103), dec!(110));
+        let b3 = make_ohlcv_bar(dec!(105), dec!(110), dec!(95), dec!(100));
+        let s = OhlcvBar::trend_strength(&[b1, b2, b3]).unwrap();
+        assert!((s - 0.0).abs() < 1e-9);
     }
 }
