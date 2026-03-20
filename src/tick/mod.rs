@@ -3357,4 +3357,68 @@ mod tests {
         let std = NormalizedTick::notional_std_dev(&[t1, t2]).unwrap();
         assert!(std > 0.0);
     }
+
+    #[test]
+    fn test_monotone_up_true_for_empty_slice() {
+        assert!(NormalizedTick::monotone_up(&[]));
+    }
+
+    #[test]
+    fn test_monotone_up_true_for_non_decreasing_prices() {
+        use rust_decimal_macros::dec;
+        let ticks: Vec<_> = [dec!(100), dec!(100), dec!(110), dec!(120)]
+            .iter().map(|&p| make_tick_pq(p, dec!(1))).collect();
+        assert!(NormalizedTick::monotone_up(&ticks));
+    }
+
+    #[test]
+    fn test_monotone_up_false_for_any_decrease() {
+        use rust_decimal_macros::dec;
+        let ticks: Vec<_> = [dec!(100), dec!(110), dec!(105)]
+            .iter().map(|&p| make_tick_pq(p, dec!(1))).collect();
+        assert!(!NormalizedTick::monotone_up(&ticks));
+    }
+
+    #[test]
+    fn test_monotone_down_true_for_non_increasing_prices() {
+        use rust_decimal_macros::dec;
+        let ticks: Vec<_> = [dec!(120), dec!(110), dec!(110), dec!(100)]
+            .iter().map(|&p| make_tick_pq(p, dec!(1))).collect();
+        assert!(NormalizedTick::monotone_down(&ticks));
+    }
+
+    #[test]
+    fn test_monotone_down_false_for_any_increase() {
+        use rust_decimal_macros::dec;
+        let ticks: Vec<_> = [dec!(100), dec!(90), dec!(95)]
+            .iter().map(|&p| make_tick_pq(p, dec!(1))).collect();
+        assert!(!NormalizedTick::monotone_down(&ticks));
+    }
+
+    #[test]
+    fn test_volume_at_price_zero_for_empty_slice() {
+        assert_eq!(NormalizedTick::volume_at_price(&[], rust_decimal_macros::dec!(100)), rust_decimal_macros::dec!(0));
+    }
+
+    #[test]
+    fn test_volume_at_price_sums_matching_ticks() {
+        use rust_decimal_macros::dec;
+        let t1 = make_tick_pq(dec!(100), dec!(2));
+        let t2 = make_tick_pq(dec!(100), dec!(3));
+        let t3 = make_tick_pq(dec!(110), dec!(5));
+        assert_eq!(NormalizedTick::volume_at_price(&[t1, t2, t3], dec!(100)), dec!(5));
+    }
+
+    #[test]
+    fn test_last_price_none_for_empty_slice() {
+        assert!(NormalizedTick::last_price(&[]).is_none());
+    }
+
+    #[test]
+    fn test_last_price_returns_last_tick_price() {
+        use rust_decimal_macros::dec;
+        let t1 = make_tick_pq(dec!(100), dec!(1));
+        let t2 = make_tick_pq(dec!(110), dec!(1));
+        assert_eq!(NormalizedTick::last_price(&[t1, t2]), Some(dec!(110)));
+    }
 }

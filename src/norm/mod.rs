@@ -1612,6 +1612,46 @@ mod tests {
         let mid = n.normalized_midpoint().unwrap();
         assert!((mid - 0.5).abs() < 1e-9);
     }
+
+    // ── MinMaxNormalizer::is_at_min / is_at_max ───────────────────────────────
+
+    #[test]
+    fn test_minmax_is_at_min_false_for_empty_window() {
+        assert!(!norm(3).is_at_min(dec!(5)));
+    }
+
+    #[test]
+    fn test_minmax_is_at_min_true_for_minimum_value() {
+        let mut n = norm(4);
+        for v in [dec!(10), dec!(20), dec!(5), dec!(30)] { n.update(v); }
+        assert!(n.is_at_min(dec!(5)));
+    }
+
+    #[test]
+    fn test_minmax_is_at_min_false_for_non_minimum() {
+        let mut n = norm(4);
+        for v in [dec!(10), dec!(20), dec!(5), dec!(30)] { n.update(v); }
+        assert!(!n.is_at_min(dec!(10)));
+    }
+
+    #[test]
+    fn test_minmax_is_at_max_false_for_empty_window() {
+        assert!(!norm(3).is_at_max(dec!(5)));
+    }
+
+    #[test]
+    fn test_minmax_is_at_max_true_for_maximum_value() {
+        let mut n = norm(4);
+        for v in [dec!(10), dec!(20), dec!(5), dec!(30)] { n.update(v); }
+        assert!(n.is_at_max(dec!(30)));
+    }
+
+    #[test]
+    fn test_minmax_is_at_max_false_for_non_maximum() {
+        let mut n = norm(4);
+        for v in [dec!(10), dec!(20), dec!(5), dec!(30)] { n.update(v); }
+        assert!(!n.is_at_max(dec!(20)));
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -3575,5 +3615,44 @@ mod zscore_stability_tests {
         for v in [dec!(-2), dec!(-1), dec!(1), dec!(2)] { n.update(v); }
         let frac = n.above_zero_fraction().unwrap();
         assert!((frac - 0.5).abs() < 1e-9);
+    }
+
+    // ── ZScoreNormalizer::z_score_opt ─────────────────────────────────────────
+
+    #[test]
+    fn test_zscore_opt_none_for_empty_window() {
+        assert!(znorm(3).z_score_opt(dec!(10)).is_none());
+    }
+
+    #[test]
+    fn test_zscore_opt_matches_normalize_for_populated_window() {
+        let mut n = znorm(4);
+        for v in [dec!(10), dec!(20), dec!(30), dec!(40)] { n.update(v); }
+        let z_opt = n.z_score_opt(dec!(25)).unwrap();
+        let z_norm = n.normalize(dec!(25)).unwrap();
+        assert!((z_opt - z_norm).abs() < 1e-12);
+    }
+
+    // ── ZScoreNormalizer::is_stable ───────────────────────────────────────────
+
+    #[test]
+    fn test_zscore_is_stable_false_for_empty_window() {
+        assert!(!znorm(3).is_stable(2.0));
+    }
+
+    #[test]
+    fn test_zscore_is_stable_true_for_near_mean_value() {
+        let mut n = znorm(5);
+        for v in [dec!(10), dec!(20), dec!(30), dec!(40), dec!(30)] { n.update(v); }
+        // latest is 30, near mean of 26; should be stable with threshold=2
+        assert!(n.is_stable(2.0));
+    }
+
+    #[test]
+    fn test_zscore_is_stable_false_for_extreme_value() {
+        let mut n = znorm(5);
+        for v in [dec!(10), dec!(10), dec!(10), dec!(10), dec!(100)] { n.update(v); }
+        // latest is 100, far from mean ~28; should be unstable
+        assert!(!n.is_stable(1.0));
     }
 }

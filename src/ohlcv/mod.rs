@@ -4858,4 +4858,66 @@ mod tests {
         let e = OhlcvBar::ema(&[b1, b2], 1.0).unwrap();
         assert!((e - 200.0).abs() < 1e-9);
     }
+
+    // ── OhlcvBar::highest_open / lowest_open ─────────────────────────────────
+
+    #[test]
+    fn test_highest_open_none_for_empty_slice() {
+        assert!(OhlcvBar::highest_open(&[]).is_none());
+    }
+
+    #[test]
+    fn test_highest_open_returns_max() {
+        let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let b2 = make_ohlcv_bar(dec!(130), dec!(140), dec!(120), dec!(135));
+        assert_eq!(OhlcvBar::highest_open(&[b1, b2]), Some(dec!(130)));
+    }
+
+    #[test]
+    fn test_lowest_open_none_for_empty_slice() {
+        assert!(OhlcvBar::lowest_open(&[]).is_none());
+    }
+
+    #[test]
+    fn test_lowest_open_returns_min() {
+        let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let b2 = make_ohlcv_bar(dec!(130), dec!(140), dec!(120), dec!(135));
+        assert_eq!(OhlcvBar::lowest_open(&[b1, b2]), Some(dec!(100)));
+    }
+
+    // ── OhlcvBar::rising_close_count ─────────────────────────────────────────
+
+    #[test]
+    fn test_rising_close_count_zero_for_empty_slice() {
+        assert_eq!(OhlcvBar::rising_close_count(&[]), 0);
+    }
+
+    #[test]
+    fn test_rising_close_count_zero_for_single_bar() {
+        assert_eq!(OhlcvBar::rising_close_count(&[make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105))]), 0);
+    }
+
+    #[test]
+    fn test_rising_close_count_correct() {
+        let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100));
+        let b2 = make_ohlcv_bar(dec!(100), dec!(115), dec!(90), dec!(110)); // close > prev
+        let b3 = make_ohlcv_bar(dec!(100), dec!(115), dec!(90), dec!(105)); // close < prev
+        let b4 = make_ohlcv_bar(dec!(100), dec!(120), dec!(90), dec!(115)); // close > prev
+        assert_eq!(OhlcvBar::rising_close_count(&[b1, b2, b3, b4]), 2);
+    }
+
+    // ── OhlcvBar::mean_body_ratio ─────────────────────────────────────────────
+
+    #[test]
+    fn test_mean_body_ratio_none_for_empty_slice() {
+        assert!(OhlcvBar::mean_body_ratio(&[]).is_none());
+    }
+
+    #[test]
+    fn test_mean_body_ratio_in_range_zero_to_one() {
+        let b1 = make_ohlcv_bar(dec!(100), dec!(120), dec!(80), dec!(110));
+        let b2 = make_ohlcv_bar(dec!(100), dec!(120), dec!(80), dec!(100));
+        let ratio = OhlcvBar::mean_body_ratio(&[b1, b2]).unwrap();
+        assert!(ratio >= 0.0 && ratio <= 1.0);
+    }
 }
