@@ -957,6 +957,78 @@ impl OhlcvBar {
         let sum: Decimal = bars.iter().map(|b| b.body()).sum();
         Some(sum / Decimal::from(bars.len() as u64))
     }
+
+    /// Maximum `high` across a slice of bars.
+    ///
+    /// Returns `None` if the slice is empty. Useful for computing resistance
+    /// levels, swing highs, and ATH/period-high comparisons.
+    pub fn highest_high(bars: &[OhlcvBar]) -> Option<Decimal> {
+        bars.iter().map(|b| b.high).reduce(Decimal::max)
+    }
+
+    /// Minimum `low` across a slice of bars.
+    ///
+    /// Returns `None` if the slice is empty. Useful for computing support
+    /// levels, swing lows, and ATL/period-low comparisons.
+    pub fn lowest_low(bars: &[OhlcvBar]) -> Option<Decimal> {
+        bars.iter().map(|b| b.low).reduce(Decimal::min)
+    }
+
+    /// Total traded volume across a slice of bars.
+    ///
+    /// Returns `Decimal::ZERO` for an empty slice. Complements
+    /// [`mean_volume`](Self::mean_volume) when the sum rather than the average
+    /// is needed.
+    pub fn sum_volume(bars: &[OhlcvBar]) -> Decimal {
+        bars.iter().map(|b| b.volume).sum()
+    }
+
+    /// Count of bullish bars (close > open) in a slice.
+    pub fn bullish_count(bars: &[OhlcvBar]) -> usize {
+        bars.iter().filter(|b| b.is_bullish()).count()
+    }
+
+    /// Count of bearish bars (close < open) in a slice.
+    pub fn bearish_count(bars: &[OhlcvBar]) -> usize {
+        bars.iter().filter(|b| b.is_bearish()).count()
+    }
+
+    /// Fraction of bullish bars in a slice: `bullish_count / total`.
+    ///
+    /// Returns `None` if the slice is empty. Result is in `[0.0, 1.0]`.
+    pub fn win_rate(bars: &[OhlcvBar]) -> Option<f64> {
+        if bars.is_empty() {
+            return None;
+        }
+        Some(Self::bullish_count(bars) as f64 / bars.len() as f64)
+    }
+
+    /// Maximum drawdown of close prices across a slice of bars.
+    ///
+    /// Computed as the largest percentage decline from a running close peak:
+    /// `max_drawdown = max over i of (peak_close_before_i - close_i) / peak_close_before_i`.
+    ///
+    /// Returns `None` if the slice has fewer than 2 bars or if all closes are zero.
+    /// Result is in `[0.0, ∞)` — a value of `0.05` means a 5% drawdown.
+    pub fn max_drawdown(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.len() < 2 {
+            return None;
+        }
+        let mut peak = bars[0].close;
+        let mut max_dd = 0.0_f64;
+        for bar in &bars[1..] {
+            if bar.close > peak {
+                peak = bar.close;
+            } else if !peak.is_zero() {
+                let dd = ((peak - bar.close) / peak).to_f64().unwrap_or(0.0);
+                if dd > max_dd {
+                    max_dd = dd;
+                }
+            }
+        }
+        Some(max_dd)
+    }
 }
 
 impl std::fmt::Display for OhlcvBar {
@@ -1353,6 +1425,38 @@ mod tests {
         assert_eq!(Timeframe::Seconds(30).to_string(), "30s");
         assert_eq!(Timeframe::Minutes(5).to_string(), "5m");
         assert_eq!(Timeframe::Hours(4).to_string(), "4h");
+    }
+
+    #[test]
+    fn test_timeframe_ord_seconds_lt_minutes() {
+        assert!(Timeframe::Seconds(30) < Timeframe::Minutes(1));
+    }
+
+    #[test]
+    fn test_timeframe_ord_minutes_lt_hours() {
+        assert!(Timeframe::Minutes(59) < Timeframe::Hours(1));
+    }
+
+    #[test]
+    fn test_timeframe_ord_same_duration_equal() {
+        assert_eq!(Timeframe::Seconds(60), Timeframe::Seconds(60));
+        assert_eq!(
+            Timeframe::Seconds(3600).cmp(&Timeframe::Hours(1)),
+            std::cmp::Ordering::Equal
+        );
+    }
+
+    #[test]
+    fn test_timeframe_ord_sort() {
+        let mut tfs = vec![
+            Timeframe::Hours(1),
+            Timeframe::Seconds(30),
+            Timeframe::Minutes(5),
+        ];
+        tfs.sort();
+        assert_eq!(tfs[0], Timeframe::Seconds(30));
+        assert_eq!(tfs[1], Timeframe::Minutes(5));
+        assert_eq!(tfs[2], Timeframe::Hours(1));
     }
 
     #[test]
@@ -3310,6 +3414,77 @@ mod tests {
         let avg = OhlcvBar::average_body(&[b1, b2, b3]).unwrap();
         // (10 + 10 + 20) / 3 = 40/3
         assert_eq!(avg, dec!(40) / dec!(3));
+    }
+
+    // ── bullish_count / bearish_count / win_rate ──────────────────────────────
+
+    #[test]
+    fn test_bullish_count_zero_for_empty_slice() {
+        assert_eq!(OhlcvBar::bullish_count(&[]), 0);
+    }
+
+    #[test]
+    fn test_bullish_count_all_bullish() {
+        let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(108)); // bullish
+        let b2 = make_ohlcv_bar(dec!(108), dec!(120), dec!(105), dec!(115)); // bullish
+        assert_eq!(OhlcvBar::bullish_count(&[b1, b2]), 2);
+    }
+
+    #[test]
+    fn test_bearish_count_correct() {
+        let bull = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(108));
+        let bear = make_ohlcv_bar(dec!(108), dec!(110), dec!(90), dec!(95));
+        let doji = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100));
+        assert_eq!(OhlcvBar::bearish_count(&[bull, bear, doji]), 1);
+    }
+
+    #[test]
+    fn test_win_rate_none_when_empty() {
+        assert!(OhlcvBar::win_rate(&[]).is_none());
+    }
+
+    #[test]
+    fn test_win_rate_all_bullish() {
+        let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(108));
+        let b2 = make_ohlcv_bar(dec!(108), dec!(115), dec!(105), dec!(112));
+        let wr = OhlcvBar::win_rate(&[b1, b2]).unwrap();
+        assert!((wr - 1.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_win_rate_half_and_half() {
+        let bull = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(108));
+        let bear = make_ohlcv_bar(dec!(108), dec!(110), dec!(90), dec!(95));
+        let wr = OhlcvBar::win_rate(&[bull, bear]).unwrap();
+        assert!((wr - 0.5).abs() < 1e-9);
+    }
+
+    // ── max_drawdown ──────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_max_drawdown_none_when_fewer_than_2_bars() {
+        let bar = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        assert!(OhlcvBar::max_drawdown(&[bar]).is_none());
+        assert!(OhlcvBar::max_drawdown(&[]).is_none());
+    }
+
+    #[test]
+    fn test_max_drawdown_zero_when_monotone_increasing() {
+        let b1 = make_ohlcv_bar(dec!(100), dec!(105), dec!(98), dec!(100));
+        let b2 = make_ohlcv_bar(dec!(100), dec!(110), dec!(99), dec!(105));
+        let b3 = make_ohlcv_bar(dec!(105), dec!(115), dec!(104), dec!(110));
+        let dd = OhlcvBar::max_drawdown(&[b1, b2, b3]).unwrap();
+        assert_eq!(dd, 0.0);
+    }
+
+    #[test]
+    fn test_max_drawdown_correct_after_peak_then_drop() {
+        // closes: 100, 120, 90 → peak=120, drop=(120-90)/120 = 0.25
+        let b1 = make_ohlcv_bar(dec!(100), dec!(102), dec!(98), dec!(100));
+        let b2 = make_ohlcv_bar(dec!(100), dec!(125), dec!(99), dec!(120));
+        let b3 = make_ohlcv_bar(dec!(120), dec!(121), dec!(88), dec!(90));
+        let dd = OhlcvBar::max_drawdown(&[b1, b2, b3]).unwrap();
+        assert!((dd - 0.25).abs() < 1e-9, "expected 0.25, got {dd}");
     }
 
     // ── mean_volume ───────────────────────────────────────────────────────────

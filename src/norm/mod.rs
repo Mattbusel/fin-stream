@@ -307,18 +307,19 @@ impl MinMaxNormalizer {
 
     /// Normalize `value` and clamp the result to `[0.0, 1.0]`.
     ///
-    /// Identical to [`normalize`](Self::normalize) but silently clamps values
-    /// that fall outside the window's observed range. Useful when applying a
-    /// learned normalizer to out-of-sample data without erroring on outliers.
+    /// Identical to [`normalize`](Self::normalize) because `normalize` already
+    /// clamps its output to `[0.0, 1.0]`. Deprecated in favour of calling
+    /// `normalize` directly.
     ///
     /// # Errors
     ///
     /// Returns [`StreamError::NormalizationError`] if the window is empty.
+    #[deprecated(since = "2.2.0", note = "Use `normalize()` instead — it already clamps to [0.0, 1.0]")]
     pub fn normalize_clamp(
         &mut self,
         value: rust_decimal::Decimal,
     ) -> Result<f64, crate::error::StreamError> {
-        self.normalize(value).map(|v| v.clamp(0.0, 1.0))
+        self.normalize(value)
     }
 
     /// Compute the z-score of `value` relative to the current window.
@@ -374,6 +375,13 @@ impl MinMaxNormalizer {
     /// Count of observations in the current window that are strictly above `threshold`.
     pub fn count_above(&self, threshold: rust_decimal::Decimal) -> usize {
         self.window.iter().filter(|&&v| v > threshold).count()
+    }
+
+    /// Count of observations in the current window that are strictly below `threshold`.
+    ///
+    /// Complement to [`count_above`](Self::count_above).
+    pub fn count_below(&self, threshold: rust_decimal::Decimal) -> usize {
+        self.window.iter().filter(|&&v| v < threshold).count()
     }
 
     /// Fraction of window values strictly above the midpoint `(min + max) / 2`.
@@ -850,6 +858,44 @@ mod tests {
         assert_eq!(n.count_above(dec!(100)), 0);
     }
 
+    // ── MinMaxNormalizer::count_below ─────────────────────────────────────────
+
+    #[test]
+    fn test_count_below_zero_when_empty() {
+        let n = norm(4);
+        assert_eq!(n.count_below(dec!(5)), 0);
+    }
+
+    #[test]
+    fn test_count_below_counts_strictly_below() {
+        let mut n = norm(8);
+        for v in [dec!(1), dec!(5), dec!(10), dec!(15)] { n.update(v); }
+        assert_eq!(n.count_below(dec!(10)), 2); // 1 and 5
+    }
+
+    #[test]
+    fn test_count_below_all_when_threshold_above_all() {
+        let mut n = norm(4);
+        for v in [dec!(10), dec!(20), dec!(30)] { n.update(v); }
+        assert_eq!(n.count_below(dec!(100)), 3);
+    }
+
+    #[test]
+    fn test_count_below_zero_when_threshold_below_all() {
+        let mut n = norm(4);
+        for v in [dec!(10), dec!(20), dec!(30)] { n.update(v); }
+        assert_eq!(n.count_below(dec!(5)), 0);
+    }
+
+    #[test]
+    fn test_count_above_plus_count_below_leq_len() {
+        let mut n = norm(5);
+        for v in [dec!(1), dec!(5), dec!(5), dec!(10), dec!(20)] { n.update(v); }
+        // threshold = 5: above = {10,20} = 2, below = {1} = 1, equal = {5,5} = 2
+        // above + below = 3 <= 5 = len
+        assert_eq!(n.count_above(dec!(5)) + n.count_below(dec!(5)), 3);
+    }
+
     // ── MinMaxNormalizer::normalized_range ────────────────────────────────────
 
     #[test]
@@ -1297,10 +1343,12 @@ impl ZScoreNormalizer {
         Some(std_dev / mean_f)
     }
 
-    /// Population variance of the current window: `std_dev²`.
+    /// Population variance of the current window as `f64`: `std_dev²`.
     ///
-    /// Returns `None` when the window is empty (same conditions as
-    /// [`std_dev`](Self::std_dev)).
+    /// Note: despite the name, this computes *population* variance (divides by
+    /// `n`), consistent with [`std_dev`](Self::std_dev) and
+    /// [`variance`](Self::variance). Returns `None` when the window has fewer
+    /// than 2 observations.
     pub fn sample_variance(&self) -> Option<f64> {
         let sd = self.std_dev()?;
         Some(sd * sd)
@@ -1321,23 +1369,22 @@ impl ZScoreNormalizer {
     /// Equivalent to `|z_score(value)| <= sigma_tolerance`.  Returns `false`
     /// when the window has fewer than 2 observations (z-score undefined).
     pub fn is_near_mean(&self, value: Decimal, sigma_tolerance: f64) -> bool {
-        let n = self.window.len();
-        if n < 2 {
+        // Requires at least 2 observations; with n < 2 the z-score is undefined.
+        if self.window.len() < 2 {
             return false;
         }
-        let n_dec = Decimal::from(n as u64);
-        use rust_decimal::prelude::ToPrimitive;
-        let mean = self.sum / n_dec;
-        let variance: Decimal = self.window.iter()
-            .map(|&x| {
-                let diff = x - mean;
-                diff * diff
-            })
-            .sum::<Decimal>() / n_dec;
-        let std_dev = variance.to_f64().unwrap_or(0.0).sqrt();
+        let std_dev = match self.std_dev() {
+            None => return false,
+            Some(sd) => sd,
+        };
         if std_dev == 0.0 {
             return true;
         }
+        let mean = match self.mean() {
+            None => return false,
+            Some(m) => m,
+        };
+        use rust_decimal::prelude::ToPrimitive;
         let diff = (value - mean).abs().to_f64().unwrap_or(f64::MAX);
         diff / std_dev <= sigma_tolerance
     }
@@ -1445,6 +1492,22 @@ impl ZScoreNormalizer {
         if n == 0 { return None; }
         let count = self.window.iter().filter(|&&v| v <= value).count();
         Some(count as f64 / n as f64)
+    }
+
+    /// Interquartile range: Q3 (75th percentile) − Q1 (25th percentile) of the window.
+    ///
+    /// Returns `None` if the window has fewer than 4 observations.
+    /// The IQR is a robust spread measure less sensitive to outliers than range or std dev.
+    pub fn interquartile_range(&self) -> Option<Decimal> {
+        let n = self.window.len();
+        if n < 4 {
+            return None;
+        }
+        let mut sorted: Vec<Decimal> = self.window.iter().copied().collect();
+        sorted.sort();
+        let q1_idx = n / 4;
+        let q3_idx = 3 * n / 4;
+        Some(sorted[q3_idx] - sorted[q1_idx])
     }
 
     /// Stateless EMA z-score helper: updates running `ema_mean` and `ema_var` and returns
@@ -2199,6 +2262,45 @@ mod zscore_tests {
         }
         // 2 of 4 values ≤ 2 → 0.5
         assert!((n.percentile(dec!(2)).unwrap() - 0.5).abs() < 1e-9);
+    }
+
+    // ── ZScoreNormalizer::interquartile_range ────────────────────────────────
+
+    #[test]
+    fn test_zscore_iqr_none_fewer_than_4_observations() {
+        let mut n = znorm(5);
+        for v in [dec!(1), dec!(2), dec!(3)] {
+            n.update(v);
+        }
+        assert!(n.interquartile_range().is_none());
+    }
+
+    #[test]
+    fn test_zscore_iqr_some_with_4_observations() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] {
+            n.update(v);
+        }
+        assert!(n.interquartile_range().is_some());
+    }
+
+    #[test]
+    fn test_zscore_iqr_zero_when_all_same() {
+        let mut n = znorm(4);
+        for _ in 0..4 {
+            n.update(dec!(5));
+        }
+        assert_eq!(n.interquartile_range(), Some(dec!(0)));
+    }
+
+    #[test]
+    fn test_zscore_iqr_correct_for_sorted_data() {
+        // [1,2,3,4,5,6,7,8]: q1_idx=2 → sorted[2]=3, q3_idx=6 → sorted[6]=7, IQR=4
+        let mut n = znorm(8);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4), dec!(5), dec!(6), dec!(7), dec!(8)] {
+            n.update(v);
+        }
+        assert_eq!(n.interquartile_range(), Some(dec!(4)));
     }
 
     // ── ZScoreNormalizer::z_score_of_latest / deviation_from_mean ───────────

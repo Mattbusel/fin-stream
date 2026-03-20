@@ -79,11 +79,9 @@ impl WsStats {
     ///
     /// Returns `None` when no bytes have been received (avoids division by
     /// zero). A higher value means smaller average message size.
+    #[deprecated(since = "2.2.0", note = "Use `efficiency_ratio()` instead")]
     pub fn messages_per_byte(&self) -> Option<f64> {
-        if self.total_bytes_received == 0 {
-            return None;
-        }
-        Some(self.total_messages_received as f64 / self.total_bytes_received as f64)
+        self.efficiency_ratio()
     }
 
     /// Average bytes per message received.
