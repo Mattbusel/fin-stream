@@ -1401,6 +1401,41 @@ impl OhlcvBar {
         });
         Some(result)
     }
+
+    /// Maximum open price across the slice.
+    ///
+    /// Returns `None` if the slice is empty.
+    pub fn highest_open(bars: &[OhlcvBar]) -> Option<Decimal> {
+        bars.iter().map(|b| b.open).reduce(Decimal::max)
+    }
+
+    /// Minimum open price across the slice.
+    ///
+    /// Returns `None` if the slice is empty.
+    pub fn lowest_open(bars: &[OhlcvBar]) -> Option<Decimal> {
+        bars.iter().map(|b| b.open).reduce(Decimal::min)
+    }
+
+    /// Count of bars (from index 1 onward) where close is strictly greater
+    /// than the previous bar's close.
+    pub fn rising_close_count(bars: &[OhlcvBar]) -> usize {
+        if bars.len() < 2 {
+            return 0;
+        }
+        bars.windows(2).filter(|w| w[1].close > w[0].close).count()
+    }
+
+    /// Mean body-to-range ratio across the slice.
+    ///
+    /// Bars with zero range are excluded.
+    /// Returns `None` if the slice is empty or all bars have zero range.
+    pub fn mean_body_ratio(bars: &[OhlcvBar]) -> Option<f64> {
+        let ratios: Vec<f64> = bars.iter().filter_map(|b| b.body_ratio()).collect();
+        if ratios.is_empty() {
+            return None;
+        }
+        Some(ratios.iter().sum::<f64>() / ratios.len() as f64)
+    }
 }
 
 impl std::fmt::Display for OhlcvBar {

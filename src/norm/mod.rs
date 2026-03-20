@@ -696,6 +696,20 @@ impl MinMaxNormalizer {
         let mid = self.midpoint()?;
         self.normalize(mid).ok()
     }
+
+    /// Returns `true` if `value` equals the current window minimum.
+    ///
+    /// Returns `false` if the window is empty.
+    pub fn is_at_min(&mut self, value: Decimal) -> bool {
+        self.min().map_or(false, |m| value == m)
+    }
+
+    /// Returns `true` if `value` equals the current window maximum.
+    ///
+    /// Returns `false` if the window is empty.
+    pub fn is_at_max(&mut self, value: Decimal) -> bool {
+        self.max().map_or(false, |m| value == m)
+    }
 }
 
 #[cfg(test)]
@@ -2364,6 +2378,24 @@ impl ZScoreNormalizer {
         }
         let above = self.window.iter().filter(|&&v| v > Decimal::ZERO).count();
         Some(above as f64 / self.window.len() as f64)
+    }
+
+    /// Z-score of `value` relative to the current window, returned as `Option<f64>`.
+    ///
+    /// Returns `None` if the window has fewer than 2 elements or variance is zero.
+    /// Unlike [`normalize`], this never returns an error for empty windows — it
+    /// simply returns `None`.
+    pub fn z_score_opt(&self, value: Decimal) -> Option<f64> {
+        self.normalize(value).ok()
+    }
+
+    /// Returns `true` if the absolute z-score of the latest observation is
+    /// within `z_threshold` standard deviations of the mean.
+    ///
+    /// Returns `false` if the window is empty or has insufficient data.
+    pub fn is_stable(&self, z_threshold: f64) -> bool {
+        self.z_score_of_latest()
+            .map_or(false, |z| z.abs() <= z_threshold)
     }
 }
 
