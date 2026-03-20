@@ -131,7 +131,12 @@ impl SessionAwareness {
     /// Returns `0` if the session is already `Closed`. For
     /// [`MarketSession::Crypto`] returns `u64::MAX` (never closes).
     pub fn time_until_close_ms(&self, utc_ms: u64) -> u64 {
-        self.next_close_ms(utc_ms).saturating_sub(utc_ms)
+        let close = self.next_close_ms(utc_ms);
+        if close == u64::MAX {
+            u64::MAX
+        } else {
+            close.saturating_sub(utc_ms)
+        }
     }
 
     /// Return the UTC millisecond timestamp of the next time this session
