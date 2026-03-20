@@ -79,6 +79,21 @@ impl ReconnectPolicy {
         })
     }
 
+    /// Set the maximum number of reconnect attempts.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StreamError::ConfigError`] if `max_attempts` is zero.
+    pub fn with_max_attempts(mut self, max_attempts: u32) -> Result<Self, StreamError> {
+        if max_attempts == 0 {
+            return Err(StreamError::ConfigError {
+                reason: "max_attempts must be > 0".into(),
+            });
+        }
+        self.max_attempts = max_attempts;
+        Ok(self)
+    }
+
     /// Apply deterministic per-attempt jitter to the computed backoff.
     ///
     /// `ratio` must be in `[0.0, 1.0]`. The effective backoff for attempt N
@@ -197,6 +212,17 @@ impl ConnectionConfig {
     pub fn with_ping_interval(mut self, interval: Duration) -> Self {
         self.ping_interval = interval;
         self
+    }
+
+    /// Shortcut to set only the reconnect attempt limit without replacing the
+    /// entire reconnect policy.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StreamError::ConfigError`] if `n` is zero.
+    pub fn with_reconnect_attempts(mut self, n: u32) -> Result<Self, StreamError> {
+        self.reconnect = self.reconnect.with_max_attempts(n)?;
+        Ok(self)
     }
 
     /// Override the downstream channel capacity.
@@ -665,6 +691,30 @@ mod tests {
             let b = p.backoff_for_attempt(attempt);
             assert!(b <= Duration::from_secs(30), "attempt {attempt} exceeded max_backoff");
         }
+    }
+
+    #[test]
+    fn test_reconnect_policy_with_max_attempts_valid() {
+        let p = ReconnectPolicy::default().with_max_attempts(5).unwrap();
+        assert_eq!(p.max_attempts, 5);
+    }
+
+    #[test]
+    fn test_reconnect_policy_with_max_attempts_zero_rejected() {
+        let result = ReconnectPolicy::default().with_max_attempts(0);
+        assert!(matches!(result, Err(StreamError::ConfigError { .. })));
+    }
+
+    #[test]
+    fn test_connection_config_with_reconnect_attempts_valid() {
+        let config = default_config().with_reconnect_attempts(3).unwrap();
+        assert_eq!(config.reconnect.max_attempts, 3);
+    }
+
+    #[test]
+    fn test_connection_config_with_reconnect_attempts_zero_rejected() {
+        let result = default_config().with_reconnect_attempts(0);
+        assert!(matches!(result, Err(StreamError::ConfigError { .. })));
     }
 
     #[test]

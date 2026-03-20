@@ -168,6 +168,14 @@ impl NormalizedTick {
     pub fn value(&self) -> Decimal {
         self.price * self.quantity
     }
+
+    /// Age of this tick in milliseconds relative to `now_ms`.
+    ///
+    /// Returns `now_ms - received_at_ms`, saturating at zero (never negative).
+    /// Useful for staleness checks: `tick.age_ms(now) > threshold_ms`.
+    pub fn age_ms(&self, now_ms: u64) -> u64 {
+        now_ms.saturating_sub(self.received_at_ms)
+    }
 }
 
 impl std::fmt::Display for NormalizedTick {
@@ -681,6 +689,35 @@ mod tests {
         // binance_tick sets price=50000, quantity=0.001
         let expected = tick.price * tick.quantity;
         assert_eq!(tick.value(), expected);
+    }
+
+    #[test]
+    fn test_normalized_tick_age_ms_positive() {
+        let tick = normalizer().normalize(binance_tick("BTCUSDT")).unwrap();
+        // received_at_ms is set to 1_000_000 in binance_tick helper? Let's check
+        // Actually the helper uses now_ms() so we can't predict. Use a manual tick.
+        let raw = RawTick {
+            exchange: Exchange::Binance,
+            symbol: "BTCUSDT".into(),
+            payload: serde_json::json!({"p": "50000", "q": "0.001", "m": false}),
+            received_at_ms: 1_000_000,
+        };
+        let tick = normalizer().normalize(raw).unwrap();
+        assert_eq!(tick.age_ms(1_001_000), 1_000);
+    }
+
+    #[test]
+    fn test_normalized_tick_age_ms_zero_when_now_equals_received() {
+        let raw = RawTick {
+            exchange: Exchange::Binance,
+            symbol: "BTCUSDT".into(),
+            payload: serde_json::json!({"p": "50000", "q": "0.001", "m": false}),
+            received_at_ms: 5_000,
+        };
+        let tick = normalizer().normalize(raw).unwrap();
+        assert_eq!(tick.age_ms(5_000), 0);
+        // saturating_sub: now < received → 0
+        assert_eq!(tick.age_ms(4_000), 0);
     }
 
     #[test]

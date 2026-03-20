@@ -295,6 +295,12 @@ impl<T, const N: usize> SpscProducer<T, N> {
         self.inner.is_full()
     }
 
+    /// Returns `true` if the ring is currently empty.
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.inner.is_empty()
+    }
+
     /// Number of items currently in the ring (snapshot).
     #[inline]
     pub fn len(&self) -> usize {
@@ -639,6 +645,21 @@ mod tests {
         prod.push(2).unwrap();
         assert_eq!(cons.len(), 2);
         assert!(!cons.is_empty());
+    }
+
+    #[test]
+    fn test_producer_is_empty_initially_true() {
+        let ring: SpscRing<u32, 8> = SpscRing::new();
+        let (prod, _cons) = ring.split();
+        assert!(prod.is_empty());
+    }
+
+    #[test]
+    fn test_producer_is_empty_false_after_push() {
+        let ring: SpscRing<u32, 8> = SpscRing::new();
+        let (prod, _cons) = ring.split();
+        prod.push(1).unwrap();
+        assert!(!prod.is_empty());
     }
 
     #[test]

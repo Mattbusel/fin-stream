@@ -229,6 +229,36 @@ impl LorentzTransform {
         dt * dt - dx * dx
     }
 
+    /// Relativistic velocity addition as a static helper.
+    ///
+    /// Computes `(beta1 + beta2) / (1 + beta1 * beta2)` without constructing
+    /// a full `LorentzTransform`. Useful when only the composed velocity is
+    /// needed rather than the full transform object.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StreamError::LorentzConfigError`] if either input is outside
+    /// `[0, 1)` or if the composed velocity is `>= 1`.
+    pub fn velocity_addition(beta1: f64, beta2: f64) -> Result<f64, StreamError> {
+        if beta1.is_nan() || beta1 < 0.0 || beta1 >= 1.0 {
+            return Err(StreamError::LorentzConfigError {
+                reason: format!("beta1 must be in [0.0, 1.0), got {beta1}"),
+            });
+        }
+        if beta2.is_nan() || beta2 < 0.0 || beta2 >= 1.0 {
+            return Err(StreamError::LorentzConfigError {
+                reason: format!("beta2 must be in [0.0, 1.0), got {beta2}"),
+            });
+        }
+        let composed = (beta1 + beta2) / (1.0 + beta1 * beta2);
+        if composed >= 1.0 {
+            return Err(StreamError::LorentzConfigError {
+                reason: format!("composed velocity {composed} >= 1.0 (speed of light)"),
+            });
+        }
+        Ok(composed)
+    }
+
     /// Proper time elapsed in the moving frame for a given coordinate time.
     ///
     /// Returns `coordinate_time / gamma`. For `beta = 0` (identity) this
@@ -560,6 +590,39 @@ mod tests {
             composed.rapidity(),
             sum_rapidities
         );
+    }
+
+    // ── Velocity addition (static) ────────────────────────────────────────────
+
+    #[test]
+    fn test_velocity_addition_known_values() {
+        // 0.5 + 0.5 = 0.8 (same as compose test)
+        let result = LorentzTransform::velocity_addition(0.5, 0.5).unwrap();
+        assert!((result - 0.8).abs() < EPS);
+    }
+
+    #[test]
+    fn test_velocity_addition_identity_with_zero() {
+        let result = LorentzTransform::velocity_addition(0.0, 0.6).unwrap();
+        assert!((result - 0.6).abs() < EPS);
+    }
+
+    #[test]
+    fn test_velocity_addition_invalid_beta_rejected() {
+        assert!(LorentzTransform::velocity_addition(1.0, 0.5).is_err());
+        assert!(LorentzTransform::velocity_addition(0.5, 1.0).is_err());
+        assert!(LorentzTransform::velocity_addition(-0.1, 0.5).is_err());
+    }
+
+    #[test]
+    fn test_velocity_addition_matches_compose() {
+        let b1 = 0.3;
+        let b2 = 0.4;
+        let static_result = LorentzTransform::velocity_addition(b1, b2).unwrap();
+        let lt1 = LorentzTransform::new(b1).unwrap();
+        let lt2 = LorentzTransform::new(b2).unwrap();
+        let composed = lt1.compose(&lt2).unwrap();
+        assert!((static_result - composed.beta()).abs() < EPS);
     }
 
     // ── Proper time ───────────────────────────────────────────────────────────

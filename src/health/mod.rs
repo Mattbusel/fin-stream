@@ -254,6 +254,24 @@ impl HealthMonitor {
             .count()
     }
 
+    /// The oldest `last_tick_ms` across all registered feeds, or `None` if no
+    /// feed has received any tick yet.
+    pub fn oldest_tick_ms(&self) -> Option<u64> {
+        self.feeds
+            .iter()
+            .filter_map(|e| e.last_tick_ms)
+            .min()
+    }
+
+    /// The most recent `last_tick_ms` across all registered feeds, or `None`
+    /// if no feed has received any tick yet.
+    pub fn newest_tick_ms(&self) -> Option<u64> {
+        self.feeds
+            .iter()
+            .filter_map(|e| e.last_tick_ms)
+            .max()
+    }
+
     /// Feed identifiers whose status is not [`HealthStatus::Healthy`].
     ///
     /// Returns a sorted list of IDs that are `Stale` or `Unknown`. Complement
@@ -598,6 +616,34 @@ mod tests {
         // Verify sorted
         assert_eq!(unhealthy[0], "ETH-USD");
         assert_eq!(unhealthy[1], "SOL-USD");
+    }
+
+    #[test]
+    fn test_oldest_tick_ms_returns_minimum() {
+        let m = HealthMonitor::new(5_000);
+        m.register("A", None);
+        m.register("B", None);
+        m.heartbeat("A", 1_000_000).unwrap();
+        m.heartbeat("B", 2_000_000).unwrap();
+        assert_eq!(m.oldest_tick_ms(), Some(1_000_000));
+    }
+
+    #[test]
+    fn test_newest_tick_ms_returns_maximum() {
+        let m = HealthMonitor::new(5_000);
+        m.register("A", None);
+        m.register("B", None);
+        m.heartbeat("A", 1_000_000).unwrap();
+        m.heartbeat("B", 2_000_000).unwrap();
+        assert_eq!(m.newest_tick_ms(), Some(2_000_000));
+    }
+
+    #[test]
+    fn test_oldest_newest_tick_ms_none_when_no_ticks() {
+        let m = HealthMonitor::new(5_000);
+        m.register("A", None);
+        assert!(m.oldest_tick_ms().is_none());
+        assert!(m.newest_tick_ms().is_none());
     }
 
     #[test]

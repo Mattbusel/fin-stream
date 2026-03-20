@@ -38,6 +38,27 @@ impl Timeframe {
         let dur = self.duration_ms();
         (ts_ms / dur) * dur
     }
+
+    /// Construct a `Timeframe` from a millisecond duration.
+    ///
+    /// Prefers the largest canonical unit that divides evenly:
+    /// hours > minutes > seconds. Returns `None` if `ms` is zero or not a
+    /// whole number of seconds.
+    pub fn from_duration_ms(ms: u64) -> Option<Timeframe> {
+        if ms == 0 {
+            return None;
+        }
+        if ms % 3_600_000 == 0 {
+            return Some(Timeframe::Hours(ms / 3_600_000));
+        }
+        if ms % 60_000 == 0 {
+            return Some(Timeframe::Minutes(ms / 60_000));
+        }
+        if ms % 1_000 == 0 {
+            return Some(Timeframe::Seconds(ms / 1_000));
+        }
+        None
+    }
 }
 
 impl std::fmt::Display for Timeframe {
@@ -78,6 +99,8 @@ pub struct OhlcvBar {
     /// to the last known close price. Callers may use this flag to filter synthetic bars
     /// out of indicator calculations or storage.
     pub is_gap_fill: bool,
+    /// Volume-weighted average price for this bar. `None` for gap-fill bars.
+    pub vwap: Option<Decimal>,
 }
 
 impl OhlcvBar {
@@ -91,6 +114,38 @@ impl OhlcvBar {
     /// Direction-independent; use `close > open` to determine bullish/bearish.
     pub fn body(&self) -> Decimal {
         (self.close - self.open).abs()
+    }
+
+    /// Returns `true` if this is a bullish bar (`close > open`).
+    pub fn is_bullish(&self) -> bool {
+        self.close > self.open
+    }
+
+    /// Returns `true` if this is a bearish bar (`close < open`).
+    pub fn is_bearish(&self) -> bool {
+        self.close < self.open
+    }
+
+    /// Returns `true` if the bar body is a doji (indecision candle).
+    ///
+    /// A doji has `|close - open| <= epsilon`. Use a small positive `epsilon`
+    /// such as `dec!(0.01)` to account for rounding in price data.
+    pub fn is_doji(&self, epsilon: Decimal) -> bool {
+        self.body() <= epsilon
+    }
+
+    /// Upper wick (shadow) length: `high - max(open, close)`.
+    ///
+    /// The upper wick is the portion of the candle above the body.
+    pub fn wick_upper(&self) -> Decimal {
+        self.high - self.open.max(self.close)
+    }
+
+    /// Lower wick (shadow) length: `min(open, close) - low`.
+    ///
+    /// The lower wick is the portion of the candle below the body.
+    pub fn wick_lower(&self) -> Decimal {
+        self.open.min(self.close) - self.low
     }
 }
 
@@ -115,6 +170,8 @@ pub struct OhlcvAggregator {
     emit_empty_bars: bool,
     /// Total number of completed bars emitted by this aggregator.
     bars_emitted: u64,
+    /// Running sum of `price × quantity` for VWAP computation in the current bar.
+    price_volume_sum: Decimal,
 }
 
 impl OhlcvAggregator {
@@ -135,6 +192,7 @@ impl OhlcvAggregator {
             current_bar: None,
             emit_empty_bars: false,
             bars_emitted: 0,
+            price_volume_sum: Decimal::ZERO,
         })
     }
 
@@ -201,10 +259,19 @@ impl OhlcvAggregator {
                         trade_count: 0,
                         is_complete: true,
                         is_gap_fill: true,
+                        vwap: None,
                     });
                     gap_start += dur;
                 }
             }
+        }
+
+        // Update price_volume_sum before the match to avoid borrow conflicts.
+        let tick_value = tick.price * tick.quantity;
+        if self.current_bar.is_some() {
+            self.price_volume_sum += tick_value;
+        } else {
+            self.price_volume_sum = tick_value;
         }
 
         match &mut self.current_bar {
@@ -218,6 +285,11 @@ impl OhlcvAggregator {
                 bar.close = tick.price;
                 bar.volume += tick.quantity;
                 bar.trade_count += 1;
+                bar.vwap = if bar.volume.is_zero() {
+                    None
+                } else {
+                    Some(self.price_volume_sum / bar.volume)
+                };
             }
             None => {
                 self.current_bar = Some(OhlcvBar {
@@ -232,6 +304,7 @@ impl OhlcvAggregator {
                     trade_count: 1,
                     is_complete: false,
                     is_gap_fill: false,
+                    vwap: Some(tick.price), // single-tick VWAP = price
                 });
             }
         }
@@ -265,6 +338,7 @@ impl OhlcvAggregator {
     pub fn reset(&mut self) {
         self.current_bar = None;
         self.bars_emitted = 0;
+        self.price_volume_sum = Decimal::ZERO;
     }
 
     /// The symbol this aggregator tracks.
@@ -275,6 +349,19 @@ impl OhlcvAggregator {
     /// The timeframe used for bar alignment.
     pub fn timeframe(&self) -> Timeframe {
         self.timeframe
+    }
+
+    /// Fraction of the current bar's time window that has elapsed, in `[0.0, 1.0]`.
+    ///
+    /// Returns `None` if no bar is in progress (no ticks seen since last
+    /// flush/reset). `now_ms` should be ≥ the current bar's `bar_start_ms`;
+    /// values before the start clamp to `0.0`.
+    pub fn window_progress(&self, now_ms: u64) -> Option<f64> {
+        let bar = self.current_bar.as_ref()?;
+        let elapsed = now_ms.saturating_sub(bar.bar_start_ms);
+        let duration = self.timeframe.duration_ms();
+        let progress = elapsed as f64 / duration as f64;
+        Some(progress.clamp(0.0, 1.0))
     }
 }
 
@@ -640,6 +727,90 @@ mod tests {
     }
 
     #[test]
+    fn test_ohlcv_bar_is_bullish_when_close_gt_open() {
+        let mut agg = agg("BTC-USD", Timeframe::Minutes(1));
+        agg.feed(&make_tick("BTC-USD", dec!(50000), dec!(1), 60_000))
+            .unwrap();
+        agg.feed(&make_tick("BTC-USD", dec!(51000), dec!(1), 60_100))
+            .unwrap();
+        let bar = agg.current_bar().unwrap();
+        assert!(bar.is_bullish());
+        assert!(!bar.is_bearish());
+    }
+
+    #[test]
+    fn test_ohlcv_bar_is_bearish_when_close_lt_open() {
+        let mut agg = agg("BTC-USD", Timeframe::Minutes(1));
+        agg.feed(&make_tick("BTC-USD", dec!(51000), dec!(1), 60_000))
+            .unwrap();
+        agg.feed(&make_tick("BTC-USD", dec!(50000), dec!(1), 60_100))
+            .unwrap();
+        let bar = agg.current_bar().unwrap();
+        assert!(bar.is_bearish());
+        assert!(!bar.is_bullish());
+    }
+
+    #[test]
+    fn test_ohlcv_bar_neither_bullish_nor_bearish_on_equal_open_close() {
+        let mut agg = agg("BTC-USD", Timeframe::Minutes(1));
+        agg.feed(&make_tick("BTC-USD", dec!(50000), dec!(1), 60_000))
+            .unwrap();
+        // Single tick: open == close
+        let bar = agg.current_bar().unwrap();
+        assert!(!bar.is_bullish());
+        assert!(!bar.is_bearish());
+    }
+
+    #[test]
+    fn test_ohlcv_bar_vwap_single_tick_equals_price() {
+        let mut agg = agg("BTC-USD", Timeframe::Minutes(1));
+        agg.feed(&make_tick("BTC-USD", dec!(50000), dec!(2), 60_000))
+            .unwrap();
+        let bar = agg.current_bar().unwrap();
+        assert_eq!(bar.vwap, Some(dec!(50000)));
+    }
+
+    #[test]
+    fn test_ohlcv_bar_vwap_two_equal_price_ticks() {
+        let mut agg = agg("BTC-USD", Timeframe::Minutes(1));
+        agg.feed(&make_tick("BTC-USD", dec!(50000), dec!(1), 60_000))
+            .unwrap();
+        agg.feed(&make_tick("BTC-USD", dec!(50000), dec!(3), 60_100))
+            .unwrap();
+        let bar = agg.current_bar().unwrap();
+        // vwap = (50000*1 + 50000*3) / (1+3) = 50000
+        assert_eq!(bar.vwap, Some(dec!(50000)));
+    }
+
+    #[test]
+    fn test_ohlcv_bar_vwap_two_different_price_ticks() {
+        let mut agg = agg("BTC-USD", Timeframe::Minutes(1));
+        agg.feed(&make_tick("BTC-USD", dec!(50000), dec!(1), 60_000))
+            .unwrap();
+        agg.feed(&make_tick("BTC-USD", dec!(51000), dec!(1), 60_100))
+            .unwrap();
+        let bar = agg.current_bar().unwrap();
+        // vwap = (50000*1 + 51000*1) / (1+1) = 50500
+        assert_eq!(bar.vwap, Some(dec!(50500)));
+    }
+
+    #[test]
+    fn test_ohlcv_bar_vwap_gap_fill_is_none() {
+        let mut agg = OhlcvAggregator::new("BTC-USD", Timeframe::Minutes(1))
+            .unwrap()
+            .with_emit_empty_bars(true);
+        agg.feed(&make_tick("BTC-USD", dec!(50000), dec!(1), 60_000))
+            .unwrap();
+        let bars = agg
+            .feed(&make_tick("BTC-USD", dec!(51000), dec!(1), 240_000))
+            .unwrap();
+        // bars[0] = real, bars[1] and bars[2] = gap-fills
+        assert!(bars[0].vwap.is_some());
+        assert!(bars[1].vwap.is_none());
+        assert!(bars[2].vwap.is_none());
+    }
+
+    #[test]
     fn test_aggregator_reset_allows_fresh_start() {
         let mut agg = agg("BTC-USD", Timeframe::Minutes(1));
         agg.feed(&make_tick("BTC-USD", dec!(50000), dec!(1), 60_000))
@@ -649,5 +820,128 @@ mod tests {
             .unwrap();
         let bar = agg.current_bar().unwrap();
         assert_eq!(bar.open, dec!(99999));
+    }
+
+    // ── Timeframe::from_duration_ms ───────────────────────────────────────────
+
+    #[test]
+    fn test_from_duration_ms_hours() {
+        assert_eq!(Timeframe::from_duration_ms(3_600_000), Some(Timeframe::Hours(1)));
+        assert_eq!(Timeframe::from_duration_ms(7_200_000), Some(Timeframe::Hours(2)));
+    }
+
+    #[test]
+    fn test_from_duration_ms_minutes() {
+        assert_eq!(Timeframe::from_duration_ms(300_000), Some(Timeframe::Minutes(5)));
+        assert_eq!(Timeframe::from_duration_ms(60_000), Some(Timeframe::Minutes(1)));
+    }
+
+    #[test]
+    fn test_from_duration_ms_seconds() {
+        assert_eq!(Timeframe::from_duration_ms(15_000), Some(Timeframe::Seconds(15)));
+        assert_eq!(Timeframe::from_duration_ms(1_000), Some(Timeframe::Seconds(1)));
+    }
+
+    #[test]
+    fn test_from_duration_ms_zero_returns_none() {
+        assert_eq!(Timeframe::from_duration_ms(0), None);
+    }
+
+    #[test]
+    fn test_from_duration_ms_non_whole_second_returns_none() {
+        assert_eq!(Timeframe::from_duration_ms(1_500), None);
+    }
+
+    #[test]
+    fn test_from_duration_ms_roundtrip() {
+        for tf in [Timeframe::Seconds(30), Timeframe::Minutes(5), Timeframe::Hours(4)] {
+            assert_eq!(Timeframe::from_duration_ms(tf.duration_ms()), Some(tf));
+        }
+    }
+
+    // ── OhlcvBar::is_doji / wick_upper / wick_lower ──────────────────────────
+
+    #[test]
+    fn test_is_doji_exact_zero_body() {
+        let bar = OhlcvBar {
+            symbol: "X".into(), timeframe: Timeframe::Minutes(1),
+            bar_start_ms: 0, open: dec!(100), high: dec!(105),
+            low: dec!(95), close: dec!(100),
+            volume: dec!(1), trade_count: 1, is_complete: true,
+            is_gap_fill: false, vwap: None,
+        };
+        assert!(bar.is_doji(Decimal::ZERO));
+    }
+
+    #[test]
+    fn test_is_doji_small_epsilon() {
+        let bar = OhlcvBar {
+            symbol: "X".into(), timeframe: Timeframe::Minutes(1),
+            bar_start_ms: 0, open: dec!(100), high: dec!(105),
+            low: dec!(95), close: dec!(100.005),
+            volume: dec!(1), trade_count: 1, is_complete: true,
+            is_gap_fill: false, vwap: None,
+        };
+        assert!(bar.is_doji(dec!(0.01)));
+        assert!(!bar.is_doji(Decimal::ZERO));
+    }
+
+    #[test]
+    fn test_wick_upper_bullish() {
+        // open=100, close=104, high=107 → upper wick = 107 - 104 = 3
+        let bar = OhlcvBar {
+            symbol: "X".into(), timeframe: Timeframe::Minutes(1),
+            bar_start_ms: 0, open: dec!(100), high: dec!(107),
+            low: dec!(98), close: dec!(104),
+            volume: dec!(1), trade_count: 1, is_complete: true,
+            is_gap_fill: false, vwap: None,
+        };
+        assert_eq!(bar.wick_upper(), dec!(3));
+    }
+
+    #[test]
+    fn test_wick_lower_bearish() {
+        // open=104, close=100, low=97 → lower wick = 100 - 97 = 3
+        let bar = OhlcvBar {
+            symbol: "X".into(), timeframe: Timeframe::Minutes(1),
+            bar_start_ms: 0, open: dec!(104), high: dec!(107),
+            low: dec!(97), close: dec!(100),
+            volume: dec!(1), trade_count: 1, is_complete: true,
+            is_gap_fill: false, vwap: None,
+        };
+        assert_eq!(bar.wick_lower(), dec!(3));
+    }
+
+    // ── OhlcvAggregator::window_progress ─────────────────────────────────────
+
+    #[test]
+    fn test_window_progress_none_when_no_bar() {
+        let agg = agg("BTC-USD", Timeframe::Minutes(1));
+        assert!(agg.window_progress(60_000).is_none());
+    }
+
+    #[test]
+    fn test_window_progress_at_start_is_zero() {
+        let mut agg = agg("BTC-USD", Timeframe::Minutes(1));
+        // Tick at bar start.
+        agg.feed(&make_tick("BTC-USD", dec!(100), dec!(1), 60_000)).unwrap();
+        assert_eq!(agg.window_progress(60_000), Some(0.0));
+    }
+
+    #[test]
+    fn test_window_progress_midpoint() {
+        let mut agg = agg("BTC-USD", Timeframe::Minutes(1));
+        agg.feed(&make_tick("BTC-USD", dec!(100), dec!(1), 60_000)).unwrap();
+        // 30 s into a 60 s bar → 0.5
+        let progress = agg.window_progress(90_000).unwrap();
+        assert!((progress - 0.5).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_window_progress_clamps_at_one() {
+        let mut agg = agg("BTC-USD", Timeframe::Minutes(1));
+        agg.feed(&make_tick("BTC-USD", dec!(100), dec!(1), 60_000)).unwrap();
+        // 90 s past the bar start (longer than the bar) → clamped to 1.0
+        assert_eq!(agg.window_progress(150_000), Some(1.0));
     }
 }

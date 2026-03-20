@@ -221,6 +221,22 @@ impl StreamError {
         )
     }
 
+    /// Returns `true` for errors that indicate bad data from the exchange.
+    ///
+    /// Data errors arise from malformed or logically inconsistent market data:
+    /// parse failures, invalid tick values, crossed order books, or sequence
+    /// gaps. They do not imply a network problem — reconnecting won't help.
+    pub fn is_data_error(&self) -> bool {
+        matches!(
+            self,
+            StreamError::ParseError { .. }
+                | StreamError::InvalidTick { .. }
+                | StreamError::BookCrossed { .. }
+                | StreamError::SequenceGap { .. }
+                | StreamError::BookReconstructionFailed { .. }
+        )
+    }
+
     /// Returns `true` for errors that are transient and worth retrying.
     ///
     /// Transient errors arise from external conditions (network drops, full
@@ -424,6 +440,45 @@ mod tests {
         .is_transient());
         assert!(StreamError::RingBufferFull { capacity: 8 }.is_transient());
         assert!(StreamError::RingBufferEmpty.is_transient());
+    }
+
+    #[test]
+    fn test_is_data_error_parse_and_book_errors() {
+        assert!(StreamError::ParseError {
+            exchange: "Binance".into(),
+            reason: "bad field".into()
+        }
+        .is_data_error());
+        assert!(StreamError::InvalidTick {
+            reason: "neg price".into()
+        }
+        .is_data_error());
+        assert!(StreamError::BookCrossed {
+            symbol: "BTC-USD".into(),
+            bid: Decimal::from(1u32),
+            ask: Decimal::from(1u32)
+        }
+        .is_data_error());
+        assert!(StreamError::SequenceGap {
+            symbol: "BTC-USD".into(),
+            expected: 1,
+            got: 3
+        }
+        .is_data_error());
+    }
+
+    #[test]
+    fn test_is_data_error_connectivity_errors_are_not_data() {
+        assert!(!StreamError::WebSocket("reset".into()).is_data_error());
+        assert!(!StreamError::ConnectionFailed {
+            url: "wss://x.io".into(),
+            reason: "timeout".into()
+        }
+        .is_data_error());
+        assert!(!StreamError::ConfigError {
+            reason: "bad param".into()
+        }
+        .is_data_error());
     }
 
     #[test]

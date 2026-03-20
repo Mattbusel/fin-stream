@@ -201,6 +201,17 @@ impl MinMaxNormalizer {
         self.window_size
     }
 
+    /// Returns the arithmetic mean of the current window observations.
+    ///
+    /// Returns `None` if the window is empty.
+    pub fn mean(&self) -> Option<Decimal> {
+        if self.window.is_empty() {
+            return None;
+        }
+        let sum: Decimal = self.window.iter().copied().sum();
+        Some(sum / Decimal::from(self.window.len() as u64))
+    }
+
     /// Feed a slice of values into the window and return normalized forms of each.
     ///
     /// Each value in `values` is first passed through [`update`](Self::update) to
@@ -220,6 +231,37 @@ impl MinMaxNormalizer {
                 self.normalize(v)
             })
             .collect()
+    }
+
+    /// Compute the z-score of `value` relative to the current window.
+    ///
+    /// `z = (value - mean) / stddev`
+    ///
+    /// Returns `None` if the window has fewer than 2 observations, or if the
+    /// standard deviation is zero (all values identical).
+    ///
+    /// Useful for detecting outliers and standardising features for ML models
+    /// when a bounded `[0, 1]` range is not required.
+    pub fn z_score(&self, value: Decimal) -> Option<f64> {
+        if self.window.len() < 2 {
+            return None;
+        }
+        let n = Decimal::from(self.window.len() as u64);
+        let mean: Decimal = self.window.iter().copied().sum::<Decimal>() / n;
+        let variance: Decimal = self
+            .window
+            .iter()
+            .map(|&v| { let d = v - mean; d * d })
+            .sum::<Decimal>()
+            / n;
+        if variance.is_zero() {
+            return None;
+        }
+        use rust_decimal::prelude::ToPrimitive;
+        let std_dev_f64 = variance.to_f64()?.sqrt();
+        let value_f64 = value.to_f64()?;
+        let mean_f64 = mean.to_f64()?;
+        Some((value_f64 - mean_f64) / std_dev_f64)
     }
 
     /// Returns the percentile rank of `value` within the current window.

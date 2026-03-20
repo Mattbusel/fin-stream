@@ -245,6 +245,16 @@ impl OrderBook {
         self.asks.len()
     }
 
+    /// Total resting quantity across all bid levels.
+    pub fn bid_volume_total(&self) -> Decimal {
+        self.bids.values().copied().sum()
+    }
+
+    /// Total resting quantity across all ask levels.
+    pub fn ask_volume_total(&self) -> Decimal {
+        self.asks.values().copied().sum()
+    }
+
     /// The symbol this order book tracks.
     pub fn symbol(&self) -> &str {
         &self.symbol
@@ -292,6 +302,26 @@ impl OrderBook {
             .take(n)
             .map(|(p, q)| PriceLevel::new(*p, *q))
             .collect()
+    }
+
+    /// Order-book imbalance at the best bid/ask: `(bid_qty - ask_qty) / (bid_qty + ask_qty)`.
+    ///
+    /// Returns a value in `[-1.0, 1.0]`:
+    /// - `+1.0` means the entire resting quantity is on the bid side (maximum buy pressure).
+    /// - `-1.0` means the entire resting quantity is on the ask side (maximum sell pressure).
+    /// - `0.0` means perfectly balanced.
+    ///
+    /// Returns `None` if either side has no best level.
+    pub fn imbalance(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let bid_qty = self.best_bid()?.quantity;
+        let ask_qty = self.best_ask()?.quantity;
+        let total = bid_qty + ask_qty;
+        if total.is_zero() {
+            return None;
+        }
+        let imb = (bid_qty - ask_qty) / total;
+        imb.to_f64()
     }
 
     /// Return a full snapshot of all bid and ask levels.

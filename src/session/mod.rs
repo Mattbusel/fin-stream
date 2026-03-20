@@ -103,6 +103,37 @@ impl SessionAwareness {
             .unwrap_or(false)
     }
 
+    /// Returns the number of whole minutes until the next [`TradingStatus::Open`] transition.
+    ///
+    /// Returns `0` if the session is already open. For [`MarketSession::Crypto`] always
+    /// returns `0`. Useful for scheduling reconnect timers and pre-open setup.
+    pub fn minutes_until_open(&self, utc_ms: u64) -> u64 {
+        if self.is_open(utc_ms) {
+            return 0;
+        }
+        let next = self.next_open_ms(utc_ms);
+        if next <= utc_ms {
+            return 0;
+        }
+        (next - utc_ms) / 60_000
+    }
+
+    /// Milliseconds until the next [`TradingStatus::Open`] transition.
+    ///
+    /// Returns `0` if the session is already `Open`. For
+    /// [`MarketSession::Crypto`] always returns `0`.
+    pub fn time_until_open_ms(&self, utc_ms: u64) -> u64 {
+        self.next_open_ms(utc_ms).saturating_sub(utc_ms)
+    }
+
+    /// Milliseconds until the session enters [`TradingStatus::Closed`].
+    ///
+    /// Returns `0` if the session is already `Closed`. For
+    /// [`MarketSession::Crypto`] returns `u64::MAX` (never closes).
+    pub fn time_until_close_ms(&self, utc_ms: u64) -> u64 {
+        self.next_close_ms(utc_ms).saturating_sub(utc_ms)
+    }
+
     /// Return the UTC millisecond timestamp of the next time this session
     /// enters [`TradingStatus::Closed`] status.
     ///
@@ -769,6 +800,45 @@ mod tests {
     #[test]
     fn test_easter_sunday_2025() {
         assert_eq!(easter_sunday(2025), NaiveDate::from_ymd_opt(2025, 4, 20).unwrap());
+    }
+
+    // ── time_until_open_ms / time_until_close_ms ──────────────────────────────
+
+    #[test]
+    fn test_time_until_open_crypto_is_zero() {
+        let sa = sa(MarketSession::Crypto);
+        assert_eq!(sa.time_until_open_ms(SAT_UTC_MS), 0);
+        assert_eq!(sa.time_until_open_ms(MON_OPEN_UTC_MS), 0);
+    }
+
+    #[test]
+    fn test_time_until_open_equity_already_open_is_zero() {
+        let sa = sa(MarketSession::UsEquity);
+        assert_eq!(sa.time_until_open_ms(MON_OPEN_UTC_MS), 0);
+    }
+
+    #[test]
+    fn test_time_until_open_equity_saturday_is_positive() {
+        let sa = sa(MarketSession::UsEquity);
+        assert!(sa.time_until_open_ms(SAT_UTC_MS) > 0);
+    }
+
+    #[test]
+    fn test_time_until_close_crypto_is_max() {
+        let sa = sa(MarketSession::Crypto);
+        assert_eq!(sa.time_until_close_ms(MON_OPEN_UTC_MS), u64::MAX);
+    }
+
+    #[test]
+    fn test_time_until_close_equity_already_closed_is_zero() {
+        let sa = sa(MarketSession::UsEquity);
+        assert_eq!(sa.time_until_close_ms(SAT_UTC_MS), 0);
+    }
+
+    #[test]
+    fn test_time_until_close_equity_open_is_positive() {
+        let sa = sa(MarketSession::UsEquity);
+        assert!(sa.time_until_close_ms(MON_OPEN_UTC_MS) > 0);
     }
 
     // ── is_open ───────────────────────────────────────────────────────────────
