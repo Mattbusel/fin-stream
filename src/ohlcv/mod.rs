@@ -1211,7 +1211,7 @@ impl OhlcvAggregator {
         }
 
         // Update price_volume_sum before the match to avoid borrow conflicts.
-        let tick_value = tick.price * tick.quantity;
+        let tick_value = tick.value();
         if self.current_bar.is_some() {
             self.price_volume_sum += tick_value;
         } else {
@@ -3874,5 +3874,46 @@ mod tests {
     fn test_bar_range_correct() {
         let bar = make_ohlcv_bar(dec!(100), dec!(120), dec!(90), dec!(110));
         assert_eq!(bar.bar_range(), dec!(30));
+    }
+
+    // ── linear_regression_slope ───────────────────────────────────────────────
+
+    #[test]
+    fn test_linear_regression_slope_none_for_single_bar() {
+        let bar = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        assert!(OhlcvBar::linear_regression_slope(&[bar]).is_none());
+    }
+
+    #[test]
+    fn test_linear_regression_slope_positive_for_rising_closes() {
+        let bars = vec![
+            make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100)),
+            make_ohlcv_bar(dec!(100), dec!(115), dec!(95), dec!(110)),
+            make_ohlcv_bar(dec!(110), dec!(120), dec!(105), dec!(120)),
+        ];
+        let slope = OhlcvBar::linear_regression_slope(&bars).unwrap();
+        assert!(slope > 0.0, "slope should be positive for rising closes");
+    }
+
+    #[test]
+    fn test_linear_regression_slope_negative_for_falling_closes() {
+        let bars = vec![
+            make_ohlcv_bar(dec!(120), dec!(125), dec!(115), dec!(120)),
+            make_ohlcv_bar(dec!(120), dec!(115), dec!(105), dec!(110)),
+            make_ohlcv_bar(dec!(110), dec!(108), dec!(95), dec!(100)),
+        ];
+        let slope = OhlcvBar::linear_regression_slope(&bars).unwrap();
+        assert!(slope < 0.0, "slope should be negative for falling closes");
+    }
+
+    #[test]
+    fn test_linear_regression_slope_near_zero_for_flat_closes() {
+        let bars = vec![
+            make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100)),
+            make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100)),
+            make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100)),
+        ];
+        let slope = OhlcvBar::linear_regression_slope(&bars).unwrap();
+        assert!(slope.abs() < 1e-10, "slope should be ~0 for identical closes");
     }
 }

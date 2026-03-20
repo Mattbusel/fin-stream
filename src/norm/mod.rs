@@ -1383,19 +1383,18 @@ impl ZScoreNormalizer {
     /// Returns `false` when the window has fewer than 2 observations (z-score undefined).
     /// A typical threshold is `2.0` (95th percentile) or `3.0` (99.7th percentile).
     pub fn is_outlier(&self, value: Decimal, z_threshold: f64) -> bool {
-        let n = self.window.len();
-        if n < 2 {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 {
             return false;
         }
-        let n_dec = Decimal::from(n as u64);
-        let mean = self.sum / n_dec;
-        let variance = (self.sum_sq / n_dec) - mean * mean;
-        let variance = if variance < Decimal::ZERO { Decimal::ZERO } else { variance };
-        let sd = variance.to_f64().unwrap_or(0.0).sqrt();
+        let sd = self.std_dev().unwrap_or(0.0);
         if sd == 0.0 {
             return false;
         }
-        let mean_f64 = mean.to_f64().unwrap_or(0.0);
+        let mean_f64 = match self.mean().and_then(|m| m.to_f64()) {
+            Some(m) => m,
+            None => return false,
+        };
         let val_f64 = value.to_f64().unwrap_or(mean_f64);
         ((val_f64 - mean_f64) / sd).abs() > z_threshold
     }
@@ -1514,7 +1513,7 @@ impl ZScoreNormalizer {
     /// Returns `None` when the window is empty.
     pub fn window_max_f64(&self) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        self.window.iter().max().and_then(|v| v.to_f64())
+        self.running_max()?.to_f64()
     }
 
     /// Minimum value currently in the window as `f64`.
@@ -1522,7 +1521,7 @@ impl ZScoreNormalizer {
     /// Returns `None` when the window is empty.
     pub fn window_min_f64(&self) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        self.window.iter().min().and_then(|v| v.to_f64())
+        self.running_min()?.to_f64()
     }
 
     /// Difference between the window maximum and minimum, as `f64`.
@@ -1591,12 +1590,9 @@ impl ZScoreNormalizer {
 
     /// Empirical percentile of `value` within the current window: fraction of values ≤ `value`.
     ///
-    /// Returns a value in `[0.0, 1.0]`. Returns `None` if the window is empty.
+    /// Alias for [`percentile_rank`](Self::percentile_rank).
     pub fn percentile(&self, value: Decimal) -> Option<f64> {
-        let n = self.window.len();
-        if n == 0 { return None; }
-        let count = self.window.iter().filter(|&&v| v <= value).count();
-        Some(count as f64 / n as f64)
+        self.percentile_rank(value)
     }
 
     /// Interquartile range: Q3 (75th percentile) − Q1 (25th percentile) of the window.
