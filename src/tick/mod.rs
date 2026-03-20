@@ -616,7 +616,7 @@ impl NormalizedTick {
 
     /// Contract value using a futures/options multiplier: `price * quantity * multiplier`.
     pub fn contract_value(&self, multiplier: Decimal) -> Decimal {
-        self.price * self.quantity * multiplier
+        self.value() * multiplier
     }
 
     /// Tick imbalance: `(buy_qty - sell_qty) / total_qty` across a tick slice.
@@ -710,6 +710,16 @@ impl NormalizedTick {
             return None;
         }
         Some(notional / volume)
+    }
+
+    /// Count of ticks whose price is strictly above `threshold`.
+    pub fn count_above_price(ticks: &[NormalizedTick], threshold: Decimal) -> usize {
+        ticks.iter().filter(|t| t.price > threshold).count()
+    }
+
+    /// Count of ticks whose price is strictly below `threshold`.
+    pub fn count_below_price(ticks: &[NormalizedTick], threshold: Decimal) -> usize {
+        ticks.iter().filter(|t| t.price < threshold).count()
     }
 
 }
@@ -2467,5 +2477,40 @@ mod tests {
         let t1 = make_tick_pq(rust_decimal_macros::dec!(100), rust_decimal_macros::dec!(0));
         let t2 = make_tick_pq(rust_decimal_macros::dec!(200), rust_decimal_macros::dec!(0));
         assert!(NormalizedTick::vwap(&[t1, t2]).is_none());
+    }
+
+    // ── count_above_price / count_below_price ─────────────────────────────────
+
+    #[test]
+    fn test_count_above_price_zero_for_empty_slice() {
+        assert_eq!(NormalizedTick::count_above_price(&[], rust_decimal_macros::dec!(100)), 0);
+    }
+
+    #[test]
+    fn test_count_above_price_correct() {
+        let t1 = make_tick_with_price(rust_decimal_macros::dec!(90));
+        let t2 = make_tick_with_price(rust_decimal_macros::dec!(100));
+        let t3 = make_tick_with_price(rust_decimal_macros::dec!(110));
+        assert_eq!(NormalizedTick::count_above_price(&[t1, t2, t3], rust_decimal_macros::dec!(100)), 1);
+    }
+
+    #[test]
+    fn test_count_below_price_correct() {
+        let t1 = make_tick_with_price(rust_decimal_macros::dec!(90));
+        let t2 = make_tick_with_price(rust_decimal_macros::dec!(100));
+        let t3 = make_tick_with_price(rust_decimal_macros::dec!(110));
+        assert_eq!(NormalizedTick::count_below_price(&[t1, t2, t3], rust_decimal_macros::dec!(100)), 1);
+    }
+
+    #[test]
+    fn test_count_above_at_threshold_excluded() {
+        let tick = make_tick_with_price(rust_decimal_macros::dec!(100));
+        assert_eq!(NormalizedTick::count_above_price(&[tick], rust_decimal_macros::dec!(100)), 0);
+    }
+
+    #[test]
+    fn test_count_below_at_threshold_excluded() {
+        let tick = make_tick_with_price(rust_decimal_macros::dec!(100));
+        assert_eq!(NormalizedTick::count_below_price(&[tick], rust_decimal_macros::dec!(100)), 0);
     }
 }

@@ -566,10 +566,7 @@ impl MinMaxNormalizer {
     pub fn mad(&self) -> Option<Decimal> {
         let med = self.median()?;
         let mut deviations: Vec<Decimal> = self.window.iter()
-            .map(|&v| {
-                let d = v - med;
-                if d < Decimal::ZERO { -d } else { d }
-            })
+            .map(|&v| (v - med).abs())
             .collect();
         deviations.sort();
         let n = deviations.len();
@@ -1348,23 +1345,13 @@ impl ZScoreNormalizer {
         if n < 2 {
             return Ok(0.0);
         }
-        let n_dec = Decimal::from(n as u64);
-        let mean = self.sum / n_dec;
-        // Population variance = E[X²] - (E[X])²
-        let variance = (self.sum_sq / n_dec) - mean * mean;
-        // Clamp to zero to guard against floating-point subtraction underflow.
-        let variance = if variance < Decimal::ZERO {
-            Decimal::ZERO
-        } else {
-            variance
-        };
-        let var_f64 = variance.to_f64().ok_or_else(|| StreamError::NormalizationError {
-            reason: "Decimal-to-f64 conversion failed for variance".into(),
-        })?;
-        let std_dev = var_f64.sqrt();
+        let std_dev = self.std_dev().unwrap_or(0.0);
         if std_dev < f64::EPSILON {
             return Ok(0.0);
         }
+        let mean = self.mean().ok_or_else(|| StreamError::NormalizationError {
+            reason: "mean unavailable".into(),
+        })?;
         let diff = value - mean;
         let diff_f64 = diff.to_f64().ok_or_else(|| StreamError::NormalizationError {
             reason: "Decimal-to-f64 conversion failed for diff".into(),
@@ -1394,12 +1381,7 @@ impl ZScoreNormalizer {
         if n < 2 {
             return Some(0.0);
         }
-        let n_dec = Decimal::from(n as u64);
-        let mean = self.sum / n_dec;
-        let variance = (self.sum_sq / n_dec) - mean * mean;
-        let variance = if variance < Decimal::ZERO { Decimal::ZERO } else { variance };
-        let var_f64 = variance.to_f64().unwrap_or(0.0);
-        Some(var_f64.sqrt())
+        self.variance_f64().map(f64::sqrt)
     }
 
     /// Reset the normalizer, clearing all observations and sums.

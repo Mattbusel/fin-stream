@@ -296,7 +296,7 @@ impl OhlcvBar {
         if self.open.is_zero() {
             return None;
         }
-        let pct = (self.close - self.open) / self.open * Decimal::from(100);
+        let pct = self.price_change() / self.open * Decimal::from(100);
         pct.to_f64()
     }
 
@@ -1078,6 +1078,54 @@ impl OhlcvBar {
             return None;
         }
         Some(numerator / denominator)
+    }
+
+    /// Arithmetic mean of close prices across a slice of bars.
+    ///
+    /// Returns `None` if the slice is empty.
+    pub fn mean_close(bars: &[OhlcvBar]) -> Option<Decimal> {
+        if bars.is_empty() {
+            return None;
+        }
+        let sum: Decimal = bars.iter().map(|b| b.close).sum();
+        Some(sum / Decimal::from(bars.len() as u64))
+    }
+
+    /// Population standard deviation of close prices across a slice of bars.
+    ///
+    /// Returns `None` if the slice has fewer than 2 bars or if closes cannot
+    /// be converted to `f64`.
+    pub fn close_std_dev(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let n = bars.len();
+        if n < 2 {
+            return None;
+        }
+        let mean = Self::mean_close(bars)?.to_f64()?;
+        let variance: f64 = bars.iter()
+            .filter_map(|b| b.close.to_f64())
+            .map(|c| (c - mean).powi(2))
+            .sum::<f64>() / n as f64;
+        Some(variance.sqrt())
+    }
+
+    /// Elder's efficiency ratio: `|close[last] − close[first]| / Σ|range(bar)|`.
+    ///
+    /// Measures how directionally efficient price movement is across the slice.
+    /// A value close to 1 means price moved cleanly; near 0 means choppy.
+    /// Returns `None` if the slice has fewer than 2 bars or total range is zero.
+    pub fn price_efficiency_ratio(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let n = bars.len();
+        if n < 2 {
+            return None;
+        }
+        let net_move = (bars[n - 1].close - bars[0].close).abs();
+        let total_path: Decimal = bars.iter().map(|b| b.range()).sum();
+        if total_path.is_zero() {
+            return None;
+        }
+        (net_move / total_path).to_f64()
     }
 }
 
@@ -3915,5 +3963,83 @@ mod tests {
         ];
         let slope = OhlcvBar::linear_regression_slope(&bars).unwrap();
         assert!(slope.abs() < 1e-10, "slope should be ~0 for identical closes");
+    }
+
+    // ── mean_close ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_mean_close_none_for_empty_slice() {
+        assert!(OhlcvBar::mean_close(&[]).is_none());
+    }
+
+    #[test]
+    fn test_mean_close_single_bar() {
+        let bar = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        assert_eq!(OhlcvBar::mean_close(&[bar]), Some(dec!(105)));
+    }
+
+    #[test]
+    fn test_mean_close_multiple_bars() {
+        let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100));
+        let b2 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(110));
+        let b3 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(120));
+        // (100 + 110 + 120) / 3 = 110
+        assert_eq!(OhlcvBar::mean_close(&[b1, b2, b3]), Some(dec!(110)));
+    }
+
+    // ── close_std_dev ─────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_close_std_dev_none_for_single_bar() {
+        let bar = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100));
+        assert!(OhlcvBar::close_std_dev(&[bar]).is_none());
+    }
+
+    #[test]
+    fn test_close_std_dev_zero_for_identical_closes() {
+        let bars = vec![
+            make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100)),
+            make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100)),
+        ];
+        let sd = OhlcvBar::close_std_dev(&bars).unwrap();
+        assert!(sd.abs() < 1e-10, "std_dev should be ~0 for identical closes");
+    }
+
+    #[test]
+    fn test_close_std_dev_positive_for_varied_closes() {
+        let bars = vec![
+            make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(90)),
+            make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(110)),
+        ];
+        assert!(OhlcvBar::close_std_dev(&bars).unwrap() > 0.0);
+    }
+
+    // ── price_efficiency_ratio ────────────────────────────────────────────────
+
+    #[test]
+    fn test_price_efficiency_ratio_none_for_single_bar() {
+        let bar = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100));
+        assert!(OhlcvBar::price_efficiency_ratio(&[bar]).is_none());
+    }
+
+    #[test]
+    fn test_price_efficiency_ratio_one_for_trending_price() {
+        // All bars with same range, monotonically rising closes
+        let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100));
+        let b2 = make_ohlcv_bar(dec!(110), dec!(120), dec!(100), dec!(110));
+        let b3 = make_ohlcv_bar(dec!(120), dec!(130), dec!(110), dec!(120));
+        // net move = 20, total path = 3 * 20 = 60; ratio = 20/60 ≈ 0.333
+        let ratio = OhlcvBar::price_efficiency_ratio(&[b1, b2, b3]).unwrap();
+        assert!(ratio > 0.0 && ratio <= 1.0);
+    }
+
+    #[test]
+    fn test_price_efficiency_ratio_none_for_zero_total_range() {
+        // Zero-range bars (high == low)
+        let bars = vec![
+            make_ohlcv_bar(dec!(100), dec!(100), dec!(100), dec!(100)),
+            make_ohlcv_bar(dec!(100), dec!(100), dec!(100), dec!(100)),
+        ];
+        assert!(OhlcvBar::price_efficiency_ratio(&bars).is_none());
     }
 }

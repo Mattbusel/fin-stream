@@ -494,6 +494,7 @@ impl HealthMonitor {
     /// Count of feeds currently in `Stale` status.
     ///
     /// Alias for [`stale_count`](Self::stale_count).
+    #[deprecated(since = "2.2.0", note = "Use `stale_count` instead")]
     pub fn total_stale_count(&self) -> usize {
         self.stale_count()
     }
@@ -501,6 +502,7 @@ impl HealthMonitor {
     /// IDs of all feeds that are Stale or Unknown — feeds that require attention.
     ///
     /// Alias for [`unhealthy_feeds`](Self::unhealthy_feeds).
+    #[deprecated(since = "2.2.0", note = "Use `unhealthy_feeds` instead")]
     pub fn feeds_needing_check(&self) -> Vec<String> {
         self.unhealthy_feeds()
     }
@@ -557,6 +559,7 @@ impl HealthMonitor {
     /// Number of feeds currently in the [`HealthStatus::Unknown`] state.
     ///
     /// Alias for [`unknown_count`](Self::unknown_count).
+    #[deprecated(since = "2.2.0", note = "Use `unknown_count` instead")]
     pub fn unknown_feed_count(&self) -> usize {
         self.unknown_count()
     }
@@ -590,6 +593,7 @@ impl HealthMonitor {
     /// Fraction of registered feeds that are currently `Healthy`: `healthy / total`.
     ///
     /// Alias for [`ratio_healthy`](Self::ratio_healthy).
+    #[deprecated(since = "2.2.0", note = "Use `ratio_healthy` instead")]
     pub fn healthy_ratio(&self) -> f64 {
         self.ratio_healthy()
     }
@@ -621,6 +625,7 @@ impl HealthMonitor {
     /// [`HealthStatus::Stale`] status.
     ///
     /// Alias for [`is_any_stale`](Self::is_any_stale).
+    #[deprecated(since = "2.2.0", note = "Use `is_any_stale` instead")]
     pub fn is_any_feed_stale(&self) -> bool {
         self.is_any_stale()
     }
@@ -644,6 +649,7 @@ impl HealthMonitor {
     /// Average tick count across all registered feeds.
     ///
     /// Alias for [`avg_tick_count`](Self::avg_tick_count).
+    #[deprecated(since = "2.2.0", note = "Use `avg_tick_count` instead")]
     pub fn average_tick_count(&self) -> f64 {
         self.avg_tick_count()
     }
@@ -698,6 +704,7 @@ impl HealthMonitor {
     /// Returns `true` if any registered feed has [`HealthStatus::Unknown`] status.
     ///
     /// Alias for [`has_any_unknown`](Self::has_any_unknown).
+    #[deprecated(since = "2.2.0", note = "Use `has_any_unknown` instead")]
     pub fn any_unknown(&self) -> bool {
         self.has_any_unknown()
     }
@@ -705,6 +712,7 @@ impl HealthMonitor {
     /// Count of feeds in [`HealthStatus::Stale`] state (degraded but not unknown).
     ///
     /// Alias for [`stale_count`](Self::stale_count).
+    #[deprecated(since = "2.2.0", note = "Use `stale_count` instead")]
     pub fn degraded_count(&self) -> usize {
         self.stale_count()
     }
