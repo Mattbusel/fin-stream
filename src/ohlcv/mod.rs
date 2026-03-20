@@ -80,6 +80,20 @@ pub struct OhlcvBar {
     pub is_gap_fill: bool,
 }
 
+impl OhlcvBar {
+    /// Price range of the bar: `high - low`.
+    pub fn range(&self) -> Decimal {
+        self.high - self.low
+    }
+
+    /// Candle body size: `(close - open).abs()`.
+    ///
+    /// Direction-independent; use `close > open` to determine bullish/bearish.
+    pub fn body(&self) -> Decimal {
+        (self.close - self.open).abs()
+    }
+}
+
 impl std::fmt::Display for OhlcvBar {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
@@ -242,6 +256,15 @@ impl OhlcvAggregator {
     /// Total number of completed bars emitted by this aggregator (via `feed` or `flush`).
     pub fn bar_count(&self) -> u64 {
         self.bars_emitted
+    }
+
+    /// Discard the in-progress bar and reset the bar counter to zero.
+    ///
+    /// Useful for backtesting rewind or when restarting aggregation from a
+    /// new anchor point. Does not affect the aggregator's symbol or timeframe.
+    pub fn reset(&mut self) {
+        self.current_bar = None;
+        self.bars_emitted = 0;
     }
 
     /// The symbol this aggregator tracks.
@@ -563,5 +586,68 @@ mod tests {
             .unwrap();
         agg.flush().unwrap();
         assert_eq!(agg.bar_count(), 1);
+    }
+
+    #[test]
+    fn test_ohlcv_bar_range() {
+        let mut agg = agg("BTC-USD", Timeframe::Minutes(1));
+        agg.feed(&make_tick("BTC-USD", dec!(50000), dec!(1), 60_000))
+            .unwrap();
+        agg.feed(&make_tick("BTC-USD", dec!(51000), dec!(1), 60_100))
+            .unwrap();
+        agg.feed(&make_tick("BTC-USD", dec!(49500), dec!(1), 60_200))
+            .unwrap();
+        let bar = agg.current_bar().unwrap();
+        assert_eq!(bar.range(), dec!(1500)); // 51000 - 49500
+    }
+
+    #[test]
+    fn test_ohlcv_bar_body_bullish() {
+        let mut agg = agg("BTC-USD", Timeframe::Minutes(1));
+        agg.feed(&make_tick("BTC-USD", dec!(50000), dec!(1), 60_000))
+            .unwrap();
+        agg.feed(&make_tick("BTC-USD", dec!(50500), dec!(1), 60_100))
+            .unwrap();
+        let bar = agg.current_bar().unwrap();
+        // open=50000, close=50500 → body = 500
+        assert_eq!(bar.body(), dec!(500));
+    }
+
+    #[test]
+    fn test_ohlcv_bar_body_bearish() {
+        let mut agg = agg("BTC-USD", Timeframe::Minutes(1));
+        agg.feed(&make_tick("BTC-USD", dec!(50500), dec!(1), 60_000))
+            .unwrap();
+        agg.feed(&make_tick("BTC-USD", dec!(50000), dec!(1), 60_100))
+            .unwrap();
+        let bar = agg.current_bar().unwrap();
+        // open=50500, close=50000 → body = 500 (abs)
+        assert_eq!(bar.body(), dec!(500));
+    }
+
+    #[test]
+    fn test_aggregator_reset_clears_bar_and_count() {
+        let mut agg = agg("BTC-USD", Timeframe::Minutes(1));
+        agg.feed(&make_tick("BTC-USD", dec!(50000), dec!(1), 60_000))
+            .unwrap();
+        agg.feed(&make_tick("BTC-USD", dec!(50100), dec!(1), 120_000))
+            .unwrap();
+        assert_eq!(agg.bar_count(), 1);
+        assert!(agg.current_bar().is_some());
+        agg.reset();
+        assert_eq!(agg.bar_count(), 0);
+        assert!(agg.current_bar().is_none());
+    }
+
+    #[test]
+    fn test_aggregator_reset_allows_fresh_start() {
+        let mut agg = agg("BTC-USD", Timeframe::Minutes(1));
+        agg.feed(&make_tick("BTC-USD", dec!(50000), dec!(1), 60_000))
+            .unwrap();
+        agg.reset();
+        agg.feed(&make_tick("BTC-USD", dec!(99999), dec!(2), 60_000))
+            .unwrap();
+        let bar = agg.current_bar().unwrap();
+        assert_eq!(bar.open, dec!(99999));
     }
 }

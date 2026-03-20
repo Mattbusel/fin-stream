@@ -159,6 +159,17 @@ impl TradeSide {
     }
 }
 
+impl NormalizedTick {
+    /// Notional trade value: `price × quantity`.
+    ///
+    /// Returns the total value transferred in this trade. Useful for VWAP
+    /// calculations and volume-weighted aggregations without requiring callers
+    /// to multiply at every use site.
+    pub fn value(&self) -> Decimal {
+        self.price * self.quantity
+    }
+}
+
 impl std::fmt::Display for NormalizedTick {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let side = match self.side {
@@ -661,5 +672,31 @@ mod tests {
         assert!(s.contains("Binance"));
         assert!(s.contains("BTCUSDT"));
         assert!(s.contains("50000"));
+    }
+
+    #[test]
+    fn test_normalized_tick_value_is_price_times_qty() {
+        use rust_decimal_macros::dec;
+        let tick = normalizer().normalize(binance_tick("BTCUSDT")).unwrap();
+        // binance_tick sets price=50000, quantity=0.001
+        let expected = tick.price * tick.quantity;
+        assert_eq!(tick.value(), expected);
+    }
+
+    #[test]
+    fn test_normalized_tick_value_zero_qty_is_zero() {
+        use rust_decimal_macros::dec;
+        let raw = RawTick {
+            exchange: Exchange::Binance,
+            symbol: "BTCUSDT".into(),
+            payload: serde_json::json!({
+                "p": "50000",
+                "q": "0",
+                "m": false,
+            }),
+            received_at_ms: 1000,
+        };
+        let tick = normalizer().normalize(raw).unwrap();
+        assert_eq!(tick.value(), dec!(0));
     }
 }

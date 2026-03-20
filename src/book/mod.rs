@@ -81,6 +81,15 @@ impl BookDelta {
         self.sequence = Some(seq);
         self
     }
+
+    /// Returns `true` if this delta signals a level deletion (`quantity == 0`).
+    ///
+    /// Exchanges signal the removal of a price level by sending a delta with
+    /// zero quantity. Checking `is_delete()` is clearer than comparing with
+    /// `Decimal::ZERO` at every call site.
+    pub fn is_delete(&self) -> bool {
+        self.quantity.is_zero()
+    }
 }
 
 impl std::fmt::Display for BookDelta {
@@ -635,6 +644,18 @@ mod tests {
         assert!(s.contains("ETH-USD"));
         assert!(s.contains("Ask"));
         assert!(!s.contains("seq="));
+    }
+
+    #[test]
+    fn test_book_delta_is_delete_zero_qty() {
+        let d = BookDelta::new("BTC-USD", BookSide::Bid, dec!(50000), dec!(0));
+        assert!(d.is_delete());
+    }
+
+    #[test]
+    fn test_book_delta_is_delete_nonzero_qty() {
+        let d = BookDelta::new("BTC-USD", BookSide::Bid, dec!(50000), dec!(1));
+        assert!(!d.is_delete());
     }
 
     #[test]
