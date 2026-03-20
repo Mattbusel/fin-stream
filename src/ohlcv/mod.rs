@@ -1838,6 +1838,50 @@ impl OhlcvBar {
         Some(std / mean_f.abs())
     }
 
+    /// Rolling close momentum score: fraction of bars where close is above the
+    /// simple average close of the window.
+    ///
+    /// Returns `None` if the slice is empty or the mean cannot be computed.
+    pub fn close_momentum_score(bars: &[OhlcvBar]) -> Option<f64> {
+        let mean = Self::mean_close(bars)?;
+        let above = bars.iter().filter(|b| b.close > mean).count();
+        Some(above as f64 / bars.len() as f64)
+    }
+
+    /// Count of bars where the range (high - low) exceeds the preceding bar's
+    /// range (i.e., the bar "expands" relative to the prior bar).
+    ///
+    /// Returns 0 if fewer than 2 bars.
+    pub fn range_expansion_count(bars: &[OhlcvBar]) -> usize {
+        if bars.len() < 2 {
+            return 0;
+        }
+        bars.windows(2).filter(|w| w[1].range() > w[0].range()).count()
+    }
+
+    /// Count of bars where the open gaps away from the previous bar's close
+    /// (absolute gap > zero, i.e., `open != prev_close`).
+    pub fn gap_count(bars: &[OhlcvBar]) -> usize {
+        if bars.len() < 2 {
+            return 0;
+        }
+        bars.windows(2).filter(|w| w[1].open != w[0].close).count()
+    }
+
+    /// Mean total wick size (upper + lower wick) across all bars.
+    ///
+    /// Returns `None` if the slice is empty.
+    pub fn avg_wick_size(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() {
+            return None;
+        }
+        let total: f64 = bars.iter()
+            .filter_map(|b| (b.wick_upper() + b.wick_lower()).to_f64())
+            .sum();
+        Some(total / bars.len() as f64)
+    }
+
 }
 
 impl std::fmt::Display for OhlcvBar {
@@ -5967,5 +6011,77 @@ mod tests {
         let b = make_ohlcv_bar(dec!(100), dec!(115), dec!(95), dec!(105));
         let r = OhlcvBar::wick_body_ratio(&[b]).unwrap();
         assert!(r > 0.0, "expected positive wick/body ratio, got {}", r);
+    }
+
+    // ── OhlcvBar::close_momentum_score ────────────────────────────────────────
+
+    #[test]
+    fn test_close_momentum_score_none_for_empty() {
+        assert!(OhlcvBar::close_momentum_score(&[]).is_none());
+    }
+
+    #[test]
+    fn test_close_momentum_score_half_for_symmetric() {
+        // Two bars: closes [90, 110] → mean=100; 90 < 100, 110 > 100 → 1/2
+        let b1 = make_ohlcv_bar(dec!(88), dec!(95), dec!(85), dec!(90));
+        let b2 = make_ohlcv_bar(dec!(108), dec!(115), dec!(105), dec!(110));
+        let score = OhlcvBar::close_momentum_score(&[b1, b2]).unwrap();
+        assert!((score - 0.5).abs() < 1e-9, "expected 0.5, got {}", score);
+    }
+
+    // ── OhlcvBar::range_expansion_count ──────────────────────────────────────
+
+    #[test]
+    fn test_range_expansion_count_zero_for_single_bar() {
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        assert_eq!(OhlcvBar::range_expansion_count(&[b]), 0);
+    }
+
+    #[test]
+    fn test_range_expansion_count_correct() {
+        // b1 range=20, b2 range=30 → expansion
+        let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let b2 = make_ohlcv_bar(dec!(105), dec!(120), dec!(90), dec!(110));
+        assert_eq!(OhlcvBar::range_expansion_count(&[b1, b2]), 1);
+    }
+
+    // ── OhlcvBar::gap_count ────────────────────────────────────────────────────
+
+    #[test]
+    fn test_gap_count_zero_for_single_bar() {
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        assert_eq!(OhlcvBar::gap_count(&[b]), 0);
+    }
+
+    #[test]
+    fn test_gap_count_detects_gap() {
+        let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        // b2 opens at 108, prev close=105 → gap
+        let b2 = make_ohlcv_bar(dec!(108), dec!(115), dec!(106), dec!(112));
+        assert_eq!(OhlcvBar::gap_count(&[b1, b2]), 1);
+    }
+
+    #[test]
+    fn test_gap_count_zero_when_open_equals_close() {
+        let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        // b2 opens at exactly prev close=105
+        let b2 = make_ohlcv_bar(dec!(105), dec!(115), dec!(103), dec!(112));
+        assert_eq!(OhlcvBar::gap_count(&[b1, b2]), 0);
+    }
+
+    // ── OhlcvBar::avg_wick_size ───────────────────────────────────────────────
+
+    #[test]
+    fn test_avg_wick_size_none_for_empty() {
+        assert!(OhlcvBar::avg_wick_size(&[]).is_none());
+    }
+
+    #[test]
+    fn test_avg_wick_size_correct() {
+        // open=100, close=105, high=115, low=95
+        // upper wick = 115 - 105 = 10, lower wick = 100 - 95 = 5, total = 15
+        let b = make_ohlcv_bar(dec!(100), dec!(115), dec!(95), dec!(105));
+        let ws = OhlcvBar::avg_wick_size(&[b]).unwrap();
+        assert!((ws - 15.0).abs() < 1e-6, "expected 15.0, got {}", ws);
     }
 }

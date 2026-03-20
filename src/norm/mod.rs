@@ -850,6 +850,32 @@ impl MinMaxNormalizer {
         self.z_score(max)
     }
 
+    /// Shannon entropy of the window values.
+    ///
+    /// Each unique value is treated as a category. Returns `None` if the
+    /// window is empty. A uniform distribution maximises entropy; identical
+    /// values give `Some(0.0)`.
+    pub fn window_entropy(&self) -> Option<f64> {
+        if self.window.is_empty() {
+            return None;
+        }
+        let n = self.window.len() as f64;
+        let mut counts: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+        for v in &self.window {
+            *counts.entry(v.to_string()).or_insert(0) += 1;
+        }
+        let entropy: f64 = counts.values().map(|&c| {
+            let p = c as f64 / n;
+            -p * p.ln()
+        }).sum();
+        Some(entropy)
+    }
+
+    /// Normalised standard deviation (alias for [`coefficient_of_variation`](Self::coefficient_of_variation)).
+    pub fn normalized_std_dev(&self) -> Option<f64> {
+        self.coefficient_of_variation()
+    }
+
 }
 
 #[cfg(test)]
@@ -2091,6 +2117,46 @@ mod tests {
         let z = n.z_score_of_max().unwrap();
         assert!(z > 0.0, "z-score of max should be positive, got {}", z);
     }
+
+    // ── MinMaxNormalizer::window_entropy ──────────────────────────────────────
+
+    #[test]
+    fn test_minmax_window_entropy_none_for_empty() {
+        assert!(norm(4).window_entropy().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_entropy_zero_for_identical_values() {
+        let mut n = norm(3);
+        for _ in 0..3 { n.update(dec!(5)); }
+        let e = n.window_entropy().unwrap();
+        assert!((e - 0.0).abs() < 1e-9, "identical values should have zero entropy, got {}", e);
+    }
+
+    #[test]
+    fn test_minmax_window_entropy_positive_for_varied_values() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let e = n.window_entropy().unwrap();
+        assert!(e > 0.0, "varied values should have positive entropy, got {}", e);
+    }
+
+    // ── MinMaxNormalizer::normalized_std_dev ──────────────────────────────────
+
+    #[test]
+    fn test_minmax_normalized_std_dev_none_for_single_value() {
+        let mut n = norm(4);
+        n.update(dec!(5));
+        assert!(n.normalized_std_dev().is_none());
+    }
+
+    #[test]
+    fn test_minmax_normalized_std_dev_positive_for_varied_values() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let r = n.normalized_std_dev().unwrap();
+        assert!(r > 0.0, "expected positive normalized std dev, got {}", r);
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -3005,6 +3071,32 @@ impl ZScoreNormalizer {
     pub fn z_score_of_max(&self) -> Option<f64> {
         let max = self.running_max()?;
         self.z_score_opt(max)
+    }
+
+    /// Shannon entropy of the window values.
+    ///
+    /// Each unique value is treated as a category. Returns `None` if the
+    /// window is empty. A uniform distribution maximises entropy; identical
+    /// values give `Some(0.0)`.
+    pub fn window_entropy(&self) -> Option<f64> {
+        if self.window.is_empty() {
+            return None;
+        }
+        let n = self.window.len() as f64;
+        let mut counts: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+        for v in &self.window {
+            *counts.entry(v.to_string()).or_insert(0) += 1;
+        }
+        let entropy: f64 = counts.values().map(|&c| {
+            let p = c as f64 / n;
+            -p * p.ln()
+        }).sum();
+        Some(entropy)
+    }
+
+    /// Normalised standard deviation (alias for [`coefficient_of_variation`](Self::coefficient_of_variation)).
+    pub fn normalized_std_dev(&self) -> Option<f64> {
+        self.coefficient_of_variation()
     }
 
 }
@@ -4565,5 +4657,43 @@ mod zscore_stability_tests {
         for v in [dec!(1), dec!(2), dec!(3), dec!(4), dec!(5)] { n.update(v); }
         let z = n.z_score_of_max().unwrap();
         assert!(z > 0.0, "z-score of max should be positive, got {}", z);
+    }
+
+    // ── ZScoreNormalizer::window_entropy ──────────────────────────────────────
+
+    #[test]
+    fn test_zscore_window_entropy_none_for_empty() {
+        assert!(znorm(4).window_entropy().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_entropy_zero_for_identical_values() {
+        let mut n = znorm(3);
+        for _ in 0..3 { n.update(dec!(5)); }
+        let e = n.window_entropy().unwrap();
+        assert!((e - 0.0).abs() < 1e-9, "identical values should have zero entropy, got {}", e);
+    }
+
+    #[test]
+    fn test_zscore_window_entropy_positive_for_varied_values() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let e = n.window_entropy().unwrap();
+        assert!(e > 0.0, "varied values should have positive entropy, got {}", e);
+    }
+
+    // ── ZScoreNormalizer::normalized_std_dev ──────────────────────────────────
+
+    #[test]
+    fn test_zscore_normalized_std_dev_none_for_empty() {
+        assert!(znorm(4).normalized_std_dev().is_none());
+    }
+
+    #[test]
+    fn test_zscore_normalized_std_dev_positive_for_varied_values() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let r = n.normalized_std_dev().unwrap();
+        assert!(r > 0.0, "expected positive normalized std dev, got {}", r);
     }
 }

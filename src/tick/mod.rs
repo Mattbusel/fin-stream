@@ -1383,6 +1383,72 @@ impl NormalizedTick {
         Some(entropy)
     }
 
+    /// Excess kurtosis of the price distribution across ticks.
+    ///
+    /// Returns `None` if fewer than 4 ticks or if the standard deviation is
+    /// zero.
+    pub fn price_kurtosis(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let n = ticks.len();
+        if n < 4 {
+            return None;
+        }
+        let prices: Vec<f64> = ticks.iter().filter_map(|t| t.price.to_f64()).collect();
+        if prices.len() != n {
+            return None;
+        }
+        let nf = n as f64;
+        let mean = prices.iter().sum::<f64>() / nf;
+        let variance = prices.iter().map(|p| (p - mean).powi(2)).sum::<f64>() / nf;
+        if variance == 0.0 {
+            return None;
+        }
+        let std_dev = variance.sqrt();
+        let kurt = prices.iter().map(|p| ((p - mean) / std_dev).powi(4)).sum::<f64>() / nf - 3.0;
+        Some(kurt)
+    }
+
+    /// Count of ticks whose quantity exceeds `threshold`.
+    pub fn high_volume_tick_count(ticks: &[NormalizedTick], threshold: Decimal) -> usize {
+        ticks.iter().filter(|t| t.quantity > threshold).count()
+    }
+
+    /// Difference between the buy-side average price and the sell-side average
+    /// price (buy_avg - sell_avg).
+    ///
+    /// A positive value means buyers paid more on average than sellers; a
+    /// negative value is unusual (market microstructure artifact). Returns
+    /// `None` if either side has no ticks.
+    pub fn vwap_spread(ticks: &[NormalizedTick]) -> Option<Decimal> {
+        let buy = Self::buy_avg_price(ticks)?;
+        let sell = Self::sell_avg_price(ticks)?;
+        Some(buy - sell)
+    }
+
+    /// Mean quantity of buy-side ticks.
+    ///
+    /// Returns `None` if there are no buy-side ticks.
+    pub fn avg_buy_quantity(ticks: &[NormalizedTick]) -> Option<Decimal> {
+        let buys: Vec<_> = ticks.iter().filter(|t| t.is_buy()).collect();
+        if buys.is_empty() {
+            return None;
+        }
+        let total: Decimal = buys.iter().map(|t| t.quantity).sum();
+        Some(total / Decimal::from(buys.len() as u32))
+    }
+
+    /// Mean quantity of sell-side ticks.
+    ///
+    /// Returns `None` if there are no sell-side ticks.
+    pub fn avg_sell_quantity(ticks: &[NormalizedTick]) -> Option<Decimal> {
+        let sells: Vec<_> = ticks.iter().filter(|t| t.is_sell()).collect();
+        if sells.is_empty() {
+            return None;
+        }
+        let total: Decimal = sells.iter().map(|t| t.quantity).sum();
+        Some(total / Decimal::from(sells.len() as u32))
+    }
+
 }
 
 impl std::fmt::Display for NormalizedTick {
@@ -4462,5 +4528,92 @@ mod tests {
         ];
         let s = NormalizedTick::quantity_skewness(&ticks).unwrap();
         assert!(s > 0.0, "right-skewed distribution should have positive skewness, got {}", s);
+    }
+
+    // ── NormalizedTick::price_kurtosis ────────────────────────────────────────
+
+    #[test]
+    fn test_price_kurtosis_none_for_fewer_than_4() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(1), dec!(1)),
+            make_tick_pq(dec!(2), dec!(1)),
+            make_tick_pq(dec!(3), dec!(1)),
+        ];
+        assert!(NormalizedTick::price_kurtosis(&ticks).is_none());
+    }
+
+    #[test]
+    fn test_price_kurtosis_returns_some_for_varied_prices() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(1), dec!(1)),
+            make_tick_pq(dec!(2), dec!(1)),
+            make_tick_pq(dec!(3), dec!(1)),
+            make_tick_pq(dec!(4), dec!(1)),
+        ];
+        assert!(NormalizedTick::price_kurtosis(&ticks).is_some());
+    }
+
+    // ── NormalizedTick::high_volume_tick_count ────────────────────────────────
+
+    #[test]
+    fn test_high_volume_tick_count_zero_for_empty() {
+        use rust_decimal_macros::dec;
+        assert_eq!(NormalizedTick::high_volume_tick_count(&[], dec!(1)), 0);
+    }
+
+    #[test]
+    fn test_high_volume_tick_count_correct() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(101), dec!(5)),
+            make_tick_pq(dec!(102), dec!(10)),
+        ];
+        assert_eq!(NormalizedTick::high_volume_tick_count(&ticks, dec!(4)), 2);
+    }
+
+    // ── NormalizedTick::vwap_spread ───────────────────────────────────────────
+
+    #[test]
+    fn test_vwap_spread_none_when_no_buys_or_sells() {
+        use rust_decimal_macros::dec;
+        let t = make_tick_pq(dec!(100), dec!(1));
+        assert!(NormalizedTick::vwap_spread(&[t]).is_none());
+    }
+
+    #[test]
+    fn test_vwap_spread_positive_when_buys_priced_higher() {
+        use rust_decimal_macros::dec;
+        let mut buy = make_tick_pq(dec!(105), dec!(1)); buy.side = Some(TradeSide::Buy);
+        let mut sell = make_tick_pq(dec!(100), dec!(1)); sell.side = Some(TradeSide::Sell);
+        let spread = NormalizedTick::vwap_spread(&[buy, sell]).unwrap();
+        assert!(spread > dec!(0), "expected positive spread, got {}", spread);
+    }
+
+    // ── NormalizedTick::avg_buy_quantity / avg_sell_quantity ──────────────────
+
+    #[test]
+    fn test_avg_buy_quantity_none_for_no_buys() {
+        use rust_decimal_macros::dec;
+        let mut t = make_tick_pq(dec!(100), dec!(2)); t.side = Some(TradeSide::Sell);
+        assert!(NormalizedTick::avg_buy_quantity(&[t]).is_none());
+    }
+
+    #[test]
+    fn test_avg_buy_quantity_correct() {
+        use rust_decimal_macros::dec;
+        let mut t1 = make_tick_pq(dec!(100), dec!(2)); t1.side = Some(TradeSide::Buy);
+        let mut t2 = make_tick_pq(dec!(101), dec!(4)); t2.side = Some(TradeSide::Buy);
+        assert_eq!(NormalizedTick::avg_buy_quantity(&[t1, t2]), Some(dec!(3)));
+    }
+
+    #[test]
+    fn test_avg_sell_quantity_correct() {
+        use rust_decimal_macros::dec;
+        let mut t1 = make_tick_pq(dec!(100), dec!(6)); t1.side = Some(TradeSide::Sell);
+        let mut t2 = make_tick_pq(dec!(101), dec!(2)); t2.side = Some(TradeSide::Sell);
+        assert_eq!(NormalizedTick::avg_sell_quantity(&[t1, t2]), Some(dec!(4)));
     }
 }
