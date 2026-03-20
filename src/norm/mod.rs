@@ -795,6 +795,21 @@ impl MinMaxNormalizer {
         Some(up as f64 / (n - 1) as f64)
     }
 
+    /// Mean absolute deviation of the window values.
+    ///
+    /// Returns `None` if window is empty.
+    pub fn mean_absolute_deviation(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() {
+            return None;
+        }
+        let n = self.window.len();
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        let mean = vals.iter().sum::<f64>() / n as f64;
+        let mad = vals.iter().map(|v| (v - mean).abs()).sum::<f64>() / n as f64;
+        Some(mad)
+    }
+
 }
 
 #[cfg(test)]
@@ -1919,6 +1934,46 @@ mod tests {
         for v in [dec!(5), dec!(4), dec!(3), dec!(2), dec!(1)] { n.update(v); }
         let tc = n.trend_consistency().unwrap();
         assert!((tc - 0.0).abs() < 1e-9);
+    }
+
+    // ── MinMaxNormalizer::coefficient_of_variation ────────────────────────────
+
+    #[test]
+    fn test_minmax_cov_none_for_single_value() {
+        let mut n = norm(3);
+        n.update(dec!(10));
+        assert!(n.coefficient_of_variation().is_none());
+    }
+
+    #[test]
+    fn test_minmax_cov_positive_for_varied_data() {
+        let mut n = norm(5);
+        for v in [dec!(10), dec!(20), dec!(30), dec!(40), dec!(50)] { n.update(v); }
+        let cov = n.coefficient_of_variation().unwrap();
+        assert!(cov > 0.0);
+    }
+
+    // ── MinMaxNormalizer::mean_absolute_deviation ─────────────────────────────
+
+    #[test]
+    fn test_minmax_mean_absolute_deviation_none_for_empty() {
+        assert!(norm(3).mean_absolute_deviation().is_none());
+    }
+
+    #[test]
+    fn test_minmax_mean_absolute_deviation_zero_for_identical_values() {
+        let mut n = norm(3);
+        for v in [dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        let mad = n.mean_absolute_deviation().unwrap();
+        assert!((mad - 0.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_minmax_mean_absolute_deviation_positive_for_varied_data() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let mad = n.mean_absolute_deviation().unwrap();
+        assert!(mad > 0.0);
     }
 }
 
@@ -4243,5 +4298,43 @@ mod zscore_stability_tests {
         for v in [dec!(5), dec!(4), dec!(3), dec!(2), dec!(1)] { n.update(v); }
         let tc = n.trend_consistency().unwrap();
         assert!((tc - 0.0).abs() < 1e-9);
+    }
+
+    // ── ZScoreNormalizer::coefficient_of_variation ────────────────────────────
+
+    #[test]
+    fn test_zscore_cov_none_for_empty_window() {
+        assert!(znorm(3).coefficient_of_variation().is_none());
+    }
+
+    #[test]
+    fn test_zscore_cov_positive_for_varied_data() {
+        let mut n = znorm(5);
+        for v in [dec!(10), dec!(20), dec!(30), dec!(40), dec!(50)] { n.update(v); }
+        let cov = n.coefficient_of_variation().unwrap();
+        assert!(cov > 0.0);
+    }
+
+    // ── ZScoreNormalizer::mean_absolute_deviation ─────────────────────────────
+
+    #[test]
+    fn test_zscore_mad_none_for_empty() {
+        assert!(znorm(3).mean_absolute_deviation().is_none());
+    }
+
+    #[test]
+    fn test_zscore_mad_zero_for_identical_values() {
+        let mut n = znorm(3);
+        for v in [dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        let mad = n.mean_absolute_deviation().unwrap();
+        assert!((mad - 0.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_zscore_mad_positive_for_varied_data() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let mad = n.mean_absolute_deviation().unwrap();
+        assert!(mad > 0.0);
     }
 }
