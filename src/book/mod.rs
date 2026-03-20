@@ -95,6 +95,13 @@ impl BookDelta {
     pub fn is_delete(&self) -> bool {
         self.quantity.is_zero()
     }
+
+    /// Returns `true` if this delta adds or updates a price level (`quantity > 0`).
+    ///
+    /// The logical complement of [`is_delete`](Self::is_delete).
+    pub fn is_add(&self) -> bool {
+        !self.is_delete()
+    }
 }
 
 impl std::fmt::Display for BookDelta {
@@ -226,6 +233,20 @@ impl OrderBook {
             .map(|(p, q)| PriceLevel::new(*p, *q))
     }
 
+    /// Resting quantity at the best bid level.
+    ///
+    /// Shorthand for `self.best_bid().map(|l| l.quantity)`.
+    pub fn best_bid_qty(&self) -> Option<Decimal> {
+        self.best_bid().map(|l| l.quantity)
+    }
+
+    /// Resting quantity at the best ask level.
+    ///
+    /// Shorthand for `self.best_ask().map(|l| l.quantity)`.
+    pub fn best_ask_qty(&self) -> Option<Decimal> {
+        self.best_ask().map(|l| l.quantity)
+    }
+
     /// Mid price.
     pub fn mid_price(&self) -> Option<Decimal> {
         let bid = self.best_bid()?.price;
@@ -260,6 +281,16 @@ impl OrderBook {
     /// Returns `true` if both sides of the book have no resting orders.
     pub fn is_empty(&self) -> bool {
         self.bids.is_empty() && self.asks.is_empty()
+    }
+
+    /// Remove all price levels from both sides of the book.
+    ///
+    /// Also clears the last seen sequence number. Useful when reconnecting to
+    /// an exchange feed and waiting for a fresh snapshot before applying deltas.
+    pub fn clear(&mut self) {
+        self.bids.clear();
+        self.asks.clear();
+        self.last_sequence = None;
     }
 
     /// Number of bid levels.

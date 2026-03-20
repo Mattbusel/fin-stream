@@ -56,6 +56,11 @@ impl WsStats {
         }
         Some(self.total_bytes_received as f64 / self.total_messages_received as f64)
     }
+
+    /// Total bytes received expressed as mebibytes (MiB): `total_bytes / 1_048_576.0`.
+    pub fn total_data_mb(&self) -> f64 {
+        self.total_bytes_received as f64 / 1_048_576.0
+    }
 }
 
 /// Reconnection policy for a WebSocket feed.
@@ -182,6 +187,11 @@ impl ReconnectPolicy {
             .map(|a| self.backoff_for_attempt(a).as_millis() as u64)
             .fold(0u64, |acc, ms| acc.saturating_add(ms));
         Duration::from_millis(total_ms)
+    }
+
+    /// Maximum number of reconnect attempts before the client gives up.
+    pub fn max_attempts(&self) -> u32 {
+        self.max_attempts
     }
 
     /// Backoff duration for attempt N (0-indexed).

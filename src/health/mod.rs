@@ -259,6 +259,18 @@ impl HealthMonitor {
             .count()
     }
 
+    /// Clone of all feeds currently in the [`HealthStatus::Stale`] state.
+    ///
+    /// Useful for bulk alerting: iterate the returned vec to log or notify on
+    /// every stale feed in one call rather than checking each feed individually.
+    pub fn stale_feeds(&self) -> Vec<FeedHealth> {
+        self.feeds
+            .iter()
+            .filter(|e| e.status == HealthStatus::Stale)
+            .map(|e| e.clone())
+            .collect()
+    }
+
     /// The oldest `last_tick_ms` across all registered feeds, or `None` if no
     /// feed has received any tick yet.
     pub fn oldest_tick_ms(&self) -> Option<u64> {

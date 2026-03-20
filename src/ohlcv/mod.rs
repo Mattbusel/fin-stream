@@ -206,12 +206,6 @@ impl OhlcvBar {
         (self.body() / range).to_f64()
     }
 
-    /// Wick ratio: `(wick_upper + wick_lower) / range`.
-    ///
-    /// The fraction of the bar's total range that consists of wicks (shadows)
-    /// rather than body. Ranges from `0.0` (pure body, no wicks) to `1.0`
-    /// (pure wicks — a doji with effectively zero body relative to range).
-    /// Returns `None` if the bar's range is zero (all prices identical).
     /// True range: `max(high − low, |high − prev_close|, |low − prev_close|)`.
     ///
     /// The standard ATR (Average True Range) input. Accounts for overnight gaps by
@@ -279,6 +273,50 @@ impl OhlcvBar {
             && wick_lo * ten >= range * six
             && wick_hi * ten <= range
     }
+
+    /// Returns `true` if this bar has a classic shooting-star shape.
+    ///
+    /// A shooting star has:
+    /// - A small body (≤ 30% of range)
+    /// - A long upper wick (≥ 60% of range)
+    /// - A tiny lower wick (≤ 10% of range)
+    ///
+    /// This is the inverse of a hammer — it signals a potential reversal at
+    /// the top of an uptrend. Returns `false` if the bar's range is zero.
+    pub fn is_shooting_star(&self) -> bool {
+        let range = self.range();
+        if range.is_zero() {
+            return false;
+        }
+        let body = self.body();
+        let wick_lo = self.wick_lower();
+        let wick_hi = self.wick_upper();
+        let three = Decimal::from(3);
+        let six = Decimal::from(6);
+        let ten = Decimal::from(10);
+        // body ≤ 30%: body*10 ≤ range*3
+        // upper wick ≥ 60%: wick_hi*10 ≥ range*6
+        // lower wick ≤ 10%: wick_lo*10 ≤ range
+        body * ten <= range * three
+            && wick_hi * ten >= range * six
+            && wick_lo * ten <= range
+    }
+
+    /// Gap from the previous bar: `self.open − prev.close`.
+    ///
+    /// Positive values indicate a gap-up; negative values indicate a gap-down.
+    /// Zero means the bar opened exactly at the previous close (no gap).
+    pub fn gap_from(&self, prev: &OhlcvBar) -> Decimal {
+        self.open - prev.close
+    }
+
+    /// Body midpoint: `(open + close) / 2`.
+    ///
+    /// The arithmetic center of the candle body, regardless of direction.
+    /// Useful as a proxy for the "fair value" of the period.
+    pub fn bar_midpoint(&self) -> Decimal {
+        (self.open + self.close) / Decimal::from(2)
+    }
 }
 
 impl std::fmt::Display for OhlcvBar {
@@ -310,6 +348,8 @@ pub struct OhlcvAggregator {
     total_volume: Decimal,
     /// Maximum single-bar volume seen across all completed bars.
     peak_volume: Option<Decimal>,
+    /// Minimum single-bar volume seen across all completed bars.
+    min_volume: Option<Decimal>,
 }
 
 impl OhlcvAggregator {
@@ -334,6 +374,7 @@ impl OhlcvAggregator {
             price_volume_sum: Decimal::ZERO,
             total_volume: Decimal::ZERO,
             peak_volume: None,
+            min_volume: None,
         })
     }
 
@@ -456,6 +497,10 @@ impl OhlcvAggregator {
                 Some(prev) => prev.max(b.volume),
                 None => b.volume,
             });
+            self.min_volume = Some(match self.min_volume {
+                Some(prev) => prev.min(b.volume),
+                None => b.volume,
+            });
         }
         if let Some(b) = emitted.last() {
             self.last_bar = Some(b.clone());
@@ -477,6 +522,10 @@ impl OhlcvAggregator {
         self.total_volume += bar.volume;
         self.peak_volume = Some(match self.peak_volume {
             Some(prev) => prev.max(bar.volume),
+            None => bar.volume,
+        });
+        self.min_volume = Some(match self.min_volume {
+            Some(prev) => prev.min(bar.volume),
             None => bar.volume,
         });
         self.last_bar = Some(bar.clone());
@@ -507,6 +556,7 @@ impl OhlcvAggregator {
         self.price_volume_sum = Decimal::ZERO;
         self.total_volume = Decimal::ZERO;
         self.peak_volume = None;
+        self.min_volume = None;
     }
 
     /// Cumulative traded volume across all completed bars emitted by this aggregator.
@@ -523,6 +573,14 @@ impl OhlcvAggregator {
     /// [`reset`](Self::reset).
     pub fn peak_volume(&self) -> Option<Decimal> {
         self.peak_volume
+    }
+
+    /// Minimum single-bar volume seen across all completed bars.
+    ///
+    /// Returns `None` if no bars have been completed yet. Reset to `None` by
+    /// [`reset`](Self::reset).
+    pub fn min_volume(&self) -> Option<Decimal> {
+        self.min_volume
     }
 
     /// Average volume per completed bar: `total_volume / bars_emitted`.
@@ -1502,5 +1560,67 @@ mod tests {
         agg.feed(&make_tick("BTC-USD", dec!(100), dec!(7), 60_000)).unwrap();
         agg.flush();
         assert_eq!(agg.peak_volume(), Some(dec!(7)));
+    }
+
+    // ── OhlcvBar::is_shooting_star ────────────────────────────────────────────
+
+    #[test]
+    fn test_is_shooting_star_classic() {
+        // open=1, high=10, low=0, close=1 → body=0, wick_hi=9, wick_lo=1, range=10
+        // body≤30%, wick_hi=9≥60%, wick_lo=1≤10% → shooting star
+        let bar = make_bar(dec!(1), dec!(10), dec!(0), dec!(1));
+        assert!(bar.is_shooting_star());
+    }
+
+    #[test]
+    fn test_is_shooting_star_false_large_lower_wick() {
+        // open=5, high=10, low=0, close=5 → lower wick = 5 (50%) → not shooting star
+        let bar = make_bar(dec!(5), dec!(10), dec!(0), dec!(5));
+        assert!(!bar.is_shooting_star());
+    }
+
+    #[test]
+    fn test_is_shooting_star_false_zero_range() {
+        let bar = make_bar(dec!(5), dec!(5), dec!(5), dec!(5));
+        assert!(!bar.is_shooting_star());
+    }
+
+    #[test]
+    fn test_hammer_and_shooting_star_are_mutually_exclusive_for_typical_bars() {
+        // Classic hammer: long lower wick
+        let hammer = make_bar(dec!(9), dec!(10), dec!(0), dec!(9));
+        // Classic shooting star: long upper wick
+        let star = make_bar(dec!(1), dec!(10), dec!(0), dec!(1));
+        assert!(hammer.is_hammer() && !hammer.is_shooting_star());
+        assert!(star.is_shooting_star() && !star.is_hammer());
+    }
+
+    // ── OhlcvAggregator::min_volume ───────────────────────────────────────────
+
+    #[test]
+    fn test_min_volume_none_before_completion() {
+        let agg = agg("BTC-USD", Timeframe::Minutes(1));
+        assert!(agg.min_volume().is_none());
+    }
+
+    #[test]
+    fn test_min_volume_tracks_minimum() {
+        let mut agg = agg("BTC-USD", Timeframe::Minutes(1));
+        // Bar 1: vol=10
+        agg.feed(&make_tick("BTC-USD", dec!(100), dec!(10), 60_000)).unwrap();
+        agg.feed(&make_tick("BTC-USD", dec!(101), dec!(1), 120_000)).unwrap();
+        assert_eq!(agg.min_volume(), Some(dec!(10)));
+        // Bar 2: vol=1 — should update minimum
+        agg.feed(&make_tick("BTC-USD", dec!(102), dec!(5), 180_000)).unwrap();
+        assert_eq!(agg.min_volume(), Some(dec!(1)));
+    }
+
+    #[test]
+    fn test_min_volume_reset_clears() {
+        let mut agg = agg("BTC-USD", Timeframe::Minutes(1));
+        agg.feed(&make_tick("BTC-USD", dec!(100), dec!(5), 60_000)).unwrap();
+        agg.feed(&make_tick("BTC-USD", dec!(101), dec!(1), 120_000)).unwrap();
+        agg.reset();
+        assert!(agg.min_volume().is_none());
     }
 }

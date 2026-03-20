@@ -183,6 +183,19 @@ impl SessionAwareness {
         self.next_open_ms(utc_ms).saturating_sub(utc_ms)
     }
 
+    /// Whole minutes until the session enters [`TradingStatus::Closed`].
+    ///
+    /// Returns `0` if the session is already closed or will close in less than
+    /// one minute. For [`MarketSession::Crypto`] returns `u64::MAX` (never
+    /// closes). Useful for scheduling pre-close warnings or cooldown timers.
+    pub fn minutes_until_close(&self, utc_ms: u64) -> u64 {
+        let ms = self.time_until_close_ms(utc_ms);
+        if ms == u64::MAX {
+            return u64::MAX;
+        }
+        ms / 60_000
+    }
+
     /// Milliseconds until the session enters [`TradingStatus::Closed`].
     ///
     /// Returns `0` if the session is already `Closed`. For
@@ -273,6 +286,30 @@ impl SessionAwareness {
         }
     }
 
+    /// Returns a human-readable label for the current session status.
+    ///
+    /// For `UsEquity`: `"open"`, `"pre-market"`, `"after-hours"`, or `"closed"`.
+    /// For `Crypto`: always `"open"`. For `Forex`: `"open"` or `"closed"`.
+    pub fn session_label(&self, utc_ms: u64) -> &'static str {
+        match self.session {
+            MarketSession::Crypto => "open",
+            MarketSession::Forex => {
+                if self.is_open(utc_ms) { "open" } else { "closed" }
+            }
+            MarketSession::UsEquity => {
+                if self.is_open(utc_ms) {
+                    "open"
+                } else if self.is_pre_market(utc_ms) {
+                    "pre-market"
+                } else if self.is_after_hours(utc_ms) {
+                    "after-hours"
+                } else {
+                    "closed"
+                }
+            }
+        }
+    }
+
     /// Fraction `[0.0, 1.0]` of the current trading session elapsed at `utc_ms`.
     ///
     /// Returns `None` when:
@@ -315,6 +352,19 @@ impl SessionAwareness {
         let look_before = utc_ms.saturating_sub(duration_ms);
         let open_ms = self.next_open_ms(look_before);
         Some(utc_ms.saturating_sub(open_ms))
+    }
+
+    /// Milliseconds remaining until the current session closes.
+    ///
+    /// Returns `None` if the session is not currently [`TradingStatus::Open`] or
+    /// if the session never closes (e.g. [`MarketSession::Crypto`]).
+    ///
+    /// This is the complement of [`time_in_session_ms`](Self::time_in_session_ms):
+    /// `remaining + elapsed == session_duration_ms`.
+    pub fn remaining_session_ms(&self, utc_ms: u64) -> Option<u64> {
+        let elapsed = self.time_in_session_ms(utc_ms)?;
+        let duration_ms = self.session.session_duration_ms();
+        Some(duration_ms.saturating_sub(elapsed))
     }
 
     fn next_forex_close_ms(&self, utc_ms: u64) -> u64 {

@@ -192,6 +192,28 @@ impl LorentzTransform {
         Self::new(beta)
     }
 
+    /// Construct a [`LorentzTransform`] from a velocity `v` and speed of light `c`.
+    ///
+    /// Computes `beta = v / c` and delegates to [`Self::new`].
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StreamError::LorentzConfigError`] if `c` is zero, if `v` or
+    /// `c` are non-finite, or if the resulting `|beta| >= 1`.
+    pub fn from_velocity(v: f64, c: f64) -> Result<Self, StreamError> {
+        if !v.is_finite() || !c.is_finite() {
+            return Err(StreamError::LorentzConfigError {
+                reason: format!("v and c must be finite, got v={v}, c={c}"),
+            });
+        }
+        if c == 0.0 {
+            return Err(StreamError::LorentzConfigError {
+                reason: "speed of light c must be non-zero".into(),
+            });
+        }
+        Self::new(v / c)
+    }
+
     /// Returns the Lorentz gamma factor for the given `beta`: `1 / √(1 − β²)`.
     ///
     /// This is a pure mathematical helper — no validation is performed.

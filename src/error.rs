@@ -225,6 +225,16 @@ impl StreamError {
         )
     }
 
+    /// Returns `true` for errors that can potentially be resolved by retrying
+    /// or waiting — the inverse of [`is_fatal`](Self::is_fatal).
+    ///
+    /// Transient errors include network issues, bad data packets, and
+    /// backpressure signals. They do not indicate a misconfiguration or
+    /// programming error.
+    pub fn is_recoverable(&self) -> bool {
+        !self.is_fatal()
+    }
+
     /// Returns `true` for errors that originate in the order book subsystem.
     ///
     /// Book errors indicate structural problems with the market data feed

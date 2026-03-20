@@ -239,6 +239,22 @@ impl MinMaxNormalizer {
         self.window.len() == self.window_size
     }
 
+    /// Current window minimum, or `None` if the window is empty.
+    ///
+    /// Equivalent to `self.min_max().map(|(min, _)| min)` but avoids also
+    /// computing the max when only the min is needed.
+    pub fn min(&mut self) -> Option<Decimal> {
+        self.min_max().map(|(min, _)| min)
+    }
+
+    /// Current window maximum, or `None` if the window is empty.
+    ///
+    /// Equivalent to `self.min_max().map(|(_, max)| max)` but avoids also
+    /// computing the min when only the max is needed.
+    pub fn max(&mut self) -> Option<Decimal> {
+        self.min_max().map(|(_, max)| max)
+    }
+
     /// Returns the arithmetic mean of the current window observations.
     ///
     /// Returns `None` if the window is empty.
@@ -335,6 +351,22 @@ impl MinMaxNormalizer {
             .filter(|&&v| v <= value)
             .count();
         Some(count_le as f64 / self.window.len() as f64)
+    }
+
+    /// Interquartile range: Q3 (75th percentile) − Q1 (25th percentile) of the window.
+    ///
+    /// Returns `None` if the window has fewer than 4 observations.
+    /// The IQR is a robust spread measure less sensitive to outliers than range or std dev.
+    pub fn interquartile_range(&self) -> Option<Decimal> {
+        let n = self.window.len();
+        if n < 4 {
+            return None;
+        }
+        let mut sorted: Vec<Decimal> = self.window.iter().copied().collect();
+        sorted.sort();
+        let q1_idx = n / 4;
+        let q3_idx = 3 * n / 4;
+        Some(sorted[q3_idx] - sorted[q1_idx])
     }
 }
 
@@ -824,6 +856,17 @@ impl ZScoreNormalizer {
     /// the window may not be representative of the underlying distribution.
     pub fn is_full(&self) -> bool {
         self.window.len() == self.window_size
+    }
+
+    /// Running sum of all values currently in the window.
+    ///
+    /// Returns `None` if the window is empty. Useful for deriving a rolling
+    /// mean without calling [`normalize`](Self::normalize).
+    pub fn sum(&self) -> Option<Decimal> {
+        if self.window.is_empty() {
+            return None;
+        }
+        Some(self.sum)
     }
 
     /// Current population variance of the window.

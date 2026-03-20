@@ -42,6 +42,15 @@ impl Exchange {
             Exchange::Polygon,
         ]
     }
+
+    /// Returns `true` if this exchange primarily trades cryptocurrency spot/futures.
+    ///
+    /// [`Binance`](Exchange::Binance) and [`Coinbase`](Exchange::Coinbase) are
+    /// crypto venues. [`Alpaca`](Exchange::Alpaca) and [`Polygon`](Exchange::Polygon)
+    /// are primarily equity/US-market feeds.
+    pub fn is_crypto(self) -> bool {
+        matches!(self, Exchange::Binance | Exchange::Coinbase)
+    }
 }
 
 impl std::fmt::Display for Exchange {
@@ -199,6 +208,15 @@ impl NormalizedTick {
         self.side == Some(TradeSide::Sell)
     }
 
+    /// Returns `true` if the trade side is unknown (`None`).
+    ///
+    /// Many exchanges do not report the aggressor side. This method lets
+    /// callers explicitly test for the "no side information" case rather than
+    /// relying on both `is_buy()` and `is_sell()` returning `false`.
+    pub fn is_neutral(&self) -> bool {
+        self.side.is_none()
+    }
+
     /// Return a copy of this tick with the trade side set to `side`.
     ///
     /// Useful in tests and feed normalizers that determine the aggressor side
@@ -230,6 +248,16 @@ impl NormalizedTick {
     /// Compares `received_at_ms` timestamps. Equal timestamps return `false`.
     pub fn is_more_recent_than(&self, other: &NormalizedTick) -> bool {
         self.received_at_ms > other.received_at_ms
+    }
+
+    /// Transport latency in milliseconds: `received_at_ms − exchange_ts_ms`.
+    ///
+    /// Returns `None` if the exchange timestamp is unavailable. A positive
+    /// value indicates how long the tick took to travel from exchange to this
+    /// system; negative values suggest clock skew between exchange and consumer.
+    pub fn latency_ms(&self) -> Option<i64> {
+        let exchange_ts = self.exchange_ts_ms? as i64;
+        Some(self.received_at_ms as i64 - exchange_ts)
     }
 }
 

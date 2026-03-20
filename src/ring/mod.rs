@@ -217,6 +217,30 @@ impl<T, const N: usize> SpscRing<T, N> {
         Some(unsafe { (*self.buf[slot].get()).assume_init_ref() }.clone())
     }
 
+    /// Clone all items currently in the ring into a `Vec`, in FIFO order,
+    /// without consuming them.
+    ///
+    /// Only safe to call when no producer/consumer pair is active (i.e., before
+    /// calling `split()`). The ring is left unchanged.
+    ///
+    /// # Complexity: O(n).
+    pub fn peek_all(&self) -> Vec<T>
+    where
+        T: Clone,
+    {
+        let head = self.head.load(Ordering::Acquire);
+        let tail = self.tail.load(Ordering::Acquire);
+        let count = tail.wrapping_sub(head);
+        let mut out = Vec::with_capacity(count);
+        for i in 0..count {
+            let slot = head.wrapping_add(i) & (N - 1);
+            // SAFETY: slots in [head, tail) hold initialised items.
+            // We clone via `assume_init_ref`; head/tail are not modified.
+            out.push(unsafe { (*self.buf[slot].get()).assume_init_ref() }.clone());
+        }
+        out
+    }
+
     /// Drain all items currently in the ring into a `Vec`, in FIFO order.
     ///
     /// Only safe to call when no producer/consumer pair is active (i.e., before
@@ -339,6 +363,15 @@ impl<T, const N: usize> SpscProducer<T, N> {
     #[inline]
     pub fn capacity(&self) -> usize {
         self.inner.capacity()
+    }
+
+    /// Fraction of capacity currently occupied: `len / capacity`.
+    ///
+    /// Returns a value in `[0.0, 1.0]`. Useful for backpressure monitoring
+    /// on the producer side.
+    #[inline]
+    pub fn fill_ratio(&self) -> f64 {
+        self.inner.len() as f64 / self.inner.capacity() as f64
     }
 }
 
