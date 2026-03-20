@@ -3110,4 +3110,84 @@ mod tests {
         let frac = NormalizedTick::fraction_buy(&[buy, sell]).unwrap();
         assert!((frac - 0.5).abs() < 1e-9);
     }
+
+    #[test]
+    fn test_std_quantity_none_for_empty_slice() {
+        assert!(NormalizedTick::std_quantity(&[]).is_none());
+    }
+
+    #[test]
+    fn test_std_quantity_none_for_single_tick() {
+        let t = make_tick_pq(rust_decimal_macros::dec!(100), rust_decimal_macros::dec!(5));
+        assert!(NormalizedTick::std_quantity(&[t]).is_none());
+    }
+
+    #[test]
+    fn test_std_quantity_zero_for_identical_quantities() {
+        use rust_decimal_macros::dec;
+        let t1 = make_tick_pq(dec!(100), dec!(5));
+        let t2 = make_tick_pq(dec!(100), dec!(5));
+        assert_eq!(NormalizedTick::std_quantity(&[t1, t2]), Some(0.0));
+    }
+
+    #[test]
+    fn test_std_quantity_positive_for_varied_quantities() {
+        use rust_decimal_macros::dec;
+        let t1 = make_tick_pq(dec!(100), dec!(1));
+        let t2 = make_tick_pq(dec!(100), dec!(10));
+        let std = NormalizedTick::std_quantity(&[t1, t2]).unwrap();
+        assert!(std > 0.0);
+    }
+
+    #[test]
+    fn test_buy_pressure_none_for_empty_slice() {
+        assert!(NormalizedTick::buy_pressure(&[]).is_none());
+    }
+
+    #[test]
+    fn test_buy_pressure_none_for_unsided_ticks() {
+        let t = make_tick_pq(rust_decimal_macros::dec!(100), rust_decimal_macros::dec!(1));
+        assert!(NormalizedTick::buy_pressure(&[t]).is_none());
+    }
+
+    #[test]
+    fn test_buy_pressure_one_for_all_buys() {
+        use rust_decimal_macros::dec;
+        let mut t = make_tick_pq(dec!(100), dec!(1));
+        t.side = Some(TradeSide::Buy);
+        let bp = NormalizedTick::buy_pressure(&[t]).unwrap();
+        assert!((bp - 1.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_buy_pressure_half_for_equal_volume() {
+        use rust_decimal_macros::dec;
+        let mut buy = make_tick_pq(dec!(100), dec!(5));
+        buy.side = Some(TradeSide::Buy);
+        let mut sell = make_tick_pq(dec!(100), dec!(5));
+        sell.side = Some(TradeSide::Sell);
+        let bp = NormalizedTick::buy_pressure(&[buy, sell]).unwrap();
+        assert!((bp - 0.5).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_average_notional_none_for_empty_slice() {
+        assert!(NormalizedTick::average_notional(&[]).is_none());
+    }
+
+    #[test]
+    fn test_average_notional_single_tick() {
+        use rust_decimal_macros::dec;
+        let t = make_tick_pq(dec!(100), dec!(2));
+        assert_eq!(NormalizedTick::average_notional(&[t]), Some(dec!(200)));
+    }
+
+    #[test]
+    fn test_average_notional_multiple_ticks() {
+        use rust_decimal_macros::dec;
+        let t1 = make_tick_pq(dec!(100), dec!(1)); // notional = 100
+        let t2 = make_tick_pq(dec!(200), dec!(1)); // notional = 200
+        // avg = (100 + 200) / 2 = 150
+        assert_eq!(NormalizedTick::average_notional(&[t1, t2]), Some(dec!(150)));
+    }
 }

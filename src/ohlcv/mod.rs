@@ -1100,27 +1100,8 @@ impl OhlcvBar {
     /// cannot be converted to `f64`.
     pub fn linear_regression_slope(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        let n = bars.len();
-        if n < 2 {
-            return None;
-        }
-        let n_f = n as f64;
-        let xs: Vec<f64> = (0..n).map(|i| i as f64).collect();
-        let ys: Vec<f64> = bars
-            .iter()
-            .filter_map(|b| b.close.to_f64())
-            .collect();
-        if ys.len() < n {
-            return None;
-        }
-        let x_mean = xs.iter().sum::<f64>() / n_f;
-        let y_mean = ys.iter().sum::<f64>() / n_f;
-        let numerator: f64 = xs.iter().zip(ys.iter()).map(|(x, y)| (x - x_mean) * (y - y_mean)).sum();
-        let denominator: f64 = xs.iter().map(|x| (x - x_mean).powi(2)).sum();
-        if denominator == 0.0 {
-            return None;
-        }
-        Some(numerator / denominator)
+        let ys: Vec<f64> = bars.iter().filter_map(|b| b.close.to_f64()).collect();
+        Self::ols_slope_indexed(&ys, bars.len())
     }
 
     /// OLS linear regression slope of bar volumes over bar index.
@@ -1129,20 +1110,22 @@ impl OhlcvBar {
     /// Returns `None` for fewer than 2 bars or if volumes can't be converted to `f64`.
     pub fn volume_slope(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        let n = bars.len();
-        if n < 2 {
-            return None;
-        }
-        let n_f = n as f64;
-        let xs: Vec<f64> = (0..n).map(|i| i as f64).collect();
         let ys: Vec<f64> = bars.iter().filter_map(|b| b.volume.to_f64()).collect();
-        if ys.len() < n {
+        Self::ols_slope_indexed(&ys, bars.len())
+    }
+
+    /// OLS slope of `ys` against integer indices `0..expected_n`.
+    ///
+    /// Returns `None` if `ys.len() < expected_n`, `expected_n < 2`, or the x-variance is zero.
+    fn ols_slope_indexed(ys: &[f64], expected_n: usize) -> Option<f64> {
+        if ys.len() < expected_n || expected_n < 2 {
             return None;
         }
-        let x_mean = xs.iter().sum::<f64>() / n_f;
+        let n_f = expected_n as f64;
+        let x_mean = (n_f - 1.0) / 2.0;
         let y_mean = ys.iter().sum::<f64>() / n_f;
-        let numerator: f64 = xs.iter().zip(ys.iter()).map(|(x, y)| (x - x_mean) * (y - y_mean)).sum();
-        let denominator: f64 = xs.iter().map(|x| (x - x_mean).powi(2)).sum();
+        let numerator: f64 = ys.iter().enumerate().map(|(i, y)| (i as f64 - x_mean) * (y - y_mean)).sum();
+        let denominator: f64 = ys.iter().enumerate().map(|(i, _)| (i as f64 - x_mean).powi(2)).sum();
         if denominator == 0.0 {
             return None;
         }
@@ -4675,5 +4658,74 @@ mod tests {
         let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(108));
         let b2 = make_ohlcv_bar(dec!(108), dec!(115), dec!(105), dec!(110));
         assert_eq!(OhlcvBar::breakout_count(&[b1, b2]), 0);
+    }
+
+    // ── OhlcvBar::doji_count ──────────────────────────────────────────────────
+
+    #[test]
+    fn test_doji_count_zero_for_empty_slice() {
+        assert_eq!(OhlcvBar::doji_count(&[], dec!(0.001)), 0);
+    }
+
+    #[test]
+    fn test_doji_count_detects_doji_bars() {
+        let doji = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100)); // body=0
+        let non_doji = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(110)); // body=10
+        assert_eq!(OhlcvBar::doji_count(&[doji, non_doji], dec!(1)), 1);
+    }
+
+    // ── OhlcvBar::channel_width ───────────────────────────────────────────────
+
+    #[test]
+    fn test_channel_width_none_for_empty_slice() {
+        assert!(OhlcvBar::channel_width(&[]).is_none());
+    }
+
+    #[test]
+    fn test_channel_width_correct() {
+        let b1 = make_ohlcv_bar(dec!(100), dec!(120), dec!(90), dec!(105));
+        let b2 = make_ohlcv_bar(dec!(100), dec!(115), dec!(80), dec!(100));
+        // highest_high = 120, lowest_low = 80, width = 40
+        assert_eq!(OhlcvBar::channel_width(&[b1, b2]), Some(dec!(40)));
+    }
+
+    // ── OhlcvBar::sma ─────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_sma_none_for_zero_period() {
+        let bar = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        assert!(OhlcvBar::sma(&[bar], 0).is_none());
+    }
+
+    #[test]
+    fn test_sma_none_when_fewer_bars_than_period() {
+        let bar = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        assert!(OhlcvBar::sma(&[bar], 3).is_none());
+    }
+
+    #[test]
+    fn test_sma_correct_for_last_n_bars() {
+        let bars = vec![
+            make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100)),
+            make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(110)),
+            make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(120)),
+        ];
+        // sma(3) = (100 + 110 + 120) / 3 = 110
+        assert_eq!(OhlcvBar::sma(&bars, 3), Some(dec!(110)));
+    }
+
+    // ── OhlcvBar::mean_wick_ratio ─────────────────────────────────────────────
+
+    #[test]
+    fn test_mean_wick_ratio_none_for_empty_slice() {
+        assert!(OhlcvBar::mean_wick_ratio(&[]).is_none());
+    }
+
+    #[test]
+    fn test_mean_wick_ratio_in_range_zero_to_one() {
+        let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let b2 = make_ohlcv_bar(dec!(100), dec!(115), dec!(85), dec!(100));
+        let ratio = OhlcvBar::mean_wick_ratio(&[b1, b2]).unwrap();
+        assert!(ratio >= 0.0 && ratio <= 1.0);
     }
 }

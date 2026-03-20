@@ -1526,6 +1526,35 @@ mod tests {
         let dev = n.deviation_from_mean(dec!(5)).unwrap();
         assert!(dev > 0.0);
     }
+
+    // ── MinMaxNormalizer::range_f64 / sum_f64 ─────────────────────────────────
+
+    #[test]
+    fn test_minmax_range_f64_none_for_empty_window() {
+        assert!(norm(3).range_f64().is_none());
+    }
+
+    #[test]
+    fn test_minmax_range_f64_correct() {
+        let mut n = norm(4);
+        for v in [dec!(5), dec!(15), dec!(10), dec!(20)] { n.update(v); }
+        // range = 20 - 5 = 15
+        let r = n.range_f64().unwrap();
+        assert!((r - 15.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_minmax_sum_f64_none_for_empty_window() {
+        assert!(norm(3).sum_f64().is_none());
+    }
+
+    #[test]
+    fn test_minmax_sum_f64_correct() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let s = n.sum_f64().unwrap();
+        assert!((s - 10.0).abs() < 1e-9);
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
