@@ -608,6 +608,30 @@ impl OhlcvBar {
         (self.high + self.low) / Decimal::TWO
     }
 
+    /// Ratio of close to high: `close / high` as `f64`.
+    ///
+    /// Returns `None` if `high` is zero. A value near 1.0 means the bar closed
+    /// near its high (bullish strength); near 0.0 means it closed far below.
+    pub fn high_close_ratio(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.high.is_zero() {
+            return None;
+        }
+        (self.close / self.high).to_f64()
+    }
+
+    /// Lower shadow as a fraction of the full bar range: `lower_shadow / range`.
+    ///
+    /// Returns `None` if the bar's range is zero.
+    pub fn lower_shadow_pct(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let range = self.high - self.low;
+        if range.is_zero() {
+            return None;
+        }
+        (self.lower_shadow() / range).to_f64()
+    }
+
     /// Classifies this bar as `"bullish"`, `"bearish"`, or `"doji"`.
     ///
     /// A doji is a bar whose body is zero (open equals close). Otherwise the
@@ -3084,5 +3108,64 @@ mod tests {
         // |110-100|/100 = 0.10
         let dev = bar.vwap_deviation().unwrap();
         assert!((dev - 0.1).abs() < 1e-10);
+    }
+
+    // ── high_close_ratio ──────────────────────────────────────────────────────
+
+    #[test]
+    fn test_high_close_ratio_none_when_high_zero() {
+        let bar = OhlcvBar {
+            symbol: "X".into(),
+            timeframe: Timeframe::Minutes(1),
+            open: dec!(0),
+            high: dec!(0),
+            low: dec!(0),
+            close: dec!(0),
+            volume: dec!(1),
+            bar_start_ms: 0,
+            trade_count: 1,
+            is_complete: false,
+            is_gap_fill: false,
+            vwap: None,
+        };
+        assert!(bar.high_close_ratio().is_none());
+    }
+
+    #[test]
+    fn test_high_close_ratio_one_when_close_equals_high() {
+        let bar = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(110));
+        let ratio = bar.high_close_ratio().unwrap();
+        assert!((ratio - 1.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_high_close_ratio_less_than_one_when_close_below_high() {
+        let bar = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(99));
+        let ratio = bar.high_close_ratio().unwrap();
+        assert!(ratio < 1.0);
+    }
+
+    // ── lower_shadow_pct ──────────────────────────────────────────────────────
+
+    #[test]
+    fn test_lower_shadow_pct_none_when_range_zero() {
+        let bar = make_ohlcv_bar(dec!(100), dec!(100), dec!(100), dec!(100));
+        assert!(bar.lower_shadow_pct().is_none());
+    }
+
+    #[test]
+    fn test_lower_shadow_pct_zero_when_no_lower_shadow() {
+        // open=low=90, close=high=110 → lower_shadow=0
+        let bar = make_ohlcv_bar(dec!(90), dec!(110), dec!(90), dec!(110));
+        let pct = bar.lower_shadow_pct().unwrap();
+        assert!(pct.abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_lower_shadow_pct_correct_value() {
+        // open=100, close=105, high=110, low=90 → lower_shadow=min(100,105)-90=10, range=20 → 0.5
+        let bar = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let pct = bar.lower_shadow_pct().unwrap();
+        assert!((pct - 0.5).abs() < 1e-10);
     }
 }

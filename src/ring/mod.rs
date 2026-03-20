@@ -480,6 +480,31 @@ impl<T, const N: usize> SpscRing<T, N> {
         count
     }
 
+    /// Mean of all elements in the ring as `f64`.
+    ///
+    /// Returns `None` if the ring is empty.
+    ///
+    /// # Complexity: O(n).
+    pub fn average_cloned(&self) -> Option<f64>
+    where
+        T: Clone + Into<f64>,
+    {
+        let head = self.head.load(Ordering::Acquire);
+        let tail = self.tail.load(Ordering::Acquire);
+        let len = tail.wrapping_sub(head);
+        if len == 0 {
+            return None;
+        }
+        let sum: f64 = (0..len)
+            .map(|i| {
+                let slot = head.wrapping_add(i) % N;
+                // SAFETY: slots in [head, tail) are initialized
+                unsafe { (*self.buf[slot].get()).assume_init_ref() }.clone().into()
+            })
+            .sum();
+        Some(sum / len as f64)
+    }
+
     /// Sum of all elements currently in the ring, cloned out of initialized slots.
     ///
     /// Returns `T::default()` (typically `0`) when the ring is empty.
@@ -1713,5 +1738,27 @@ mod tests {
         ring.push(20u32).unwrap();
         ring.pop().unwrap(); // removes 10
         assert_eq!(ring.sum_cloned(), 20u32);
+    }
+
+    // ── average_cloned ────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_average_cloned_none_when_empty() {
+        let ring: SpscRing<f64, 4> = SpscRing::new();
+        assert!(ring.average_cloned().is_none());
+    }
+
+    #[test]
+    fn test_average_cloned_single_element() {
+        let ring: SpscRing<f64, 4> = SpscRing::new();
+        ring.push(6.0f64).unwrap();
+        assert_eq!(ring.average_cloned(), Some(6.0));
+    }
+
+    #[test]
+    fn test_average_cloned_multiple_elements() {
+        let ring: SpscRing<f64, 8> = SpscRing::new();
+        for v in [2.0f64, 4.0, 6.0, 8.0] { ring.push(v).unwrap(); }
+        assert_eq!(ring.average_cloned(), Some(5.0));
     }
 }

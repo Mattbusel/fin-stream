@@ -431,6 +431,16 @@ impl NormalizedTick {
         }
     }
 
+    /// Returns `true` if this tick's price is strictly above `reference`.
+    pub fn is_above_price(&self, reference: Decimal) -> bool {
+        self.price > reference
+    }
+
+    /// Signed price change relative to `reference`: `self.price - reference`.
+    pub fn price_change_from(&self, reference: Decimal) -> Decimal {
+        self.price - reference
+    }
+
     /// Returns `true` if this tick was received within `threshold_ms` of `now_ms`.
     pub fn is_recent(&self, threshold_ms: u64, now_ms: u64) -> bool {
         now_ms.saturating_sub(self.received_at_ms) <= threshold_ms
@@ -1977,5 +1987,45 @@ mod tests {
         let mut tick = make_tick_at(0);
         tick.side = None;
         assert!(tick.side_as_str().is_none());
+    }
+
+    // ── is_above_price ────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_is_above_price_true_when_strictly_above() {
+        let tick = make_tick_at(0); // price=100
+        assert!(tick.is_above_price(rust_decimal_macros::dec!(99)));
+    }
+
+    #[test]
+    fn test_is_above_price_false_when_equal() {
+        let tick = make_tick_at(0); // price=100
+        assert!(!tick.is_above_price(rust_decimal_macros::dec!(100)));
+    }
+
+    #[test]
+    fn test_is_above_price_false_when_below() {
+        let tick = make_tick_at(0); // price=100
+        assert!(!tick.is_above_price(rust_decimal_macros::dec!(101)));
+    }
+
+    // ── price_change_from ─────────────────────────────────────────────────────
+
+    #[test]
+    fn test_price_change_from_positive_when_above_reference() {
+        let tick = make_tick_at(0); // price=100
+        assert_eq!(tick.price_change_from(rust_decimal_macros::dec!(90)), rust_decimal_macros::dec!(10));
+    }
+
+    #[test]
+    fn test_price_change_from_negative_when_below_reference() {
+        let tick = make_tick_at(0); // price=100
+        assert_eq!(tick.price_change_from(rust_decimal_macros::dec!(110)), rust_decimal_macros::dec!(-10));
+    }
+
+    #[test]
+    fn test_price_change_from_zero_when_equal() {
+        let tick = make_tick_at(0); // price=100
+        assert_eq!(tick.price_change_from(rust_decimal_macros::dec!(100)), rust_decimal_macros::dec!(0));
     }
 }

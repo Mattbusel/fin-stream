@@ -739,6 +739,37 @@ impl SessionAwareness {
         }
     }
 
+    /// Returns `true` if `date` is the day immediately before or after a major
+    /// US market holiday (Christmas, New Year's Day, Independence Day, Thanksgiving
+    /// Friday, or Labor Day). These adjacent days often see reduced liquidity.
+    ///
+    /// Uses a fixed-rule approximation: does not account for observed holidays
+    /// that shift when the holiday falls on a weekend.
+    pub fn is_market_holiday_adjacent(date: NaiveDate) -> bool {
+        let month = date.month();
+        let day = date.day();
+        // Dec 24 (Christmas Eve) or Dec 26 (day after Christmas)
+        if month == 12 && (day == 24 || day == 26) {
+            return true;
+        }
+        // Dec 31 (New Year's Eve) or Jan 2 (day after New Year's)
+        if (month == 12 && day == 31) || (month == 1 && day == 2) {
+            return true;
+        }
+        // Jul 3 (day before Independence Day) or Jul 5 (day after)
+        if month == 7 && (day == 3 || day == 5) {
+            return true;
+        }
+        // Black Friday (day after Thanksgiving) — 4th Friday of November
+        if month == 11 && date.weekday() == Weekday::Fri {
+            let d = day;
+            if d >= 23 && d <= 29 {
+                return true;
+            }
+        }
+        false
+    }
+
     /// Returns `true` if `date` falls within an approximate FOMC blackout window.
     ///
     /// The Fed's blackout rule prohibits public commentary in the 10 calendar days
@@ -2472,5 +2503,37 @@ mod tests {
     fn test_fomc_blackout_boundary_day_18() {
         let d = NaiveDate::from_ymd_opt(2024, 1, 18).unwrap();
         assert!(SessionAwareness::is_fomc_blackout_window(d));
+    }
+
+    // ── is_market_holiday_adjacent ────────────────────────────────────────────
+
+    #[test]
+    fn test_holiday_adjacent_christmas_eve() {
+        let d = NaiveDate::from_ymd_opt(2024, 12, 24).unwrap();
+        assert!(SessionAwareness::is_market_holiday_adjacent(d));
+    }
+
+    #[test]
+    fn test_holiday_adjacent_day_after_christmas() {
+        let d = NaiveDate::from_ymd_opt(2024, 12, 26).unwrap();
+        assert!(SessionAwareness::is_market_holiday_adjacent(d));
+    }
+
+    #[test]
+    fn test_holiday_adjacent_new_years_eve() {
+        let d = NaiveDate::from_ymd_opt(2024, 12, 31).unwrap();
+        assert!(SessionAwareness::is_market_holiday_adjacent(d));
+    }
+
+    #[test]
+    fn test_holiday_adjacent_july_3() {
+        let d = NaiveDate::from_ymd_opt(2024, 7, 3).unwrap();
+        assert!(SessionAwareness::is_market_holiday_adjacent(d));
+    }
+
+    #[test]
+    fn test_holiday_adjacent_false_for_normal_day() {
+        let d = NaiveDate::from_ymd_opt(2024, 6, 15).unwrap();
+        assert!(!SessionAwareness::is_market_holiday_adjacent(d));
     }
 }

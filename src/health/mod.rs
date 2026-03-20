@@ -423,6 +423,15 @@ impl HealthMonitor {
         self.feeds.iter().all(|e| e.status == HealthStatus::Healthy)
     }
 
+    /// IDs of all feeds currently in [`HealthStatus::Unknown`] state.
+    pub fn unknown_feed_ids(&self) -> Vec<String> {
+        self.feeds
+            .iter()
+            .filter(|e| e.status == HealthStatus::Unknown)
+            .map(|e| e.feed_id.clone())
+            .collect()
+    }
+
     /// Count of feeds in each health state: `(healthy, stale, unknown)`.
     ///
     /// Equivalent to calling [`healthy_count`](Self::healthy_count),
@@ -2140,5 +2149,32 @@ mod tests {
         let m = HealthMonitor::new(5_000);
         m.register_batch(&[]);
         assert_eq!(m.feed_count(), 0);
+    }
+
+    // ── unknown_feed_ids ──────────────────────────────────────────────────────
+
+    #[test]
+    fn test_unknown_feed_ids_all_new_feeds_are_unknown() {
+        let m = HealthMonitor::new(5_000);
+        m.register("BTC", None);
+        m.register("ETH", None);
+        let ids = m.unknown_feed_ids();
+        assert!(ids.contains(&"BTC".to_string()));
+        assert!(ids.contains(&"ETH".to_string()));
+    }
+
+    #[test]
+    fn test_unknown_feed_ids_empty_after_heartbeat_and_check() {
+        let m = HealthMonitor::new(5_000);
+        m.register("BTC", None);
+        m.heartbeat("BTC", 0).unwrap();
+        m.check_all(100);
+        assert!(m.unknown_feed_ids().is_empty());
+    }
+
+    #[test]
+    fn test_unknown_feed_ids_empty_when_no_feeds() {
+        let m = HealthMonitor::new(5_000);
+        assert!(m.unknown_feed_ids().is_empty());
     }
 }

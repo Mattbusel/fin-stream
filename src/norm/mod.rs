@@ -371,6 +371,11 @@ impl MinMaxNormalizer {
         Some(count_le as f64 / self.window.len() as f64)
     }
 
+    /// Count of observations in the current window that are strictly above `threshold`.
+    pub fn count_above(&self, threshold: rust_decimal::Decimal) -> usize {
+        self.window.iter().filter(|&&v| v > threshold).count()
+    }
+
     /// Exponential weighted moving average of the current window values.
     ///
     /// Applies `alpha` as the smoothing factor (most-recent weight), scanning oldest→newest.
@@ -762,6 +767,35 @@ mod tests {
         let mut n = norm(4);
         for v in [dec!(10), dec!(20), dec!(30)] { n.update(v); }
         assert_eq!(n.clamp_to_window(dec!(15)), dec!(15));
+    }
+
+    // ── MinMaxNormalizer::count_above ─────────────────────────────────────────
+
+    #[test]
+    fn test_count_above_zero_when_empty() {
+        let n = norm(4);
+        assert_eq!(n.count_above(dec!(5)), 0);
+    }
+
+    #[test]
+    fn test_count_above_counts_strictly_above() {
+        let mut n = norm(8);
+        for v in [dec!(1), dec!(5), dec!(10), dec!(15)] { n.update(v); }
+        assert_eq!(n.count_above(dec!(5)), 2); // 10 and 15
+    }
+
+    #[test]
+    fn test_count_above_all_when_threshold_below_all() {
+        let mut n = norm(4);
+        for v in [dec!(10), dec!(20), dec!(30)] { n.update(v); }
+        assert_eq!(n.count_above(dec!(5)), 3);
+    }
+
+    #[test]
+    fn test_count_above_zero_when_threshold_above_all() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        assert_eq!(n.count_above(dec!(100)), 0);
     }
 
     // ── MinMaxNormalizer::normalize_clamp ─────────────────────────────────────
