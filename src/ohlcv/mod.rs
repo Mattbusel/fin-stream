@@ -1209,6 +1209,56 @@ impl OhlcvBar {
         }
         Some(clvs.iter().sum::<f64>() / clvs.len() as f64)
     }
+
+    /// Mean of the high-low range (H − L) across the slice.
+    ///
+    /// Returns `None` if the slice is empty.
+    pub fn mean_range(bars: &[OhlcvBar]) -> Option<Decimal> {
+        if bars.is_empty() {
+            return None;
+        }
+        let total: Decimal = bars.iter().map(|b| b.range()).sum();
+        Some(total / Decimal::from(bars.len() as u64))
+    }
+
+    /// Z-score of `value` relative to the close price series.
+    ///
+    /// Returns `None` if the slice has fewer than 2 bars or the standard
+    /// deviation is zero.
+    pub fn close_z_score(bars: &[OhlcvBar], value: Decimal) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let mean = Self::mean_close(bars)?;
+        let std_dev = Self::close_std_dev(bars)?;
+        if std_dev == 0.0 {
+            return None;
+        }
+        ((value - mean) / Decimal::try_from(std_dev).ok()?).to_f64()
+    }
+
+    /// Normalised Bollinger Band width: `2 × close_std_dev / mean_close`.
+    ///
+    /// Returns `None` if `mean_close` is zero or the slice is too small.
+    pub fn bollinger_band_width(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let mean = Self::mean_close(bars)?;
+        if mean.is_zero() {
+            return None;
+        }
+        let std_dev = Self::close_std_dev(bars)?;
+        let width = 2.0 * std_dev / mean.to_f64()?;
+        Some(width)
+    }
+
+    /// Ratio of bullish bars to bearish bars in the slice.
+    ///
+    /// Returns `None` if there are no bearish bars.
+    pub fn up_down_ratio(bars: &[OhlcvBar]) -> Option<f64> {
+        let down = Self::bearish_count(bars);
+        if down == 0 {
+            return None;
+        }
+        Some(Self::bullish_count(bars) as f64 / down as f64)
+    }
 }
 
 impl std::fmt::Display for OhlcvBar {
@@ -4254,5 +4304,94 @@ mod tests {
         ];
         let clv = OhlcvBar::mean_clv(&bars).unwrap();
         assert!(clv > 0.0, "mean CLV should be positive when closes are near highs");
+    }
+
+    #[test]
+    fn test_mean_range_none_for_empty_slice() {
+        assert!(OhlcvBar::mean_range(&[]).is_none());
+    }
+
+    #[test]
+    fn test_mean_range_single_bar() {
+        let bar = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        assert_eq!(OhlcvBar::mean_range(&[bar]), Some(dec!(20)));
+    }
+
+    #[test]
+    fn test_mean_range_multiple_bars() {
+        let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105)); // range 20
+        let b2 = make_ohlcv_bar(dec!(100), dec!(120), dec!(80), dec!(100)); // range 40
+        assert_eq!(OhlcvBar::mean_range(&[b1, b2]), Some(dec!(30)));
+    }
+
+    #[test]
+    fn test_close_z_score_none_for_empty_slice() {
+        assert!(OhlcvBar::close_z_score(&[], dec!(100)).is_none());
+    }
+
+    #[test]
+    fn test_close_z_score_of_mean_is_zero() {
+        let bars = vec![
+            make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100)),
+            make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100)),
+            make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(110)),
+        ];
+        // mean close = (100+100+110)/3 ≈ 103.33; z-score of mean should be ≈ 0
+        let mean = (dec!(100) + dec!(100) + dec!(110)) / dec!(3);
+        let z = OhlcvBar::close_z_score(&bars, mean).unwrap();
+        assert!(z.abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_close_z_score_positive_above_mean() {
+        let bars = vec![
+            make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100)),
+            make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100)),
+            make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(110)),
+        ];
+        let z = OhlcvBar::close_z_score(&bars, dec!(120)).unwrap();
+        assert!(z > 0.0);
+    }
+
+    #[test]
+    fn test_bollinger_band_width_none_for_empty_slice() {
+        assert!(OhlcvBar::bollinger_band_width(&[]).is_none());
+    }
+
+    #[test]
+    fn test_bollinger_band_width_zero_for_identical_closes() {
+        let bars = vec![
+            make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100)),
+            make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100)),
+        ];
+        assert_eq!(OhlcvBar::bollinger_band_width(&bars), Some(0.0));
+    }
+
+    #[test]
+    fn test_bollinger_band_width_positive_for_varying_closes() {
+        let bars = vec![
+            make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(90)),
+            make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100)),
+            make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(110)),
+        ];
+        let bw = OhlcvBar::bollinger_band_width(&bars).unwrap();
+        assert!(bw > 0.0);
+    }
+
+    #[test]
+    fn test_up_down_ratio_none_for_no_bearish_bars() {
+        let bars = vec![
+            make_ohlcv_bar(dec!(90), dec!(110), dec!(85), dec!(105)), // bullish
+        ];
+        assert!(OhlcvBar::up_down_ratio(&bars).is_none());
+    }
+
+    #[test]
+    fn test_up_down_ratio_two_to_one() {
+        let bull = make_ohlcv_bar(dec!(90), dec!(110), dec!(85), dec!(105));
+        let bear = make_ohlcv_bar(dec!(110), dec!(115), dec!(85), dec!(95));
+        let bars = vec![bull.clone(), bull, bear];
+        let ratio = OhlcvBar::up_down_ratio(&bars).unwrap();
+        assert!((ratio - 2.0).abs() < 1e-9);
     }
 }

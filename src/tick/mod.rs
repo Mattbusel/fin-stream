@@ -786,6 +786,57 @@ impl NormalizedTick {
         ticks.iter().map(|t| t.quantity).reduce(Decimal::max)
     }
 
+    /// Minimum price across the slice.
+    ///
+    /// Returns `None` if the slice is empty.
+    pub fn min_price(ticks: &[NormalizedTick]) -> Option<Decimal> {
+        ticks.iter().map(|t| t.price).reduce(Decimal::min)
+    }
+
+    /// Maximum price across the slice.
+    ///
+    /// Returns `None` if the slice is empty.
+    pub fn max_price(ticks: &[NormalizedTick]) -> Option<Decimal> {
+        ticks.iter().map(|t| t.price).reduce(Decimal::max)
+    }
+
+    /// Standard deviation of tick prices across the slice.
+    ///
+    /// Returns `None` if the slice has fewer than 2 elements.
+    pub fn price_std_dev(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let n = ticks.len();
+        if n < 2 {
+            return None;
+        }
+        let prices: Vec<f64> = ticks.iter().filter_map(|t| t.price.to_f64()).collect();
+        if prices.len() < 2 {
+            return None;
+        }
+        let mean = prices.iter().sum::<f64>() / prices.len() as f64;
+        let variance = prices.iter().map(|p| (p - mean).powi(2)).sum::<f64>() / (prices.len() - 1) as f64;
+        Some(variance.sqrt())
+    }
+
+    /// Ratio of buy volume to sell volume.
+    ///
+    /// Returns `None` if sell volume is zero.
+    pub fn buy_sell_ratio(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let sell = Self::sell_volume(ticks);
+        if sell.is_zero() {
+            return None;
+        }
+        (Self::buy_volume(ticks) / sell).to_f64()
+    }
+
+    /// Returns the tick with the highest quantity in the slice.
+    ///
+    /// Returns `None` if the slice is empty.
+    pub fn largest_trade(ticks: &[NormalizedTick]) -> Option<&NormalizedTick> {
+        ticks.iter().max_by(|a, b| a.quantity.cmp(&b.quantity))
+    }
+
 }
 
 impl std::fmt::Display for NormalizedTick {
@@ -2711,5 +2762,98 @@ mod tests {
         let t2 = make_tick_pq(rust_decimal_macros::dec!(100), rust_decimal_macros::dec!(10));
         let t3 = make_tick_pq(rust_decimal_macros::dec!(100), rust_decimal_macros::dec!(5));
         assert_eq!(NormalizedTick::max_quantity(&[t1, t2, t3]), Some(rust_decimal_macros::dec!(10)));
+    }
+
+    #[test]
+    fn test_min_price_none_for_empty_slice() {
+        assert!(NormalizedTick::min_price(&[]).is_none());
+    }
+
+    #[test]
+    fn test_min_price_returns_lowest() {
+        let t1 = make_tick_pq(rust_decimal_macros::dec!(100), rust_decimal_macros::dec!(1));
+        let t2 = make_tick_pq(rust_decimal_macros::dec!(90), rust_decimal_macros::dec!(1));
+        let t3 = make_tick_pq(rust_decimal_macros::dec!(110), rust_decimal_macros::dec!(1));
+        assert_eq!(NormalizedTick::min_price(&[t1, t2, t3]), Some(rust_decimal_macros::dec!(90)));
+    }
+
+    #[test]
+    fn test_max_price_none_for_empty_slice() {
+        assert!(NormalizedTick::max_price(&[]).is_none());
+    }
+
+    #[test]
+    fn test_max_price_returns_highest() {
+        let t1 = make_tick_pq(rust_decimal_macros::dec!(100), rust_decimal_macros::dec!(1));
+        let t2 = make_tick_pq(rust_decimal_macros::dec!(90), rust_decimal_macros::dec!(1));
+        let t3 = make_tick_pq(rust_decimal_macros::dec!(110), rust_decimal_macros::dec!(1));
+        assert_eq!(NormalizedTick::max_price(&[t1, t2, t3]), Some(rust_decimal_macros::dec!(110)));
+    }
+
+    #[test]
+    fn test_price_std_dev_none_for_empty_slice() {
+        assert!(NormalizedTick::price_std_dev(&[]).is_none());
+    }
+
+    #[test]
+    fn test_price_std_dev_none_for_single_tick() {
+        let t = make_tick_pq(rust_decimal_macros::dec!(100), rust_decimal_macros::dec!(1));
+        assert!(NormalizedTick::price_std_dev(&[t]).is_none());
+    }
+
+    #[test]
+    fn test_price_std_dev_two_equal_prices_is_zero() {
+        let t1 = make_tick_pq(rust_decimal_macros::dec!(100), rust_decimal_macros::dec!(1));
+        let t2 = make_tick_pq(rust_decimal_macros::dec!(100), rust_decimal_macros::dec!(1));
+        assert_eq!(NormalizedTick::price_std_dev(&[t1, t2]), Some(0.0));
+    }
+
+    #[test]
+    fn test_price_std_dev_positive_for_varying_prices() {
+        let t1 = make_tick_pq(rust_decimal_macros::dec!(100), rust_decimal_macros::dec!(1));
+        let t2 = make_tick_pq(rust_decimal_macros::dec!(110), rust_decimal_macros::dec!(1));
+        let t3 = make_tick_pq(rust_decimal_macros::dec!(90), rust_decimal_macros::dec!(1));
+        let std = NormalizedTick::price_std_dev(&[t1, t2, t3]).unwrap();
+        assert!(std > 0.0);
+    }
+
+    #[test]
+    fn test_buy_sell_ratio_none_for_empty_slice() {
+        assert!(NormalizedTick::buy_sell_ratio(&[]).is_none());
+    }
+
+    #[test]
+    fn test_buy_sell_ratio_none_when_no_sells() {
+        let mut t = make_tick_pq(rust_decimal_macros::dec!(100), rust_decimal_macros::dec!(1));
+        t.side = Some(TradeSide::Buy);
+        assert!(NormalizedTick::buy_sell_ratio(&[t]).is_none());
+    }
+
+    #[test]
+    fn test_buy_sell_ratio_two_to_one() {
+        use rust_decimal_macros::dec;
+        let mut buy1 = make_tick_pq(dec!(100), dec!(2));
+        buy1.side = Some(TradeSide::Buy);
+        let mut buy2 = make_tick_pq(dec!(100), dec!(2));
+        buy2.side = Some(TradeSide::Buy);
+        let mut sell = make_tick_pq(dec!(100), dec!(2));
+        sell.side = Some(TradeSide::Sell);
+        let ratio = NormalizedTick::buy_sell_ratio(&[buy1, buy2, sell]).unwrap();
+        assert!((ratio - 2.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_largest_trade_none_for_empty_slice() {
+        assert!(NormalizedTick::largest_trade(&[]).is_none());
+    }
+
+    #[test]
+    fn test_largest_trade_returns_max_quantity_tick() {
+        let t1 = make_tick_pq(rust_decimal_macros::dec!(100), rust_decimal_macros::dec!(2));
+        let t2 = make_tick_pq(rust_decimal_macros::dec!(200), rust_decimal_macros::dec!(10));
+        let t3 = make_tick_pq(rust_decimal_macros::dec!(150), rust_decimal_macros::dec!(5));
+        let ticks = [t1, t2, t3];
+        let largest = NormalizedTick::largest_trade(&ticks).unwrap();
+        assert_eq!(largest.quantity, rust_decimal_macros::dec!(10));
     }
 }
