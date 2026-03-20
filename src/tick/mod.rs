@@ -761,6 +761,13 @@ impl NormalizedTick {
         }
     }
 
+    /// Net volume: `buy_volume − sell_volume`.
+    ///
+    /// Positive means net buying pressure; negative means net selling pressure.
+    pub fn net_volume(ticks: &[NormalizedTick]) -> Decimal {
+        Self::buy_volume(ticks) - Self::sell_volume(ticks)
+    }
+
 }
 
 impl std::fmt::Display for NormalizedTick {
@@ -2615,5 +2622,42 @@ mod tests {
         let t2 = make_tick_with_price(rust_decimal_macros::dec!(100));
         // median = (90+100)/2 = 95
         assert_eq!(NormalizedTick::median_price(&[t1, t2]), Some(rust_decimal_macros::dec!(95)));
+    }
+
+    // ── net_volume ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_net_volume_zero_for_empty_slice() {
+        assert_eq!(NormalizedTick::net_volume(&[]), rust_decimal::Decimal::ZERO);
+    }
+
+    #[test]
+    fn test_net_volume_positive_when_more_buys() {
+        let buy = NormalizedTick {
+            side: Some(TradeSide::Buy),
+            quantity: rust_decimal_macros::dec!(5),
+            ..make_tick_pq(rust_decimal_macros::dec!(100), rust_decimal_macros::dec!(5))
+        };
+        let sell = NormalizedTick {
+            side: Some(TradeSide::Sell),
+            quantity: rust_decimal_macros::dec!(3),
+            ..make_tick_pq(rust_decimal_macros::dec!(100), rust_decimal_macros::dec!(3))
+        };
+        assert_eq!(NormalizedTick::net_volume(&[buy, sell]), rust_decimal_macros::dec!(2));
+    }
+
+    #[test]
+    fn test_net_volume_negative_when_more_sells() {
+        let buy = NormalizedTick {
+            side: Some(TradeSide::Buy),
+            quantity: rust_decimal_macros::dec!(2),
+            ..make_tick_pq(rust_decimal_macros::dec!(100), rust_decimal_macros::dec!(2))
+        };
+        let sell = NormalizedTick {
+            side: Some(TradeSide::Sell),
+            quantity: rust_decimal_macros::dec!(7),
+            ..make_tick_pq(rust_decimal_macros::dec!(100), rust_decimal_macros::dec!(7))
+        };
+        assert_eq!(NormalizedTick::net_volume(&[buy, sell]), rust_decimal_macros::dec!(-5));
     }
 }

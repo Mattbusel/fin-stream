@@ -366,11 +366,11 @@ impl OrderBook {
     /// Returns `(bid_levels - ask_levels) / (bid_levels + ask_levels)` as `f64`
     /// in the range `[-1.0, 1.0]`. Returns `None` when the book is empty.
     pub fn level_count_imbalance(&self) -> Option<f64> {
-        let total = self.bids.len() + self.asks.len();
+        let total = self.bid_depth() + self.ask_depth();
         if total == 0 {
             return None;
         }
-        let diff = self.bids.len() as f64 - self.asks.len() as f64;
+        let diff = self.bid_depth() as f64 - self.ask_depth() as f64;
         Some(diff / total as f64)
     }
 
@@ -571,7 +571,7 @@ impl OrderBook {
     ///
     /// Returns `None` if there are fewer than 2 bid levels.
     pub fn price_range_bids(&self) -> Option<Decimal> {
-        if self.bids.len() < 2 {
+        if self.bid_depth() < 2 {
             return None;
         }
         let best = *self.bids.keys().next_back()?;
@@ -668,8 +668,8 @@ impl OrderBook {
     /// [`ask_depth`](Self::ask_depth) for runtime dispatch by side.
     pub fn level_count(&self, side: BookSide) -> usize {
         match side {
-            BookSide::Bid => self.bids.len(),
-            BookSide::Ask => self.asks.len(),
+            BookSide::Bid => self.bid_depth(),
+            BookSide::Ask => self.ask_depth(),
         }
     }
 
@@ -769,7 +769,7 @@ impl OrderBook {
     /// Returns `None` if the bid side is empty.
     pub fn ask_bid_level_ratio(&self) -> Option<f64> {
         if self.bids.is_empty() { return None; }
-        Some(self.asks.len() as f64 / self.bids.len() as f64)
+        Some(self.ask_depth() as f64 / self.bid_depth() as f64)
     }
 
     /// Resting quantity at an exact price level on the given side.
@@ -1274,13 +1274,15 @@ impl OrderBook {
     }
 
     /// Number of distinct price levels on the ask side.
+    #[deprecated(note = "use ask_depth() instead")]
     pub fn ask_level_count(&self) -> usize {
-        self.asks.len()
+        self.ask_depth()
     }
 
     /// Number of distinct price levels on the bid side.
+    #[deprecated(note = "use bid_depth() instead")]
     pub fn bid_level_count(&self) -> usize {
-        self.bids.len()
+        self.bid_depth()
     }
 
     /// Cumulative ask volume at levels within `price_range` of the best ask.

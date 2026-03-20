@@ -416,6 +416,32 @@ impl MinMaxNormalizer {
         self.window.iter().filter(|&&v| v < threshold).count()
     }
 
+    /// Value at the p-th percentile of the current window (0.0 ≤ p ≤ 1.0).
+    ///
+    /// Uses linear interpolation between adjacent sorted values.
+    /// Returns `None` if the window is empty.
+    pub fn percentile_value(&self, p: f64) -> Option<Decimal> {
+        if self.window.is_empty() {
+            return None;
+        }
+        let p = p.clamp(0.0, 1.0);
+        let mut sorted: Vec<Decimal> = self.window.iter().copied().collect();
+        sorted.sort();
+        let n = sorted.len();
+        if n == 1 {
+            return Some(sorted[0]);
+        }
+        let idx = p * (n - 1) as f64;
+        let lo = idx.floor() as usize;
+        let hi = idx.ceil() as usize;
+        if lo == hi {
+            Some(sorted[lo])
+        } else {
+            let frac = Decimal::try_from(idx - lo as f64).ok()?;
+            Some(sorted[lo] + (sorted[hi] - sorted[lo]) * frac)
+        }
+    }
+
     /// Fraction of window values strictly above the midpoint `(min + max) / 2`.
     ///
     /// Returns `None` if the window is empty. Returns `0.0` if all values are equal.
@@ -1302,6 +1328,35 @@ mod tests {
         for v in [dec!(1), dec!(2), dec!(3), dec!(4), dec!(5)] { n.update(v); }
         let rz = n.robust_z_score(dec!(1)).unwrap();
         assert!(rz < 0.0, "robust z-score should be negative for value below median");
+    }
+
+    // ── MinMaxNormalizer::percentile_value ────────────────────────────────────
+
+    #[test]
+    fn test_percentile_value_none_for_empty_window() {
+        assert!(norm(4).percentile_value(0.5).is_none());
+    }
+
+    #[test]
+    fn test_percentile_value_min_at_zero() {
+        let mut n = norm(5);
+        for v in [dec!(10), dec!(20), dec!(30), dec!(40), dec!(50)] { n.update(v); }
+        assert_eq!(n.percentile_value(0.0), Some(dec!(10)));
+    }
+
+    #[test]
+    fn test_percentile_value_max_at_one() {
+        let mut n = norm(5);
+        for v in [dec!(10), dec!(20), dec!(30), dec!(40), dec!(50)] { n.update(v); }
+        assert_eq!(n.percentile_value(1.0), Some(dec!(50)));
+    }
+
+    #[test]
+    fn test_percentile_value_median_at_half() {
+        let mut n = norm(5);
+        for v in [dec!(10), dec!(20), dec!(30), dec!(40), dec!(50)] { n.update(v); }
+        // p=0.5 → idx=2.0 → exact middle = 30
+        assert_eq!(n.percentile_value(0.5), Some(dec!(30)));
     }
 }
 

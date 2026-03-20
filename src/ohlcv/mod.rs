@@ -1123,6 +1123,32 @@ impl OhlcvBar {
         Some(numerator / denominator)
     }
 
+    /// OLS linear regression slope of bar volumes over bar index.
+    ///
+    /// Positive means volume is trending up; negative means trending down.
+    /// Returns `None` for fewer than 2 bars or if volumes can't be converted to `f64`.
+    pub fn volume_slope(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let n = bars.len();
+        if n < 2 {
+            return None;
+        }
+        let n_f = n as f64;
+        let xs: Vec<f64> = (0..n).map(|i| i as f64).collect();
+        let ys: Vec<f64> = bars.iter().filter_map(|b| b.volume.to_f64()).collect();
+        if ys.len() < n {
+            return None;
+        }
+        let x_mean = xs.iter().sum::<f64>() / n_f;
+        let y_mean = ys.iter().sum::<f64>() / n_f;
+        let numerator: f64 = xs.iter().zip(ys.iter()).map(|(x, y)| (x - x_mean) * (y - y_mean)).sum();
+        let denominator: f64 = xs.iter().map(|x| (x - x_mean).powi(2)).sum();
+        if denominator == 0.0 {
+            return None;
+        }
+        Some(numerator / denominator)
+    }
+
     /// Arithmetic mean of close prices across a slice of bars.
     ///
     /// Returns `None` if the slice is empty.
@@ -4019,6 +4045,25 @@ mod tests {
         ];
         let slope = OhlcvBar::linear_regression_slope(&bars).unwrap();
         assert!(slope.abs() < 1e-10, "slope should be ~0 for identical closes");
+    }
+
+    // ── volume_slope ──────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_volume_slope_none_for_single_bar() {
+        let bar = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100));
+        assert!(OhlcvBar::volume_slope(&[bar]).is_none());
+    }
+
+    #[test]
+    fn test_volume_slope_positive_for_rising_volume() {
+        let make_bar_with_vol = |v: u64| {
+            let mut b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100));
+            b.volume = Decimal::from(v);
+            b
+        };
+        let bars = vec![make_bar_with_vol(100), make_bar_with_vol(200), make_bar_with_vol(300)];
+        assert!(OhlcvBar::volume_slope(&bars).unwrap() > 0.0);
     }
 
     // ── highest_close / lowest_close ──────────────────────────────────────────
