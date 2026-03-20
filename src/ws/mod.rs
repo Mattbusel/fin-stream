@@ -146,6 +146,22 @@ impl WsStats {
         self.total_messages_received >= min_messages
     }
 
+    /// Returns `true` if any bytes have been received.
+    pub fn has_received_bytes(&self) -> bool {
+        self.total_bytes_received > 0
+    }
+
+    /// Messages per byte received: `total_messages / total_bytes`.
+    ///
+    /// Higher values indicate smaller average message sizes.
+    /// Returns `None` if no bytes have been received.
+    pub fn efficiency_ratio(&self) -> Option<f64> {
+        if self.total_bytes_received == 0 {
+            return None;
+        }
+        Some(self.total_messages_received as f64 / self.total_bytes_received as f64)
+    }
+
 }
 
 /// Reconnection policy for a WebSocket feed.
@@ -1409,5 +1425,38 @@ mod tests {
     fn test_is_active_false_below_threshold() {
         let stats = WsStats { total_messages_received: 50, total_bytes_received: 0 };
         assert!(!stats.is_active(100));
+    }
+
+    // ── WsStats::has_received_bytes / efficiency_ratio ──────────────────────
+
+    #[test]
+    fn test_has_received_bytes_false_when_no_bytes() {
+        let stats = WsStats { total_messages_received: 5, total_bytes_received: 0 };
+        assert!(!stats.has_received_bytes());
+    }
+
+    #[test]
+    fn test_has_received_bytes_true_when_bytes_present() {
+        let stats = WsStats { total_messages_received: 1, total_bytes_received: 100 };
+        assert!(stats.has_received_bytes());
+    }
+
+    #[test]
+    fn test_efficiency_ratio_none_when_no_bytes() {
+        let stats = WsStats { total_messages_received: 10, total_bytes_received: 0 };
+        assert!(stats.efficiency_ratio().is_none());
+    }
+
+    #[test]
+    fn test_efficiency_ratio_correct_value() {
+        let stats = WsStats { total_messages_received: 100, total_bytes_received: 10_000 };
+        // 100 / 10_000 = 0.01
+        assert!((stats.efficiency_ratio().unwrap() - 0.01).abs() < 1e-12);
+    }
+
+    #[test]
+    fn test_efficiency_ratio_less_than_one_for_large_messages() {
+        let stats = WsStats { total_messages_received: 1, total_bytes_received: 500 };
+        assert!(stats.efficiency_ratio().unwrap() < 1.0);
     }
 }

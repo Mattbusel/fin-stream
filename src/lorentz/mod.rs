@@ -1721,4 +1721,37 @@ mod tests {
         // gamma(0.6) = 1.25 → energy_ratio = 0.25
         assert!((t.energy_ratio() - 0.25).abs() < 1e-10);
     }
+
+    // ── LorentzTransform::momentum_ratio / is_ultra_relativistic ────────────
+
+    #[test]
+    fn test_momentum_ratio_zero_at_rest() {
+        let t = LorentzTransform::new(0.0).unwrap();
+        assert!(t.momentum_ratio().abs() < 1e-12);
+    }
+
+    #[test]
+    fn test_momentum_ratio_correct_at_0_6() {
+        let t = LorentzTransform::new(0.6).unwrap();
+        // gamma=1.25, beta=0.6 → momentum_ratio = 0.75
+        assert!((t.momentum_ratio() - 0.75).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_is_ultra_relativistic_true_above_0_9() {
+        let t = LorentzTransform::new(0.95).unwrap();
+        assert!(t.is_ultra_relativistic());
+    }
+
+    #[test]
+    fn test_is_ultra_relativistic_false_below_0_9() {
+        let t = LorentzTransform::new(0.8).unwrap();
+        assert!(!t.is_ultra_relativistic());
+    }
+
+    #[test]
+    fn test_is_ultra_relativistic_false_at_rest() {
+        let t = LorentzTransform::new(0.0).unwrap();
+        assert!(!t.is_ultra_relativistic());
+    }
 }

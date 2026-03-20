@@ -405,6 +405,23 @@ impl NormalizedTick {
         self.exchange == other.exchange
     }
 
+    /// Age of this tick in milliseconds: `now_ms - received_at_ms`.
+    ///
+    /// Returns `0` if `now_ms` is before `received_at_ms`.
+    pub fn quote_age_ms(&self, now_ms: u64) -> u64 {
+        now_ms.saturating_sub(self.received_at_ms)
+    }
+
+    /// Notional value of this tick: `price × quantity`.
+    pub fn notional_value(&self) -> Decimal {
+        self.price * self.quantity
+    }
+
+    /// Returns `true` if the notional value (`price × quantity`) exceeds `threshold`.
+    pub fn is_high_value_tick(&self, threshold: Decimal) -> bool {
+        self.notional_value() > threshold
+    }
+
     /// Price rounded down to the nearest multiple of `tick_size`.
     ///
     /// Returns the original price if `tick_size` is zero.
@@ -1640,5 +1657,48 @@ mod tests {
         let mut t2 = make_tick_at(2_000);
         t2.exchange = Exchange::Coinbase;
         assert!(!t1.is_same_exchange_as(&t2));
+    }
+
+    // ── NormalizedTick::quote_age_ms / notional_value / is_high_value_tick ──
+
+    #[test]
+    fn test_quote_age_ms_correct() {
+        let tick = make_tick_at(1_000);
+        assert_eq!(tick.quote_age_ms(3_000), 2_000);
+    }
+
+    #[test]
+    fn test_quote_age_ms_zero_when_now_before_received() {
+        let tick = make_tick_at(5_000);
+        assert_eq!(tick.quote_age_ms(1_000), 0);
+    }
+
+    #[test]
+    fn test_notional_value_correct() {
+        use rust_decimal_macros::dec;
+        let mut tick = make_tick_at(0);
+        tick.price = dec!(100);
+        tick.quantity = dec!(5);
+        assert_eq!(tick.notional_value(), dec!(500));
+    }
+
+    #[test]
+    fn test_is_high_value_tick_true_when_above_threshold() {
+        use rust_decimal_macros::dec;
+        let mut tick = make_tick_at(0);
+        tick.price = dec!(100);
+        tick.quantity = dec!(10);
+        // notional = 1000 > 500
+        assert!(tick.is_high_value_tick(dec!(500)));
+    }
+
+    #[test]
+    fn test_is_high_value_tick_false_when_below_threshold() {
+        use rust_decimal_macros::dec;
+        let mut tick = make_tick_at(0);
+        tick.price = dec!(10);
+        tick.quantity = dec!(2);
+        // notional = 20 < 100
+        assert!(!tick.is_high_value_tick(dec!(100)));
     }
 }

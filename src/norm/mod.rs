@@ -1181,6 +1181,33 @@ impl ZScoreNormalizer {
             Some(vals[mid])
         }
     }
+
+    /// Empirical percentile of `value` within the current window: fraction of values ≤ `value`.
+    ///
+    /// Returns a value in `[0.0, 1.0]`. Returns `None` if the window is empty.
+    pub fn percentile(&self, value: Decimal) -> Option<f64> {
+        let n = self.window.len();
+        if n == 0 { return None; }
+        let count = self.window.iter().filter(|&&v| v <= value).count();
+        Some(count as f64 / n as f64)
+    }
+
+    /// Stateless EMA z-score helper: updates running `ema_mean` and `ema_var` and returns
+    /// the z-score `(value - ema_mean) / sqrt(ema_var)`.
+    ///
+    /// `alpha ∈ (0, 1]` controls smoothing speed (higher = faster adaptation).
+    /// Initialize `ema_mean = 0.0` and `ema_var = 0.0` before first call.
+    /// Returns `None` if `value` cannot be converted to f64 or variance is still zero.
+    pub fn ema_z_score(value: Decimal, alpha: f64, ema_mean: &mut f64, ema_var: &mut f64) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let v = value.to_f64()?;
+        let delta = v - *ema_mean;
+        *ema_mean += alpha * delta;
+        *ema_var = (1.0 - alpha) * (*ema_var + alpha * delta * delta);
+        let std = ema_var.sqrt();
+        if std == 0.0 { return None; }
+        Some((v - *ema_mean) / std)
+    }
 }
 
 #[cfg(test)]
@@ -1720,5 +1747,42 @@ mod zscore_tests {
             n.update(v);
         }
         assert!((n.window_min_f64().unwrap() - 1.0).abs() < 1e-10);
+    }
+
+    // ── ZScoreNormalizer::percentile ────────────────────────────────────────
+
+    #[test]
+    fn test_percentile_none_when_empty() {
+        let n = znorm(5);
+        assert!(n.percentile(dec!(10)).is_none());
+    }
+
+    #[test]
+    fn test_percentile_one_when_all_lte_value() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] {
+            n.update(v);
+        }
+        assert!((n.percentile(dec!(4)).unwrap() - 1.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_percentile_zero_when_all_gt_value() {
+        let mut n = znorm(4);
+        for v in [dec!(5), dec!(6), dec!(7), dec!(8)] {
+            n.update(v);
+        }
+        // 0 of 4 values are ≤ 4
+        assert_eq!(n.percentile(dec!(4)).unwrap(), 0.0);
+    }
+
+    #[test]
+    fn test_percentile_half_at_median() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] {
+            n.update(v);
+        }
+        // 2 of 4 values ≤ 2 → 0.5
+        assert!((n.percentile(dec!(2)).unwrap() - 0.5).abs() < 1e-9);
     }
 }

@@ -1463,4 +1463,27 @@ mod tests {
         let e = StreamError::LorentzConfigError { reason: "bad beta".into() };
         assert_eq!(e.error_category_code(), 7);
     }
+
+    // ── StreamError::is_buffer_error ────────────────────────────────────────
+
+    #[test]
+    fn test_is_buffer_error_true_for_ring_buffer_empty() {
+        assert!(StreamError::RingBufferEmpty.is_buffer_error());
+    }
+
+    #[test]
+    fn test_is_buffer_error_true_for_backpressure() {
+        assert!(StreamError::Backpressure { channel: "x".into(), depth: 8, capacity: 8 }.is_buffer_error());
+    }
+
+    #[test]
+    fn test_is_buffer_error_true_for_ring_buffer_full() {
+        assert!(StreamError::RingBufferFull { capacity: 8 }.is_buffer_error());
+    }
+
+    #[test]
+    fn test_is_buffer_error_false_for_connection_failed() {
+        let e = StreamError::ConnectionFailed { url: "wss://x".into(), reason: "x".into() };
+        assert!(!e.is_buffer_error());
+    }
 }

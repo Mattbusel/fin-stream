@@ -2709,6 +2709,29 @@ mod tests {
         assert!(bar.close_open_ratio().is_none());
     }
 
+    // ── OhlcvBar::true_range_with_prev ────────────────────────────────────────
+
+    #[test]
+    fn test_true_range_simple_hl_dominates() {
+        // high=110, low=90, prev_close=100 → hl=20, hc=10, lc=10 → TR=20
+        let bar = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100));
+        assert_eq!(bar.true_range_with_prev(dec!(100)), dec!(20));
+    }
+
+    #[test]
+    fn test_true_range_gap_up_dominates() {
+        // prev_close=80, high=100, low=90 → hl=10, hc=20, lc=10 → TR=20
+        let bar = make_ohlcv_bar(dec!(91), dec!(100), dec!(90), dec!(95));
+        assert_eq!(bar.true_range_with_prev(dec!(80)), dec!(20));
+    }
+
+    #[test]
+    fn test_true_range_gap_down_dominates() {
+        // prev_close=120, high=100, low=95 → hl=5, hc=20, lc=25 → TR=25
+        let bar = make_ohlcv_bar(dec!(98), dec!(100), dec!(95), dec!(97));
+        assert_eq!(bar.true_range_with_prev(dec!(120)), dec!(25));
+    }
+
     // ── OhlcvBar::price_at_pct ───────────────────────────────────────────────
 
     #[test]

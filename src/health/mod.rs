@@ -1873,4 +1873,32 @@ mod tests {
         let m = HealthMonitor::new(5_000);
         assert!(!m.feed_exists("ETH-USD"));
     }
+
+    // ── HealthMonitor::most_stale_feed ─────────────────────────────────────
+
+    #[test]
+    fn test_most_stale_feed_returns_oldest_feed() {
+        let m = HealthMonitor::new(5_000);
+        m.register("A", None);
+        m.register("B", None);
+        m.heartbeat("A", 1_000).unwrap(); // older tick
+        m.heartbeat("B", 9_000).unwrap(); // newer tick
+        // "A" has the oldest tick → it is the most stale
+        let stale = m.most_stale_feed().unwrap();
+        assert_eq!(stale.feed_id, "A");
+    }
+
+    #[test]
+    fn test_most_stale_feed_some_with_single_feed() {
+        let m = HealthMonitor::new(5_000);
+        m.register("A", None);
+        m.heartbeat("A", 1_000).unwrap();
+        assert!(m.most_stale_feed().is_some());
+    }
+
+    #[test]
+    fn test_most_stale_feed_none_when_empty() {
+        let m = HealthMonitor::new(5_000);
+        assert!(m.most_stale_feed().is_none());
+    }
 }

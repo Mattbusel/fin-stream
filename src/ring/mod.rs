@@ -310,6 +310,13 @@ impl<T, const N: usize> SpscRing<T, N> {
         self.capacity().saturating_sub(self.len())
     }
 
+    /// Returns `true` if the fill ratio exceeds `threshold` (a value in `[0.0, 1.0]`).
+    ///
+    /// For example, `is_nearly_full(0.9)` returns `true` when the buffer is ≥ 90% full.
+    pub fn is_nearly_full(&self, threshold: f64) -> bool {
+        self.fill_ratio() >= threshold
+    }
+
     /// Drain all items currently in the ring into a `Vec`, in FIFO order.
     ///
     /// Only safe to call when no producer/consumer pair is active (i.e., before
@@ -1235,6 +1242,31 @@ mod tests {
             ring.push(i).unwrap();
         }
         assert_eq!(ring.remaining_capacity(), 0);
+    }
+
+    // ── SpscRing::is_nearly_full ───────────────────────────────────────────────
+
+    #[test]
+    fn test_is_nearly_full_false_when_empty() {
+        let ring: SpscRing<u32, 8> = SpscRing::new();
+        assert!(!ring.is_nearly_full(0.5));
+    }
+
+    #[test]
+    fn test_is_nearly_full_true_when_at_threshold() {
+        let ring: SpscRing<u32, 8> = SpscRing::new(); // capacity = 7
+        // Push 7 items → fill_ratio = 1.0 ≥ 0.9
+        for i in 0..7u32 {
+            ring.push(i).unwrap();
+        }
+        assert!(ring.is_nearly_full(0.9));
+    }
+
+    #[test]
+    fn test_is_nearly_full_false_when_below_threshold() {
+        let ring: SpscRing<u32, 8> = SpscRing::new(); // capacity = 7
+        ring.push(1u32).unwrap(); // 1/7 ≈ 0.14
+        assert!(!ring.is_nearly_full(0.9));
     }
 
     // --- SpscRing::has_capacity ---

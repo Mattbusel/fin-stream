@@ -509,6 +509,16 @@ impl SessionAwareness {
         }
     }
 
+    /// Returns `true` if the session is in the first half (< 50%) of its duration.
+    ///
+    /// Returns `false` outside the session.
+    pub fn is_first_half(&self, utc_ms: u64) -> bool {
+        match self.session_progress(utc_ms) {
+            Some(p) => p < 0.5,
+            None => false,
+        }
+    }
+
     /// Returns `true` if the session is in the first 25% of its duration.
     ///
     /// Returns `false` outside the session.
@@ -525,6 +535,23 @@ impl SessionAwareness {
     pub fn is_last_quarter(&self, utc_ms: u64) -> bool {
         match self.session_progress(utc_ms) {
             Some(p) => p > 0.75,
+            None => false,
+        }
+    }
+
+    /// Minutes elapsed since the session opened.
+    ///
+    /// Returns `0.0` if the session is not open.
+    pub fn minutes_elapsed(&self, utc_ms: u64) -> f64 {
+        self.time_in_session_ms(utc_ms).unwrap_or(0) as f64 / 60_000.0
+    }
+
+    /// Returns `true` if within the last 60 minutes of the regular session (the "power hour").
+    ///
+    /// Returns `false` outside the session.
+    pub fn is_power_hour(&self, utc_ms: u64) -> bool {
+        match self.session_progress(utc_ms) {
+            Some(p) => p > (5.5 / 6.5),
             None => false,
         }
     }
@@ -2081,5 +2108,45 @@ mod tests {
     fn test_is_last_quarter_false_when_closed() {
         let sa = sa(MarketSession::UsEquity);
         assert!(!sa.is_last_quarter(SAT_UTC_MS));
+    }
+
+    // ── SessionAnalyzer::minutes_elapsed / is_power_hour ───────────────────
+
+    #[test]
+    fn test_minutes_elapsed_zero_at_open() {
+        let sa = sa(MarketSession::UsEquity);
+        assert_eq!(sa.minutes_elapsed(MON_OPEN_UTC_MS), 0.0);
+    }
+
+    #[test]
+    fn test_minutes_elapsed_correct_at_30_min() {
+        let sa = sa(MarketSession::UsEquity);
+        let elapsed = sa.minutes_elapsed(MON_OPEN_UTC_MS + 30 * 60_000);
+        assert!((elapsed - 30.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_minutes_elapsed_zero_when_closed() {
+        let sa = sa(MarketSession::UsEquity);
+        assert_eq!(sa.minutes_elapsed(SAT_UTC_MS), 0.0);
+    }
+
+    #[test]
+    fn test_is_power_hour_true_in_last_hour() {
+        let sa = sa(MarketSession::UsEquity);
+        // Session = 6.5h = 390min; power hour starts at 330min = 19_800_000ms
+        assert!(sa.is_power_hour(MON_OPEN_UTC_MS + 19_800_000 + 60_000));
+    }
+
+    #[test]
+    fn test_is_power_hour_false_at_open() {
+        let sa = sa(MarketSession::UsEquity);
+        assert!(!sa.is_power_hour(MON_OPEN_UTC_MS));
+    }
+
+    #[test]
+    fn test_is_power_hour_false_when_closed() {
+        let sa = sa(MarketSession::UsEquity);
+        assert!(!sa.is_power_hour(SAT_UTC_MS));
     }
 }

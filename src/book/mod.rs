@@ -1005,6 +1005,30 @@ impl OrderBook {
         let spread = self.spread()?;
         (spread / mid * Decimal::from(10_000u32)).to_f64()
     }
+
+    /// Cumulative volume within `pct` percent of the best price on a given side.
+    ///
+    /// For bids: sums quantity at all levels where `price >= best_bid * (1 - pct/100)`.
+    /// For asks: sums quantity at all levels where `price <= best_ask * (1 + pct/100)`.
+    ///
+    /// Returns `None` if the side is empty or `pct` is negative.
+    pub fn depth_at_pct(&self, side: BookSide, pct: f64) -> Option<Decimal> {
+        use rust_decimal::prelude::FromPrimitive;
+        if pct < 0.0 { return None; }
+        let pct_dec = Decimal::from_f64(pct / 100.0)?;
+        match side {
+            BookSide::Bid => {
+                let best = *self.bids.keys().next_back()?;
+                let threshold = best * (Decimal::ONE - pct_dec);
+                Some(self.bids.range(threshold..).map(|(_, q)| q).sum())
+            }
+            BookSide::Ask => {
+                let best = *self.asks.keys().next()?;
+                let threshold = best * (Decimal::ONE + pct_dec);
+                Some(self.asks.range(..=threshold).map(|(_, q)| q).sum())
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -2263,5 +2287,41 @@ mod tests {
         // spread = 2, mid = 100, ratio = 2/100 = 0.02
         let ratio = b.mid_spread_ratio().unwrap();
         assert!((ratio - 0.02).abs() < 1e-9);
+    }
+
+    // ── OrderBook::volume_imbalance ────────────────────────────────────────────
+
+    #[test]
+    fn test_volume_imbalance_none_when_empty() {
+        assert_eq!(book("X").volume_imbalance(), None);
+    }
+
+    #[test]
+    fn test_volume_imbalance_positive_when_more_bids() {
+        let mut b = book("X");
+        b.apply(delta("X", BookSide::Bid, dec!(99), dec!(3))).unwrap();
+        b.apply(delta("X", BookSide::Ask, dec!(101), dec!(1))).unwrap();
+        // (3 - 1) / (3 + 1) = 0.5
+        let imb = b.volume_imbalance().unwrap();
+        assert!((imb - 0.5).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_volume_imbalance_negative_when_more_asks() {
+        let mut b = book("X");
+        b.apply(delta("X", BookSide::Bid, dec!(99), dec!(1))).unwrap();
+        b.apply(delta("X", BookSide::Ask, dec!(101), dec!(3))).unwrap();
+        // (1 - 3) / (1 + 3) = -0.5
+        let imb = b.volume_imbalance().unwrap();
+        assert!((imb - (-0.5)).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_volume_imbalance_zero_when_equal() {
+        let mut b = book("X");
+        b.apply(delta("X", BookSide::Bid, dec!(99), dec!(2))).unwrap();
+        b.apply(delta("X", BookSide::Ask, dec!(101), dec!(2))).unwrap();
+        let imb = b.volume_imbalance().unwrap();
+        assert!(imb.abs() < 1e-9);
     }
 }
