@@ -1566,7 +1566,7 @@ impl OhlcvBar {
         if bars.is_empty() {
             return None;
         }
-        let sum: Decimal = bars.iter().map(|b| b.high - b.low).sum();
+        let sum: Decimal = bars.iter().map(|b| b.range()).sum();
         (sum / Decimal::from(bars.len() as u32)).to_f64()
     }
 
