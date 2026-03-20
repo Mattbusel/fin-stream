@@ -174,6 +174,9 @@ impl NormalizedTick {
     /// Returns the total value transferred in this trade. Useful for VWAP
     /// calculations and volume-weighted aggregations without requiring callers
     /// to multiply at every use site.
+    ///
+    /// See also [`volume_notional`](Self::volume_notional), [`notional_value`](Self::notional_value),
+    /// and [`dollar_value`](Self::dollar_value), which are all aliases.
     pub fn value(&self) -> Decimal {
         self.price * self.quantity
     }
@@ -182,6 +185,8 @@ impl NormalizedTick {
     ///
     /// Returns `now_ms - received_at_ms`, saturating at zero (never negative).
     /// Useful for staleness checks: `tick.age_ms(now) > threshold_ms`.
+    ///
+    /// See also [`quote_age_ms`](Self::quote_age_ms), which is an alias.
     pub fn age_ms(&self, now_ms: u64) -> u64 {
         now_ms.saturating_sub(self.received_at_ms)
     }
@@ -263,14 +268,18 @@ impl NormalizedTick {
     /// Returns `None` if the exchange timestamp is unavailable. A positive
     /// value indicates how long the tick took to travel from exchange to this
     /// system; negative values suggest clock skew between exchange and consumer.
+    ///
+    /// See also [`exchange_latency_ms`](Self::exchange_latency_ms), which is an alias.
     pub fn latency_ms(&self) -> Option<i64> {
         let exchange_ts = self.exchange_ts_ms? as i64;
         Some(self.received_at_ms as i64 - exchange_ts)
     }
 
     /// Notional value of this trade: `price × quantity`.
+    ///
+    /// Alias for [`value`](Self::value).
     pub fn volume_notional(&self) -> rust_decimal::Decimal {
-        self.price * self.quantity
+        self.value()
     }
 
     /// Returns `true` if this tick carries an exchange-provided timestamp.
@@ -315,14 +324,9 @@ impl NormalizedTick {
     /// Signed latency between the local receipt timestamp and the exchange
     /// timestamp, in milliseconds.
     ///
-    /// Returns `ts_ms as i64 - exchange_ts_ms as i64`.  Positive values mean
-    /// the tick arrived at the local system after the exchange stamped it
-    /// (normal network latency).  Negative values indicate clock skew between
-    /// the exchange and local clock.  Returns `None` if `exchange_ts_ms` is
-    /// absent.
+    /// Alias for [`latency_ms`](Self::latency_ms).
     pub fn exchange_latency_ms(&self) -> Option<i64> {
-        self.exchange_ts_ms
-            .map(|e| self.received_at_ms as i64 - e as i64)
+        self.latency_ms()
     }
 
     /// Returns `true` if the notional value of this trade (`price × quantity`)
@@ -374,9 +378,9 @@ impl NormalizedTick {
 
     /// Signed price difference: `self.price - other.price`.
     ///
-    /// Positive when this tick's price is higher than the other's.
+    /// Alias for [`price_move_from`](Self::price_move_from).
     pub fn price_diff_from(&self, other: &NormalizedTick) -> Decimal {
-        self.price - other.price
+        self.price_move_from(other)
     }
 
     /// Returns `true` if the trade quantity is strictly less than `threshold`.
@@ -407,19 +411,23 @@ impl NormalizedTick {
 
     /// Age of this tick in milliseconds: `now_ms - received_at_ms`.
     ///
-    /// Returns `0` if `now_ms` is before `received_at_ms`.
+    /// Alias for [`age_ms`](Self::age_ms).
     pub fn quote_age_ms(&self, now_ms: u64) -> u64 {
-        now_ms.saturating_sub(self.received_at_ms)
+        self.age_ms(now_ms)
     }
 
     /// Notional value of this tick: `price × quantity`.
+    ///
+    /// Alias for [`value`](Self::value).
     pub fn notional_value(&self) -> Decimal {
-        self.price * self.quantity
+        self.value()
     }
 
     /// Returns `true` if the notional value (`price × quantity`) exceeds `threshold`.
+    ///
+    /// Alias for [`is_notional_large_trade`](Self::is_notional_large_trade).
     pub fn is_high_value_tick(&self, threshold: Decimal) -> bool {
-        self.notional_value() > threshold
+        self.is_notional_large_trade(threshold)
     }
 
     /// Returns the trade side as a string slice: `"buy"`, `"sell"`, or `None`.
@@ -432,8 +440,10 @@ impl NormalizedTick {
     }
 
     /// Returns `true` if this tick's price is strictly above `reference`.
+    ///
+    /// Alias for [`is_above`](Self::is_above).
     pub fn is_above_price(&self, reference: Decimal) -> bool {
-        self.price > reference
+        self.is_above(reference)
     }
 
     /// Signed price change relative to `reference`: `self.price - reference`.
@@ -447,13 +457,17 @@ impl NormalizedTick {
     }
 
     /// Returns `true` if this tick's price exactly equals `target`.
+    ///
+    /// Alias for [`is_at`](Self::is_at).
     pub fn is_at_price(&self, target: Decimal) -> bool {
-        self.price == target
+        self.is_at(target)
     }
 
     /// Returns `true` if this tick's price is strictly below `reference`.
+    ///
+    /// Alias for [`is_below`](Self::is_below).
     pub fn is_below_price(&self, reference: Decimal) -> bool {
-        self.price < reference
+        self.is_below(reference)
     }
 
     /// Returns `true` if this tick's price is divisible by `step` with no remainder.
@@ -487,22 +501,24 @@ impl NormalizedTick {
     }
 
     /// Returns `true` if this tick was received within `threshold_ms` of `now_ms`.
+    ///
+    /// Alias for [`is_fresh(now_ms, threshold_ms)`](Self::is_fresh).
     pub fn is_recent(&self, threshold_ms: u64, now_ms: u64) -> bool {
-        now_ms.saturating_sub(self.received_at_ms) <= threshold_ms
+        self.is_fresh(now_ms, threshold_ms)
     }
 
     /// Returns `true` if this tick is on the buy side.
     ///
-    /// Returns `false` if the side is `Sell` or `None`.
+    /// Alias for [`is_buy`](Self::is_buy).
     pub fn is_buy_side(&self) -> bool {
-        self.side == Some(TradeSide::Buy)
+        self.is_buy()
     }
 
     /// Returns `true` if this tick is on the sell side.
     ///
-    /// Returns `false` if the side is `Buy` or `None`.
+    /// Alias for [`is_sell`](Self::is_sell).
     pub fn is_sell_side(&self) -> bool {
-        self.side == Some(TradeSide::Sell)
+        self.is_sell()
     }
 
     /// Returns `true` if this tick's quantity is zero (may indicate a cancel or correction).
@@ -589,8 +605,10 @@ impl NormalizedTick {
     }
 
     /// Dollar (notional) value of this tick: `price * quantity`.
+    ///
+    /// Alias for [`value`](Self::value).
     pub fn dollar_value(&self) -> Decimal {
-        self.price * self.quantity
+        self.value()
     }
 
     /// Contract value using a futures/options multiplier: `price * quantity * multiplier`.
@@ -626,6 +644,30 @@ impl NormalizedTick {
             return None;
         }
         Some((bid.price + ask.price) / Decimal::TWO)
+    }
+
+    /// Total quantity across all buy-initiated ticks in a slice.
+    ///
+    /// Filters ticks where `side == Some(TradeSide::Buy)` and sums their quantities.
+    /// Returns `Decimal::ZERO` for an empty slice or one with no buy ticks.
+    pub fn buy_volume(ticks: &[NormalizedTick]) -> Decimal {
+        ticks
+            .iter()
+            .filter(|t| t.side == Some(TradeSide::Buy))
+            .map(|t| t.quantity)
+            .sum()
+    }
+
+    /// Total quantity across all sell-initiated ticks in a slice.
+    ///
+    /// Filters ticks where `side == Some(TradeSide::Sell)` and sums their quantities.
+    /// Returns `Decimal::ZERO` for an empty slice or one with no sell ticks.
+    pub fn sell_volume(ticks: &[NormalizedTick]) -> Decimal {
+        ticks
+            .iter()
+            .filter(|t| t.side == Some(TradeSide::Sell))
+            .map(|t| t.quantity)
+            .sum()
     }
 
 }
@@ -2227,5 +2269,66 @@ mod tests {
         let (p, q) = tick.as_price_level();
         assert_eq!(p, rust_decimal_macros::dec!(100));
         assert_eq!(q, rust_decimal_macros::dec!(1));
+    }
+
+    // ── buy_volume / sell_volume ───────────────────────────────────────────────
+
+    fn make_sided_tick(qty: rust_decimal::Decimal, side: Option<TradeSide>) -> NormalizedTick {
+        NormalizedTick {
+            exchange: Exchange::Binance,
+            symbol: "BTCUSDT".into(),
+            price: rust_decimal_macros::dec!(100),
+            quantity: qty,
+            side,
+            trade_id: None,
+            exchange_ts_ms: None,
+            received_at_ms: 0,
+        }
+    }
+
+    #[test]
+    fn test_buy_volume_zero_for_empty_slice() {
+        assert_eq!(NormalizedTick::buy_volume(&[]), rust_decimal::Decimal::ZERO);
+    }
+
+    #[test]
+    fn test_buy_volume_sums_only_buy_ticks() {
+        let buy1 = make_sided_tick(rust_decimal_macros::dec!(2), Some(TradeSide::Buy));
+        let sell = make_sided_tick(rust_decimal_macros::dec!(3), Some(TradeSide::Sell));
+        let buy2 = make_sided_tick(rust_decimal_macros::dec!(5), Some(TradeSide::Buy));
+        let unknown = make_sided_tick(rust_decimal_macros::dec!(10), None);
+        assert_eq!(
+            NormalizedTick::buy_volume(&[buy1, sell, buy2, unknown]),
+            rust_decimal_macros::dec!(7)
+        );
+    }
+
+    #[test]
+    fn test_sell_volume_zero_for_empty_slice() {
+        assert_eq!(NormalizedTick::sell_volume(&[]), rust_decimal::Decimal::ZERO);
+    }
+
+    #[test]
+    fn test_sell_volume_sums_only_sell_ticks() {
+        let buy = make_sided_tick(rust_decimal_macros::dec!(2), Some(TradeSide::Buy));
+        let sell1 = make_sided_tick(rust_decimal_macros::dec!(3), Some(TradeSide::Sell));
+        let sell2 = make_sided_tick(rust_decimal_macros::dec!(4), Some(TradeSide::Sell));
+        assert_eq!(
+            NormalizedTick::sell_volume(&[buy, sell1, sell2]),
+            rust_decimal_macros::dec!(7)
+        );
+    }
+
+    #[test]
+    fn test_buy_sell_volumes_dont_include_unknown_side() {
+        let buy = make_sided_tick(rust_decimal_macros::dec!(5), Some(TradeSide::Buy));
+        let sell = make_sided_tick(rust_decimal_macros::dec!(3), Some(TradeSide::Sell));
+        let unknown = make_sided_tick(rust_decimal_macros::dec!(2), None);
+        let ticks = [buy, sell, unknown];
+        let total: rust_decimal::Decimal = ticks.iter().map(|t| t.quantity).sum();
+        let accounted = NormalizedTick::buy_volume(&ticks) + NormalizedTick::sell_volume(&ticks);
+        // 5 + 3 = 8, total = 10 (unknown 2 not counted)
+        assert_eq!(accounted, rust_decimal_macros::dec!(8));
+        assert!(accounted < total);
     }
 }

@@ -993,6 +993,22 @@ impl OhlcvBar {
         bars.iter().filter(|b| b.is_bearish()).count()
     }
 
+    /// Length of the current bullish streak at the end of `bars`.
+    ///
+    /// Counts consecutive bullish bars (`close > open`) from the tail of the
+    /// slice. Returns `0` if the last bar is not bullish or the slice is empty.
+    pub fn bullish_streak(bars: &[OhlcvBar]) -> usize {
+        bars.iter().rev().take_while(|b| b.is_bullish()).count()
+    }
+
+    /// Length of the current bearish streak at the end of `bars`.
+    ///
+    /// Counts consecutive bearish bars (`close < open`) from the tail of the
+    /// slice. Returns `0` if the last bar is not bearish or the slice is empty.
+    pub fn bearish_streak(bars: &[OhlcvBar]) -> usize {
+        bars.iter().rev().take_while(|b| b.is_bearish()).count()
+    }
+
     /// Fraction of bullish bars in a slice: `bullish_count / total`.
     ///
     /// Returns `None` if the slice is empty. Result is in `[0.0, 1.0]`.
@@ -3457,6 +3473,36 @@ mod tests {
         let bear = make_ohlcv_bar(dec!(108), dec!(110), dec!(90), dec!(95));
         let wr = OhlcvBar::win_rate(&[bull, bear]).unwrap();
         assert!((wr - 0.5).abs() < 1e-9);
+    }
+
+    // ── bullish_streak / bearish_streak ──────────────────────────────────────
+
+    #[test]
+    fn test_bullish_streak_zero_for_empty_slice() {
+        assert_eq!(OhlcvBar::bullish_streak(&[]), 0);
+    }
+
+    #[test]
+    fn test_bullish_streak_zero_when_last_bar_bearish() {
+        let bull = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(108));
+        let bear = make_ohlcv_bar(dec!(108), dec!(110), dec!(90), dec!(95));
+        assert_eq!(OhlcvBar::bullish_streak(&[bull, bear]), 0);
+    }
+
+    #[test]
+    fn test_bullish_streak_counts_consecutive_tail() {
+        let bear = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(90)); // bearish
+        let bull1 = make_ohlcv_bar(dec!(90), dec!(105), dec!(88), dec!(102)); // bullish
+        let bull2 = make_ohlcv_bar(dec!(102), dec!(115), dec!(100), dec!(110)); // bullish
+        assert_eq!(OhlcvBar::bullish_streak(&[bear, bull1, bull2]), 2);
+    }
+
+    #[test]
+    fn test_bearish_streak_counts_consecutive_tail() {
+        let bull = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(108)); // bullish
+        let bear1 = make_ohlcv_bar(dec!(108), dec!(109), dec!(90), dec!(95)); // bearish
+        let bear2 = make_ohlcv_bar(dec!(95), dec!(96), dec!(80), dec!(85)); // bearish
+        assert_eq!(OhlcvBar::bearish_streak(&[bull, bear1, bear2]), 2);
     }
 
     // ── max_drawdown ──────────────────────────────────────────────────────────

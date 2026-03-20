@@ -378,21 +378,22 @@ impl OrderBook {
     ///
     /// Returns `None` if either side of the book is empty or the mid-price is zero.
     pub fn bid_ask_spread_bps(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
         let bid = self.best_bid()?.price;
         let ask = self.best_ask()?.price;
         let mid = (bid + ask) / Decimal::from(2);
         if mid.is_zero() {
             return None;
         }
-        let spread = ask - bid;
-        let spread_f: f64 = spread.to_string().parse().ok()?;
-        let mid_f: f64 = mid.to_string().parse().ok()?;
+        let spread_f = (ask - bid).to_f64()?;
+        let mid_f = mid.to_f64()?;
         Some(spread_f / mid_f * 10_000.0)
     }
 
     /// Total resting quantity across all bid levels.
     ///
     /// Alias for [`bid_volume_total`](Self::bid_volume_total).
+    #[deprecated(since = "2.2.0", note = "Use `bid_volume_total()` instead")]
     pub fn total_bid_volume(&self) -> Decimal {
         self.bid_volume_total()
     }
@@ -400,6 +401,7 @@ impl OrderBook {
     /// Total resting quantity across all ask levels.
     ///
     /// Alias for [`ask_volume_total`](Self::ask_volume_total).
+    #[deprecated(since = "2.2.0", note = "Use `ask_volume_total()` instead")]
     pub fn total_ask_volume(&self) -> Decimal {
         self.ask_volume_total()
     }

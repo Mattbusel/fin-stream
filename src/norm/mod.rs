@@ -284,6 +284,33 @@ impl MinMaxNormalizer {
         Some(sum / Decimal::from(self.window.len() as u64))
     }
 
+    /// Population variance of the current window: `Σ(x − mean)² / n`.
+    ///
+    /// Returns `None` if the window has fewer than 2 observations.
+    pub fn variance(&self) -> Option<Decimal> {
+        let n = self.window.len();
+        if n < 2 {
+            return None;
+        }
+        let mean = self.mean()?;
+        let variance = self
+            .window
+            .iter()
+            .map(|&v| { let d = v - mean; d * d })
+            .sum::<Decimal>()
+            / Decimal::from(n as u64);
+        Some(variance)
+    }
+
+    /// Population standard deviation of the current window: `sqrt(variance)`.
+    ///
+    /// Returns `None` if the window has fewer than 2 observations or if the
+    /// variance cannot be converted to `f64`.
+    pub fn std_dev(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        self.variance()?.to_f64().map(f64::sqrt)
+    }
+
     /// Feed a slice of values into the window and return normalized forms of each.
     ///
     /// Each value in `values` is first passed through [`update`](Self::update) to
@@ -994,6 +1021,55 @@ mod tests {
         n.update(dec!(200));
         n.update(dec!(300)); // oldest (100) evicted
         assert_eq!(n.latest(), Some(dec!(300)));
+    }
+
+    // ── MinMaxNormalizer::variance / std_dev ─────────────────────────────────
+
+    #[test]
+    fn test_minmax_variance_none_fewer_than_2_obs() {
+        let mut n = norm(5);
+        n.update(dec!(10));
+        assert!(n.variance().is_none());
+    }
+
+    #[test]
+    fn test_minmax_variance_zero_all_same() {
+        let mut n = norm(4);
+        for _ in 0..4 { n.update(dec!(5)); }
+        assert_eq!(n.variance(), Some(dec!(0)));
+    }
+
+    #[test]
+    fn test_minmax_variance_correct_value() {
+        let mut n = norm(4);
+        // values [2, 4, 4, 4, 5, 5, 7, 9] — classic example, pop variance = 4
+        // use window=4, push last 4: [5, 5, 7, 9], mean=6.5, var=2.75
+        for v in [dec!(5), dec!(5), dec!(7), dec!(9)] { n.update(v); }
+        let var = n.variance().unwrap();
+        // mean = (5+5+7+9)/4 = 6.5; deviations: -1.5,-1.5,0.5,2.5; sum_sq_devs: 2.25+2.25+0.25+6.25=11; var=11/4=2.75
+        assert!((var.to_f64().unwrap() - 2.75).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_minmax_std_dev_none_fewer_than_2_obs() {
+        let n = norm(4);
+        assert!(n.std_dev().is_none());
+    }
+
+    #[test]
+    fn test_minmax_std_dev_zero_all_same() {
+        let mut n = norm(3);
+        for _ in 0..3 { n.update(dec!(7)); }
+        assert_eq!(n.std_dev(), Some(0.0));
+    }
+
+    #[test]
+    fn test_minmax_std_dev_sqrt_of_variance() {
+        let mut n = norm(4);
+        for v in [dec!(5), dec!(5), dec!(7), dec!(9)] { n.update(v); }
+        let sd = n.std_dev().unwrap();
+        let var = n.variance().unwrap().to_f64().unwrap();
+        assert!((sd - var.sqrt()).abs() < 1e-9);
     }
 
     // ── MinMaxNormalizer::kurtosis ────────────────────────────────────────────

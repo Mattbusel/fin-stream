@@ -492,22 +492,17 @@ impl HealthMonitor {
     }
 
     /// Count of feeds currently in `Stale` status.
+    ///
+    /// Alias for [`stale_count`](Self::stale_count).
     pub fn total_stale_count(&self) -> usize {
-        self.feeds.iter().filter(|e| e.status == HealthStatus::Stale).count()
+        self.stale_count()
     }
 
     /// IDs of all feeds that are Stale or Unknown — feeds that require attention.
     ///
-    /// Healthy feeds are excluded. The returned list is sorted.
+    /// Alias for [`unhealthy_feeds`](Self::unhealthy_feeds).
     pub fn feeds_needing_check(&self) -> Vec<String> {
-        let mut ids: Vec<String> = self
-            .feeds
-            .iter()
-            .filter(|e| e.status != HealthStatus::Healthy)
-            .map(|e| e.feed_id.clone())
-            .collect();
-        ids.sort();
-        ids
+        self.unhealthy_feeds()
     }
 
     /// Average age in milliseconds across all feeds that have received at least one tick.
@@ -560,11 +555,10 @@ impl HealthMonitor {
     }
 
     /// Number of feeds currently in the [`HealthStatus::Unknown`] state.
+    ///
+    /// Alias for [`unknown_count`](Self::unknown_count).
     pub fn unknown_feed_count(&self) -> usize {
-        self.feeds
-            .iter()
-            .filter(|e| e.status == HealthStatus::Unknown)
-            .count()
+        self.unknown_count()
     }
 
     /// All feeds whose current status exactly matches `status`.
@@ -595,13 +589,9 @@ impl HealthMonitor {
 
     /// Fraction of registered feeds that are currently `Healthy`: `healthy / total`.
     ///
-    /// Returns `0.0` when no feeds are registered.
+    /// Alias for [`ratio_healthy`](Self::ratio_healthy).
     pub fn healthy_ratio(&self) -> f64 {
-        let total = self.feeds.len();
-        if total == 0 {
-            return 0.0;
-        }
-        self.healthy_count() as f64 / total as f64
+        self.ratio_healthy()
     }
 
     /// The feed with the highest lifetime tick count, or `None` if no feeds
@@ -629,8 +619,10 @@ impl HealthMonitor {
 
     /// Returns `true` if at least one registered feed currently has
     /// [`HealthStatus::Stale`] status.
+    ///
+    /// Alias for [`is_any_stale`](Self::is_any_stale).
     pub fn is_any_feed_stale(&self) -> bool {
-        self.feeds.iter().any(|e| e.status == HealthStatus::Stale)
+        self.is_any_stale()
     }
 
     /// Returns `true` if every registered feed has received at least one
@@ -651,13 +643,9 @@ impl HealthMonitor {
 
     /// Average tick count across all registered feeds.
     ///
-    /// Returns `0.0` when no feeds are registered.
+    /// Alias for [`avg_tick_count`](Self::avg_tick_count).
     pub fn average_tick_count(&self) -> f64 {
-        let total = self.feeds.len();
-        if total == 0 {
-            return 0.0;
-        }
-        self.total_tick_count() as f64 / total as f64
+        self.avg_tick_count()
     }
 
     /// Count of feeds whose `tick_count` exceeds `threshold`.
@@ -708,15 +696,17 @@ impl HealthMonitor {
     }
 
     /// Returns `true` if any registered feed has [`HealthStatus::Unknown`] status.
+    ///
+    /// Alias for [`has_any_unknown`](Self::has_any_unknown).
     pub fn any_unknown(&self) -> bool {
-        self.feeds.iter().any(|e| e.status == HealthStatus::Unknown)
+        self.has_any_unknown()
     }
 
     /// Count of feeds in [`HealthStatus::Stale`] state (degraded but not unknown).
     ///
-    /// Degraded = stale. Excludes healthy and unknown feeds.
+    /// Alias for [`stale_count`](Self::stale_count).
     pub fn degraded_count(&self) -> usize {
-        self.feeds.iter().filter(|e| e.status == HealthStatus::Stale).count()
+        self.stale_count()
     }
 
     /// Milliseconds since the last heartbeat for `feed_id` at `now_ms`.
