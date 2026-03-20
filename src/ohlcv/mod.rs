@@ -2192,6 +2192,82 @@ impl OhlcvBar {
         Some(values.iter().sum::<f64>() / values.len() as f64)
     }
 
+    /// Fraction of total volume that occurred on up-bars (close > open).
+    ///
+    /// Returns `None` if total volume is zero or the slice is empty.
+    pub fn up_volume_fraction(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() {
+            return None;
+        }
+        let total: Decimal = bars.iter().map(|b| b.volume).sum();
+        if total.is_zero() {
+            return None;
+        }
+        let up_vol: Decimal = bars.iter()
+            .filter(|b| b.close > b.open)
+            .map(|b| b.volume)
+            .sum();
+        (up_vol / total).to_f64()
+    }
+
+    /// Average upper wick as a fraction of total bar range.
+    ///
+    /// Upper wick = high − max(open, close). Returns `None` if all bars have
+    /// zero range or the slice is empty.
+    pub fn tail_upper_fraction(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let fracs: Vec<f64> = bars.iter().filter_map(|b| {
+            let range = b.range();
+            if range.is_zero() { return None; }
+            let body_top = b.open.max(b.close);
+            let upper_wick = b.high - body_top;
+            (upper_wick / range).to_f64()
+        }).collect();
+        if fracs.is_empty() {
+            return None;
+        }
+        Some(fracs.iter().sum::<f64>() / fracs.len() as f64)
+    }
+
+    /// Average lower wick as a fraction of total bar range.
+    ///
+    /// Lower wick = min(open, close) − low. Returns `None` if all bars have
+    /// zero range or the slice is empty.
+    pub fn tail_lower_fraction(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let fracs: Vec<f64> = bars.iter().filter_map(|b| {
+            let range = b.range();
+            if range.is_zero() { return None; }
+            let body_bot = b.open.min(b.close);
+            let lower_wick = body_bot - b.low;
+            (lower_wick / range).to_f64()
+        }).collect();
+        if fracs.is_empty() {
+            return None;
+        }
+        Some(fracs.iter().sum::<f64>() / fracs.len() as f64)
+    }
+
+    /// Standard deviation of bar ranges (high − low).
+    ///
+    /// Measures consistency of bar volatility. Returns `None` if fewer than 2
+    /// bars are provided.
+    pub fn range_std_dev(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.len() < 2 {
+            return None;
+        }
+        let vals: Vec<f64> = bars.iter().filter_map(|b| b.range().to_f64()).collect();
+        if vals.len() < 2 {
+            return None;
+        }
+        let n = vals.len() as f64;
+        let mean = vals.iter().sum::<f64>() / n;
+        let variance = vals.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / (n - 1.0);
+        Some(variance.sqrt())
+    }
+
 }
 
 impl std::fmt::Display for OhlcvBar {
@@ -6714,5 +6790,59 @@ mod tests {
         let mut b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105)); b.volume = dec!(100);
         let r = OhlcvBar::volume_per_range(&[b]).unwrap();
         assert!(r > 0.0, "expected positive volume/range, got {}", r);
+    }
+
+    #[test]
+    fn test_up_volume_fraction_none_for_empty() {
+        assert!(OhlcvBar::up_volume_fraction(&[]).is_none());
+    }
+
+    #[test]
+    fn test_up_volume_fraction_all_up() {
+        // close > open for both bars
+        let mut b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(95), dec!(108)); b1.volume = dec!(50);
+        let mut b2 = make_ohlcv_bar(dec!(105), dec!(115), dec!(100), dec!(112)); b2.volume = dec!(50);
+        let f = OhlcvBar::up_volume_fraction(&[b1, b2]).unwrap();
+        assert!((f - 1.0).abs() < 1e-9, "all up bars → fraction=1.0, got {}", f);
+    }
+
+    #[test]
+    fn test_tail_upper_fraction_none_for_empty() {
+        assert!(OhlcvBar::tail_upper_fraction(&[]).is_none());
+    }
+
+    #[test]
+    fn test_tail_upper_fraction_correct() {
+        // bar: open=100, high=110, low=90, close=105 → body_top=105, upper_wick=5, range=20 → 0.25
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let f = OhlcvBar::tail_upper_fraction(&[b]).unwrap();
+        assert!((f - 0.25).abs() < 1e-9, "expected 0.25, got {}", f);
+    }
+
+    #[test]
+    fn test_tail_lower_fraction_none_for_empty() {
+        assert!(OhlcvBar::tail_lower_fraction(&[]).is_none());
+    }
+
+    #[test]
+    fn test_tail_lower_fraction_correct() {
+        // bar: open=100, high=110, low=90, close=105 → body_bot=100, lower_wick=10, range=20 → 0.5
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let f = OhlcvBar::tail_lower_fraction(&[b]).unwrap();
+        assert!((f - 0.5).abs() < 1e-9, "expected 0.5, got {}", f);
+    }
+
+    #[test]
+    fn test_range_std_dev_none_for_single_bar() {
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        assert!(OhlcvBar::range_std_dev(&[b]).is_none());
+    }
+
+    #[test]
+    fn test_range_std_dev_zero_for_equal_ranges() {
+        let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let b2 = make_ohlcv_bar(dec!(200), dec!(210), dec!(190), dec!(205));
+        let sd = OhlcvBar::range_std_dev(&[b1, b2]).unwrap();
+        assert!(sd.abs() < 1e-9, "equal ranges → std_dev=0, got {}", sd);
     }
 }

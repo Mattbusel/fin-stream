@@ -1049,6 +1049,33 @@ impl MinMaxNormalizer {
         (value - med).to_f64()
     }
 
+    /// Momentum: difference between the latest and oldest value in the window.
+    ///
+    /// Positive = window trended up; negative = trended down. Returns `None`
+    /// if fewer than 2 values are in the window.
+    pub fn momentum(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 {
+            return None;
+        }
+        let oldest = *self.window.front()?;
+        let latest = *self.window.back()?;
+        (latest - oldest).to_f64()
+    }
+
+    /// Rank of `value` within the current window, normalised to `[0.0, 1.0]`.
+    ///
+    /// 0.0 means `value` is ≤ all window values; 1.0 means it is ≥ all window
+    /// values. Returns `None` if the window is empty.
+    pub fn value_rank(&self, value: Decimal) -> Option<f64> {
+        if self.window.is_empty() {
+            return None;
+        }
+        let n = self.window.len();
+        let below = self.window.iter().filter(|&&v| v < value).count();
+        Some(below as f64 / n as f64)
+    }
+
 }
 
 #[cfg(test)]
@@ -2518,6 +2545,38 @@ mod tests {
         let d = n.distance_from_median(dec!(5)).unwrap();
         assert!(d > 0.0, "value above median should give positive distance, got {}", d);
     }
+
+    #[test]
+    fn test_minmax_momentum_none_for_single_value() {
+        let mut n = norm(5);
+        n.update(dec!(10));
+        assert!(n.momentum().is_none());
+    }
+
+    #[test]
+    fn test_minmax_momentum_positive_for_rising_window() {
+        let mut n = norm(3);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        let m = n.momentum().unwrap();
+        assert!(m > 0.0, "rising window → positive momentum, got {}", m);
+    }
+
+    #[test]
+    fn test_minmax_value_rank_none_for_empty() {
+        assert!(norm(4).value_rank(dec!(5)).is_none());
+    }
+
+    #[test]
+    fn test_minmax_value_rank_extremes() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        // value below all: rank = 0/4 = 0.0
+        let low = n.value_rank(dec!(0)).unwrap();
+        assert!((low - 0.0).abs() < 1e-9, "got {}", low);
+        // value above all: rank = 4/4 = 1.0
+        let high = n.value_rank(dec!(5)).unwrap();
+        assert!((high - 1.0).abs() < 1e-9, "got {}", high);
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -3629,6 +3688,33 @@ impl ZScoreNormalizer {
         use rust_decimal::prelude::ToPrimitive;
         let med = self.median()?;
         (value - med).to_f64()
+    }
+
+    /// Momentum: difference between the latest and oldest value in the window.
+    ///
+    /// Positive = window trended up; negative = trended down. Returns `None`
+    /// if fewer than 2 values are in the window.
+    pub fn momentum(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 {
+            return None;
+        }
+        let oldest = *self.window.front()?;
+        let latest = *self.window.back()?;
+        (latest - oldest).to_f64()
+    }
+
+    /// Rank of `value` within the current window, normalised to `[0.0, 1.0]`.
+    ///
+    /// 0.0 means `value` is ≤ all window values; 1.0 means it is ≥ all window
+    /// values. Returns `None` if the window is empty.
+    pub fn value_rank(&self, value: Decimal) -> Option<f64> {
+        if self.window.is_empty() {
+            return None;
+        }
+        let n = self.window.len();
+        let below = self.window.iter().filter(|&&v| v < value).count();
+        Some(below as f64 / n as f64)
     }
 
 }
@@ -5385,5 +5471,35 @@ mod zscore_stability_tests {
         for v in [dec!(1), dec!(2), dec!(3), dec!(4), dec!(5)] { n.update(v); }
         let d = n.distance_from_median(dec!(3)).unwrap();
         assert!((d - 0.0).abs() < 1e-9, "distance from median=3 should be 0, got {}", d);
+    }
+
+    #[test]
+    fn test_zscore_momentum_none_for_single_value() {
+        let mut n = znorm(5);
+        n.update(dec!(10));
+        assert!(n.momentum().is_none());
+    }
+
+    #[test]
+    fn test_zscore_momentum_positive_for_rising_window() {
+        let mut n = znorm(3);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        let m = n.momentum().unwrap();
+        assert!(m > 0.0, "rising window → positive momentum, got {}", m);
+    }
+
+    #[test]
+    fn test_zscore_value_rank_none_for_empty() {
+        assert!(znorm(4).value_rank(dec!(5)).is_none());
+    }
+
+    #[test]
+    fn test_zscore_value_rank_extremes() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let low = n.value_rank(dec!(0)).unwrap();
+        assert!((low - 0.0).abs() < 1e-9, "got {}", low);
+        let high = n.value_rank(dec!(5)).unwrap();
+        assert!((high - 1.0).abs() < 1e-9, "got {}", high);
     }
 }

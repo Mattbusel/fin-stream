@@ -1759,7 +1759,40 @@ impl NormalizedTick {
         Some(same as f64 / total as f64)
     }
 
+    /// Ratio of average buy quantity to average sell quantity.
+    ///
+    /// Returns `None` if there are no buy ticks or no sell ticks, or if avg
+    /// sell quantity is zero.
+    pub fn buy_sell_size_ratio(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let avg_buy = Self::avg_buy_quantity(ticks)?;
+        let avg_sell = Self::avg_sell_quantity(ticks)?;
+        if avg_sell.is_zero() {
+            return None;
+        }
+        (avg_buy / avg_sell).to_f64()
+    }
+
+    /// Standard deviation of trade quantities across all ticks.
+    ///
+    /// Returns `None` if fewer than 2 ticks are provided.
+    pub fn trade_size_dispersion(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 2 {
+            return None;
+        }
+        let vals: Vec<f64> = ticks.iter().filter_map(|t| t.quantity.to_f64()).collect();
+        if vals.len() < 2 {
+            return None;
+        }
+        let n = vals.len() as f64;
+        let mean = vals.iter().sum::<f64>() / n;
+        let variance = vals.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / (n - 1.0);
+        Some(variance.sqrt())
+    }
+
 }
+
 
 impl std::fmt::Display for NormalizedTick {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -5281,5 +5314,56 @@ mod tests {
         ];
         let bias = NormalizedTick::tick_direction_bias(&ticks).unwrap();
         assert!((bias - 1.0).abs() < 1e-9, "monotone should give bias=1.0, got {}", bias);
+    }
+
+    #[test]
+    fn test_buy_sell_size_ratio_none_for_empty() {
+        assert!(NormalizedTick::buy_sell_size_ratio(&[]).is_none());
+    }
+
+    #[test]
+    fn test_buy_sell_size_ratio_positive() {
+        use rust_decimal_macros::dec;
+        let buy = NormalizedTick { side: Some(TradeSide::Buy), ..make_tick_pq(dec!(100), dec!(4)) };
+        let sell = NormalizedTick { side: Some(TradeSide::Sell), ..make_tick_pq(dec!(100), dec!(2)) };
+        let r = NormalizedTick::buy_sell_size_ratio(&[buy, sell]).unwrap();
+        assert!((r - 2.0).abs() < 1e-6, "ratio should be 2.0, got {}", r);
+    }
+
+    #[test]
+    fn test_trade_size_dispersion_none_for_single_tick() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![make_tick_pq(dec!(100), dec!(5))];
+        assert!(NormalizedTick::trade_size_dispersion(&ticks).is_none());
+    }
+
+    #[test]
+    fn test_trade_size_dispersion_zero_for_identical() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(5)),
+            make_tick_pq(dec!(101), dec!(5)),
+            make_tick_pq(dec!(102), dec!(5)),
+        ];
+        let d = NormalizedTick::trade_size_dispersion(&ticks).unwrap();
+        assert!(d.abs() < 1e-9, "identical sizes → dispersion=0, got {}", d);
+    }
+
+    #[test]
+    fn test_first_last_price_none_for_empty() {
+        assert!(NormalizedTick::first_price(&[]).is_none());
+        assert!(NormalizedTick::last_price(&[]).is_none());
+    }
+
+    #[test]
+    fn test_first_last_price_correct() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(105), dec!(1)),
+            make_tick_pq(dec!(110), dec!(1)),
+        ];
+        assert_eq!(NormalizedTick::first_price(&ticks).unwrap(), dec!(100));
+        assert_eq!(NormalizedTick::last_price(&ticks).unwrap(), dec!(110));
     }
 }
