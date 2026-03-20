@@ -276,6 +276,16 @@ impl OrderBook {
         Some((self.best_bid()?, self.best_ask()?))
     }
 
+    /// Full displayed price range: `best_ask - worst_displayed_bid`.
+    ///
+    /// Wider than `spread()` which only uses the top-of-book.
+    /// Returns `None` if either side is empty.
+    pub fn price_range(&self) -> Option<Decimal> {
+        let worst_bid = *self.bids.iter().next()?.0; // lowest bid price
+        let best_ask = *self.asks.iter().next()?.0;  // lowest ask price
+        Some(best_ask - worst_bid)
+    }
+
     /// Spread.
     pub fn spread(&self) -> Option<Decimal> {
         let bid = self.best_bid()?.price;
@@ -316,6 +326,18 @@ impl OrderBook {
     /// Total resting quantity across all ask levels.
     pub fn ask_volume_total(&self) -> Decimal {
         self.asks.values().copied().sum()
+    }
+
+    /// Total notional value (`Σ price × quantity`) across all levels on the
+    /// given side.
+    ///
+    /// Useful for comparing the dollar value committed to each side of the
+    /// book, rather than just the raw quantity.
+    pub fn total_notional(&self, side: BookSide) -> Decimal {
+        match side {
+            BookSide::Bid => self.bids.iter().map(|(p, q)| *p * *q).sum(),
+            BookSide::Ask => self.asks.iter().map(|(p, q)| *p * *q).sum(),
+        }
     }
 
     /// Spread as a percentage of the mid-price: `spread / mid × 100`.

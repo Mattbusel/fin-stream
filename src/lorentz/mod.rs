@@ -222,6 +222,15 @@ impl LorentzTransform {
         (1.0 - beta * beta).sqrt().recip()
     }
 
+    /// Relativistic momentum: `m × γ × β` (in natural units where `c = 1`).
+    ///
+    /// Returns the momentum of a particle with rest mass `mass` moving at
+    /// the velocity encoded in this transform. Negative mass is allowed for
+    /// analytical purposes but physically meaningless.
+    pub fn relativistic_momentum(&self, mass: f64) -> f64 {
+        mass * self.gamma * self.beta
+    }
+
     /// Computes beta (v/c) from a Lorentz gamma factor. Returns an error if `gamma < 1.0`.
     pub fn beta_from_gamma(gamma: f64) -> Result<f64, StreamError> {
         if gamma.is_nan() || gamma < 1.0 {

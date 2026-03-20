@@ -92,6 +92,17 @@ impl HealthMonitor {
             .unwrap_or(false)
     }
 
+    /// Register multiple feeds in one call.
+    ///
+    /// Each feed in `ids` is registered with the same optional staleness
+    /// threshold. Equivalent to calling [`register`](Self::register) for
+    /// each ID individually.
+    pub fn register_many(&self, ids: &[&str], stale_threshold_ms: Option<u64>) {
+        for id in ids {
+            self.register(*id, stale_threshold_ms);
+        }
+    }
+
     /// Register a feed with optional custom staleness threshold.
     pub fn register(&self, feed_id: impl Into<String>, stale_threshold_ms: Option<u64>) {
         let id = feed_id.into();

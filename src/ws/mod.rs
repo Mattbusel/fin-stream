@@ -61,6 +61,14 @@ impl WsStats {
     pub fn total_data_mb(&self) -> f64 {
         self.total_bytes_received as f64 / 1_048_576.0
     }
+
+    /// Returns `true` if the current message rate is below `min_rate` (msgs/s).
+    ///
+    /// Returns `true` when `elapsed_ms` is zero (no time elapsed → rate = 0).
+    /// Useful for detecting stalled or silent feeds.
+    pub fn is_idle(&self, elapsed_ms: u64, min_rate: f64) -> bool {
+        self.message_rate(elapsed_ms) < min_rate
+    }
 }
 
 /// Reconnection policy for a WebSocket feed.

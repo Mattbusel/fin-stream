@@ -90,6 +90,17 @@ impl SessionAwareness {
         Self { session }
     }
 
+    /// Returns `true` if `utc_ms` falls on a Saturday or Sunday (UTC).
+    ///
+    /// Session-agnostic: always checks the UTC calendar day regardless of
+    /// the configured [`MarketSession`]. Useful for skip-weekend logic in
+    /// backtesting loops and scheduling.
+    pub fn is_weekend(utc_ms: u64) -> bool {
+        let dt = Utc.timestamp_millis_opt(utc_ms as i64).unwrap();
+        let weekday = dt.weekday();
+        weekday == Weekday::Sat || weekday == Weekday::Sun
+    }
+
     /// Classify a UTC timestamp (ms) into a trading status.
     pub fn status(&self, utc_ms: u64) -> Result<TradingStatus, StreamError> {
         match self.session {
@@ -308,6 +319,14 @@ impl SessionAwareness {
                 }
             }
         }
+    }
+
+    /// Returns `true` only during regular (non-extended) open hours.
+    ///
+    /// For `UsEquity`: `true` when 9:30–16:00 ET on a trading day.
+    /// For `Crypto`: always `true`. For `Forex`: same as `is_open`.
+    pub fn is_liquid(&self, utc_ms: u64) -> bool {
+        self.is_open(utc_ms)
     }
 
     /// Fraction `[0.0, 1.0]` of the current trading session elapsed at `utc_ms`.

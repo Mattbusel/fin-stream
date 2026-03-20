@@ -353,6 +353,23 @@ impl MinMaxNormalizer {
         Some(count_le as f64 / self.window.len() as f64)
     }
 
+    /// Exponential weighted moving average of the current window values.
+    ///
+    /// Applies `alpha` as the smoothing factor (most-recent weight), scanning oldest→newest.
+    /// `alpha` is clamped to `(0, 1]`. Returns `None` if the window is empty.
+    pub fn ewma(&self, alpha: f64) -> Option<f64> {
+        if self.window.is_empty() {
+            return None;
+        }
+        let alpha = alpha.clamp(f64::MIN_POSITIVE, 1.0);
+        let one_minus = 1.0 - alpha;
+        let mut ewma = self.window[0].to_f64().unwrap_or(0.0);
+        for &v in self.window.iter().skip(1) {
+            ewma = alpha * v.to_f64().unwrap_or(ewma) + one_minus * ewma;
+        }
+        Some(ewma)
+    }
+
     /// Interquartile range: Q3 (75th percentile) − Q1 (25th percentile) of the window.
     ///
     /// Returns `None` if the window has fewer than 4 observations.

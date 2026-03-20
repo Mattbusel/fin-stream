@@ -225,12 +225,33 @@ impl StreamError {
         )
     }
 
-    /// Returns `true` for errors that can potentially be resolved by retrying
-    /// or waiting — the inverse of [`is_fatal`](Self::is_fatal).
+    /// Source subsystem for this error: `"ws"`, `"book"`, `"ring"`,
+    /// `"aggregator"`, `"session"`, `"lorentz"`, or `"other"`.
     ///
-    /// Transient errors include network issues, bad data packets, and
-    /// backpressure signals. They do not indicate a misconfiguration or
-    /// programming error.
+    /// Useful for routing errors to subsystem-specific metrics or alert
+    /// channels without pattern-matching every variant.
+    pub fn source_module(&self) -> &'static str {
+        match self {
+            StreamError::ConnectionFailed { .. }
+            | StreamError::Disconnected { .. }
+            | StreamError::ReconnectExhausted { .. }
+            | StreamError::WebSocket(_) => "ws",
+            StreamError::BookCrossed { .. }
+            | StreamError::BookReconstructionFailed { .. }
+            | StreamError::SequenceGap { .. } => "book",
+            StreamError::RingBufferFull { .. } | StreamError::RingBufferEmpty => "ring",
+            StreamError::AggregationError { .. } | StreamError::NormalizationError { .. } => {
+                "aggregator"
+            }
+            StreamError::StaleFeed { .. } | StreamError::UnknownFeed { .. } => "session",
+            StreamError::LorentzConfigError { .. } => "lorentz",
+            _ => "other",
+        }
+    }
+
+    /// Returns `true` if this error can potentially be resolved by retrying —
+    /// the inverse of [`is_fatal`](Self::is_fatal).
+    /// Returns `true` for errors that can be recovered from without a full reconnect.
     pub fn is_recoverable(&self) -> bool {
         !self.is_fatal()
     }
