@@ -768,6 +768,24 @@ impl NormalizedTick {
         Self::buy_volume(ticks) - Self::sell_volume(ticks)
     }
 
+    /// Average trade quantity: `total_volume / tick_count`.
+    ///
+    /// Returns `None` if the slice is empty.
+    pub fn average_quantity(ticks: &[NormalizedTick]) -> Option<Decimal> {
+        if ticks.is_empty() {
+            return None;
+        }
+        let total: Decimal = ticks.iter().map(|t| t.quantity).sum();
+        Some(total / Decimal::from(ticks.len() as u64))
+    }
+
+    /// Maximum single-trade quantity across the slice.
+    ///
+    /// Returns `None` if the slice is empty.
+    pub fn max_quantity(ticks: &[NormalizedTick]) -> Option<Decimal> {
+        ticks.iter().map(|t| t.quantity).reduce(Decimal::max)
+    }
+
 }
 
 impl std::fmt::Display for NormalizedTick {
@@ -2659,5 +2677,39 @@ mod tests {
             ..make_tick_pq(rust_decimal_macros::dec!(100), rust_decimal_macros::dec!(7))
         };
         assert_eq!(NormalizedTick::net_volume(&[buy, sell]), rust_decimal_macros::dec!(-5));
+    }
+
+    // ── average_quantity / max_quantity ───────────────────────────────────────
+
+    #[test]
+    fn test_average_quantity_none_for_empty_slice() {
+        assert!(NormalizedTick::average_quantity(&[]).is_none());
+    }
+
+    #[test]
+    fn test_average_quantity_single_tick() {
+        let tick = make_tick_pq(rust_decimal_macros::dec!(100), rust_decimal_macros::dec!(5));
+        assert_eq!(NormalizedTick::average_quantity(&[tick]), Some(rust_decimal_macros::dec!(5)));
+    }
+
+    #[test]
+    fn test_average_quantity_multiple_ticks() {
+        let t1 = make_tick_pq(rust_decimal_macros::dec!(100), rust_decimal_macros::dec!(2));
+        let t2 = make_tick_pq(rust_decimal_macros::dec!(100), rust_decimal_macros::dec!(4));
+        // (2 + 4) / 2 = 3
+        assert_eq!(NormalizedTick::average_quantity(&[t1, t2]), Some(rust_decimal_macros::dec!(3)));
+    }
+
+    #[test]
+    fn test_max_quantity_none_for_empty_slice() {
+        assert!(NormalizedTick::max_quantity(&[]).is_none());
+    }
+
+    #[test]
+    fn test_max_quantity_returns_largest() {
+        let t1 = make_tick_pq(rust_decimal_macros::dec!(100), rust_decimal_macros::dec!(2));
+        let t2 = make_tick_pq(rust_decimal_macros::dec!(100), rust_decimal_macros::dec!(10));
+        let t3 = make_tick_pq(rust_decimal_macros::dec!(100), rust_decimal_macros::dec!(5));
+        assert_eq!(NormalizedTick::max_quantity(&[t1, t2, t3]), Some(rust_decimal_macros::dec!(10)));
     }
 }

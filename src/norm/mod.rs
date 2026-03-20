@@ -2023,6 +2023,49 @@ impl ZScoreNormalizer {
     pub fn count_below(&self, threshold: Decimal) -> usize {
         self.window.iter().filter(|&&v| v < threshold).count()
     }
+
+    /// Value at the p-th percentile of the current window (0.0 ≤ p ≤ 1.0).
+    ///
+    /// Uses linear interpolation between adjacent sorted values.
+    /// Returns `None` if the window is empty.
+    pub fn percentile_value(&self, p: f64) -> Option<Decimal> {
+        if self.window.is_empty() {
+            return None;
+        }
+        let p = p.clamp(0.0, 1.0);
+        let mut sorted: Vec<Decimal> = self.window.iter().copied().collect();
+        sorted.sort();
+        let n = sorted.len();
+        if n == 1 {
+            return Some(sorted[0]);
+        }
+        let idx = p * (n - 1) as f64;
+        let lo = idx.floor() as usize;
+        let hi = idx.ceil() as usize;
+        if lo == hi {
+            Some(sorted[lo])
+        } else {
+            let frac = Decimal::try_from(idx - lo as f64).ok()?;
+            Some(sorted[lo] + (sorted[hi] - sorted[lo]) * frac)
+        }
+    }
+
+    /// Exponentially-weighted moving average (EWMA) of the window values.
+    ///
+    /// `alpha` is the smoothing factor in (0.0, 1.0]; higher values weight
+    /// recent observations more. Processes values in insertion order (oldest first).
+    /// Returns `None` if the window is empty.
+    pub fn ewma(&self, alpha: f64) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let alpha = alpha.clamp(1e-9, 1.0);
+        let mut iter = self.window.iter();
+        let first = iter.next()?.to_f64()?;
+        let result = iter.fold(first, |acc, &v| {
+            let vf = v.to_f64().unwrap_or(acc);
+            alpha * vf + (1.0 - alpha) * acc
+        });
+        Some(result)
+    }
 }
 
 #[cfg(test)]
@@ -3005,5 +3048,49 @@ mod zscore_stability_tests {
         for v in [dec!(1), dec!(2), dec!(3), dec!(4), dec!(5)] { n.update(v); }
         let skew = n.skewness().unwrap();
         assert!(skew.abs() < 0.01, "symmetric distribution should have ~0 skewness, got {skew}");
+    }
+
+    // ── ZScoreNormalizer::percentile_value ────────────────────────────────────
+
+    #[test]
+    fn test_zscore_percentile_value_none_for_empty_window() {
+        assert!(znorm(4).percentile_value(0.5).is_none());
+    }
+
+    #[test]
+    fn test_zscore_percentile_value_min_at_zero() {
+        let mut n = znorm(5);
+        for v in [dec!(10), dec!(20), dec!(30), dec!(40), dec!(50)] { n.update(v); }
+        assert_eq!(n.percentile_value(0.0), Some(dec!(10)));
+    }
+
+    #[test]
+    fn test_zscore_percentile_value_max_at_one() {
+        let mut n = znorm(5);
+        for v in [dec!(10), dec!(20), dec!(30), dec!(40), dec!(50)] { n.update(v); }
+        assert_eq!(n.percentile_value(1.0), Some(dec!(50)));
+    }
+
+    // ── ZScoreNormalizer::ewma ────────────────────────────────────────────────
+
+    #[test]
+    fn test_zscore_ewma_none_for_empty_window() {
+        assert!(znorm(4).ewma(0.5).is_none());
+    }
+
+    #[test]
+    fn test_zscore_ewma_equals_value_for_single_obs() {
+        let mut n = znorm(4);
+        n.update(dec!(42));
+        assert!((n.ewma(0.5).unwrap() - 42.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_zscore_ewma_weights_recent_more_with_high_alpha() {
+        // With alpha=1.0 EWMA = last value
+        let mut n = znorm(4);
+        for v in [dec!(10), dec!(20), dec!(30), dec!(100)] { n.update(v); }
+        let ewma = n.ewma(1.0).unwrap();
+        assert!((ewma - 100.0).abs() < 1e-10);
     }
 }

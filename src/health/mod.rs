@@ -183,12 +183,12 @@ impl HealthMonitor {
 
     /// Get health state for a specific feed.
     pub fn get(&self, feed_id: &str) -> Option<FeedHealth> {
-        self.feeds.get(feed_id).map(|e| e.clone())
+        self.feeds.get(feed_id).map(|e| e.value().clone())
     }
 
     /// All registered feeds.
     pub fn all_feeds(&self) -> Vec<FeedHealth> {
-        self.feeds.iter().map(|e| e.clone()).collect()
+        self.feeds.iter().map(|e| e.value().clone()).collect()
     }
 
     /// Total number of registered feeds.
@@ -261,10 +261,7 @@ impl HealthMonitor {
 
     /// Number of feeds currently in the [`HealthStatus::Healthy`] state.
     pub fn healthy_count(&self) -> usize {
-        self.feeds
-            .iter()
-            .filter(|e| e.status == HealthStatus::Healthy)
-            .count()
+        self.feeds_by_status(HealthStatus::Healthy).len()
     }
 
     /// Fraction of registered feeds that are currently stale, in `[0.0, 1.0]`.
@@ -280,15 +277,12 @@ impl HealthMonitor {
 
     /// Returns `true` if at least one registered feed is in [`HealthStatus::Stale`] state.
     pub fn is_any_stale(&self) -> bool {
-        self.feeds.iter().any(|e| e.status == HealthStatus::Stale)
+        self.stale_count() > 0
     }
 
     /// Number of feeds currently in the [`HealthStatus::Stale`] state.
     pub fn stale_count(&self) -> usize {
-        self.feeds
-            .iter()
-            .filter(|e| e.status == HealthStatus::Stale)
-            .count()
+        self.feeds_by_status(HealthStatus::Stale).len()
     }
 
     /// Clone of all feeds currently in the [`HealthStatus::Stale`] state.
@@ -568,8 +562,8 @@ impl HealthMonitor {
     pub fn feeds_by_status(&self, status: HealthStatus) -> Vec<FeedHealth> {
         self.feeds
             .iter()
-            .filter(|e| e.status == status)
-            .map(|e| e.clone())
+            .filter(|e| e.value().status == status)
+            .map(|e| e.value().clone())
             .collect()
     }
 
@@ -581,9 +575,9 @@ impl HealthMonitor {
     pub fn oldest_stale_feed(&self) -> Option<FeedHealth> {
         self.feeds
             .iter()
-            .filter(|e| e.status == HealthStatus::Stale)
-            .min_by_key(|e| e.last_tick_ms.unwrap_or(u64::MAX))
-            .map(|e| e.clone())
+            .filter(|e| e.value().status == HealthStatus::Stale)
+            .min_by_key(|e| e.value().last_tick_ms.unwrap_or(u64::MAX))
+            .map(|e| e.value().clone())
     }
 
     /// Fraction of registered feeds that are currently `Healthy`: `healthy / total`.
@@ -601,8 +595,8 @@ impl HealthMonitor {
     /// number of heartbeats since registration or last reset.
     pub fn most_reliable_feed(&self) -> Option<FeedHealth> {
         self.feeds.iter()
-            .max_by_key(|e| e.tick_count)
-            .map(|e| e.clone())
+            .max_by_key(|e| e.value().tick_count)
+            .map(|e| e.value().clone())
     }
 
     /// All feeds that have never received a heartbeat (`last_tick_ms` is
@@ -612,8 +606,8 @@ impl HealthMonitor {
     /// started streaming data.
     pub fn feeds_never_seen(&self) -> Vec<FeedHealth> {
         self.feeds.iter()
-            .filter(|e| e.last_tick_ms.is_none())
-            .map(|e| e.clone())
+            .filter(|e| e.value().last_tick_ms.is_none())
+            .map(|e| e.value().clone())
             .collect()
     }
 
@@ -679,7 +673,7 @@ impl HealthMonitor {
     /// A fully-healthy or fully-down monitor both return `false`.
     /// Returns `false` when no feeds are registered.
     pub fn is_degraded(&self) -> bool {
-        let total = self.feeds.len();
+        let total = self.feed_count();
         if total == 0 {
             return false;
         }
@@ -689,7 +683,7 @@ impl HealthMonitor {
 
     /// Number of feeds that are not in the [`HealthStatus::Healthy`] state.
     pub fn unhealthy_count(&self) -> usize {
-        self.feeds.len().saturating_sub(self.healthy_count())
+        self.feed_count().saturating_sub(self.healthy_count())
     }
 
     /// Returns `true` if a feed with the given ID is registered.
