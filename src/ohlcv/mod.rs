@@ -2192,6 +2192,48 @@ impl OhlcvBar {
         Some(values.iter().sum::<f64>() / values.len() as f64)
     }
 
+    /// Average body size (|close − open|) as a fraction of total bar range.
+    ///
+    /// Returns `None` if all bars have zero range or the slice is empty.
+    pub fn body_fraction(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let fracs: Vec<f64> = bars.iter().filter_map(|b| {
+            let range = b.range();
+            if range.is_zero() { return None; }
+            let body = (b.close - b.open).abs();
+            (body / range).to_f64()
+        }).collect();
+        if fracs.is_empty() {
+            return None;
+        }
+        Some(fracs.iter().sum::<f64>() / fracs.len() as f64)
+    }
+
+    /// Fraction of bars that are bullish (close strictly greater than open).
+    ///
+    /// Returns `None` if the slice is empty.
+    pub fn bullish_ratio(bars: &[OhlcvBar]) -> Option<f64> {
+        if bars.is_empty() {
+            return None;
+        }
+        let bullish = bars.iter().filter(|b| b.close > b.open).count();
+        Some(bullish as f64 / bars.len() as f64)
+    }
+
+    /// Maximum (highest) close price across all bars.
+    ///
+    /// Returns `None` if the slice is empty.
+    pub fn peak_close(bars: &[OhlcvBar]) -> Option<Decimal> {
+        bars.iter().map(|b| b.close).reduce(Decimal::max)
+    }
+
+    /// Minimum (lowest) close price across all bars.
+    ///
+    /// Returns `None` if the slice is empty.
+    pub fn trough_close(bars: &[OhlcvBar]) -> Option<Decimal> {
+        bars.iter().map(|b| b.close).reduce(Decimal::min)
+    }
+
     /// Fraction of total volume that occurred on up-bars (close > open).
     ///
     /// Returns `None` if total volume is zero or the slice is empty.
@@ -6844,5 +6886,48 @@ mod tests {
         let b2 = make_ohlcv_bar(dec!(200), dec!(210), dec!(190), dec!(205));
         let sd = OhlcvBar::range_std_dev(&[b1, b2]).unwrap();
         assert!(sd.abs() < 1e-9, "equal ranges → std_dev=0, got {}", sd);
+    }
+
+    #[test]
+    fn test_body_fraction_none_for_empty() {
+        assert!(OhlcvBar::body_fraction(&[]).is_none());
+    }
+
+    #[test]
+    fn test_body_fraction_doji_is_zero() {
+        // open == close → body = 0 → fraction = 0
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100));
+        let f = OhlcvBar::body_fraction(&[b]).unwrap();
+        assert!(f.abs() < 1e-9, "doji → body_fraction=0, got {}", f);
+    }
+
+    #[test]
+    fn test_bullish_ratio_none_for_empty() {
+        assert!(OhlcvBar::bullish_ratio(&[]).is_none());
+    }
+
+    #[test]
+    fn test_bullish_ratio_all_bullish() {
+        let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(95), dec!(108));
+        let b2 = make_ohlcv_bar(dec!(105), dec!(115), dec!(100), dec!(112));
+        let r = OhlcvBar::bullish_ratio(&[b1, b2]).unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "all bullish → ratio=1.0, got {}", r);
+    }
+
+    #[test]
+    fn test_peak_trough_close_none_for_empty() {
+        assert!(OhlcvBar::peak_close(&[]).is_none());
+        assert!(OhlcvBar::trough_close(&[]).is_none());
+    }
+
+    #[test]
+    fn test_peak_trough_close_correct() {
+        let bars = vec![
+            make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105)),
+            make_ohlcv_bar(dec!(105), dec!(120), dec!(100), dec!(115)),
+            make_ohlcv_bar(dec!(110), dec!(115), dec!(95), dec!(98)),
+        ];
+        assert_eq!(OhlcvBar::peak_close(&bars).unwrap(), dec!(115));
+        assert_eq!(OhlcvBar::trough_close(&bars).unwrap(), dec!(98));
     }
 }

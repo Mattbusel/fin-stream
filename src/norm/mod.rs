@@ -1076,6 +1076,39 @@ impl MinMaxNormalizer {
         Some(below as f64 / n as f64)
     }
 
+    /// Coefficient of variation: `std_dev / |mean|`.
+    ///
+    /// Returns `None` if the window has fewer than 2 values or the mean is
+    /// zero.
+    pub fn coeff_of_variation(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let n = self.window.len();
+        if n < 2 {
+            return None;
+        }
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.len() < 2 {
+            return None;
+        }
+        let nf = vals.len() as f64;
+        let mean = vals.iter().sum::<f64>() / nf;
+        if mean == 0.0 {
+            return None;
+        }
+        let std_dev = (vals.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / (nf - 1.0)).sqrt();
+        Some(std_dev / mean.abs())
+    }
+
+    /// Inter-quartile range: Q3 (75th percentile) minus Q1 (25th percentile).
+    ///
+    /// Returns `None` if the window is empty.
+    pub fn quantile_range(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let q3 = self.percentile_value(75.0)?;
+        let q1 = self.percentile_value(25.0)?;
+        (q3 - q1).to_f64()
+    }
+
 }
 
 #[cfg(test)]
@@ -2577,6 +2610,34 @@ mod tests {
         let high = n.value_rank(dec!(5)).unwrap();
         assert!((high - 1.0).abs() < 1e-9, "got {}", high);
     }
+
+    #[test]
+    fn test_minmax_coeff_of_variation_none_for_single_value() {
+        let mut n = norm(5);
+        n.update(dec!(10));
+        assert!(n.coeff_of_variation().is_none());
+    }
+
+    #[test]
+    fn test_minmax_coeff_of_variation_positive_for_spread() {
+        let mut n = norm(4);
+        for v in [dec!(10), dec!(20), dec!(30), dec!(40)] { n.update(v); }
+        let cv = n.coeff_of_variation().unwrap();
+        assert!(cv > 0.0, "expected positive CV, got {}", cv);
+    }
+
+    #[test]
+    fn test_minmax_quantile_range_none_for_empty() {
+        assert!(norm(4).quantile_range().is_none());
+    }
+
+    #[test]
+    fn test_minmax_quantile_range_non_negative() {
+        let mut n = norm(5);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4), dec!(5)] { n.update(v); }
+        let iqr = n.quantile_range().unwrap();
+        assert!(iqr >= 0.0, "IQR should be non-negative, got {}", iqr);
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -3715,6 +3776,39 @@ impl ZScoreNormalizer {
         let n = self.window.len();
         let below = self.window.iter().filter(|&&v| v < value).count();
         Some(below as f64 / n as f64)
+    }
+
+    /// Coefficient of variation: `std_dev / |mean|`.
+    ///
+    /// Returns `None` if the window has fewer than 2 values or the mean is
+    /// zero.
+    pub fn coeff_of_variation(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let n = self.window.len();
+        if n < 2 {
+            return None;
+        }
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.len() < 2 {
+            return None;
+        }
+        let nf = vals.len() as f64;
+        let mean = vals.iter().sum::<f64>() / nf;
+        if mean == 0.0 {
+            return None;
+        }
+        let std_dev = (vals.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / (nf - 1.0)).sqrt();
+        Some(std_dev / mean.abs())
+    }
+
+    /// Inter-quartile range: Q3 (75th percentile) minus Q1 (25th percentile).
+    ///
+    /// Returns `None` if the window is empty.
+    pub fn quantile_range(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let q3 = self.percentile_value(75.0)?;
+        let q1 = self.percentile_value(25.0)?;
+        (q3 - q1).to_f64()
     }
 
 }
@@ -5501,5 +5595,33 @@ mod zscore_stability_tests {
         assert!((low - 0.0).abs() < 1e-9, "got {}", low);
         let high = n.value_rank(dec!(5)).unwrap();
         assert!((high - 1.0).abs() < 1e-9, "got {}", high);
+    }
+
+    #[test]
+    fn test_zscore_coeff_of_variation_none_for_single_value() {
+        let mut n = znorm(5);
+        n.update(dec!(10));
+        assert!(n.coeff_of_variation().is_none());
+    }
+
+    #[test]
+    fn test_zscore_coeff_of_variation_positive_for_spread() {
+        let mut n = znorm(4);
+        for v in [dec!(10), dec!(20), dec!(30), dec!(40)] { n.update(v); }
+        let cv = n.coeff_of_variation().unwrap();
+        assert!(cv > 0.0, "expected positive CV, got {}", cv);
+    }
+
+    #[test]
+    fn test_zscore_quantile_range_none_for_empty() {
+        assert!(znorm(4).quantile_range().is_none());
+    }
+
+    #[test]
+    fn test_zscore_quantile_range_non_negative() {
+        let mut n = znorm(5);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4), dec!(5)] { n.update(v); }
+        let iqr = n.quantile_range().unwrap();
+        assert!(iqr >= 0.0, "IQR should be non-negative, got {}", iqr);
     }
 }

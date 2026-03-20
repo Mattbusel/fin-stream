@@ -1759,6 +1759,73 @@ impl NormalizedTick {
         Some(same as f64 / total as f64)
     }
 
+    /// Median trade quantity across all ticks.
+    ///
+    /// Returns `None` if the slice is empty.
+    pub fn median_quantity(ticks: &[NormalizedTick]) -> Option<Decimal> {
+        if ticks.is_empty() {
+            return None;
+        }
+        let mut qtys: Vec<Decimal> = ticks.iter().map(|t| t.quantity).collect();
+        qtys.sort();
+        let n = qtys.len();
+        if n % 2 == 1 {
+            Some(qtys[n / 2])
+        } else {
+            Some((qtys[n / 2 - 1] + qtys[n / 2]) / Decimal::TWO)
+        }
+    }
+
+    /// Total volume from ticks priced strictly above the VWAP of the slice.
+    ///
+    /// Returns `None` if VWAP cannot be computed (empty or zero total quantity).
+    pub fn volume_above_vwap(ticks: &[NormalizedTick]) -> Option<Decimal> {
+        let vwap = Self::vwap(ticks)?;
+        Some(ticks.iter().filter(|t| t.price > vwap).map(|t| t.quantity).sum())
+    }
+
+    /// Variance of inter-tick arrival times in milliseconds.
+    ///
+    /// Returns `None` if fewer than 3 ticks are provided (need ≥ 2 intervals).
+    pub fn inter_arrival_variance(ticks: &[NormalizedTick]) -> Option<f64> {
+        if ticks.len() < 3 {
+            return None;
+        }
+        let intervals: Vec<f64> = ticks.windows(2)
+            .filter_map(|w| {
+                let dt = w[1].received_at_ms.checked_sub(w[0].received_at_ms)?;
+                Some(dt as f64)
+            })
+            .collect();
+        if intervals.len() < 2 {
+            return None;
+        }
+        let n = intervals.len() as f64;
+        let mean = intervals.iter().sum::<f64>() / n;
+        let variance = intervals.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / (n - 1.0);
+        Some(variance)
+    }
+
+    /// Price spread efficiency: net price move divided by total path length.
+    ///
+    /// A value of 1.0 means prices moved directly with no reversals; values
+    /// near 0.0 indicate heavy oscillation. Returns `None` if the slice has
+    /// fewer than 2 ticks or the path length is zero.
+    pub fn spread_efficiency(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 2 {
+            return None;
+        }
+        let path: Decimal = ticks.windows(2)
+            .map(|w| (w[1].price - w[0].price).abs())
+            .sum();
+        if path.is_zero() {
+            return None;
+        }
+        let net = (ticks.last()?.price - ticks.first()?.price).abs();
+        (net / path).to_f64()
+    }
+
     /// Ratio of average buy quantity to average sell quantity.
     ///
     /// Returns `None` if there are no buy ticks or no sell ticks, or if avg
@@ -5365,5 +5432,66 @@ mod tests {
         ];
         assert_eq!(NormalizedTick::first_price(&ticks).unwrap(), dec!(100));
         assert_eq!(NormalizedTick::last_price(&ticks).unwrap(), dec!(110));
+    }
+
+    #[test]
+    fn test_median_quantity_none_for_empty() {
+        assert!(NormalizedTick::median_quantity(&[]).is_none());
+    }
+
+    #[test]
+    fn test_median_quantity_odd_count() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(3)),
+            make_tick_pq(dec!(101), dec!(1)),
+            make_tick_pq(dec!(102), dec!(5)),
+        ];
+        // sorted: 1, 3, 5 → median = 3
+        assert_eq!(NormalizedTick::median_quantity(&ticks).unwrap(), dec!(3));
+    }
+
+    #[test]
+    fn test_volume_above_vwap_none_for_empty() {
+        assert!(NormalizedTick::volume_above_vwap(&[]).is_none());
+    }
+
+    #[test]
+    fn test_volume_above_vwap_none_when_all_at_vwap() {
+        use rust_decimal_macros::dec;
+        // All same price → VWAP = price, nothing strictly above
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(5)),
+            make_tick_pq(dec!(100), dec!(5)),
+        ];
+        let v = NormalizedTick::volume_above_vwap(&ticks).unwrap();
+        assert_eq!(v, dec!(0));
+    }
+
+    #[test]
+    fn test_inter_arrival_variance_none_for_fewer_than_3() {
+        use rust_decimal_macros::dec;
+        let t = make_tick_pq(dec!(100), dec!(1));
+        assert!(NormalizedTick::inter_arrival_variance(&[t]).is_none());
+    }
+
+    #[test]
+    fn test_spread_efficiency_none_for_single_tick() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![make_tick_pq(dec!(100), dec!(1))];
+        assert!(NormalizedTick::spread_efficiency(&ticks).is_none());
+    }
+
+    #[test]
+    fn test_spread_efficiency_one_for_monotone() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(101), dec!(1)),
+            make_tick_pq(dec!(102), dec!(1)),
+        ];
+        // monotone up → efficiency = 1.0
+        let e = NormalizedTick::spread_efficiency(&ticks).unwrap();
+        assert!((e - 1.0).abs() < 1e-9, "expected 1.0, got {}", e);
     }
 }
