@@ -171,9 +171,7 @@ impl SessionAwareness {
     /// Shorthand for `self.status(utc_ms) == Ok(TradingStatus::Closed)`.
     /// For [`MarketSession::Crypto`] this always returns `false`.
     pub fn is_closed(&self, utc_ms: u64) -> bool {
-        self.status(utc_ms)
-            .map(|s| s == TradingStatus::Closed)
-            .unwrap_or(false)
+        self.status(utc_ms).map_or(false, |s| s == TradingStatus::Closed)
     }
 
     /// Returns `true` if the session is currently in [`TradingStatus::Extended`] status.
@@ -182,9 +180,7 @@ impl SessionAwareness {
     /// `Open`). For equity, `Extended` covers pre-market (4:00–9:30 ET) and
     /// after-hours (16:00–20:00 ET).
     pub fn is_extended(&self, utc_ms: u64) -> bool {
-        self.status(utc_ms)
-            .map(|s| s == TradingStatus::Extended)
-            .unwrap_or(false)
+        self.status(utc_ms).map_or(false, |s| s == TradingStatus::Extended)
     }
 
     /// Returns `true` if the session is currently in [`TradingStatus::Open`] status.
@@ -192,9 +188,7 @@ impl SessionAwareness {
     /// Shorthand for `self.status(utc_ms).map(|s| s == TradingStatus::Open).unwrap_or(false)`.
     /// For [`MarketSession::Crypto`] this always returns `true`.
     pub fn is_open(&self, utc_ms: u64) -> bool {
-        self.status(utc_ms)
-            .map(|s| s == TradingStatus::Open)
-            .unwrap_or(false)
+        self.status(utc_ms).map_or(false, |s| s == TradingStatus::Open)
     }
 
     /// Returns `true` if the session is currently tradeable: either

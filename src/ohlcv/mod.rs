@@ -1556,6 +1556,44 @@ impl OhlcvBar {
         let sum: Decimal = bars.iter().map(|b| b.high - b.close).sum();
         (sum / Decimal::from(bars.len() as u32)).to_f64()
     }
+
+    /// Mean of `(high - low)` across all bars.
+    ///
+    /// Returns `None` for an empty slice.
+    pub fn avg_range(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() {
+            return None;
+        }
+        let sum: Decimal = bars.iter().map(|b| b.high - b.low).sum();
+        (sum / Decimal::from(bars.len() as u32)).to_f64()
+    }
+
+    /// Maximum close price in the slice.
+    ///
+    /// Returns `None` for an empty slice.
+    pub fn max_close(bars: &[OhlcvBar]) -> Option<Decimal> {
+        bars.iter().map(|b| b.close).reduce(Decimal::max)
+    }
+
+    /// Minimum close price in the slice.
+    ///
+    /// Returns `None` for an empty slice.
+    pub fn min_close(bars: &[OhlcvBar]) -> Option<Decimal> {
+        bars.iter().map(|b| b.close).reduce(Decimal::min)
+    }
+
+    /// Trend strength: fraction of consecutive close-to-close moves that are upward.
+    ///
+    /// Returns `None` if fewer than 2 bars.
+    pub fn trend_strength(bars: &[OhlcvBar]) -> Option<f64> {
+        if bars.len() < 2 {
+            return None;
+        }
+        let moves = bars.len() - 1;
+        let up = bars.windows(2).filter(|w| w[1].close > w[0].close).count();
+        Some(up as f64 / moves as f64)
+    }
 }
 
 impl std::fmt::Display for OhlcvBar {
