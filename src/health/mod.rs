@@ -272,6 +272,17 @@ impl HealthMonitor {
             .max()
     }
 
+    /// Feed skew: `newest_tick_ms - oldest_tick_ms` across all registered feeds.
+    ///
+    /// Returns `None` if fewer than two feeds have received ticks. A large lag
+    /// indicates that some feeds are receiving data faster than others — useful
+    /// for detecting slow feeds or feed-specific latency spikes.
+    pub fn lag_ms(&self) -> Option<u64> {
+        let newest = self.newest_tick_ms()?;
+        let oldest = self.oldest_tick_ms()?;
+        Some(newest.saturating_sub(oldest))
+    }
+
     /// Feed identifiers whose status is not [`HealthStatus::Healthy`].
     ///
     /// Returns a sorted list of IDs that are `Stale` or `Unknown`. Complement
@@ -298,6 +309,29 @@ impl HealthMonitor {
             entry.last_tick_ms = None;
             entry.consecutive_stale = 0;
         }
+    }
+
+    /// Returns `true` if every registered feed is in [`HealthStatus::Healthy`] state.
+    ///
+    /// Vacuously `true` when no feeds are registered. Use [`feed_count`](Self::feed_count)
+    /// to distinguish "all healthy" from "no feeds registered".
+    pub fn all_healthy(&self) -> bool {
+        self.feeds.iter().all(|e| e.status == HealthStatus::Healthy)
+    }
+
+    /// Feed identifiers whose status is exactly [`HealthStatus::Stale`].
+    ///
+    /// Unlike [`unhealthy_feeds`](Self::unhealthy_feeds), feeds with
+    /// [`HealthStatus::Unknown`] are excluded. Returns a sorted list.
+    pub fn stale_feed_ids(&self) -> Vec<String> {
+        let mut ids: Vec<String> = self
+            .feeds
+            .iter()
+            .filter(|e| e.status == HealthStatus::Stale)
+            .map(|e| e.feed_id.clone())
+            .collect();
+        ids.sort();
+        ids
     }
 }
 
@@ -662,5 +696,101 @@ mod tests {
         m.check_all(1_002_000); // 2s elapsed → stale
         let unhealthy = m.unhealthy_feeds();
         assert!(unhealthy.contains(&"BTC-USD".to_string()));
+    }
+
+    // ── all_healthy ───────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_all_healthy_vacuously_true_no_feeds() {
+        let m = HealthMonitor::new(5_000);
+        assert!(m.all_healthy());
+    }
+
+    #[test]
+    fn test_all_healthy_false_when_unknown() {
+        let m = HealthMonitor::new(5_000);
+        m.register("BTC-USD", None);
+        // No heartbeat → Unknown → not Healthy
+        assert!(!m.all_healthy());
+    }
+
+    #[test]
+    fn test_all_healthy_true_after_heartbeats() {
+        let m = HealthMonitor::new(5_000);
+        m.register("BTC-USD", None);
+        m.register("ETH-USD", None);
+        m.heartbeat("BTC-USD", 1_000_000).unwrap();
+        m.heartbeat("ETH-USD", 1_000_000).unwrap();
+        assert!(m.all_healthy());
+    }
+
+    #[test]
+    fn test_all_healthy_false_when_one_stale() {
+        let m = HealthMonitor::new(1_000);
+        m.register("BTC-USD", None);
+        m.register("ETH-USD", None);
+        m.heartbeat("BTC-USD", 1_000_000).unwrap();
+        m.heartbeat("ETH-USD", 1_000_000).unwrap();
+        m.check_all(1_002_000); // 2s elapsed → stale
+        assert!(!m.all_healthy());
+    }
+
+    // ── stale_feed_ids ────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_stale_feed_ids_empty_when_none_stale() {
+        let m = HealthMonitor::new(5_000);
+        m.register("BTC-USD", None);
+        m.heartbeat("BTC-USD", 1_000_000).unwrap();
+        assert!(m.stale_feed_ids().is_empty());
+    }
+
+    #[test]
+    fn test_stale_feed_ids_excludes_unknown() {
+        let m = HealthMonitor::new(5_000);
+        m.register("BTC-USD", None); // Unknown — never received heartbeat
+        assert!(m.stale_feed_ids().is_empty()); // Unknown is not Stale
+    }
+
+    #[test]
+    fn test_stale_feed_ids_returns_only_stale() {
+        let m = HealthMonitor::new(1_000);
+        m.register("BTC-USD", None);
+        m.register("ETH-USD", Some(10_000)); // 10s threshold
+        m.heartbeat("BTC-USD", 1_000_000).unwrap();
+        m.heartbeat("ETH-USD", 1_000_000).unwrap();
+        m.check_all(1_002_000); // BTC stale (2s > 1s), ETH healthy (2s < 10s)
+        let stale = m.stale_feed_ids();
+        assert_eq!(stale, vec!["BTC-USD".to_string()]);
+    }
+
+    // ── HealthMonitor::lag_ms ─────────────────────────────────────────────────
+
+    #[test]
+    fn test_lag_ms_none_when_no_ticks() {
+        let m = HealthMonitor::new(5_000);
+        m.register("A", None);
+        m.register("B", None);
+        assert!(m.lag_ms().is_none());
+    }
+
+    #[test]
+    fn test_lag_ms_zero_when_one_feed_or_equal_timestamps() {
+        let m = HealthMonitor::new(5_000);
+        m.register("A", None);
+        m.register("B", None);
+        m.heartbeat("A", 1_000_000).unwrap();
+        m.heartbeat("B", 1_000_000).unwrap();
+        assert_eq!(m.lag_ms(), Some(0));
+    }
+
+    #[test]
+    fn test_lag_ms_returns_spread() {
+        let m = HealthMonitor::new(5_000);
+        m.register("fast", None);
+        m.register("slow", None);
+        m.heartbeat("fast", 2_000_000).unwrap();
+        m.heartbeat("slow", 1_000_000).unwrap();
+        assert_eq!(m.lag_ms(), Some(1_000_000));
     }
 }

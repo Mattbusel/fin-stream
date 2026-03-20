@@ -177,6 +177,36 @@ impl MinMaxNormalizer {
         })
     }
 
+    /// Inverse of [`normalize`](Self::normalize): map a `[0, 1]` value back to
+    /// the original scale.
+    ///
+    /// `denormalized = normalized * (max - min) + min`
+    ///
+    /// Works outside `[0, 1]` for extrapolation, but returns
+    /// [`StreamError::NormalizationError`] if the window is empty.
+    pub fn denormalize(&mut self, normalized: f64) -> Result<Decimal, StreamError> {
+        use rust_decimal::prelude::FromPrimitive;
+        let (min, max) = self
+            .min_max()
+            .ok_or_else(|| StreamError::NormalizationError {
+                reason: "window is empty; call update() before denormalize()".into(),
+            })?;
+        let scale = max - min;
+        let n_dec = Decimal::from_f64(normalized).ok_or_else(|| StreamError::NormalizationError {
+            reason: "normalized value is not a finite f64".into(),
+        })?;
+        Ok(n_dec * scale + min)
+    }
+
+    /// Scale of the current window: `max - min`.
+    ///
+    /// Returns `None` if the window is empty. Returns `Decimal::ZERO` when all
+    /// observations are identical (zero range → degenerate distribution).
+    pub fn range(&mut self) -> Option<Decimal> {
+        let (min, max) = self.min_max()?;
+        Some(max - min)
+    }
+
     /// Reset the normalizer, clearing all observations and the cache.
     pub fn reset(&mut self) {
         self.window.clear();
@@ -482,6 +512,62 @@ mod tests {
         assert_eq!(min, dec!(50000.00000000));
         assert_eq!(max, dec!(50000.12345678));
     }
+
+    // ── denormalize ───────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_denormalize_empty_window_returns_error() {
+        let mut n = norm(4);
+        assert!(matches!(n.denormalize(0.5), Err(StreamError::NormalizationError { .. })));
+    }
+
+    #[test]
+    fn test_denormalize_roundtrip_min() {
+        let mut n = norm(4);
+        for v in [dec!(10), dec!(20), dec!(30), dec!(40)] {
+            n.update(v);
+        }
+        let normalized = n.normalize(dec!(10)).unwrap(); // should be ~0.0
+        let back = n.denormalize(normalized).unwrap();
+        assert!((back - dec!(10)).abs() < dec!(0.0001));
+    }
+
+    #[test]
+    fn test_denormalize_roundtrip_max() {
+        let mut n = norm(4);
+        for v in [dec!(10), dec!(20), dec!(30), dec!(40)] {
+            n.update(v);
+        }
+        let normalized = n.normalize(dec!(40)).unwrap(); // should be ~1.0
+        let back = n.denormalize(normalized).unwrap();
+        assert!((back - dec!(40)).abs() < dec!(0.0001));
+    }
+
+    // ── range ─────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_range_none_when_empty() {
+        let mut n = norm(4);
+        assert!(n.range().is_none());
+    }
+
+    #[test]
+    fn test_range_zero_when_all_same() {
+        let mut n = norm(3);
+        n.update(dec!(5));
+        n.update(dec!(5));
+        n.update(dec!(5));
+        assert_eq!(n.range(), Some(dec!(0)));
+    }
+
+    #[test]
+    fn test_range_correct() {
+        let mut n = norm(4);
+        for v in [dec!(10), dec!(40), dec!(20), dec!(30)] {
+            n.update(v);
+        }
+        assert_eq!(n.range(), Some(dec!(30))); // 40 - 10
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -602,6 +688,27 @@ impl ZScoreNormalizer {
         }
         let n = Decimal::from(self.window.len() as u64);
         Some(self.sum / n)
+    }
+
+    /// Current population standard deviation of the window.
+    ///
+    /// Returns `None` if the window is empty. Returns `Some(0.0)` if fewer
+    /// than 2 observations are present (undefined variance, treated as zero)
+    /// or if all values are identical.
+    pub fn std_dev(&self) -> Option<f64> {
+        let n = self.window.len();
+        if n == 0 {
+            return None;
+        }
+        if n < 2 {
+            return Some(0.0);
+        }
+        let n_dec = Decimal::from(n as u64);
+        let mean = self.sum / n_dec;
+        let variance = (self.sum_sq / n_dec) - mean * mean;
+        let variance = if variance < Decimal::ZERO { Decimal::ZERO } else { variance };
+        let var_f64 = variance.to_f64().unwrap_or(0.0);
+        Some(var_f64.sqrt())
     }
 
     /// Reset the normalizer, clearing all observations and sums.
@@ -731,5 +838,41 @@ mod zscore_tests {
         n.update(dec!(2));
         assert_eq!(n.len(), 2);
         assert_eq!(n.window_size(), 5);
+    }
+
+    // ── std_dev ───────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_std_dev_none_when_empty() {
+        let n = znorm(5);
+        assert!(n.std_dev().is_none());
+    }
+
+    #[test]
+    fn test_std_dev_zero_with_one_observation() {
+        let mut n = znorm(5);
+        n.update(dec!(42));
+        assert_eq!(n.std_dev(), Some(0.0));
+    }
+
+    #[test]
+    fn test_std_dev_zero_when_all_same() {
+        let mut n = znorm(4);
+        for _ in 0..4 {
+            n.update(dec!(10));
+        }
+        let sd = n.std_dev().unwrap();
+        assert!(sd < f64::EPSILON);
+    }
+
+    #[test]
+    fn test_std_dev_positive_for_varying_values() {
+        let mut n = znorm(4);
+        for v in [dec!(10), dec!(20), dec!(30), dec!(40)] {
+            n.update(v);
+        }
+        let sd = n.std_dev().unwrap();
+        // Population std dev of [10,20,30,40]: mean=25, var=125, sd≈11.18
+        assert!((sd - 11.18).abs() < 0.01);
     }
 }

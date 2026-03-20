@@ -63,6 +63,16 @@ impl SpacetimePoint {
     pub fn new(t: f64, x: f64) -> Self {
         Self { t, x }
     }
+
+    /// 4-displacement from `self` to `other`: `(Δt, Δx) = (other.t - self.t, other.x - self.x)`.
+    ///
+    /// Useful for computing proper distances and intervals between events.
+    pub fn displacement(self, other: Self) -> Self {
+        Self {
+            t: other.t - self.t,
+            x: other.x - self.x,
+        }
+    }
 }
 
 /// Lorentz frame-boost transform for financial time series.
@@ -270,6 +280,18 @@ impl LorentzTransform {
         coordinate_time / self.gamma
     }
 
+    /// Coordinate (lab-frame) time for a given proper time.
+    ///
+    /// Returns `proper_time * gamma`. This is the inverse of
+    /// [`proper_time`](Self::proper_time): given elapsed proper time τ measured
+    /// by a clock in the moving frame, returns the corresponding coordinate time
+    /// `t = γτ` observed in the lab frame.
+    ///
+    /// # Complexity: O(1)
+    pub fn time_dilation(&self, proper_time: f64) -> f64 {
+        proper_time * self.gamma
+    }
+
     /// The Minkowski rapidity `φ = atanh(beta)`.
     ///
     /// Rapidities are **additive** under composition: applying boost `φ₁` then
@@ -302,6 +324,24 @@ impl LorentzTransform {
         let b2 = other.beta;
         let composed = (b1 + b2) / (1.0 + b1 * b2);
         LorentzTransform::new(composed)
+    }
+
+    /// Compose a sequence of boosts into a single equivalent transform.
+    ///
+    /// Applies [`compose`](Self::compose) left-to-right over `betas`, starting
+    /// from the identity boost (beta = 0). An empty slice returns the identity.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StreamError::LorentzConfigError`] if any beta is invalid or
+    /// the accumulated velocity reaches the speed of light.
+    pub fn boost_chain(betas: &[f64]) -> Result<Self, StreamError> {
+        let mut result = LorentzTransform::new(0.0)?;
+        for &beta in betas {
+            let next = LorentzTransform::new(beta)?;
+            result = result.compose(&next)?;
+        }
+        Ok(result)
     }
 }
 
@@ -668,5 +708,56 @@ mod tests {
             point_approx_eq(sequential, single),
             "composed boost must equal sequential: {sequential:?} vs {single:?}"
         );
+    }
+
+    // ── SpacetimePoint::displacement ─────────────────────────────────────────
+
+    #[test]
+    fn test_displacement_gives_correct_deltas() {
+        let a = SpacetimePoint::new(1.0, 2.0);
+        let b = SpacetimePoint::new(4.0, 6.0);
+        let d = a.displacement(b);
+        assert!(approx_eq(d.t, 3.0));
+        assert!(approx_eq(d.x, 4.0));
+    }
+
+    #[test]
+    fn test_displacement_to_self_is_zero() {
+        let a = SpacetimePoint::new(3.0, 7.0);
+        let d = a.displacement(a);
+        assert!(approx_eq(d.t, 0.0));
+        assert!(approx_eq(d.x, 0.0));
+    }
+
+    // ── LorentzTransform::boost_chain ────────────────────────────────────────
+
+    #[test]
+    fn test_boost_chain_empty_is_identity() {
+        let chain = LorentzTransform::boost_chain(&[]).unwrap();
+        assert!(approx_eq(chain.beta(), 0.0));
+        assert!(approx_eq(chain.gamma(), 1.0));
+    }
+
+    #[test]
+    fn test_boost_chain_single_equals_new() {
+        let chain = LorentzTransform::boost_chain(&[0.5]).unwrap();
+        let direct = LorentzTransform::new(0.5).unwrap();
+        assert!(approx_eq(chain.beta(), direct.beta()));
+    }
+
+    #[test]
+    fn test_boost_chain_two_equals_compose() {
+        let chain = LorentzTransform::boost_chain(&[0.3, 0.4]).unwrap();
+        let manual = LorentzTransform::new(0.3)
+            .unwrap()
+            .compose(&LorentzTransform::new(0.4).unwrap())
+            .unwrap();
+        assert!(approx_eq(chain.beta(), manual.beta()));
+    }
+
+    #[test]
+    fn test_boost_chain_invalid_beta_returns_error() {
+        assert!(LorentzTransform::boost_chain(&[1.0]).is_err());
+        assert!(LorentzTransform::boost_chain(&[0.3, -0.1]).is_err());
     }
 }

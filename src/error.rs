@@ -221,6 +221,20 @@ impl StreamError {
         )
     }
 
+    /// Returns `true` for errors that indicate a connection-layer failure.
+    ///
+    /// Connection errors arise from network problems: initial connection refused,
+    /// unexpected disconnection, or reconnection attempts exhausted. Unlike data
+    /// errors, these may resolve by reconnecting or waiting.
+    pub fn is_connection_error(&self) -> bool {
+        matches!(
+            self,
+            StreamError::ConnectionFailed { .. }
+                | StreamError::Disconnected { .. }
+                | StreamError::ReconnectExhausted { .. }
+        )
+    }
+
     /// Returns `true` for errors that indicate bad data from the exchange.
     ///
     /// Data errors arise from malformed or logically inconsistent market data:

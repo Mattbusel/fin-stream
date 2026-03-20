@@ -285,6 +285,31 @@ impl OrderBook {
         self.asks.get(&price).copied()
     }
 
+    /// Resting quantity at an exact price level on the given side.
+    ///
+    /// Returns `None` if there is no resting order at that price. This is a
+    /// unified alternative to calling `volume_at_bid` / `volume_at_ask`
+    /// separately when the side is determined at runtime.
+    pub fn depth_at_price(&self, price: Decimal, side: BookSide) -> Option<Decimal> {
+        match side {
+            BookSide::Bid => self.bids.get(&price).copied(),
+            BookSide::Ask => self.asks.get(&price).copied(),
+        }
+    }
+
+    /// Ratio of total bid volume to total ask volume: `bid_volume_total / ask_volume_total`.
+    ///
+    /// Returns `None` if the ask side is empty (to avoid division by zero).
+    /// Values > 1.0 indicate more buy-side depth; < 1.0 indicates more sell-side depth.
+    pub fn bid_ask_ratio(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let ask = self.ask_volume_total();
+        if ask.is_zero() {
+            return None;
+        }
+        (self.bid_volume_total() / ask).to_f64()
+    }
+
     /// Top N bids (descending by price).
     pub fn top_bids(&self, n: usize) -> Vec<PriceLevel> {
         self.bids
@@ -322,6 +347,42 @@ impl OrderBook {
         }
         let imb = (bid_qty - ask_qty) / total;
         imb.to_f64()
+    }
+
+    /// Order-book imbalance using the top `n` levels on each side.
+    ///
+    /// `(Σ bid_qty - Σ ask_qty) / (Σ bid_qty + Σ ask_qty)` in `[-1.0, 1.0]`.
+    ///
+    /// Returns `None` if either side has no levels or total volume is zero.
+    pub fn bid_ask_imbalance(&self, n: usize) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let bid_vol: Decimal = self.top_bids(n).iter().map(|l| l.quantity).sum();
+        let ask_vol: Decimal = self.top_asks(n).iter().map(|l| l.quantity).sum();
+        if bid_vol.is_zero() || ask_vol.is_zero() {
+            return None;
+        }
+        let total = bid_vol + ask_vol;
+        if total.is_zero() {
+            return None;
+        }
+        ((bid_vol - ask_vol) / total).to_f64()
+    }
+
+    /// Volume-weighted average price (VWAP) of the top `n` resting levels on `side`.
+    ///
+    /// `Σ(price × qty) / Σ(qty)`. Returns `None` if the side has no levels or
+    /// total volume is zero.
+    pub fn vwap(&self, side: BookSide, n: usize) -> Option<Decimal> {
+        let levels = match side {
+            BookSide::Bid => self.top_bids(n),
+            BookSide::Ask => self.top_asks(n),
+        };
+        let total_vol: Decimal = levels.iter().map(|l| l.quantity).sum();
+        if total_vol.is_zero() {
+            return None;
+        }
+        let price_vol_sum: Decimal = levels.iter().map(|l| l.price * l.quantity).sum();
+        Some(price_vol_sum / total_vol)
     }
 
     /// Return a full snapshot of all bid and ask levels.
@@ -704,5 +765,109 @@ mod tests {
         assert_eq!(bids[1].price, dec!(49800));
         assert_eq!(asks[0].price, dec!(50100));
         assert_eq!(asks[1].price, dec!(50200));
+    }
+
+    // ── bid_ask_imbalance ─────────────────────────────────────────────────────
+
+    #[test]
+    fn test_bid_ask_imbalance_balanced() {
+        let mut b = book("BTC-USD");
+        b.apply(delta("BTC-USD", BookSide::Bid, dec!(50000), dec!(1))).unwrap();
+        b.apply(delta("BTC-USD", BookSide::Ask, dec!(50100), dec!(1))).unwrap();
+        let imb = b.bid_ask_imbalance(1).unwrap();
+        assert!((imb).abs() < 1e-9, "equal qty → ~0");
+    }
+
+    #[test]
+    fn test_bid_ask_imbalance_full_bid_pressure() {
+        let mut b = book("BTC-USD");
+        b.apply(delta("BTC-USD", BookSide::Bid, dec!(50000), dec!(10))).unwrap();
+        b.apply(delta("BTC-USD", BookSide::Ask, dec!(50100), dec!(0))).unwrap();
+        // ask qty = 0 → None
+        assert!(b.bid_ask_imbalance(1).is_none());
+    }
+
+    #[test]
+    fn test_bid_ask_imbalance_two_levels() {
+        let mut b = book("BTC-USD");
+        b.apply(delta("BTC-USD", BookSide::Bid, dec!(50000), dec!(3))).unwrap();
+        b.apply(delta("BTC-USD", BookSide::Bid, dec!(49900), dec!(1))).unwrap();
+        b.apply(delta("BTC-USD", BookSide::Ask, dec!(50100), dec!(2))).unwrap();
+        b.apply(delta("BTC-USD", BookSide::Ask, dec!(50200), dec!(2))).unwrap();
+        // bid_vol = 4, ask_vol = 4 → imbalance = 0
+        let imb = b.bid_ask_imbalance(2).unwrap();
+        assert!((imb).abs() < 1e-9);
+    }
+
+    // ── vwap ──────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_vwap_single_level_equals_price() {
+        let mut b = book("BTC-USD");
+        b.apply(delta("BTC-USD", BookSide::Ask, dec!(50100), dec!(5))).unwrap();
+        assert_eq!(b.vwap(BookSide::Ask, 1), Some(dec!(50100)));
+    }
+
+    #[test]
+    fn test_vwap_two_equal_qty_levels() {
+        let mut b = book("BTC-USD");
+        b.apply(delta("BTC-USD", BookSide::Bid, dec!(50000), dec!(1))).unwrap();
+        b.apply(delta("BTC-USD", BookSide::Bid, dec!(49800), dec!(1))).unwrap();
+        // vwap = (50000 + 49800) / 2 = 49900
+        assert_eq!(b.vwap(BookSide::Bid, 2), Some(dec!(49900)));
+    }
+
+    #[test]
+    fn test_vwap_empty_side_returns_none() {
+        let b = book("BTC-USD");
+        assert!(b.vwap(BookSide::Ask, 5).is_none());
+    }
+
+    // ── OrderBook::depth_at_price / bid_ask_ratio ─────────────────────────────
+
+    #[test]
+    fn test_depth_at_price_bid_present() {
+        let mut b = book("BTC-USD");
+        b.apply(delta("BTC-USD", BookSide::Bid, dec!(50000), dec!(3))).unwrap();
+        assert_eq!(b.depth_at_price(dec!(50000), BookSide::Bid), Some(dec!(3)));
+    }
+
+    #[test]
+    fn test_depth_at_price_ask_present() {
+        let mut b = book("BTC-USD");
+        b.apply(delta("BTC-USD", BookSide::Ask, dec!(50100), dec!(2))).unwrap();
+        assert_eq!(b.depth_at_price(dec!(50100), BookSide::Ask), Some(dec!(2)));
+    }
+
+    #[test]
+    fn test_depth_at_price_absent_returns_none() {
+        let b = book("BTC-USD");
+        assert!(b.depth_at_price(dec!(99999), BookSide::Bid).is_none());
+        assert!(b.depth_at_price(dec!(99999), BookSide::Ask).is_none());
+    }
+
+    #[test]
+    fn test_bid_ask_ratio_equal_sides() {
+        let mut b = book("BTC-USD");
+        b.apply(delta("BTC-USD", BookSide::Bid, dec!(49900), dec!(5))).unwrap();
+        b.apply(delta("BTC-USD", BookSide::Ask, dec!(50100), dec!(5))).unwrap();
+        let ratio = b.bid_ask_ratio().unwrap();
+        assert!((ratio - 1.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_bid_ask_ratio_more_bids() {
+        let mut b = book("BTC-USD");
+        b.apply(delta("BTC-USD", BookSide::Bid, dec!(49900), dec!(10))).unwrap();
+        b.apply(delta("BTC-USD", BookSide::Ask, dec!(50100), dec!(5))).unwrap();
+        let ratio = b.bid_ask_ratio().unwrap();
+        assert!((ratio - 2.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_bid_ask_ratio_no_asks_returns_none() {
+        let mut b = book("BTC-USD");
+        b.apply(delta("BTC-USD", BookSide::Bid, dec!(49900), dec!(5))).unwrap();
+        assert!(b.bid_ask_ratio().is_none());
     }
 }

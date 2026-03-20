@@ -35,6 +35,21 @@ pub enum TradingStatus {
     Closed,
 }
 
+impl MarketSession {
+    /// Duration of one regular trading session in milliseconds.
+    ///
+    /// - `UsEquity`: 9:30–16:00 ET = 6.5 hours = 23,400,000 ms
+    /// - `Forex`: continuous 24/5 week = 120 hours = 432,000,000 ms
+    /// - `Crypto`: always open — returns `u64::MAX`
+    pub fn session_duration_ms(self) -> u64 {
+        match self {
+            MarketSession::UsEquity => 6 * 3_600_000 + 30 * 60_000, // 6.5 hours
+            MarketSession::Forex => 5 * 24 * 3_600_000,              // 120 hours
+            MarketSession::Crypto => u64::MAX,
+        }
+    }
+}
+
 impl std::fmt::Display for MarketSession {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -946,5 +961,26 @@ mod tests {
         assert!(close > MON_OPEN_UTC_MS);
         assert_eq!(sa.status(close).unwrap(), TradingStatus::Closed);
         assert_eq!(close, 1705096800000);
+    }
+
+    // ── MarketSession::session_duration_ms ────────────────────────────────────
+
+    #[test]
+    fn test_session_duration_us_equity_is_6_5_hours() {
+        // 9:30–16:00 ET = 6.5 hours = 23 400 000 ms
+        assert_eq!(
+            MarketSession::UsEquity.session_duration_ms(),
+            6 * 3_600_000 + 30 * 60_000
+        );
+    }
+
+    #[test]
+    fn test_session_duration_forex_is_120_hours() {
+        assert_eq!(MarketSession::Forex.session_duration_ms(), 5 * 24 * 3_600_000);
+    }
+
+    #[test]
+    fn test_session_duration_crypto_is_max() {
+        assert_eq!(MarketSession::Crypto.session_duration_ms(), u64::MAX);
     }
 }

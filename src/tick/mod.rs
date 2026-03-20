@@ -176,6 +176,14 @@ impl NormalizedTick {
     pub fn age_ms(&self, now_ms: u64) -> u64 {
         now_ms.saturating_sub(self.received_at_ms)
     }
+
+    /// Returns `true` if this tick is older than `threshold_ms` relative to `now_ms`.
+    ///
+    /// Equivalent to `self.age_ms(now_ms) > threshold_ms`. Use this for filtering
+    /// stale ticks before passing them into aggregation pipelines.
+    pub fn is_stale(&self, now_ms: u64, threshold_ms: u64) -> bool {
+        self.age_ms(now_ms) > threshold_ms
+    }
 }
 
 impl std::fmt::Display for NormalizedTick {
@@ -735,5 +743,40 @@ mod tests {
         };
         let tick = normalizer().normalize(raw).unwrap();
         assert_eq!(tick.value(), dec!(0));
+    }
+
+    // ── NormalizedTick::is_stale ──────────────────────────────────────────────
+
+    fn make_tick_at(received_at_ms: u64) -> NormalizedTick {
+        NormalizedTick {
+            exchange: Exchange::Binance,
+            symbol: "BTCUSDT".into(),
+            price: rust_decimal_macros::dec!(100),
+            quantity: rust_decimal_macros::dec!(1),
+            side: None,
+            trade_id: None,
+            exchange_ts_ms: None,
+            received_at_ms,
+        }
+    }
+
+    #[test]
+    fn test_is_stale_true_when_age_exceeds_threshold() {
+        let tick = make_tick_at(1_000);
+        // now=6000, age=5000, threshold=4000 → stale
+        assert!(tick.is_stale(6_000, 4_000));
+    }
+
+    #[test]
+    fn test_is_stale_false_when_age_equals_threshold() {
+        let tick = make_tick_at(1_000);
+        // now=5000, age=4000, threshold=4000 → NOT stale (> not >=)
+        assert!(!tick.is_stale(5_000, 4_000));
+    }
+
+    #[test]
+    fn test_is_stale_false_for_fresh_tick() {
+        let tick = make_tick_at(10_000);
+        assert!(!tick.is_stale(10_500, 1_000));
     }
 }

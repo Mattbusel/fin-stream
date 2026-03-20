@@ -147,6 +147,21 @@ impl OhlcvBar {
     pub fn wick_lower(&self) -> Decimal {
         self.open.min(self.close) - self.low
     }
+
+    /// Typical price: `(high + low + close) / 3`.
+    ///
+    /// Commonly used as the basis for VWAP and commodity channel index (CCI)
+    /// calculations.
+    pub fn typical_price(&self) -> Decimal {
+        (self.high + self.low + self.close) / Decimal::from(3)
+    }
+
+    /// Median price: `(high + low) / 2`.
+    ///
+    /// The midpoint of the bar's price range, independent of open and close.
+    pub fn median_price(&self) -> Decimal {
+        (self.high + self.low) / Decimal::from(2)
+    }
 }
 
 impl std::fmt::Display for OhlcvBar {
@@ -164,6 +179,8 @@ pub struct OhlcvAggregator {
     symbol: String,
     timeframe: Timeframe,
     current_bar: Option<OhlcvBar>,
+    /// The most recently completed bar emitted by `feed` or `flush`.
+    last_bar: Option<OhlcvBar>,
     /// When true, `feed` returns synthetic zero-volume bars for any bar windows
     /// that were skipped between the previous tick and the current one.
     /// The synthetic bars use the last known close price for all OHLC fields.
@@ -190,6 +207,7 @@ impl OhlcvAggregator {
             symbol: symbol.into(),
             timeframe,
             current_bar: None,
+            last_bar: None,
             emit_empty_bars: false,
             bars_emitted: 0,
             price_volume_sum: Decimal::ZERO,
@@ -309,6 +327,9 @@ impl OhlcvAggregator {
             }
         }
         self.bars_emitted += emitted.len() as u64;
+        if let Some(b) = emitted.last() {
+            self.last_bar = Some(b.clone());
+        }
         Ok(emitted)
     }
 
@@ -323,7 +344,16 @@ impl OhlcvAggregator {
         let mut bar = self.current_bar.take()?;
         bar.is_complete = true;
         self.bars_emitted += 1;
+        self.last_bar = Some(bar.clone());
         Some(bar)
+    }
+
+    /// The most recently completed bar emitted by [`feed`](Self::feed) or
+    /// [`flush`](Self::flush). Returns `None` if no bar has been completed yet.
+    ///
+    /// Unlike [`current_bar`](Self::current_bar), this bar is always complete.
+    pub fn last_bar(&self) -> Option<&OhlcvBar> {
+        self.last_bar.as_ref()
     }
 
     /// Total number of completed bars emitted by this aggregator (via `feed` or `flush`).
@@ -337,6 +367,7 @@ impl OhlcvAggregator {
     /// new anchor point. Does not affect the aggregator's symbol or timeframe.
     pub fn reset(&mut self) {
         self.current_bar = None;
+        self.last_bar = None;
         self.bars_emitted = 0;
         self.price_volume_sum = Decimal::ZERO;
     }
@@ -943,5 +974,84 @@ mod tests {
         agg.feed(&make_tick("BTC-USD", dec!(100), dec!(1), 60_000)).unwrap();
         // 90 s past the bar start (longer than the bar) → clamped to 1.0
         assert_eq!(agg.window_progress(150_000), Some(1.0));
+    }
+
+    // ── OhlcvBar::typical_price / median_price ────────────────────────────────
+
+    fn make_bar(open: Decimal, high: Decimal, low: Decimal, close: Decimal) -> OhlcvBar {
+        OhlcvBar {
+            symbol: "X".into(),
+            timeframe: Timeframe::Minutes(1),
+            bar_start_ms: 0,
+            open,
+            high,
+            low,
+            close,
+            volume: dec!(1),
+            trade_count: 1,
+            is_complete: true,
+            is_gap_fill: false,
+            vwap: None,
+        }
+    }
+
+    #[test]
+    fn test_typical_price() {
+        // high=12, low=8, close=10 → (12+8+10)/3 = 10
+        let bar = make_bar(dec!(9), dec!(12), dec!(8), dec!(10));
+        assert_eq!(bar.typical_price(), dec!(10));
+    }
+
+    #[test]
+    fn test_median_price() {
+        // high=12, low=8 → (12+8)/2 = 10
+        let bar = make_bar(dec!(9), dec!(12), dec!(8), dec!(10));
+        assert_eq!(bar.median_price(), dec!(10));
+    }
+
+    #[test]
+    fn test_typical_price_differs_from_median() {
+        // high=10, low=6, close=10 → typical=(10+6+10)/3 = 26/3, median=(10+6)/2 = 8
+        let bar = make_bar(dec!(8), dec!(10), dec!(6), dec!(10));
+        assert_eq!(bar.median_price(), dec!(8));
+        assert!(bar.typical_price() > bar.median_price());
+    }
+
+    // ── OhlcvAggregator::last_bar ─────────────────────────────────────────────
+
+    #[test]
+    fn test_last_bar_none_before_completion() {
+        let agg = agg("BTC-USD", Timeframe::Minutes(1));
+        assert!(agg.last_bar().is_none());
+    }
+
+    #[test]
+    fn test_last_bar_set_after_bar_completion() {
+        let mut agg = agg("BTC-USD", Timeframe::Minutes(1));
+        // First bar in window [60000, 120000)
+        agg.feed(&make_tick("BTC-USD", dec!(100), dec!(1), 60_000)).unwrap();
+        // Second tick in next window completes the first bar
+        agg.feed(&make_tick("BTC-USD", dec!(200), dec!(1), 120_000)).unwrap();
+        let last = agg.last_bar().unwrap();
+        assert!(last.is_complete);
+        assert_eq!(last.close, dec!(100));
+    }
+
+    #[test]
+    fn test_last_bar_set_after_flush() {
+        let mut agg = agg("BTC-USD", Timeframe::Minutes(1));
+        agg.feed(&make_tick("BTC-USD", dec!(50), dec!(1), 60_000)).unwrap();
+        let flushed = agg.flush().unwrap();
+        assert_eq!(agg.last_bar().unwrap().close, flushed.close);
+    }
+
+    #[test]
+    fn test_last_bar_cleared_on_reset() {
+        let mut agg = agg("BTC-USD", Timeframe::Minutes(1));
+        agg.feed(&make_tick("BTC-USD", dec!(100), dec!(1), 60_000)).unwrap();
+        agg.feed(&make_tick("BTC-USD", dec!(200), dec!(1), 120_000)).unwrap();
+        assert!(agg.last_bar().is_some());
+        agg.reset();
+        assert!(agg.last_bar().is_none());
     }
 }

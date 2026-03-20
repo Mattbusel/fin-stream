@@ -195,6 +195,28 @@ impl<T, const N: usize> SpscRing<T, N> {
         self.push(item).is_ok()
     }
 
+    /// Clone the next item from the ring without removing it.
+    ///
+    /// Returns `None` if the ring is empty. The item remains available for a
+    /// subsequent [`pop`](Self::pop) call.
+    ///
+    /// # Complexity: O(1).
+    pub fn peek_clone(&self) -> Option<T>
+    where
+        T: Clone,
+    {
+        let tail = self.tail.load(Ordering::Acquire);
+        let head = self.head.load(Ordering::Relaxed);
+        if head == tail {
+            return None;
+        }
+        let slot = head & (N - 1);
+        // SAFETY: tail > head means slot `head & (N-1)` holds an initialised
+        // item. We read via `assume_init_ref` and clone — head is not advanced,
+        // so the producer cannot overwrite this slot until the consumer pops.
+        Some(unsafe { (*self.buf[slot].get()).assume_init_ref() }.clone())
+    }
+
     /// Drain all items currently in the ring into a `Vec`, in FIFO order.
     ///
     /// Only safe to call when no producer/consumer pair is active (i.e., before
@@ -354,6 +376,18 @@ impl<T, const N: usize> SpscConsumer<T, N> {
     #[inline]
     pub fn len(&self) -> usize {
         self.inner.len()
+    }
+
+    /// Clone the next item without removing it.
+    ///
+    /// Returns `None` if the ring is empty. See [`SpscRing::peek_clone`].
+    ///
+    /// # Complexity: O(1).
+    pub fn peek_clone(&self) -> Option<T>
+    where
+        T: Clone,
+    {
+        self.inner.peek_clone()
     }
 
     /// Return a by-value iterator that pops items from the ring in FIFO order.
@@ -715,6 +749,35 @@ mod tests {
     }
 
     // ── Property-based: FIFO ordering with wraparound ────────────────────────
+
+    // ── peek_clone ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_peek_clone_empty_returns_none() {
+        let r: SpscRing<u32, 8> = SpscRing::new();
+        assert!(r.peek_clone().is_none());
+    }
+
+    #[test]
+    fn test_peek_clone_does_not_consume() {
+        let r: SpscRing<u32, 8> = SpscRing::new();
+        r.push(42).unwrap();
+        assert_eq!(r.peek_clone(), Some(42));
+        assert_eq!(r.peek_clone(), Some(42)); // still there
+        assert_eq!(r.pop().unwrap(), 42);
+        assert!(r.is_empty());
+    }
+
+    #[test]
+    fn test_peek_clone_via_consumer() {
+        let ring: SpscRing<u32, 8> = SpscRing::new();
+        let (prod, cons) = ring.split();
+        prod.push(7).unwrap();
+        prod.push(8).unwrap();
+        assert_eq!(cons.peek_clone(), Some(7)); // first item
+        assert_eq!(cons.pop().unwrap(), 7);     // consume it
+        assert_eq!(cons.peek_clone(), Some(8)); // now second is first
+    }
 
     proptest::proptest! {
         /// Any sequence of pushes and pops must preserve FIFO order, even when the

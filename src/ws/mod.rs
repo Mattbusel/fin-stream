@@ -94,6 +94,18 @@ impl ReconnectPolicy {
         Ok(self)
     }
 
+    /// Set the initial backoff duration for the first reconnect attempt.
+    pub fn with_initial_backoff(mut self, duration: Duration) -> Self {
+        self.initial_backoff = duration;
+        self
+    }
+
+    /// Set the maximum backoff duration (cap for exponential growth).
+    pub fn with_max_backoff(mut self, duration: Duration) -> Self {
+        self.max_backoff = duration;
+        self
+    }
+
     /// Apply deterministic per-attempt jitter to the computed backoff.
     ///
     /// `ratio` must be in `[0.0, 1.0]`. The effective backoff for attempt N
@@ -758,5 +770,28 @@ mod tests {
         let unique: std::collections::HashSet<u64> =
             values.iter().map(|d| d.as_millis() as u64).collect();
         assert!(unique.len() > 1, "jitter should produce variation across attempts");
+    }
+
+    // ── ReconnectPolicy::with_initial_backoff / with_max_backoff ──────────────
+
+    #[test]
+    fn test_with_initial_backoff_sets_value() {
+        let p = ReconnectPolicy::default()
+            .with_initial_backoff(Duration::from_secs(2));
+        assert_eq!(p.initial_backoff, Duration::from_secs(2));
+    }
+
+    #[test]
+    fn test_with_max_backoff_sets_value() {
+        let p = ReconnectPolicy::default()
+            .with_max_backoff(Duration::from_secs(60));
+        assert_eq!(p.max_backoff, Duration::from_secs(60));
+    }
+
+    #[test]
+    fn test_with_initial_backoff_affects_first_attempt() {
+        let p = ReconnectPolicy::default()
+            .with_initial_backoff(Duration::from_millis(200));
+        assert_eq!(p.backoff_for_attempt(0), Duration::from_millis(200));
     }
 }
