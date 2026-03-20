@@ -214,14 +214,7 @@ impl SessionAwareness {
     /// Returns `0` if the session is already open. For [`MarketSession::Crypto`] always
     /// returns `0`. Useful for scheduling reconnect timers and pre-open setup.
     pub fn minutes_until_open(&self, utc_ms: u64) -> u64 {
-        if self.is_open(utc_ms) {
-            return 0;
-        }
-        let next = self.next_open_ms(utc_ms);
-        if next <= utc_ms {
-            return 0;
-        }
-        (next - utc_ms) / 60_000
+        self.time_until_open_ms(utc_ms) / 60_000
     }
 
     /// Milliseconds until the next [`TradingStatus::Open`] transition.
@@ -501,9 +494,7 @@ impl SessionAwareness {
     /// Returns `true` if the market is in regular trading hours only
     /// (`TradingStatus::Open`), not extended hours or closed.
     pub fn is_regular_session(&self, utc_ms: u64) -> bool {
-        self.status(utc_ms)
-            .map(|s| s == TradingStatus::Open)
-            .unwrap_or(false)
+        self.is_open(utc_ms)
     }
 
     /// Returns `true` if the current time is within the final 60 minutes of
@@ -675,17 +666,7 @@ impl SessionAwareness {
     /// Alias for [`progress_pct`](Self::progress_pct). Returns `0.0` if the session is not currently open.
     #[deprecated(since = "2.2.0", note = "Use `progress_pct` instead")]
     pub fn session_progress_pct(&self, utc_ms: u64) -> f64 {
-        let total = self.open_duration_ms();
-        if total == 0 {
-            return 0.0;
-        }
-        match self.remaining_session_ms(utc_ms) {
-            Some(remaining) => {
-                let elapsed = total.saturating_sub(remaining);
-                elapsed as f64 / total as f64 * 100.0
-            }
-            None => 0.0,
-        }
+        self.progress_pct(utc_ms)
     }
 
     /// Returns `true` if the session is open and within the last 60 seconds of

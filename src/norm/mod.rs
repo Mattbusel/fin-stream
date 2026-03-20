@@ -577,6 +577,23 @@ impl MinMaxNormalizer {
         }
     }
 
+    /// Robust z-score of `value` using median and MAD instead of mean and std-dev.
+    ///
+    /// `robust_z = 0.6745 × (value − median) / MAD`
+    ///
+    /// The `0.6745` factor makes the scale consistent with the standard normal.
+    /// Returns `None` if the window is empty or MAD is zero (all values identical).
+    pub fn robust_z_score(&self, value: Decimal) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let med = self.median()?;
+        let mad = self.mad()?;
+        if mad.is_zero() {
+            return None;
+        }
+        let diff = (value - med) / mad;
+        Some(0.674_5 * diff.to_f64()?)
+    }
+
     /// The most recently added value, or `None` if the window is empty.
     pub fn latest(&self) -> Option<Decimal> {
         self.window.back().copied()
@@ -1627,9 +1644,8 @@ impl ZScoreNormalizer {
     ///
     /// Returns `None` if the window is empty.
     pub fn window_span_f64(&self) -> Option<f64> {
-        let max = self.window_max_f64()?;
-        let min = self.window_min_f64()?;
-        Some(max - min)
+        use rust_decimal::prelude::ToPrimitive;
+        self.window_range()?.to_f64()
     }
 
     /// Excess kurtosis of the window: `(Σ((x-mean)⁴/n) / std_dev⁴) - 3`.
@@ -1885,6 +1901,16 @@ impl ZScoreNormalizer {
         let mad = self.mad()?;
         if mad.is_zero() { return None; }
         ((value - med) / mad).to_f64()
+    }
+
+    /// Count of window values strictly above `threshold`.
+    pub fn count_above(&self, threshold: Decimal) -> usize {
+        self.window.iter().filter(|&&v| v > threshold).count()
+    }
+
+    /// Count of window values strictly below `threshold`.
+    pub fn count_below(&self, threshold: Decimal) -> usize {
+        self.window.iter().filter(|&&v| v < threshold).count()
     }
 }
 
