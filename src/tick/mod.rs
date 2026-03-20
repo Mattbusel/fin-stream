@@ -836,8 +836,13 @@ impl NormalizedTick {
     /// Returns `None` if the slice has fewer than 2 elements.
     pub fn price_std_dev(ticks: &[NormalizedTick]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
+        let n = ticks.len();
+        if n < 2 { return None; }
         let vals: Vec<f64> = ticks.iter().filter_map(|t| t.price.to_f64()).collect();
-        Self::sample_std_dev_f64(&vals)
+        if vals.len() < 2 { return None; }
+        let mean = vals.iter().sum::<f64>() / vals.len() as f64;
+        let variance = vals.iter().map(|p| (p - mean).powi(2)).sum::<f64>() / (vals.len() - 1) as f64;
+        Some(variance.sqrt())
     }
 
     /// Ratio of buy volume to sell volume.
@@ -1051,6 +1056,19 @@ impl NormalizedTick {
     /// If `n >= ticks.len()`, returns total volume of all ticks.
     pub fn recent_volume(ticks: &[NormalizedTick], n: usize) -> Decimal {
         Self::recent(ticks, n).iter().map(|t| t.quantity).sum()
+    }
+
+    /// Sample standard deviation of an `f64` slice.
+    ///
+    /// Returns `None` if `vals` has fewer than 2 elements.
+    fn sample_std_dev_f64(vals: &[f64]) -> Option<f64> {
+        let n = vals.len();
+        if n < 2 {
+            return None;
+        }
+        let mean = vals.iter().sum::<f64>() / n as f64;
+        let variance = vals.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / (n - 1) as f64;
+        Some(variance.sqrt())
     }
 
 }

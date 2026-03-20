@@ -356,9 +356,7 @@ impl OrderBook {
     /// Returns `true` if exactly one side (bids or asks) has levels and the
     /// other is empty. An empty book returns `false`.
     pub fn is_one_sided(&self) -> bool {
-        let has_bids = !self.bids.is_empty();
-        let has_asks = !self.asks.is_empty();
-        has_bids != has_asks
+        (self.bid_depth() > 0) != (self.ask_depth() > 0)
     }
 
     /// Imbalance between number of bid and ask price levels.
@@ -765,7 +763,7 @@ impl OrderBook {
     /// Values > 1 indicate more ask granularity; < 1 more bid granularity.
     /// Returns `None` if the bid side is empty.
     pub fn ask_bid_level_ratio(&self) -> Option<f64> {
-        if self.bids.is_empty() { return None; }
+        if self.bid_depth() == 0 { return None; }
         Some(self.ask_depth() as f64 / self.bid_depth() as f64)
     }
 
@@ -863,15 +861,12 @@ impl OrderBook {
     /// Returns `None` if either side has no levels or total volume is zero.
     pub fn bid_ask_imbalance(&self, n: usize) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        let bid_vol: Decimal = self.top_bids(n).iter().map(|l| l.quantity).sum();
-        let ask_vol: Decimal = self.top_asks(n).iter().map(|l| l.quantity).sum();
+        let bid_vol = self.cumulative_bid_volume(n);
+        let ask_vol = self.cumulative_ask_volume(n);
         if bid_vol.is_zero() || ask_vol.is_zero() {
             return None;
         }
         let total = bid_vol + ask_vol;
-        if total.is_zero() {
-            return None;
-        }
         ((bid_vol - ask_vol) / total).to_f64()
     }
 
