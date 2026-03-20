@@ -927,6 +927,17 @@ impl ZScoreNormalizer {
         let val_f64 = value.to_f64().unwrap_or(mean_f64);
         ((val_f64 - mean_f64) / sd).abs() > z_threshold
     }
+
+    /// Percentile rank: fraction of window observations that are ≤ `value`.
+    ///
+    /// Returns `None` if the window is empty. Range: `[0.0, 1.0]`.
+    pub fn percentile_rank(&self, value: Decimal) -> Option<f64> {
+        if self.window.is_empty() {
+            return None;
+        }
+        let count = self.window.iter().filter(|&&v| v <= value).count();
+        Some(count as f64 / self.window.len() as f64)
+    }
 }
 
 #[cfg(test)]
@@ -1144,5 +1155,31 @@ mod zscore_tests {
         }
         let single = n2.normalize(dec!(50)).unwrap();
         assert!((batch[4] - single).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_sum_empty_returns_none() {
+        let n = znorm(4);
+        assert!(n.sum().is_none());
+    }
+
+    #[test]
+    fn test_sum_matches_manual() {
+        let mut n = znorm(4);
+        n.update(dec!(10));
+        n.update(dec!(20));
+        n.update(dec!(30));
+        // window = [10, 20, 30], sum = 60
+        assert_eq!(n.sum().unwrap(), dec!(60));
+    }
+
+    #[test]
+    fn test_sum_evicts_old_values() {
+        let mut n = znorm(2);
+        n.update(dec!(10));
+        n.update(dec!(20));
+        n.update(dec!(30)); // evicts 10
+        // window = [20, 30], sum = 50
+        assert_eq!(n.sum().unwrap(), dec!(50));
     }
 }

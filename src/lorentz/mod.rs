@@ -1096,4 +1096,31 @@ mod tests {
     fn test_gamma_at_above_one_is_nan() {
         assert!(LorentzTransform::gamma_at(1.1).is_nan());
     }
+
+    #[test]
+    fn test_from_velocity_matches_beta_ratio() {
+        // v = 0.6c → beta = 0.6
+        let t = LorentzTransform::from_velocity(0.6, 1.0).unwrap();
+        assert!((t.beta() - 0.6).abs() < 1e-12);
+    }
+
+    #[test]
+    fn test_from_velocity_zero_c_returns_error() {
+        assert!(matches!(
+            LorentzTransform::from_velocity(0.5, 0.0),
+            Err(StreamError::LorentzConfigError { .. })
+        ));
+    }
+
+    #[test]
+    fn test_from_velocity_non_finite_returns_error() {
+        assert!(LorentzTransform::from_velocity(f64::INFINITY, 1.0).is_err());
+        assert!(LorentzTransform::from_velocity(0.5, f64::NAN).is_err());
+    }
+
+    #[test]
+    fn test_from_velocity_superluminal_returns_error() {
+        // v > c → |beta| > 1 → should fail
+        assert!(LorentzTransform::from_velocity(1.5, 1.0).is_err());
+    }
 }

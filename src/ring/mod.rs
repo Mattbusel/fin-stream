@@ -1001,4 +1001,33 @@ mod tests {
         producer.push(2).unwrap();
         assert!((producer.fill_ratio() - consumer.fill_ratio()).abs() < 1e-9);
     }
+
+    #[test]
+    fn test_peek_all_empty_returns_empty_vec() {
+        let ring: SpscRing<u32, 8> = SpscRing::new();
+        assert!(ring.peek_all().is_empty());
+    }
+
+    #[test]
+    fn test_peek_all_does_not_consume() {
+        let ring: SpscRing<u32, 8> = SpscRing::new();
+        ring.push(1).unwrap();
+        ring.push(2).unwrap();
+        ring.push(3).unwrap();
+        let snapshot = ring.peek_all();
+        assert_eq!(snapshot, vec![1, 2, 3]);
+        // items still in ring
+        assert_eq!(ring.len(), 3);
+    }
+
+    #[test]
+    fn test_peek_all_fifo_order_after_pop() {
+        let ring: SpscRing<u32, 16> = SpscRing::new();
+        for i in 0..5u32 {
+            ring.push(i).unwrap();
+        }
+        ring.pop().unwrap(); // discard 0
+        let snapshot = ring.peek_all();
+        assert_eq!(snapshot, vec![1, 2, 3, 4]);
+    }
 }

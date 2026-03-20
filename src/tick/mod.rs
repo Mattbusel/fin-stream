@@ -217,6 +217,14 @@ impl NormalizedTick {
         self.side.is_none()
     }
 
+    /// Returns `true` if the traded quantity meets or exceeds `threshold`.
+    ///
+    /// Useful for isolating institutional-size trades ("block trades") from
+    /// the general flow. The threshold is in the same units as `quantity`.
+    pub fn is_large_trade(&self, threshold: Decimal) -> bool {
+        self.quantity >= threshold
+    }
+
     /// Return a copy of this tick with the trade side set to `side`.
     ///
     /// Useful in tests and feed normalizers that determine the aggressor side

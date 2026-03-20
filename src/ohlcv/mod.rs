@@ -310,6 +310,16 @@ impl OhlcvBar {
         self.open - prev.close
     }
 
+    /// Returns `true` if this bar opened above the previous bar's close.
+    pub fn is_gap_up(&self, prev: &OhlcvBar) -> bool {
+        self.open > prev.close
+    }
+
+    /// Returns `true` if this bar opened below the previous bar's close.
+    pub fn is_gap_down(&self, prev: &OhlcvBar) -> bool {
+        self.open < prev.close
+    }
+
     /// Body midpoint: `(open + close) / 2`.
     ///
     /// The arithmetic center of the candle body, regardless of direction.
@@ -581,6 +591,14 @@ impl OhlcvAggregator {
     /// [`reset`](Self::reset).
     pub fn min_volume(&self) -> Option<Decimal> {
         self.min_volume
+    }
+
+    /// Volume range across completed bars: `(min_volume, peak_volume)`.
+    ///
+    /// Returns `None` if no bars have been completed yet. Useful for
+    /// normalizing volume signals to the observed range.
+    pub fn volume_range(&self) -> Option<(Decimal, Decimal)> {
+        Some((self.min_volume?, self.peak_volume?))
     }
 
     /// Average volume per completed bar: `total_volume / bars_emitted`.

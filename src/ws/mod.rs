@@ -939,4 +939,22 @@ mod tests {
         };
         assert!((stats.total_data_mb() - 1.0).abs() < 1e-9);
     }
+
+    #[test]
+    fn test_max_attempts_getter_matches_field() {
+        let p = ReconnectPolicy::default();
+        assert_eq!(p.max_attempts(), p.max_attempts);
+    }
+
+    #[test]
+    fn test_max_attempts_getter_after_new() {
+        let p = ReconnectPolicy::new(
+            7,
+            std::time::Duration::from_millis(100),
+            std::time::Duration::from_secs(30),
+            2.0,
+        )
+        .unwrap();
+        assert_eq!(p.max_attempts(), 7);
+    }
 }

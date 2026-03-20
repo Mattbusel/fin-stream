@@ -271,6 +271,11 @@ impl OrderBook {
         Some((bid.price * ask.quantity + ask.price * bid.quantity) / total_qty)
     }
 
+    /// Returns `(best_bid, best_ask)` in a single call, or `None` if either side is absent.
+    pub fn top_of_book(&self) -> Option<(PriceLevel, PriceLevel)> {
+        Some((self.best_bid()?, self.best_ask()?))
+    }
+
     /// Spread.
     pub fn spread(&self) -> Option<Decimal> {
         let bid = self.best_bid()?.price;
