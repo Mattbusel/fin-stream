@@ -79,6 +79,16 @@ impl WsStats {
     pub fn is_high_volume(&self, threshold: u64) -> bool {
         self.total_messages_received >= threshold
     }
+
+    /// Average bytes per message received so far.
+    ///
+    /// Returns `None` if no messages have been received yet.
+    pub fn bytes_per_message(&self) -> Option<f64> {
+        if self.total_messages_received == 0 {
+            return None;
+        }
+        Some(self.total_bytes_received as f64 / self.total_messages_received as f64)
+    }
 }
 
 /// Reconnection policy for a WebSocket feed.
@@ -1083,6 +1093,27 @@ mod tests {
     fn test_is_high_volume_true_above_threshold() {
         let stats = WsStats { total_messages_received: 2_000, total_bytes_received: 0 };
         assert!(stats.is_high_volume(1_000));
+    }
+
+    // ── WsStats::bytes_per_message ────────────────────────────────────────────
+
+    #[test]
+    fn test_bytes_per_message_none_when_no_messages() {
+        let stats = WsStats { total_messages_received: 0, total_bytes_received: 0 };
+        assert!(stats.bytes_per_message().is_none());
+    }
+
+    #[test]
+    fn test_bytes_per_message_correct_value() {
+        let stats = WsStats { total_messages_received: 4, total_bytes_received: 400 };
+        assert_eq!(stats.bytes_per_message(), Some(100.0));
+    }
+
+    #[test]
+    fn test_bytes_per_message_fractional() {
+        let stats = WsStats { total_messages_received: 3, total_bytes_received: 10 };
+        let bpm = stats.bytes_per_message().unwrap();
+        assert!((bpm - 10.0 / 3.0).abs() < 1e-10);
     }
 
     // --- delay_for_next ---

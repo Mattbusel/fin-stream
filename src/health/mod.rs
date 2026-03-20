@@ -464,6 +464,14 @@ impl HealthMonitor {
             .unwrap_or(0)
     }
 
+    /// Number of feeds currently in the [`HealthStatus::Unknown`] state.
+    pub fn unknown_feed_count(&self) -> usize {
+        self.feeds
+            .iter()
+            .filter(|e| e.status == HealthStatus::Unknown)
+            .count()
+    }
+
     /// All feeds whose current status exactly matches `status`.
     ///
     /// Returns a `Vec` of cloned [`FeedHealth`] entries. Order is unspecified.
@@ -1221,5 +1229,66 @@ mod tests {
         assert_eq!(stale, 1);
         assert_eq!(unknown, 1);
         assert_eq!(healthy, 1);
+    }
+
+    // --- feeds_by_status ---
+
+    #[test]
+    fn test_feeds_by_status_returns_only_matching_status() {
+        let mut m = monitor();
+        m.register("A", None);
+        m.register("B", None);
+        // A: old heartbeat → stale; B: recent heartbeat → healthy
+        m.heartbeat("A", 1_000).unwrap();
+        m.heartbeat("B", 9_000).unwrap();
+        m.check_all(10_000); // A elapsed=9000>5000 → Stale; B elapsed=1000<5000 → Healthy
+        let stale = m.feeds_by_status(HealthStatus::Stale);
+        assert_eq!(stale.len(), 1);
+        assert_eq!(stale[0].feed_id, "A");
+    }
+
+    #[test]
+    fn test_feeds_by_status_empty_when_none_match() {
+        let mut m = monitor();
+        m.register("A", None);
+        m.heartbeat("A", 1_000).unwrap();
+        m.check_all(2_000);
+        // A is healthy; no unknown feeds remain
+        let unknown = m.feeds_by_status(HealthStatus::Unknown);
+        assert!(unknown.is_empty());
+    }
+
+    #[test]
+    fn test_feeds_by_status_all_start_as_unknown() {
+        let mut m = monitor();
+        m.register("A", None);
+        m.register("B", None);
+        let unknown = m.feeds_by_status(HealthStatus::Unknown);
+        assert_eq!(unknown.len(), 2);
+    }
+
+    // ── HealthMonitor::unknown_feed_count ─────────────────────────────────────
+
+    #[test]
+    fn test_unknown_feed_count_all_unknown_at_start() {
+        let m = HealthMonitor::new(5_000);
+        m.register("A", None);
+        m.register("B", None);
+        assert_eq!(m.unknown_feed_count(), 2);
+    }
+
+    #[test]
+    fn test_unknown_feed_count_decreases_after_heartbeat() {
+        let m = HealthMonitor::new(5_000);
+        m.register("A", None);
+        m.register("B", None);
+        m.heartbeat("A", 1_000).unwrap();
+        assert_eq!(m.unknown_feed_count(), 1);
+    }
+
+    #[test]
+    fn test_unknown_feed_count_zero_with_no_feeds() {
+        let m = HealthMonitor::new(5_000);
+        assert_eq!(m.unknown_feed_count(), 0);
     }
 }

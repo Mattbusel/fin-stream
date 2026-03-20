@@ -407,6 +407,23 @@ impl SessionAwareness {
             .unwrap_or(0)
     }
 
+    /// Milliseconds remaining until the session closes, or `None` when the
+    /// session is not currently in regular trading hours.
+    ///
+    /// Unlike [`time_until_close_ms`](Self::time_until_close_ms) (which returns
+    /// `u64::MAX` for always-open sessions and `0` when closed), this returns
+    /// `None` for both the closed and always-open cases.
+    pub fn remaining_until_close_ms(&self, utc_ms: u64) -> Option<u64> {
+        if !self.is_regular_session(utc_ms) {
+            return None;
+        }
+        let close = self.next_close_ms(utc_ms);
+        if close == u64::MAX {
+            return None;
+        }
+        Some(close.saturating_sub(utc_ms))
+    }
+
     /// Returns `true` if the market is in regular trading hours only
     /// (`TradingStatus::Open`), not extended hours or closed.
     pub fn is_regular_session(&self, utc_ms: u64) -> bool {
@@ -1521,5 +1538,30 @@ mod tests {
             let frac = sa.fraction_of_day_elapsed(ms);
             assert!((0.0..1.0).contains(&frac));
         }
+    }
+
+    // ── SessionAwareness::remaining_until_close_ms ────────────────────────────
+
+    #[test]
+    fn test_remaining_until_close_ms_some_when_open() {
+        let sa = sa(MarketSession::UsEquity);
+        // Market is open; there is a finite close time ahead
+        let remaining = sa.remaining_until_close_ms(MON_OPEN_UTC_MS).unwrap();
+        assert!(remaining > 0, "remaining should be positive when session is open");
+        assert!(remaining < 24 * 60 * 60 * 1000, "remaining should be less than 24h");
+    }
+
+    #[test]
+    fn test_remaining_until_close_ms_none_when_closed() {
+        let sa = sa(MarketSession::UsEquity);
+        assert!(sa.remaining_until_close_ms(SAT_UTC_MS).is_none());
+    }
+
+    #[test]
+    fn test_remaining_until_close_ms_decreases_as_time_advances() {
+        let sa = sa(MarketSession::UsEquity);
+        let t1 = sa.remaining_until_close_ms(MON_OPEN_UTC_MS).unwrap();
+        let t2 = sa.remaining_until_close_ms(MON_OPEN_UTC_MS + 60_000).unwrap();
+        assert!(t1 > t2);
     }
 }

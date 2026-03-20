@@ -249,6 +249,13 @@ impl LorentzTransform {
         self.gamma
     }
 
+    /// Length contraction factor: `L' = L / gamma`.
+    ///
+    /// The reciprocal of the Lorentz factor — always in `(0.0, 1.0]`.
+    pub fn length_contraction_factor(&self) -> f64 {
+        1.0 / self.gamma
+    }
+
     /// Computes beta (v/c) from a Lorentz gamma factor. Returns an error if `gamma < 1.0`.
     pub fn beta_from_gamma(gamma: f64) -> Result<f64, StreamError> {
         if gamma.is_nan() || gamma < 1.0 {
@@ -1295,5 +1302,25 @@ mod tests {
     fn test_time_contraction_less_than_input_for_nonzero_beta() {
         let t = LorentzTransform::new(0.8).unwrap();
         assert!(t.time_contraction(100.0) < 100.0);
+    }
+
+    // ── LorentzTransform::length_contraction_factor ───────────────────────────
+
+    #[test]
+    fn test_length_contraction_factor_one_at_rest() {
+        let t = LorentzTransform::new(0.0).unwrap();
+        assert!((t.length_contraction_factor() - 1.0).abs() < 1e-12);
+    }
+
+    #[test]
+    fn test_length_contraction_factor_is_reciprocal_of_gamma() {
+        let t = LorentzTransform::new(0.6).unwrap();
+        assert!((t.length_contraction_factor() - 1.0 / t.gamma()).abs() < 1e-12);
+    }
+
+    #[test]
+    fn test_length_contraction_factor_less_than_one_for_nonzero_beta() {
+        let t = LorentzTransform::new(0.9).unwrap();
+        assert!(t.length_contraction_factor() < 1.0);
     }
 }

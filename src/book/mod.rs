@@ -351,6 +351,22 @@ impl OrderBook {
     /// Bid-ask spread expressed in basis points: `(ask − bid) / mid × 10 000`.
     ///
     /// Returns `None` if either side is empty or the mid price is zero.
+    /// Imbalance between number of bid and ask price levels.
+    ///
+    /// Returns `(bid_levels - ask_levels) / (bid_levels + ask_levels)` as f64
+    /// in the range `[-1.0, 1.0]`. Returns `None` when the book is empty.
+    pub fn level_count_imbalance(&self) -> Option<f64> {
+        let total = self.bids.len() + self.asks.len();
+        if total == 0 {
+            return None;
+        }
+        let diff = self.bids.len() as f64 - self.asks.len() as f64;
+        Some(diff / total as f64)
+    }
+
+    /// Bid-ask spread in basis points: `(ask − bid) / mid × 10_000`.
+    ///
+    /// Returns `None` if either side of the book is empty or the mid-price is zero.
     pub fn bid_ask_spread_bps(&self) -> Option<f64> {
         let bid = self.best_bid()?.price;
         let ask = self.best_ask()?.price;
@@ -1606,5 +1622,31 @@ mod tests {
         let mut b = book("BTC-USD");
         b.apply(delta("BTC-USD", BookSide::Bid, dec!(49900), dec!(1))).unwrap();
         assert!(b.bid_wall(dec!(5)).is_none());
+    }
+
+    // ── OrderBook::level_count_imbalance ──────────────────────────────────────
+
+    #[test]
+    fn test_level_count_imbalance_balanced_sides() {
+        let mut b = book("BTC-USD");
+        b.apply(delta("BTC-USD", BookSide::Bid, dec!(99), dec!(1))).unwrap();
+        b.apply(delta("BTC-USD", BookSide::Ask, dec!(101), dec!(1))).unwrap();
+        // 1 bid, 1 ask → (1-1)/(1+1) = 0.0
+        assert_eq!(b.level_count_imbalance(), Some(0.0));
+    }
+
+    #[test]
+    fn test_level_count_imbalance_bids_only() {
+        let mut b = book("BTC-USD");
+        b.apply(delta("BTC-USD", BookSide::Bid, dec!(99), dec!(1))).unwrap();
+        b.apply(delta("BTC-USD", BookSide::Bid, dec!(98), dec!(1))).unwrap();
+        // 2 bids, 0 asks → (2-0)/(2+0) = 1.0
+        assert_eq!(b.level_count_imbalance(), Some(1.0));
+    }
+
+    #[test]
+    fn test_level_count_imbalance_none_for_empty_book() {
+        let b = book("BTC-USD");
+        assert!(b.level_count_imbalance().is_none());
     }
 }

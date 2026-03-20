@@ -291,6 +291,11 @@ impl NormalizedTick {
     pub fn is_below(&self, price: Decimal) -> bool {
         self.price < price
     }
+
+    /// Returns `true` if this tick's price equals `price`.
+    pub fn is_at(&self, price: Decimal) -> bool {
+        self.price == price
+    }
 }
 
 impl std::fmt::Display for NormalizedTick {
@@ -799,11 +804,10 @@ mod tests {
 
     #[test]
     fn test_normalized_tick_value_is_price_times_qty() {
-        use rust_decimal_macros::dec;
         let tick = normalizer().normalize(binance_tick("BTCUSDT")).unwrap();
         // binance_tick sets price=50000, quantity=0.001
         let expected = tick.price * tick.quantity;
-        assert_eq!(tick.value(), expected);
+        assert_eq!(tick.volume_notional(), expected);
     }
 
     #[test]
@@ -1102,5 +1106,28 @@ mod tests {
     fn test_has_exchange_ts_true_when_some() {
         let tick = make_tick_at(1_000).with_exchange_ts(900);
         assert!(tick.has_exchange_ts());
+    }
+
+    // ── NormalizedTick::is_at ─────────────────────────────────────────────────
+
+    #[test]
+    fn test_is_at_returns_true_when_equal() {
+        let mut tick = make_tick_at(1_000);
+        tick.price = rust_decimal_macros::dec!(100);
+        assert!(tick.is_at(rust_decimal_macros::dec!(100)));
+    }
+
+    #[test]
+    fn test_is_at_returns_false_when_higher() {
+        let mut tick = make_tick_at(1_000);
+        tick.price = rust_decimal_macros::dec!(101);
+        assert!(!tick.is_at(rust_decimal_macros::dec!(100)));
+    }
+
+    #[test]
+    fn test_is_at_returns_false_when_lower() {
+        let mut tick = make_tick_at(1_000);
+        tick.price = rust_decimal_macros::dec!(99);
+        assert!(!tick.is_at(rust_decimal_macros::dec!(100)));
     }
 }

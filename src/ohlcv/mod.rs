@@ -2049,4 +2049,48 @@ mod tests {
         // (120 + 80 + 110) / 3 = 310/3
         assert_eq!(b.hlc3(), (Decimal::from(120) + Decimal::from(80) + Decimal::from(110)) / Decimal::from(3));
     }
+
+    // ── OhlcvBar::is_bearish ──────────────────────────────────────────────────
+
+    #[test]
+    fn test_is_bearish_true_when_close_below_open() {
+        let bar = make_ohlcv_bar(dec!(110), dec!(115), dec!(100), dec!(105));
+        assert!(bar.is_bearish());
+    }
+
+    #[test]
+    fn test_is_bearish_false_when_close_above_open() {
+        let bar = make_ohlcv_bar(dec!(100), dec!(115), dec!(95), dec!(110));
+        assert!(!bar.is_bearish());
+    }
+
+    #[test]
+    fn test_is_bearish_false_when_doji() {
+        let bar = make_ohlcv_bar(dec!(100), dec!(105), dec!(95), dec!(100));
+        assert!(!bar.is_bearish());
+    }
+
+    // ── OhlcvBar::wick_ratio ──────────────────────────────────────────────────
+
+    #[test]
+    fn test_wick_ratio_zero_for_full_body_no_wicks() {
+        // open=100, close=110, high=110, low=100 → no wicks → ratio=0
+        let bar = make_ohlcv_bar(dec!(100), dec!(110), dec!(100), dec!(110));
+        let ratio = bar.wick_ratio().unwrap();
+        assert!(ratio.abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_wick_ratio_one_for_pure_wick_doji() {
+        // open=close=105, high=110, low=100 → body=0, upper=5, lower=5, range=10 → ratio=1
+        let bar = make_ohlcv_bar(dec!(105), dec!(110), dec!(100), dec!(105));
+        let ratio = bar.wick_ratio().unwrap();
+        assert!((ratio - 1.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_wick_ratio_none_for_zero_range_bar() {
+        let bar = make_ohlcv_bar(dec!(100), dec!(100), dec!(100), dec!(100));
+        assert!(bar.wick_ratio().is_none());
+    }
 }
