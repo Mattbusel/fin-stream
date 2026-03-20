@@ -13,14 +13,75 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
-**`norm` module — `MinMaxNormalizer` analytics (round 42)**
+**`norm` module — `MinMaxNormalizer` analytics (rounds 42–45)**
 - `MinMaxNormalizer::kurtosis() -> Option<f64>` — excess kurtosis of the rolling window; companion to the existing `skewness()`. Returns `None` for fewer than 4 observations or zero std-dev.
+- `MinMaxNormalizer::count_below(threshold: Decimal) -> usize` — count of window values strictly below a threshold.
+- `MinMaxNormalizer::variance() -> Option<Decimal>` — population variance of the rolling window.
+- `MinMaxNormalizer::std_dev() -> Option<f64>` — population standard deviation (sqrt of variance).
+- `MinMaxNormalizer::coefficient_of_variation() -> Option<f64>` — CV = std_dev / |mean|; `None` when mean is zero or window has fewer than 2 values.
 
-**`ohlcv` module — `OhlcvBar` static analytics (round 42)**
+**`norm` module — `ZScoreNormalizer` analytics (round 43)**
+- `ZScoreNormalizer::interquartile_range() -> Option<Decimal>` — IQR (Q3 − Q1) of the rolling window. Returns `None` for fewer than 4 observations.
+
+**`ohlcv` module — `OhlcvBar` static analytics (rounds 42–45)**
 - `OhlcvBar::average_true_range(bars: &[OhlcvBar]) -> Option<Decimal>` — ATR: mean of `true_range` across consecutive bars. Returns `None` for fewer than 2 bars.
 - `OhlcvBar::average_body(bars: &[OhlcvBar]) -> Option<Decimal>` — mean `|close − open|` across a slice of bars. Companion to `mean_volume`.
+- `OhlcvBar::bullish_count(bars: &[OhlcvBar]) -> usize` — count of bullish bars (close > open).
+- `OhlcvBar::bearish_count(bars: &[OhlcvBar]) -> usize` — count of bearish bars (close < open).
+- `OhlcvBar::win_rate(bars: &[OhlcvBar]) -> Option<f64>` — fraction of bullish bars; `None` for empty slice.
+- `OhlcvBar::max_drawdown(bars: &[OhlcvBar]) -> Option<f64>` — maximum peak-to-trough close drawdown. Returns `None` for fewer than 2 bars.
+- `OhlcvBar::bullish_streak(bars: &[OhlcvBar]) -> usize` — consecutive bullish bars from the tail of the slice.
+- `OhlcvBar::bearish_streak(bars: &[OhlcvBar]) -> usize` — consecutive bearish bars from the tail of the slice.
+- `OhlcvBar::linear_regression_slope(bars: &[OhlcvBar]) -> Option<f64>` — OLS slope of close prices over bar index. Returns `None` for fewer than 2 bars.
+
+**`tick` module — `NormalizedTick` analytics (rounds 44–45)**
+- `NormalizedTick::buy_volume(ticks: &[NormalizedTick]) -> Decimal` — total quantity for buy-side ticks.
+- `NormalizedTick::sell_volume(ticks: &[NormalizedTick]) -> Decimal` — total quantity for sell-side ticks.
+- `NormalizedTick::price_range(ticks: &[NormalizedTick]) -> Option<Decimal>` — max price minus min price across a slice; `None` for empty slice.
+- `NormalizedTick::average_price(ticks: &[NormalizedTick]) -> Option<Decimal>` — mean price across a slice; `None` for empty slice.
+
+**`ring` module — `SpscProducer` / `SpscConsumer` (round 48)**
+- `SpscProducer::fill_ratio()` and `SpscConsumer::fill_ratio()` now delegate to the inner ring's canonical `fill_ratio()`.
+- `SpscProducer::available()` now delegates to `inner.remaining_capacity()`.
+
+### Fixed
+- `NormalizedTick::is_large_tick` now correctly uses strict `>` comparison (docs always said "strictly above"); it was erroneously delegating to `is_large_trade` which uses `>=`.
+- `ZScoreNormalizer::is_near_mean` now explicitly returns `false` when the window has fewer than 2 observations, preventing a false-positive when std-dev is 0.
+- `ZScoreNormalizer::trim_outliers`: removed redundant `.to_f64()` chain on an already-`f64` result from `std_dev()`.
+- `OhlcvAggregator::feed`: replaced inline `tick.price * tick.quantity` with `tick.value()` to use the canonical method.
+- Multiple methods across `ohlcv` and `norm` modules now delegate to canonical helpers (`self.range()`, `self.mean()`, `self.std_dev()`) instead of recomputing inline, eliminating silent divergence risk.
 
 ### Deprecated
+
+**`tick` module — `NormalizedTick` alias cleanup (round 45)**
+
+| Deprecated | Use instead |
+|---|---|
+| `is_above_price(p)` | `price > p` |
+| `is_below_price(p)` | `price < p` |
+| `is_at_price(p)` | `price == p` |
+| `is_buy_side()` | `side == Some(TradeSide::Buy)` |
+| `is_sell_side()` | `side == Some(TradeSide::Sell)` |
+| `is_recent(ts, window)` | `age_ms(ts) <= window` |
+| `notional_value()` | `value()` |
+| `quote_age_ms(ts)` | `age_ms(ts)` |
+| `is_high_value_tick(t)` | `is_high_value(t)` |
+| `is_large_tick(t)` | `is_large_trade(t)` |
+| `price_diff_from(other)` | `price_move_from(other)` |
+
+**`session` module — alias cleanup (round 45)**
+
+| Deprecated | Use instead |
+|---|---|
+| `is_pre_open(ts)` | `is_pre_market(ts)` |
+| `session_progress_pct(ts)` | `progress_pct(ts)` |
+
+**`lorentz` module — alias cleanup (round 45)**
+
+| Deprecated | Use instead |
+|---|---|
+| `is_ultra_relativistic()` | `is_ultrarelativistic()` |
+| `space_contraction()` | `length_contraction()` |
 
 **`ohlcv` module — `OhlcvBar` alias cleanup (round 42)**
 
