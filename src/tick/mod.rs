@@ -4211,4 +4211,104 @@ mod tests {
         ];
         assert_eq!(NormalizedTick::price_above_vwap_count(&ticks), Some(1));
     }
+
+    // ── NormalizedTick::avg_trade_size ────────────────────────────────────────
+
+    #[test]
+    fn test_avg_trade_size_none_for_empty() {
+        assert!(NormalizedTick::avg_trade_size(&[]).is_none());
+    }
+
+    #[test]
+    fn test_avg_trade_size_correct() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(2)),
+            make_tick_pq(dec!(101), dec!(4)),
+        ];
+        assert_eq!(NormalizedTick::avg_trade_size(&ticks), Some(dec!(3)));
+    }
+
+    // ── NormalizedTick::volume_concentration ─────────────────────────────────
+
+    #[test]
+    fn test_volume_concentration_none_for_empty() {
+        assert!(NormalizedTick::volume_concentration(&[]).is_none());
+    }
+
+    #[test]
+    fn test_volume_concentration_is_one_for_single_tick() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![make_tick_pq(dec!(100), dec!(5))];
+        let c = NormalizedTick::volume_concentration(&ticks).unwrap();
+        assert!((c - 1.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_volume_concentration_in_range() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(101), dec!(1)),
+            make_tick_pq(dec!(102), dec!(1)),
+            make_tick_pq(dec!(103), dec!(10)),
+        ];
+        let c = NormalizedTick::volume_concentration(&ticks).unwrap();
+        assert!(c > 0.0 && c <= 1.0, "expected value in (0,1], got {}", c);
+    }
+
+    // ── NormalizedTick::trade_imbalance_score ─────────────────────────────────
+
+    #[test]
+    fn test_trade_imbalance_score_none_for_empty() {
+        assert!(NormalizedTick::trade_imbalance_score(&[]).is_none());
+    }
+
+    #[test]
+    fn test_trade_imbalance_score_positive_for_all_buys() {
+        use rust_decimal_macros::dec;
+        let mut t = make_tick_pq(dec!(100), dec!(1));
+        t.side = Some(TradeSide::Buy);
+        let score = NormalizedTick::trade_imbalance_score(&[t]).unwrap();
+        assert!(score > 0.0);
+    }
+
+    #[test]
+    fn test_trade_imbalance_score_negative_for_all_sells() {
+        use rust_decimal_macros::dec;
+        let mut t = make_tick_pq(dec!(100), dec!(1));
+        t.side = Some(TradeSide::Sell);
+        let score = NormalizedTick::trade_imbalance_score(&[t]).unwrap();
+        assert!(score < 0.0);
+    }
+
+    // ── NormalizedTick::price_entropy ─────────────────────────────────────────
+
+    #[test]
+    fn test_price_entropy_none_for_empty() {
+        assert!(NormalizedTick::price_entropy(&[]).is_none());
+    }
+
+    #[test]
+    fn test_price_entropy_zero_for_single_price() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(100), dec!(2)),
+        ];
+        let e = NormalizedTick::price_entropy(&ticks).unwrap();
+        assert!((e - 0.0).abs() < 1e-9, "identical prices should have zero entropy, got {}", e);
+    }
+
+    #[test]
+    fn test_price_entropy_positive_for_varied_prices() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(101), dec!(1)),
+            make_tick_pq(dec!(102), dec!(1)),
+        ];
+        let e = NormalizedTick::price_entropy(&ticks).unwrap();
+        assert!(e > 0.0, "varied prices should have positive entropy, got {}", e);
+    }
 }
