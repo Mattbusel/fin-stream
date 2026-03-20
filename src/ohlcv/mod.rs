@@ -648,6 +648,30 @@ impl OhlcvBar {
         (self.high - self.low) > threshold
     }
 
+    /// Position of close within the bar's high-low range: `(close - low) / (high - low)`.
+    ///
+    /// Returns `None` if the bar's range is zero. Result is in `[0.0, 1.0]`:
+    /// - `0.0` → closed at the low (bearish)
+    /// - `1.0` → closed at the high (bullish)
+    pub fn close_to_low_ratio(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let range = self.high - self.low;
+        if range.is_zero() {
+            return None;
+        }
+        ((self.close - self.low) / range).to_f64()
+    }
+
+    /// Average volume per trade: `volume / trade_count`.
+    ///
+    /// Returns `None` if `trade_count` is zero.
+    pub fn volume_per_trade(&self) -> Option<Decimal> {
+        if self.trade_count == 0 {
+            return None;
+        }
+        Some(self.volume / Decimal::from(self.trade_count as u64))
+    }
+
     /// Classifies this bar as `"bullish"`, `"bearish"`, or `"doji"`.
     ///
     /// A doji is a bar whose body is zero (open equals close). Otherwise the
@@ -3219,5 +3243,52 @@ mod tests {
     fn test_is_wide_range_bar_false_when_range_equals_threshold() {
         let bar = make_ohlcv_bar(dec!(100), dec!(120), dec!(100), dec!(110)); // range=20
         assert!(!bar.is_wide_range_bar(dec!(20)));
+    }
+
+    // ── close_to_low_ratio ────────────────────────────────────────────────────
+
+    #[test]
+    fn test_close_to_low_ratio_none_when_range_zero() {
+        let bar = make_ohlcv_bar(dec!(100), dec!(100), dec!(100), dec!(100));
+        assert!(bar.close_to_low_ratio().is_none());
+    }
+
+    #[test]
+    fn test_close_to_low_ratio_one_when_closed_at_high() {
+        let bar = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(110));
+        let ratio = bar.close_to_low_ratio().unwrap();
+        assert!((ratio - 1.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_close_to_low_ratio_zero_when_closed_at_low() {
+        let bar = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(90));
+        let ratio = bar.close_to_low_ratio().unwrap();
+        assert!(ratio.abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_close_to_low_ratio_half_at_midpoint() {
+        let bar = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100));
+        // (100-90)/(110-90) = 10/20 = 0.5
+        let ratio = bar.close_to_low_ratio().unwrap();
+        assert!((ratio - 0.5).abs() < 1e-10);
+    }
+
+    // ── volume_per_trade ──────────────────────────────────────────────────────
+
+    #[test]
+    fn test_volume_per_trade_none_when_trade_count_zero() {
+        let mut bar = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100));
+        bar.trade_count = 0;
+        assert!(bar.volume_per_trade().is_none());
+    }
+
+    #[test]
+    fn test_volume_per_trade_correct_value() {
+        let mut bar = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100));
+        bar.volume = dec!(500);
+        bar.trade_count = 5;
+        assert_eq!(bar.volume_per_trade(), Some(dec!(100)));
     }
 }

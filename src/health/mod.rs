@@ -423,6 +423,17 @@ impl HealthMonitor {
         self.feeds.iter().all(|e| e.status == HealthStatus::Healthy)
     }
 
+    /// Fraction of registered feeds currently in [`HealthStatus::Healthy`] state.
+    ///
+    /// Returns `0.0` if no feeds are registered.
+    pub fn ratio_healthy(&self) -> f64 {
+        let total = self.feed_count();
+        if total == 0 {
+            return 0.0;
+        }
+        self.healthy_count() as f64 / total as f64
+    }
+
     /// IDs of all feeds currently in [`HealthStatus::Unknown`] state.
     pub fn unknown_feed_ids(&self) -> Vec<String> {
         self.feeds
@@ -2222,5 +2233,41 @@ mod tests {
         m.register("AAA", None);
         let needing = m.feeds_needing_check();
         assert_eq!(needing, vec!["AAA".to_string(), "ZZZ".to_string()]);
+    }
+
+    // ── ratio_healthy ─────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_ratio_healthy_zero_when_no_feeds() {
+        let m = HealthMonitor::new(5_000);
+        assert_eq!(m.ratio_healthy(), 0.0);
+    }
+
+    #[test]
+    fn test_ratio_healthy_zero_when_all_unknown() {
+        let m = HealthMonitor::new(5_000);
+        m.register("BTC", None);
+        m.register("ETH", None);
+        assert_eq!(m.ratio_healthy(), 0.0);
+    }
+
+    #[test]
+    fn test_ratio_healthy_one_when_all_healthy() {
+        let m = HealthMonitor::new(5_000);
+        m.register("BTC", None);
+        m.heartbeat("BTC", 0).unwrap();
+        m.check_all(100);
+        assert_eq!(m.ratio_healthy(), 1.0);
+    }
+
+    #[test]
+    fn test_ratio_healthy_half_when_one_of_two() {
+        let m = HealthMonitor::new(5_000);
+        m.register("BTC", None);
+        m.register("ETH", None);
+        m.heartbeat("BTC", 0).unwrap();
+        m.check_all(100);
+        let ratio = m.ratio_healthy();
+        assert!((ratio - 0.5).abs() < 1e-10);
     }
 }

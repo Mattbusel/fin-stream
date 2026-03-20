@@ -441,6 +441,11 @@ impl NormalizedTick {
         self.price - reference
     }
 
+    /// Returns `true` if this tick's price exactly equals `target`.
+    pub fn is_at_price(&self, target: Decimal) -> bool {
+        self.price == target
+    }
+
     /// Returns `true` if this tick's price is strictly below `reference`.
     pub fn is_below_price(&self, reference: Decimal) -> bool {
         self.price < reference
@@ -2075,5 +2080,19 @@ mod tests {
     fn test_quantity_above_false_when_quantity_equals_threshold() {
         let tick = make_tick_at(0); // quantity=1
         assert!(!tick.quantity_above(rust_decimal_macros::dec!(1)));
+    }
+
+    // ── is_at_price ───────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_is_at_price_true_when_equal() {
+        let tick = make_tick_at(0); // price=100
+        assert!(tick.is_at_price(rust_decimal_macros::dec!(100)));
+    }
+
+    #[test]
+    fn test_is_at_price_false_when_different() {
+        let tick = make_tick_at(0); // price=100
+        assert!(!tick.is_at_price(rust_decimal_macros::dec!(101)));
     }
 }

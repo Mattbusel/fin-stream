@@ -751,6 +751,22 @@ impl SessionAwareness {
         }
     }
 
+    /// Returns `true` if `utc_ms` falls within the final 60 seconds of the session.
+    ///
+    /// Always returns `false` for non-US-Equity sessions or when the session is not open.
+    pub fn is_closing_bell_minute(&self, utc_ms: u64) -> bool {
+        if self.session != MarketSession::UsEquity {
+            return false;
+        }
+        match self.time_in_session_ms(utc_ms) {
+            Some(elapsed) => {
+                let session_length_ms = 6 * 3_600_000 + 30 * 60_000; // 6.5h
+                elapsed + 60_000 >= session_length_ms
+            }
+            None => false,
+        }
+    }
+
     /// Returns `true` if `date` is the day immediately before or after a major
     /// US market holiday (Christmas, New Year's Day, Independence Day, Thanksgiving
     /// Friday, or Labor Day). These adjacent days often see reduced liquidity.
@@ -2565,5 +2581,25 @@ mod tests {
         let sa = SessionAwareness::new(MarketSession::UsEquity);
         let sat_midnight: u64 = 5 * 24 * 3_600_000;
         assert!(sa.seconds_until_open(sat_midnight) > 0.0);
+    }
+
+    // ── is_closing_bell_minute ────────────────────────────────────────────────
+
+    #[test]
+    fn test_closing_bell_minute_true_near_session_end() {
+        // US equity opens at 14:30 UTC (9:30 ET-5), closes at 21:00 UTC (16:00 ET)
+        // 6.5h = 23400s. Test at 20:59:30 UTC = just before close
+        let sa = SessionAwareness::new(MarketSession::UsEquity);
+        // Monday 20:59 UTC — 29 seconds before close
+        let mon_20_59_utc: u64 = 4 * 24 * 3_600_000 + 20 * 3_600_000 + 59 * 60_000 + 30_000;
+        assert!(sa.is_closing_bell_minute(mon_20_59_utc));
+    }
+
+    #[test]
+    fn test_closing_bell_minute_false_early_in_session() {
+        let sa = SessionAwareness::new(MarketSession::UsEquity);
+        // Monday 16:00 UTC — mid session
+        let mon_16h_utc: u64 = 4 * 24 * 3_600_000 + 16 * 3_600_000;
+        assert!(!sa.is_closing_bell_minute(mon_16h_utc));
     }
 }

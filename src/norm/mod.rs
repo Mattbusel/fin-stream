@@ -376,6 +376,19 @@ impl MinMaxNormalizer {
         self.window.iter().filter(|&&v| v > threshold).count()
     }
 
+    /// `(max - min) / max` as `f64` — the range as a fraction of the maximum.
+    ///
+    /// Measures how wide the window's spread is relative to its peak. Returns
+    /// `None` if the window is empty or the maximum is zero.
+    pub fn normalized_range(&mut self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let (min, max) = self.min_max()?;
+        if max.is_zero() {
+            return None;
+        }
+        ((max - min) / max).to_f64()
+    }
+
     /// Exponential weighted moving average of the current window values.
     ///
     /// Applies `alpha` as the smoothing factor (most-recent weight), scanning oldest→newest.
@@ -796,6 +809,30 @@ mod tests {
         let mut n = norm(4);
         for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
         assert_eq!(n.count_above(dec!(100)), 0);
+    }
+
+    // ── MinMaxNormalizer::normalized_range ────────────────────────────────────
+
+    #[test]
+    fn test_normalized_range_none_when_empty() {
+        let mut n = norm(4);
+        assert!(n.normalized_range().is_none());
+    }
+
+    #[test]
+    fn test_normalized_range_zero_when_all_same() {
+        let mut n = norm(4);
+        for _ in 0..4 { n.update(dec!(5)); }
+        assert_eq!(n.normalized_range(), Some(0.0));
+    }
+
+    #[test]
+    fn test_normalized_range_correct_value() {
+        let mut n = norm(4);
+        for v in [dec!(10), dec!(20), dec!(30), dec!(40)] { n.update(v); }
+        // (40-10)/40 = 0.75
+        let nr = n.normalized_range().unwrap();
+        assert!((nr - 0.75).abs() < 1e-10);
     }
 
     // ── MinMaxNormalizer::normalize_clamp ─────────────────────────────────────
@@ -1440,6 +1477,16 @@ impl ZScoreNormalizer {
         let second: Decimal = self.window.iter().skip(mid).copied().sum::<Decimal>()
             / Decimal::from((n - mid) as u64);
         (second - first).to_f64()
+    }
+
+    /// Count of window values whose z-score is strictly positive (above the mean).
+    ///
+    /// Returns `0` if the window is empty or all values are equal (z-scores are all 0).
+    pub fn count_positive_z_scores(&self) -> usize {
+        self.window
+            .iter()
+            .filter(|&&v| self.normalize(v).map_or(false, |z| z > 0.0))
+            .count()
     }
 }
 
@@ -2216,5 +2263,28 @@ mod zscore_tests {
         for v in [dec!(10), dec!(20), dec!(30), dec!(40)] { n.update(v); }
         // max=40, min=10, span=30
         assert!((n.window_span_f64().unwrap() - 30.0).abs() < 1e-9);
+    }
+
+    // ── count_positive_z_scores ───────────────────────────────────────────────
+
+    #[test]
+    fn test_count_positive_z_scores_zero_when_empty() {
+        let n = znorm(4);
+        assert_eq!(n.count_positive_z_scores(), 0);
+    }
+
+    #[test]
+    fn test_count_positive_z_scores_zero_when_all_same() {
+        let mut n = znorm(4);
+        for _ in 0..4 { n.update(dec!(5)); }
+        assert_eq!(n.count_positive_z_scores(), 0);
+    }
+
+    #[test]
+    fn test_count_positive_z_scores_half_above_mean() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        // mean=2.5, values above: 3 and 4
+        assert_eq!(n.count_positive_z_scores(), 2);
     }
 }

@@ -501,6 +501,27 @@ impl<T, const N: usize> SpscRing<T, N> {
     }
 
     /// Mean of all elements in the ring as `f64`.
+    /// Returns `true` if the ring contains an element equal to `value`.
+    ///
+    /// # Complexity: O(n).
+    pub fn contains_cloned(&self, value: &T) -> bool
+    where
+        T: Clone + PartialEq,
+    {
+        let head = self.head.load(Ordering::Acquire);
+        let tail = self.tail.load(Ordering::Acquire);
+        let len = tail.wrapping_sub(head);
+        for i in 0..len {
+            let slot = head.wrapping_add(i) % N;
+            // SAFETY: slots in [head, tail) are initialized
+            let item = unsafe { (*self.buf[slot].get()).assume_init_ref() };
+            if item == value {
+                return true;
+            }
+        }
+        false
+    }
+
     ///
     /// Returns `None` if the ring is empty.
     ///
@@ -1808,5 +1829,29 @@ mod tests {
         let ring: SpscRing<u32, 4> = SpscRing::new();
         ring.push(5u32).unwrap();
         assert!(ring.peek_nth(1).is_none());
+    }
+
+    // ── contains_cloned ───────────────────────────────────────────────────────
+
+    #[test]
+    fn test_contains_cloned_false_when_empty() {
+        let ring: SpscRing<u32, 4> = SpscRing::new();
+        assert!(!ring.contains_cloned(&42u32));
+    }
+
+    #[test]
+    fn test_contains_cloned_true_when_value_present() {
+        let ring: SpscRing<u32, 8> = SpscRing::new();
+        ring.push(10u32).unwrap();
+        ring.push(20u32).unwrap();
+        assert!(ring.contains_cloned(&10u32));
+        assert!(ring.contains_cloned(&20u32));
+    }
+
+    #[test]
+    fn test_contains_cloned_false_when_value_absent() {
+        let ring: SpscRing<u32, 4> = SpscRing::new();
+        ring.push(5u32).unwrap();
+        assert!(!ring.contains_cloned(&99u32));
     }
 }
