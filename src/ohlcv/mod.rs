@@ -1436,6 +1436,48 @@ impl OhlcvBar {
         }
         Some(ratios.iter().sum::<f64>() / ratios.len() as f64)
     }
+
+    /// Sample standard deviation of bar volumes across the slice.
+    ///
+    /// Returns `None` if the slice has fewer than 2 bars.
+    pub fn volume_std_dev(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let n = bars.len();
+        if n < 2 {
+            return None;
+        }
+        let vols: Vec<f64> = bars.iter().filter_map(|b| b.volume.to_f64()).collect();
+        if vols.len() < 2 {
+            return None;
+        }
+        let mean = vols.iter().sum::<f64>() / vols.len() as f64;
+        let variance = vols.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / (vols.len() - 1) as f64;
+        Some(variance.sqrt())
+    }
+
+    /// Bar with the highest volume in the slice.
+    ///
+    /// Returns `None` if the slice is empty.
+    pub fn max_volume_bar(bars: &[OhlcvBar]) -> Option<&OhlcvBar> {
+        bars.iter().max_by(|a, b| a.volume.cmp(&b.volume))
+    }
+
+    /// Bar with the lowest volume in the slice.
+    ///
+    /// Returns `None` if the slice is empty.
+    pub fn min_volume_bar(bars: &[OhlcvBar]) -> Option<&OhlcvBar> {
+        bars.iter().min_by(|a, b| a.volume.cmp(&b.volume))
+    }
+
+    /// Sum of gap-open amounts: Σ (open[n] − close[n−1]) for n ≥ 1.
+    ///
+    /// A positive value indicates upward gaps dominate; negative means downward.
+    pub fn gap_sum(bars: &[OhlcvBar]) -> Decimal {
+        if bars.len() < 2 {
+            return Decimal::ZERO;
+        }
+        bars.windows(2).map(|w| w[1].open - w[0].close).sum()
+    }
 }
 
 impl std::fmt::Display for OhlcvBar {

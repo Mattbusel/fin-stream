@@ -710,6 +710,26 @@ impl MinMaxNormalizer {
     pub fn is_at_max(&mut self, value: Decimal) -> bool {
         self.max().map_or(false, |m| value == m)
     }
+
+    /// Fraction of window values strictly above `threshold`.
+    ///
+    /// Returns `None` if the window is empty.
+    pub fn fraction_above(&self, threshold: Decimal) -> Option<f64> {
+        if self.window.is_empty() {
+            return None;
+        }
+        Some(self.count_above(threshold) as f64 / self.window.len() as f64)
+    }
+
+    /// Fraction of window values strictly below `threshold`.
+    ///
+    /// Returns `None` if the window is empty.
+    pub fn fraction_below(&self, threshold: Decimal) -> Option<f64> {
+        if self.window.is_empty() {
+            return None;
+        }
+        Some(self.count_below(threshold) as f64 / self.window.len() as f64)
+    }
 }
 
 #[cfg(test)]
@@ -2436,6 +2456,26 @@ impl ZScoreNormalizer {
     pub fn is_stable(&self, z_threshold: f64) -> bool {
         self.z_score_of_latest()
             .map_or(false, |z| z.abs() <= z_threshold)
+    }
+
+    /// Fraction of window values strictly above `threshold`.
+    ///
+    /// Returns `None` if the window is empty.
+    pub fn fraction_above(&self, threshold: Decimal) -> Option<f64> {
+        if self.window.is_empty() {
+            return None;
+        }
+        Some(self.count_above(threshold) as f64 / self.window.len() as f64)
+    }
+
+    /// Fraction of window values strictly below `threshold`.
+    ///
+    /// Returns `None` if the window is empty.
+    pub fn fraction_below(&self, threshold: Decimal) -> Option<f64> {
+        if self.window.is_empty() {
+            return None;
+        }
+        Some(self.count_below(threshold) as f64 / self.window.len() as f64)
     }
 }
 

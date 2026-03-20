@@ -836,17 +836,8 @@ impl NormalizedTick {
     /// Returns `None` if the slice has fewer than 2 elements.
     pub fn price_std_dev(ticks: &[NormalizedTick]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        let n = ticks.len();
-        if n < 2 {
-            return None;
-        }
-        let prices: Vec<f64> = ticks.iter().filter_map(|t| t.price.to_f64()).collect();
-        if prices.len() < 2 {
-            return None;
-        }
-        let mean = prices.iter().sum::<f64>() / prices.len() as f64;
-        let variance = prices.iter().map(|p| (p - mean).powi(2)).sum::<f64>() / (prices.len() - 1) as f64;
-        Some(variance.sqrt())
+        let vals: Vec<f64> = ticks.iter().filter_map(|t| t.price.to_f64()).collect();
+        Self::sample_std_dev_f64(&vals)
     }
 
     /// Ratio of buy volume to sell volume.
@@ -903,17 +894,8 @@ impl NormalizedTick {
     /// Returns `None` if the slice has fewer than 2 elements.
     pub fn std_quantity(ticks: &[NormalizedTick]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        let n = ticks.len();
-        if n < 2 {
-            return None;
-        }
-        let qtys: Vec<f64> = ticks.iter().filter_map(|t| t.quantity.to_f64()).collect();
-        if qtys.len() < 2 {
-            return None;
-        }
-        let mean = qtys.iter().sum::<f64>() / qtys.len() as f64;
-        let variance = qtys.iter().map(|q| (q - mean).powi(2)).sum::<f64>() / (qtys.len() - 1) as f64;
-        Some(variance.sqrt())
+        let vals: Vec<f64> = ticks.iter().filter_map(|t| t.quantity.to_f64()).collect();
+        Self::sample_std_dev_f64(&vals)
     }
 
     /// Fraction of sided volume that is buy-initiated: buy_vol / (buy_vol + sell_vol).
@@ -937,8 +919,7 @@ impl NormalizedTick {
         if ticks.is_empty() {
             return None;
         }
-        let total: Decimal = ticks.iter().map(|t| t.value()).sum();
-        Some(total / Decimal::from(ticks.len() as u64))
+        Some(Self::total_notional(ticks) / Decimal::from(ticks.len() as u64))
     }
 
     /// Count of ticks with no known side (neither buy nor sell).
@@ -985,17 +966,8 @@ impl NormalizedTick {
     /// Returns `None` if the slice has fewer than 2 elements.
     pub fn notional_std_dev(ticks: &[NormalizedTick]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        let n = ticks.len();
-        if n < 2 {
-            return None;
-        }
-        let notionals: Vec<f64> = ticks.iter().filter_map(|t| t.value().to_f64()).collect();
-        if notionals.len() < 2 {
-            return None;
-        }
-        let mean = notionals.iter().sum::<f64>() / notionals.len() as f64;
-        let variance = notionals.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / (notionals.len() - 1) as f64;
-        Some(variance.sqrt())
+        let vals: Vec<f64> = ticks.iter().filter_map(|t| t.value().to_f64()).collect();
+        Self::sample_std_dev_f64(&vals)
     }
 
     /// Returns `true` if prices in the slice are non-decreasing (each ≥ previous).
@@ -1022,6 +994,63 @@ impl NormalizedTick {
     /// Returns `None` if the slice is empty.
     pub fn last_price(ticks: &[NormalizedTick]) -> Option<Decimal> {
         ticks.last().map(|t| t.price)
+    }
+
+    /// Length of the longest consecutive run of buy-sided ticks.
+    pub fn longest_buy_streak(ticks: &[NormalizedTick]) -> usize {
+        let mut max = 0usize;
+        let mut current = 0usize;
+        for t in ticks {
+            if t.is_buy() {
+                current += 1;
+                max = max.max(current);
+            } else {
+                current = 0;
+            }
+        }
+        max
+    }
+
+    /// Length of the longest consecutive run of sell-sided ticks.
+    pub fn longest_sell_streak(ticks: &[NormalizedTick]) -> usize {
+        let mut max = 0usize;
+        let mut current = 0usize;
+        for t in ticks {
+            if t.is_sell() {
+                current += 1;
+                max = max.max(current);
+            } else {
+                current = 0;
+            }
+        }
+        max
+    }
+
+    /// Price level with the highest total traded quantity in the slice.
+    ///
+    /// Returns `None` if the slice is empty.
+    pub fn price_at_max_volume(ticks: &[NormalizedTick]) -> Option<Decimal> {
+        use std::collections::HashMap;
+        if ticks.is_empty() {
+            return None;
+        }
+        let mut volume_by_price: HashMap<String, (Decimal, Decimal)> = HashMap::new();
+        for t in ticks {
+            let key = t.price.to_string();
+            let entry = volume_by_price.entry(key).or_insert((t.price, Decimal::ZERO));
+            entry.1 += t.quantity;
+        }
+        volume_by_price
+            .values()
+            .max_by(|a, b| a.1.cmp(&b.1))
+            .map(|(price, _)| *price)
+    }
+
+    /// Total quantity of the last `n` ticks.
+    ///
+    /// If `n >= ticks.len()`, returns total volume of all ticks.
+    pub fn recent_volume(ticks: &[NormalizedTick], n: usize) -> Decimal {
+        Self::recent(ticks, n).iter().map(|t| t.quantity).sum()
     }
 
 }
