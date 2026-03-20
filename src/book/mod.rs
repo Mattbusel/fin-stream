@@ -701,6 +701,20 @@ impl OrderBook {
         self.asks.iter().next().map(|(_, &q)| q)
     }
 
+    /// Sum of quantity across the best `n` bid levels.
+    ///
+    /// Returns total bid quantity if `n >= bid_count`.
+    pub fn cumulative_bid_qty(&self, n: usize) -> Decimal {
+        self.bids.iter().rev().take(n).map(|(_, &q)| q).sum()
+    }
+
+    /// Sum of quantity across the best `n` ask levels.
+    ///
+    /// Returns total ask quantity if `n >= ask_count`.
+    pub fn cumulative_ask_qty(&self, n: usize) -> Decimal {
+        self.asks.iter().take(n).map(|(_, &q)| q).sum()
+    }
+
     /// Ratio of ask levels to bid levels: `ask_count / bid_count`.
     ///
     /// Values > 1 indicate more ask granularity; < 1 more bid granularity.

@@ -672,6 +672,25 @@ impl OhlcvBar {
         Some(self.volume / Decimal::from(self.trade_count as u64))
     }
 
+    /// Returns `true` if this bar's high-low range overlaps with `other`'s range.
+    ///
+    /// Two ranges overlap when neither is entirely above or below the other.
+    pub fn price_range_overlap(&self, other: &OhlcvBar) -> bool {
+        self.high >= other.low && other.high >= self.low
+    }
+
+    /// Bar height as a fraction of the open price: `(high - low) / open`.
+    ///
+    /// Returns `None` if `open` is zero. Useful for comparing volatility across
+    /// instruments trading at different price levels.
+    pub fn bar_height_pct(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.open.is_zero() {
+            return None;
+        }
+        ((self.high - self.low) / self.open).to_f64()
+    }
+
     /// Classifies this bar as `"bullish"`, `"bearish"`, or `"doji"`.
     ///
     /// A doji is a bar whose body is zero (open equals close). Otherwise the

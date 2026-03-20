@@ -793,6 +793,13 @@ impl LorentzTransform {
     pub fn momentum_rapidity(&self) -> f64 {
         self.gamma * self.beta
     }
+
+    /// Inverse Lorentz factor: `1 / gamma`.
+    ///
+    /// Equals `sqrt(1 - beta^2)`. Approaches 1 at low speeds; 0 at light speed.
+    pub fn inverse_gamma(&self) -> f64 {
+        1.0 / self.gamma
+    }
 }
 
 #[cfg(test)]

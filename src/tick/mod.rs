@@ -568,6 +568,22 @@ impl NormalizedTick {
         self.price * self.quantity * multiplier
     }
 
+    /// Tick imbalance: `(buy_qty - sell_qty) / total_qty` across a tick slice.
+    ///
+    /// Buy ticks are those with `side == Some(TradeSide::Buy)`.
+    /// Returns `None` if total quantity is zero.
+    pub fn tick_imbalance(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let buy_qty: Decimal = ticks.iter()
+            .filter(|t| matches!(t.side, Some(TradeSide::Buy)))
+            .map(|t| t.quantity)
+            .sum();
+        let total_qty: Decimal = ticks.iter().map(|t| t.quantity).sum();
+        if total_qty.is_zero() { return None; }
+        let sell_qty = total_qty - buy_qty;
+        ((buy_qty - sell_qty) / total_qty).to_f64()
+    }
+
 }
 
 impl std::fmt::Display for NormalizedTick {
