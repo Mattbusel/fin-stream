@@ -451,6 +451,17 @@ impl NormalizedTick {
         self.price < reference
     }
 
+    /// Returns `true` if this tick's price is divisible by `step` with no remainder.
+    ///
+    /// Useful for identifying round-number price levels (e.g., `step = 100`).
+    /// Returns `false` if `step` is zero.
+    pub fn is_round_number(&self, step: Decimal) -> bool {
+        if step.is_zero() {
+            return false;
+        }
+        (self.price % step).is_zero()
+    }
+
     /// Returns `true` if this tick's quantity is strictly above `threshold`.
     pub fn quantity_above(&self, threshold: Decimal) -> bool {
         self.quantity > threshold
@@ -582,6 +593,20 @@ impl NormalizedTick {
         if total_qty.is_zero() { return None; }
         let sell_qty = total_qty - buy_qty;
         ((buy_qty - sell_qty) / total_qty).to_f64()
+    }
+
+    /// Theoretical quote midpoint: `(bid.price + ask.price) / 2`.
+    ///
+    /// Returns `None` if either tick has a non-positive price or if the bid
+    /// price exceeds the ask price (crossed market).
+    pub fn quote_midpoint(bid: &NormalizedTick, ask: &NormalizedTick) -> Option<Decimal> {
+        if bid.price <= Decimal::ZERO || ask.price <= Decimal::ZERO {
+            return None;
+        }
+        if bid.price > ask.price {
+            return None;
+        }
+        Some((bid.price + ask.price) / Decimal::TWO)
     }
 
 }
@@ -2110,5 +2135,26 @@ mod tests {
     fn test_is_at_price_false_when_different() {
         let tick = make_tick_at(0); // price=100
         assert!(!tick.is_at_price(rust_decimal_macros::dec!(101)));
+    }
+
+    // ── is_round_number ───────────────────────────────────────────────────────
+
+    #[test]
+    fn test_is_round_number_true_when_divisible() {
+        let tick = make_tick_at(0); // price=100
+        assert!(tick.is_round_number(rust_decimal_macros::dec!(10)));
+        assert!(tick.is_round_number(rust_decimal_macros::dec!(100)));
+    }
+
+    #[test]
+    fn test_is_round_number_false_when_not_divisible() {
+        let tick = make_tick_at(0); // price=100
+        assert!(!tick.is_round_number(rust_decimal_macros::dec!(3)));
+    }
+
+    #[test]
+    fn test_is_round_number_false_when_step_zero() {
+        let tick = make_tick_at(0);
+        assert!(!tick.is_round_number(rust_decimal_macros::dec!(0)));
     }
 }

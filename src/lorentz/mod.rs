@@ -800,6 +800,26 @@ impl LorentzTransform {
     pub fn inverse_gamma(&self) -> f64 {
         1.0 / self.gamma
     }
+
+    /// Compose two collinear boosts: `beta_total = (beta1 + beta2) / (1 + beta1*beta2)`.
+    ///
+    /// Returns the combined beta from relativistic velocity addition.
+    /// Returns `Err` if the result would equal or exceed c (|beta| >= 1).
+    pub fn boost_composition(beta1: f64, beta2: f64) -> Result<f64, crate::error::StreamError> {
+        let denom = 1.0 + beta1 * beta2;
+        if denom.abs() < 1e-15 {
+            return Err(crate::error::StreamError::LorentzConfigError {
+                reason: "degenerate boost composition".into(),
+            });
+        }
+        let result = (beta1 + beta2) / denom;
+        if result.abs() >= 1.0 {
+            return Err(crate::error::StreamError::LorentzConfigError {
+                reason: "boost exceeds c".into(),
+            });
+        }
+        Ok(result)
+    }
 }
 
 #[cfg(test)]

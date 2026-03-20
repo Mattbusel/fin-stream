@@ -1488,6 +1488,19 @@ impl ZScoreNormalizer {
             .filter(|&&v| self.normalize(v).map_or(false, |z| z > 0.0))
             .count()
     }
+
+    /// Count of window values whose absolute z-score exceeds `z_threshold`.
+    ///
+    /// Returns `0` if the window has fewer than 2 observations or std-dev is zero.
+    pub fn above_threshold_count(&self, z_threshold: f64) -> usize {
+        self.window
+            .iter()
+            .filter(|&&v| {
+                self.normalize(v)
+                    .map_or(false, |z| z.abs() > z_threshold)
+            })
+            .count()
+    }
 }
 
 #[cfg(test)]
@@ -2286,5 +2299,28 @@ mod zscore_tests {
         for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
         // mean=2.5, values above: 3 and 4
         assert_eq!(n.count_positive_z_scores(), 2);
+    }
+
+    // ── above_threshold_count ─────────────────────────────────────────────────
+
+    #[test]
+    fn test_above_threshold_count_zero_when_empty() {
+        let n = znorm(4);
+        assert_eq!(n.above_threshold_count(1.0), 0);
+    }
+
+    #[test]
+    fn test_above_threshold_count_zero_when_all_same() {
+        let mut n = znorm(4);
+        for _ in 0..4 { n.update(dec!(5)); }
+        assert_eq!(n.above_threshold_count(0.5), 0);
+    }
+
+    #[test]
+    fn test_above_threshold_count_correct_with_extremes() {
+        let mut n = znorm(6);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4), dec!(5), dec!(100)] { n.update(v); }
+        // 100 is many std devs from mean; threshold=1.0 should catch it
+        assert!(n.above_threshold_count(1.0) >= 1);
     }
 }

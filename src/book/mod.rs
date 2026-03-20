@@ -298,6 +298,11 @@ impl OrderBook {
         self.bids.is_empty() && self.asks.is_empty()
     }
 
+    /// Combined notional value (price × quantity) across both bid and ask sides.
+    pub fn total_notional_both_sides(&self) -> Decimal {
+        self.total_notional(BookSide::Bid) + self.total_notional(BookSide::Ask)
+    }
+
     /// Remove all price levels from both sides of the book.
     ///
     /// Also clears the last seen sequence number. Useful when reconnecting to
@@ -713,6 +718,17 @@ impl OrderBook {
     /// Returns total ask quantity if `n >= ask_count`.
     pub fn cumulative_ask_qty(&self, n: usize) -> Decimal {
         self.asks.iter().take(n).map(|(_, &q)| q).sum()
+    }
+
+    /// Ratio of top-`n` bid quantity to top-`n` ask quantity.
+    ///
+    /// Values > 1 indicate more buy-side depth in the top `n` levels.
+    /// Returns `None` if ask side has no volume in top `n` levels.
+    pub fn ladder_balance(&self, n: usize) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let ask_qty = self.cumulative_ask_qty(n);
+        if ask_qty.is_zero() { return None; }
+        (self.cumulative_bid_qty(n) / ask_qty).to_f64()
     }
 
     /// Ratio of ask levels to bid levels: `ask_count / bid_count`.
@@ -2724,5 +2740,21 @@ mod tests {
         let mut b = book("X");
         b.apply(delta("X", BookSide::Bid, dec!(100), dec!(5))).unwrap();
         assert_eq!(b.bid_volume_below(dec!(100)), dec!(0));
+    }
+
+    // ── total_notional_both_sides ─────────────────────────────────────────────
+
+    #[test]
+    fn test_total_notional_both_sides_sums_both() {
+        let mut b = book("X");
+        b.apply(delta("X", BookSide::Bid, dec!(100), dec!(2))).unwrap(); // 200
+        b.apply(delta("X", BookSide::Ask, dec!(105), dec!(3))).unwrap(); // 315
+        assert_eq!(b.total_notional_both_sides(), dec!(515));
+    }
+
+    #[test]
+    fn test_total_notional_both_sides_zero_when_empty() {
+        let b = book("X");
+        assert_eq!(b.total_notional_both_sides(), dec!(0));
     }
 }

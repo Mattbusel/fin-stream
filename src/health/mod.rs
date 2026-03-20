@@ -2270,4 +2270,23 @@ mod tests {
         let ratio = m.ratio_healthy();
         assert!((ratio - 0.5).abs() < 1e-10);
     }
+
+    // ── total_tick_count ──────────────────────────────────────────────────────
+
+    #[test]
+    fn test_total_tick_count_zero_when_no_feeds() {
+        let m = HealthMonitor::new(5_000);
+        assert_eq!(m.total_tick_count(), 0);
+    }
+
+    #[test]
+    fn test_total_tick_count_sums_all_feeds() {
+        let m = HealthMonitor::new(5_000);
+        m.register("BTC", None);
+        m.register("ETH", None);
+        m.heartbeat("BTC", 0).unwrap();
+        m.heartbeat("BTC", 1).unwrap();
+        m.heartbeat("ETH", 0).unwrap();
+        assert_eq!(m.total_tick_count(), 3);
+    }
 }

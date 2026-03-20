@@ -3310,4 +3310,43 @@ mod tests {
         bar.trade_count = 5;
         assert_eq!(bar.volume_per_trade(), Some(dec!(100)));
     }
+
+    // ── price_range_overlap ───────────────────────────────────────────────────
+
+    #[test]
+    fn test_price_range_overlap_true_when_ranges_overlap() {
+        let a = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100));
+        let b = make_ohlcv_bar(dec!(105), dec!(120), dec!(95), dec!(110));
+        assert!(a.price_range_overlap(&b));
+    }
+
+    #[test]
+    fn test_price_range_overlap_false_when_no_overlap() {
+        let a = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100));
+        let b = make_ohlcv_bar(dec!(120), dec!(130), dec!(115), dec!(125));
+        assert!(!a.price_range_overlap(&b));
+    }
+
+    #[test]
+    fn test_price_range_overlap_true_at_exact_touch() {
+        let a = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100));
+        let b = make_ohlcv_bar(dec!(115), dec!(125), dec!(110), dec!(120));
+        assert!(a.price_range_overlap(&b));
+    }
+
+    // ── bar_height_pct ────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_bar_height_pct_none_when_open_zero() {
+        let bar = make_ohlcv_bar(dec!(0), dec!(10), dec!(0), dec!(5));
+        assert!(bar.bar_height_pct().is_none());
+    }
+
+    #[test]
+    fn test_bar_height_pct_correct_value() {
+        let bar = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100)); // range=20
+        // 20/100 = 0.2
+        let pct = bar.bar_height_pct().unwrap();
+        assert!((pct - 0.2).abs() < 1e-10);
+    }
 }

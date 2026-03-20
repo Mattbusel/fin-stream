@@ -665,6 +665,22 @@ impl SessionAwareness {
         (date.day() - 1) / 7 + 1
     }
 
+    /// Returns the weekday name of `date` as a static string.
+    ///
+    /// Returns one of `"Monday"`, `"Tuesday"`, `"Wednesday"`, `"Thursday"`,
+    /// `"Friday"`, `"Saturday"`, or `"Sunday"`.
+    pub fn day_of_week_name(date: NaiveDate) -> &'static str {
+        match date.weekday() {
+            Weekday::Mon => "Monday",
+            Weekday::Tue => "Tuesday",
+            Weekday::Wed => "Wednesday",
+            Weekday::Thu => "Thursday",
+            Weekday::Fri => "Friday",
+            Weekday::Sat => "Saturday",
+            Weekday::Sun => "Sunday",
+        }
+    }
+
     /// Returns `true` if `date` falls in a typical US earnings season month
     /// (January, April, July, or October).
     ///
@@ -2601,5 +2617,25 @@ mod tests {
         // Monday 16:00 UTC — mid session
         let mon_16h_utc: u64 = 4 * 24 * 3_600_000 + 16 * 3_600_000;
         assert!(!sa.is_closing_bell_minute(mon_16h_utc));
+    }
+
+    // ── day_of_week_name ──────────────────────────────────────────────────────
+
+    #[test]
+    fn test_day_of_week_name_monday() {
+        let d = NaiveDate::from_ymd_opt(2024, 1, 1).unwrap(); // Monday
+        assert_eq!(SessionAwareness::day_of_week_name(d), "Monday");
+    }
+
+    #[test]
+    fn test_day_of_week_name_friday() {
+        let d = NaiveDate::from_ymd_opt(2024, 1, 5).unwrap(); // Friday
+        assert_eq!(SessionAwareness::day_of_week_name(d), "Friday");
+    }
+
+    #[test]
+    fn test_day_of_week_name_sunday() {
+        let d = NaiveDate::from_ymd_opt(2024, 1, 7).unwrap(); // Sunday
+        assert_eq!(SessionAwareness::day_of_week_name(d), "Sunday");
     }
 }
