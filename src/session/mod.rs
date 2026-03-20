@@ -204,9 +204,7 @@ impl SessionAwareness {
     /// returns `true` during both regular hours and extended (pre/after-market)
     /// hours.
     pub fn is_market_hours(&self, utc_ms: u64) -> bool {
-        self.status(utc_ms)
-            .map(|s| s == TradingStatus::Open || s == TradingStatus::Extended)
-            .unwrap_or(false)
+        self.is_active(utc_ms)
     }
 
     /// Returns the number of whole minutes until the next [`TradingStatus::Open`] transition.
@@ -278,19 +276,7 @@ impl SessionAwareness {
         if self.session != MarketSession::UsEquity {
             return false;
         }
-        let secs = (utc_ms / 1000) as i64;
-        let dt = chrono::DateTime::<chrono::Utc>::from_timestamp(secs, 0)
-            .unwrap_or_else(chrono::Utc::now);
-        let et_offset_secs: i64 = if is_us_dst(utc_ms) { -4 * 3600 } else { -5 * 3600 };
-        let et_dt = dt + chrono::Duration::seconds(et_offset_secs);
-        let dow = et_dt.weekday();
-        if dow == chrono::Weekday::Sat || dow == chrono::Weekday::Sun {
-            return false;
-        }
-        if is_us_market_holiday(et_dt.date_naive()) {
-            return false;
-        }
-        let t = et_dt.num_seconds_from_midnight() as u64;
+        let Some(t) = self.et_trading_secs_of_day(utc_ms) else { return false; };
         let pre_open = 4 * 3600_u64;
         let market_open = 9 * 3600 + 30 * 60_u64;
         t >= pre_open && t < market_open
@@ -304,6 +290,14 @@ impl SessionAwareness {
         if self.session != MarketSession::UsEquity {
             return false;
         }
+        let Some(t) = self.et_trading_secs_of_day(utc_ms) else { return false; };
+        let market_close = 16 * 3600_u64;
+        let post_close = 20 * 3600_u64;
+        t >= market_close && t < post_close
+    }
+
+    /// Returns the ET second-of-day for `utc_ms`, or `None` on weekends / market holidays.
+    fn et_trading_secs_of_day(&self, utc_ms: u64) -> Option<u64> {
         let secs = (utc_ms / 1000) as i64;
         let dt = chrono::DateTime::<chrono::Utc>::from_timestamp(secs, 0)
             .unwrap_or_else(chrono::Utc::now);
@@ -311,15 +305,12 @@ impl SessionAwareness {
         let et_dt = dt + chrono::Duration::seconds(et_offset_secs);
         let dow = et_dt.weekday();
         if dow == chrono::Weekday::Sat || dow == chrono::Weekday::Sun {
-            return false;
+            return None;
         }
         if is_us_market_holiday(et_dt.date_naive()) {
-            return false;
+            return None;
         }
-        let t = et_dt.num_seconds_from_midnight() as u64;
-        let market_close = 16 * 3600_u64;
-        let post_close = 20 * 3600_u64;
-        t >= market_close && t < post_close
+        Some(et_dt.num_seconds_from_midnight() as u64)
     }
 
     /// Returns `true` if the current time is in extended hours (pre-market or

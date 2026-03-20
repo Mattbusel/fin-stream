@@ -486,9 +486,7 @@ impl LorentzTransform {
     ///
     /// # Complexity: O(1)
     pub fn spacetime_interval(p1: SpacetimePoint, p2: SpacetimePoint) -> f64 {
-        let dt = p2.t - p1.t;
-        let dx = p2.x - p1.x;
-        dt * dt - dx * dx
+        p1.displacement(p2).norm_sq()
     }
 
     /// Relativistic velocity addition as a static helper.
@@ -542,11 +540,8 @@ impl LorentzTransform {
     ///
     /// # Complexity: O(1)
     pub fn inverse(&self) -> Self {
-        // -beta is in (-1, 0] which is valid (we allow beta = 0 but not < 0 publicly;
-        // here we construct directly to allow the negated value).
-        let beta = -self.beta;
-        let gamma = 1.0 / (1.0 - beta * beta).sqrt();
-        Self { beta, gamma }
+        // (-beta)² == beta², so the Lorentz factor is unchanged.
+        Self { beta: -self.beta, gamma: self.gamma }
     }
 
     /// Coordinate (lab-frame) time for a given proper time.
