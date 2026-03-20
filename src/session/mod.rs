@@ -93,6 +93,16 @@ impl SessionAwareness {
         }
     }
 
+    /// Returns `true` if the session is currently in [`TradingStatus::Open`] status.
+    ///
+    /// Shorthand for `self.status(utc_ms).map(|s| s == TradingStatus::Open).unwrap_or(false)`.
+    /// For [`MarketSession::Crypto`] this always returns `true`.
+    pub fn is_open(&self, utc_ms: u64) -> bool {
+        self.status(utc_ms)
+            .map(|s| s == TradingStatus::Open)
+            .unwrap_or(false)
+    }
+
     /// Return the UTC millisecond timestamp of the next time this session
     /// enters [`TradingStatus::Closed`] status.
     ///
@@ -759,6 +769,39 @@ mod tests {
     #[test]
     fn test_easter_sunday_2025() {
         assert_eq!(easter_sunday(2025), NaiveDate::from_ymd_opt(2025, 4, 20).unwrap());
+    }
+
+    // ── is_open ───────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_is_open_crypto_always_true() {
+        let sa = sa(MarketSession::Crypto);
+        assert!(sa.is_open(SAT_UTC_MS));
+        assert!(sa.is_open(0));
+    }
+
+    #[test]
+    fn test_is_open_equity_during_market_hours() {
+        let sa = sa(MarketSession::UsEquity);
+        assert!(sa.is_open(MON_OPEN_UTC_MS));
+    }
+
+    #[test]
+    fn test_is_open_equity_on_weekend_false() {
+        let sa = sa(MarketSession::UsEquity);
+        assert!(!sa.is_open(SAT_UTC_MS));
+    }
+
+    #[test]
+    fn test_is_open_forex_on_monday_true() {
+        let sa = sa(MarketSession::Forex);
+        assert!(sa.is_open(MON_OPEN_UTC_MS));
+    }
+
+    #[test]
+    fn test_is_open_forex_on_saturday_false() {
+        let sa = sa(MarketSession::Forex);
+        assert!(!sa.is_open(SAT_UTC_MS));
     }
 
     // ── next_close_ms ─────────────────────────────────────────────────────────

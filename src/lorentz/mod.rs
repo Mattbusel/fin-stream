@@ -229,6 +229,17 @@ impl LorentzTransform {
         dt * dt - dx * dx
     }
 
+    /// Proper time elapsed in the moving frame for a given coordinate time.
+    ///
+    /// Returns `coordinate_time / gamma`. For `beta = 0` (identity) this
+    /// equals `coordinate_time`; as `beta → 1` the proper time shrinks toward
+    /// zero (time dilation).
+    ///
+    /// # Complexity: O(1)
+    pub fn proper_time(&self, coordinate_time: f64) -> f64 {
+        coordinate_time / self.gamma
+    }
+
     /// The Minkowski rapidity `φ = atanh(beta)`.
     ///
     /// Rapidities are **additive** under composition: applying boost `φ₁` then
@@ -549,6 +560,35 @@ mod tests {
             composed.rapidity(),
             sum_rapidities
         );
+    }
+
+    // ── Proper time ───────────────────────────────────────────────────────────
+
+    /// beta=0: proper_time == coordinate_time (no dilation).
+    #[test]
+    fn test_proper_time_identity_at_zero_beta() {
+        let lt = LorentzTransform::new(0.0).unwrap();
+        assert!(approx_eq(lt.proper_time(10.0), 10.0));
+    }
+
+    /// proper_time = coordinate_time / gamma; always <= coordinate_time.
+    #[test]
+    fn test_proper_time_less_than_coordinate_time() {
+        let lt = LorentzTransform::new(0.6).unwrap(); // gamma = 1.25
+        let tau = lt.proper_time(5.0);
+        // tau = 5.0 / 1.25 = 4.0
+        assert!((tau - 4.0).abs() < EPS);
+        assert!(tau < 5.0);
+    }
+
+    /// proper_time(dilate_time(t)) should round-trip to t.
+    #[test]
+    fn test_proper_time_roundtrip_with_dilate_time() {
+        let lt = LorentzTransform::new(0.8).unwrap();
+        let t = 3.0;
+        let dilated = lt.dilate_time(t);
+        let recovered = lt.proper_time(dilated);
+        assert!(approx_eq(recovered, t));
     }
 
     /// Compose and then transform equals applying both transforms sequentially.

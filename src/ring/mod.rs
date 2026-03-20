@@ -295,6 +295,12 @@ impl<T, const N: usize> SpscProducer<T, N> {
         self.inner.is_full()
     }
 
+    /// Number of items currently in the ring (snapshot).
+    #[inline]
+    pub fn len(&self) -> usize {
+        self.inner.len()
+    }
+
     /// Available capacity (free slots).
     #[inline]
     pub fn available(&self) -> usize {
@@ -633,6 +639,17 @@ mod tests {
         prod.push(2).unwrap();
         assert_eq!(cons.len(), 2);
         assert!(!cons.is_empty());
+    }
+
+    #[test]
+    fn test_producer_len_matches_consumer_len() {
+        let ring: SpscRing<u32, 8> = SpscRing::new();
+        let (prod, cons) = ring.split();
+        assert_eq!(prod.len(), 0);
+        prod.push(10).unwrap();
+        prod.push(20).unwrap();
+        assert_eq!(prod.len(), 2);
+        assert_eq!(cons.len(), 2);
     }
 
     // ── Power-of-two constraint ───────────────────────────────────────────────

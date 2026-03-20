@@ -254,6 +254,22 @@ impl HealthMonitor {
             .count()
     }
 
+    /// Feed identifiers whose status is not [`HealthStatus::Healthy`].
+    ///
+    /// Returns a sorted list of IDs that are `Stale` or `Unknown`. Complement
+    /// to [`healthy_count`](Self::healthy_count); avoids caller iteration when
+    /// only the unhealthy feed names are needed.
+    pub fn unhealthy_feeds(&self) -> Vec<String> {
+        let mut ids: Vec<String> = self
+            .feeds
+            .iter()
+            .filter(|e| e.status != HealthStatus::Healthy)
+            .map(|e| e.feed_id.clone())
+            .collect();
+        ids.sort();
+        ids
+    }
+
     /// Reset all registered feeds to `Unknown` status, clearing last-tick timestamps.
     ///
     /// Useful at session boundaries (e.g. daily market open) to start fresh staleness
@@ -564,5 +580,41 @@ mod tests {
         m.deregister("BTC-USD");
         let result = m.heartbeat("BTC-USD", 1_000_000);
         assert!(matches!(result, Err(StreamError::UnknownFeed { .. })));
+    }
+
+    #[test]
+    fn test_unhealthy_feeds_returns_non_healthy_sorted() {
+        let m = HealthMonitor::new(5_000);
+        m.register("BTC-USD", None);
+        m.register("ETH-USD", None);
+        m.register("SOL-USD", None);
+        // Make BTC healthy, leave ETH and SOL as Unknown
+        m.heartbeat("BTC-USD", 1_000_000).unwrap();
+        let unhealthy = m.unhealthy_feeds();
+        // ETH and SOL are Unknown (not Healthy)
+        assert!(unhealthy.contains(&"ETH-USD".to_string()));
+        assert!(unhealthy.contains(&"SOL-USD".to_string()));
+        assert!(!unhealthy.contains(&"BTC-USD".to_string()));
+        // Verify sorted
+        assert_eq!(unhealthy[0], "ETH-USD");
+        assert_eq!(unhealthy[1], "SOL-USD");
+    }
+
+    #[test]
+    fn test_unhealthy_feeds_empty_when_all_healthy() {
+        let m = HealthMonitor::new(5_000);
+        m.register("BTC-USD", None);
+        m.heartbeat("BTC-USD", 1_000_000).unwrap();
+        assert!(m.unhealthy_feeds().is_empty());
+    }
+
+    #[test]
+    fn test_unhealthy_feeds_includes_stale_feeds() {
+        let m = HealthMonitor::new(1_000); // 1s threshold
+        m.register("BTC-USD", None);
+        m.heartbeat("BTC-USD", 1_000_000).unwrap();
+        m.check_all(1_002_000); // 2s elapsed → stale
+        let unhealthy = m.unhealthy_feeds();
+        assert!(unhealthy.contains(&"BTC-USD".to_string()));
     }
 }

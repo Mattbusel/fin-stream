@@ -98,6 +98,17 @@ impl ReconnectPolicy {
         Ok(self)
     }
 
+    /// Sum of all backoff delays across every reconnect attempt.
+    ///
+    /// Useful for estimating the worst-case time before a client gives up.
+    /// The result is capped at `max_backoff * max_attempts` to avoid overflow.
+    pub fn total_max_delay(&self) -> Duration {
+        let total_ms: u64 = (0..self.max_attempts)
+            .map(|a| self.backoff_for_attempt(a).as_millis() as u64)
+            .fold(0u64, |acc, ms| acc.saturating_add(ms));
+        Duration::from_millis(total_ms)
+    }
+
     /// Backoff duration for attempt N (0-indexed).
     pub fn backoff_for_attempt(&self, attempt: u32) -> Duration {
         let factor = self.multiplier.powi(attempt as i32);
@@ -186,6 +197,21 @@ impl ConnectionConfig {
     pub fn with_ping_interval(mut self, interval: Duration) -> Self {
         self.ping_interval = interval;
         self
+    }
+
+    /// Override the downstream channel capacity.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StreamError::ConfigError`] if `capacity` is zero.
+    pub fn with_channel_capacity(mut self, capacity: usize) -> Result<Self, StreamError> {
+        if capacity == 0 {
+            return Err(StreamError::ConfigError {
+                reason: "channel_capacity must be > 0".into(),
+            });
+        }
+        self.channel_capacity = capacity;
+        Ok(self)
     }
 }
 
@@ -639,6 +665,35 @@ mod tests {
             let b = p.backoff_for_attempt(attempt);
             assert!(b <= Duration::from_secs(30), "attempt {attempt} exceeded max_backoff");
         }
+    }
+
+    #[test]
+    fn test_reconnect_policy_total_max_delay_sum_of_backoffs() {
+        let p = ReconnectPolicy::new(3, Duration::from_millis(100), Duration::from_secs(30), 2.0)
+            .unwrap();
+        // attempts 0,1,2 → 100ms, 200ms, 400ms = 700ms
+        assert_eq!(p.total_max_delay(), Duration::from_millis(700));
+    }
+
+    #[test]
+    fn test_reconnect_policy_total_max_delay_capped_by_max_backoff() {
+        // With small max_backoff, all delays are capped
+        let p = ReconnectPolicy::new(5, Duration::from_millis(1000), Duration::from_millis(500), 2.0)
+            .unwrap();
+        // All 5 attempts capped at 500ms → total = 2500ms
+        assert_eq!(p.total_max_delay(), Duration::from_millis(2500));
+    }
+
+    #[test]
+    fn test_connection_config_with_channel_capacity_valid() {
+        let config = default_config().with_channel_capacity(512).unwrap();
+        assert_eq!(config.channel_capacity, 512);
+    }
+
+    #[test]
+    fn test_connection_config_with_channel_capacity_zero_rejected() {
+        let result = default_config().with_channel_capacity(0);
+        assert!(matches!(result, Err(StreamError::ConfigError { .. })));
     }
 
     #[test]
