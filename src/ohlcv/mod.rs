@@ -1678,6 +1678,43 @@ impl OhlcvBar {
         ((current - prior) / prior * Decimal::ONE_HUNDRED).to_f64()
     }
 
+    /// Gap percentage between consecutive bars: `(bar.open - prev.close) / prev.close * 100`.
+    ///
+    /// Returns `None` if fewer than 2 bars or previous close is zero.
+    pub fn open_gap_pct(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.len() < 2 {
+            return None;
+        }
+        let prev_close = bars[bars.len() - 2].close;
+        if prev_close.is_zero() {
+            return None;
+        }
+        let current_open = bars[bars.len() - 1].open;
+        ((current_open - prev_close) / prev_close * Decimal::ONE_HUNDRED).to_f64()
+    }
+
+    /// Cumulative volume across all bars.
+    pub fn volume_cumulative(bars: &[OhlcvBar]) -> Decimal {
+        bars.iter().map(|b| b.volume).sum()
+    }
+
+    /// Position of the last bar's close within the overall high-low range of all bars.
+    ///
+    /// Returns `(close - lowest_low) / (highest_high - lowest_low)`.
+    /// Returns `None` if the slice is empty or range is zero.
+    pub fn price_position(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let hi = Self::highest_high(bars)?;
+        let lo = Self::lowest_low(bars)?;
+        let range = hi - lo;
+        if range.is_zero() {
+            return None;
+        }
+        let last_close = bars.last()?.close;
+        ((last_close - lo) / range).to_f64()
+    }
+
 }
 
 impl std::fmt::Display for OhlcvBar {
@@ -5621,5 +5658,52 @@ mod tests {
         let b1 = make_ohlcv_bar(dec!(115), dec!(118), dec!(100), dec!(105)); // bearish
         let b2 = make_ohlcv_bar(dec!(105), dec!(115), dec!(103), dec!(112)); // bullish
         assert_eq!(OhlcvBar::bearish_count(&[b1, b2]), 1);
+    }
+
+    // ── OhlcvBar::open_gap_pct ────────────────────────────────────────────────
+
+    #[test]
+    fn test_open_gap_pct_none_for_single_bar() {
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        assert!(OhlcvBar::open_gap_pct(&[b]).is_none());
+    }
+
+    #[test]
+    fn test_open_gap_pct_positive_for_gap_up() {
+        // prev close=100, current open=105 → 5%
+        let b1 = make_ohlcv_bar(dec!(90), dec!(105), dec!(88), dec!(100));
+        let b2 = make_ohlcv_bar(dec!(105), dec!(115), dec!(103), dec!(110));
+        let pct = OhlcvBar::open_gap_pct(&[b1, b2]).unwrap();
+        assert!((pct - 5.0).abs() < 1e-9);
+    }
+
+    // ── OhlcvBar::volume_cumulative ───────────────────────────────────────────
+
+    #[test]
+    fn test_volume_cumulative_zero_for_empty() {
+        assert_eq!(OhlcvBar::volume_cumulative(&[]), dec!(0));
+    }
+
+    #[test]
+    fn test_volume_cumulative_sums_all_volumes() {
+        let mut b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105)); b1.volume = dec!(100);
+        let mut b2 = make_ohlcv_bar(dec!(105), dec!(115), dec!(103), dec!(110)); b2.volume = dec!(200);
+        assert_eq!(OhlcvBar::volume_cumulative(&[b1, b2]), dec!(300));
+    }
+
+    // ── OhlcvBar::price_position ──────────────────────────────────────────────
+
+    #[test]
+    fn test_price_position_none_for_empty() {
+        assert!(OhlcvBar::price_position(&[]).is_none());
+    }
+
+    #[test]
+    fn test_price_position_one_when_close_at_highest() {
+        // bars: high=100 and high=120 (range 80-120=40), last close=120
+        let b1 = make_ohlcv_bar(dec!(85), dec!(100), dec!(80), dec!(95));
+        let b2 = make_ohlcv_bar(dec!(110), dec!(120), dec!(100), dec!(120));
+        let pos = OhlcvBar::price_position(&[b1, b2]).unwrap();
+        assert!((pos - 1.0).abs() < 1e-9);
     }
 }

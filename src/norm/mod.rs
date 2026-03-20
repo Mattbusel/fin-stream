@@ -2781,6 +2781,21 @@ impl ZScoreNormalizer {
         Some(up as f64 / (n - 1) as f64)
     }
 
+    /// Mean absolute deviation of the window values.
+    ///
+    /// Returns `None` if window is empty.
+    pub fn mean_absolute_deviation(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() {
+            return None;
+        }
+        let n = self.window.len();
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        let mean = vals.iter().sum::<f64>() / n as f64;
+        let mad = vals.iter().map(|v| (v - mean).abs()).sum::<f64>() / n as f64;
+        Some(mad)
+    }
+
 }
 
 #[cfg(test)]

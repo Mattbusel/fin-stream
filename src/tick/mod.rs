@@ -1207,6 +1207,42 @@ impl NormalizedTick {
         tick.is_sell() && tick.quantity > avg_sell_qty
     }
 
+    /// Total notional value: sum of `price * quantity` across all ticks.
+    pub fn notional_volume(ticks: &[NormalizedTick]) -> Decimal {
+        ticks.iter().map(|t| t.price * t.quantity).sum()
+    }
+
+    /// Weighted side score: buy_volume - sell_volume normalized by total volume.
+    ///
+    /// Returns a value in [-1, 1], or `None` if total volume is zero.
+    pub fn weighted_side_score(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let total: Decimal = ticks.iter().map(|t| t.quantity).sum();
+        if total.is_zero() {
+            return None;
+        }
+        let diff = Self::buy_volume(ticks) - Self::sell_volume(ticks);
+        (diff / total).to_f64()
+    }
+
+    /// Time span in milliseconds between the first and last tick.
+    ///
+    /// Returns `None` if fewer than 2 ticks.
+    pub fn time_span_ms(ticks: &[NormalizedTick]) -> Option<u64> {
+        if ticks.len() < 2 {
+            return None;
+        }
+        Some(ticks.last()?.received_at_ms.saturating_sub(ticks.first()?.received_at_ms))
+    }
+
+    /// Count of ticks with price above the VWAP of the slice.
+    ///
+    /// Returns `None` if VWAP cannot be computed (empty or zero total volume).
+    pub fn price_above_vwap_count(ticks: &[NormalizedTick]) -> Option<usize> {
+        let vwap = Self::vwap(ticks)?;
+        Some(ticks.iter().filter(|t| t.price > vwap).count())
+    }
+
 }
 
 impl std::fmt::Display for NormalizedTick {
