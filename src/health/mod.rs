@@ -93,8 +93,7 @@ impl HealthMonitor {
         }
         self.feeds
             .get(feed_id)
-            .map(|e| e.consecutive_stale >= self.circuit_breaker_threshold)
-            .unwrap_or(false)
+            .map_or(false, |e| e.consecutive_stale >= self.circuit_breaker_threshold)
     }
 
     /// Register multiple feeds in one call.
