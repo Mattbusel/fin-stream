@@ -382,6 +382,18 @@ impl OrderBook {
 
     /// Sum of the top `n` bid levels' quantities (best `n` bids).
     ///
+    /// Total quantity across all bid levels.
+    pub fn total_bid_volume(&self) -> Decimal {
+        self.bids.values().copied().sum()
+    }
+
+    /// Total quantity across all ask levels.
+    pub fn total_ask_volume(&self) -> Decimal {
+        self.asks.values().copied().sum()
+    }
+
+    /// Sum of the top `n` bid levels' quantities (best `n` bids).
+    ///
     /// If fewer than `n` bid levels exist, sums all available levels. Returns
     /// `Decimal::ZERO` when the bid side is empty.
     pub fn cumulative_bid_volume(&self, n: usize) -> Decimal {
@@ -453,6 +465,22 @@ impl OrderBook {
             .rev()
             .find(|(_, qty)| **qty >= min_qty)
             .map(|(price, qty)| PriceLevel::new(*price, *qty))
+    }
+
+    /// Number of bid levels with price strictly above `price`.
+    ///
+    /// Useful for measuring how much resting bid interest sits above a given
+    /// reference price (e.g. the last trade price).
+    pub fn bid_levels_above(&self, price: Decimal) -> usize {
+        self.bids.range((std::ops::Bound::Excluded(&price), std::ops::Bound::Unbounded)).count()
+    }
+
+    /// Number of ask levels with price strictly below `price`.
+    ///
+    /// Useful for measuring how much resting ask interest sits below a given
+    /// reference price (e.g. the last trade price).
+    pub fn ask_levels_below(&self, price: Decimal) -> usize {
+        self.asks.range(..price).count()
     }
 
     /// Spread as a percentage of the mid-price: `spread / mid × 100`.
@@ -1648,5 +1676,64 @@ mod tests {
     fn test_level_count_imbalance_none_for_empty_book() {
         let b = book("BTC-USD");
         assert!(b.level_count_imbalance().is_none());
+    }
+
+    // ── OrderBook::total_bid_volume / total_ask_volume ────────────────────────
+
+    #[test]
+    fn test_total_bid_volume_sums_all_levels() {
+        let mut b = book("BTC-USD");
+        b.apply(delta("BTC-USD", BookSide::Bid, dec!(99), dec!(3))).unwrap();
+        b.apply(delta("BTC-USD", BookSide::Bid, dec!(98), dec!(2))).unwrap();
+        assert_eq!(b.total_bid_volume(), dec!(5));
+    }
+
+    #[test]
+    fn test_total_ask_volume_sums_all_levels() {
+        let mut b = book("BTC-USD");
+        b.apply(delta("BTC-USD", BookSide::Ask, dec!(101), dec!(4))).unwrap();
+        b.apply(delta("BTC-USD", BookSide::Ask, dec!(102), dec!(1))).unwrap();
+        assert_eq!(b.total_ask_volume(), dec!(5));
+    }
+
+    #[test]
+    fn test_total_bid_volume_zero_for_empty_side() {
+        let b = book("BTC-USD");
+        assert_eq!(b.total_bid_volume(), dec!(0));
+    }
+
+    // --- bid_levels_above / ask_levels_below ---
+
+    #[test]
+    fn test_bid_levels_above_counts_strictly_above() {
+        let mut b = book("BTC-USD");
+        b.apply(delta("BTC-USD", BookSide::Bid, dec!(100), dec!(1))).unwrap();
+        b.apply(delta("BTC-USD", BookSide::Bid, dec!(101), dec!(1))).unwrap();
+        b.apply(delta("BTC-USD", BookSide::Bid, dec!(102), dec!(1))).unwrap();
+        // levels above 100: 101 and 102 → 2
+        assert_eq!(b.bid_levels_above(dec!(100)), 2);
+    }
+
+    #[test]
+    fn test_bid_levels_above_zero_when_none_above() {
+        let mut b = book("BTC-USD");
+        b.apply(delta("BTC-USD", BookSide::Bid, dec!(99), dec!(1))).unwrap();
+        assert_eq!(b.bid_levels_above(dec!(100)), 0);
+    }
+
+    #[test]
+    fn test_ask_levels_below_counts_strictly_below() {
+        let mut b = book("BTC-USD");
+        b.apply(delta("BTC-USD", BookSide::Ask, dec!(100), dec!(1))).unwrap();
+        b.apply(delta("BTC-USD", BookSide::Ask, dec!(101), dec!(1))).unwrap();
+        b.apply(delta("BTC-USD", BookSide::Ask, dec!(102), dec!(1))).unwrap();
+        // levels below 102: 100 and 101 → 2
+        assert_eq!(b.ask_levels_below(dec!(102)), 2);
+    }
+
+    #[test]
+    fn test_ask_levels_below_zero_for_empty_book() {
+        let b = book("BTC-USD");
+        assert_eq!(b.ask_levels_below(dec!(100)), 0);
     }
 }

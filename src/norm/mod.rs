@@ -385,6 +385,31 @@ impl MinMaxNormalizer {
         let q3_idx = 3 * n / 4;
         Some(sorted[q3_idx] - sorted[q1_idx])
     }
+
+    /// Skewness of the window values: `Σ((x - mean)³/n) / std_dev³`.
+    ///
+    /// Positive skew means the tail is longer on the right; negative on the left.
+    /// Returns `None` if the window has fewer than 3 observations or std dev is zero.
+    pub fn skewness(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let n = self.window.len();
+        if n < 3 {
+            return None;
+        }
+        let n_f = n as f64;
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.len() < n {
+            return None;
+        }
+        let mean = vals.iter().sum::<f64>() / n_f;
+        let variance = vals.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / n_f;
+        let std_dev = variance.sqrt();
+        if std_dev == 0.0 {
+            return None;
+        }
+        let skew = vals.iter().map(|v| ((v - mean) / std_dev).powi(3)).sum::<f64>() / n_f;
+        Some(skew)
+    }
 }
 
 #[cfg(test)]
@@ -954,6 +979,20 @@ impl ZScoreNormalizer {
         }
         let count = self.window.iter().filter(|&&v| v <= value).count();
         Some(count as f64 / self.window.len() as f64)
+    }
+
+    /// Minimum value seen in the current window.
+    ///
+    /// Returns `None` when the window is empty.
+    pub fn running_min(&self) -> Option<Decimal> {
+        self.window.iter().copied().reduce(Decimal::min)
+    }
+
+    /// Maximum value seen in the current window.
+    ///
+    /// Returns `None` when the window is empty.
+    pub fn running_max(&self) -> Option<Decimal> {
+        self.window.iter().copied().reduce(Decimal::max)
     }
 }
 

@@ -89,6 +89,7 @@ impl WsStats {
         }
         Some(self.total_bytes_received as f64 / self.total_messages_received as f64)
     }
+
 }
 
 /// Reconnection policy for a WebSocket feed.
@@ -236,6 +237,14 @@ impl ReconnectPolicy {
     /// is `u32::MAX`.
     pub fn delay_for_next(&self, current_attempt: u32) -> Duration {
         self.backoff_for_attempt(current_attempt.saturating_add(1))
+    }
+
+    /// Returns `true` if `attempts` has reached or exceeded `max_attempts`.
+    ///
+    /// After this returns `true` the reconnect loop should give up rather than
+    /// scheduling another attempt.
+    pub fn is_exhausted(&self, attempts: u32) -> bool {
+        attempts >= self.max_attempts
     }
 
     /// Backoff duration for attempt N (0-indexed).
@@ -1148,5 +1157,46 @@ mod tests {
         .unwrap();
         // After many attempts the delay is capped at max_backoff
         assert!(policy.delay_for_next(100) <= Duration::from_secs(1));
+    }
+
+    // ── WsStats::message_rate ─────────────────────────────────────────────────
+
+    #[test]
+    fn test_message_rate_zero_when_elapsed_is_zero() {
+        let stats = WsStats { total_messages_received: 1_000, total_bytes_received: 0 };
+        assert_eq!(stats.message_rate(0), 0.0);
+    }
+
+    #[test]
+    fn test_message_rate_correct_value() {
+        let stats = WsStats { total_messages_received: 100, total_bytes_received: 0 };
+        // 100 messages in 10_000ms = 10 msg/s
+        assert!((stats.message_rate(10_000) - 10.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_message_rate_zero_messages() {
+        let stats = WsStats { total_messages_received: 0, total_bytes_received: 0 };
+        assert_eq!(stats.message_rate(5_000), 0.0);
+    }
+
+    // --- is_exhausted ---
+
+    #[test]
+    fn test_is_exhausted_true_at_max_attempts() {
+        let policy = ReconnectPolicy::new(5, Duration::from_millis(100), Duration::from_secs(10), 2.0).unwrap();
+        assert!(policy.is_exhausted(5));
+    }
+
+    #[test]
+    fn test_is_exhausted_true_beyond_max_attempts() {
+        let policy = ReconnectPolicy::new(5, Duration::from_millis(100), Duration::from_secs(10), 2.0).unwrap();
+        assert!(policy.is_exhausted(10));
+    }
+
+    #[test]
+    fn test_is_exhausted_false_below_max_attempts() {
+        let policy = ReconnectPolicy::new(5, Duration::from_millis(100), Duration::from_secs(10), 2.0).unwrap();
+        assert!(!policy.is_exhausted(4));
     }
 }

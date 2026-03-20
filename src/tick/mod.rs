@@ -282,6 +282,23 @@ impl NormalizedTick {
         self.exchange_ts_ms.is_some()
     }
 
+    /// Human-readable trade direction: `"buy"`, `"sell"`, or `"unknown"`.
+    pub fn side_str(&self) -> &'static str {
+        match self.side {
+            Some(TradeSide::Buy) => "buy",
+            Some(TradeSide::Sell) => "sell",
+            None => "unknown",
+        }
+    }
+
+    /// Returns `true` if the quantity is a whole number (no fractional part).
+    ///
+    /// Useful for detecting atypical fractional order sizes, or as a simple
+    /// round-lot check in integer-quantity markets.
+    pub fn is_round_lot(&self) -> bool {
+        self.quantity.fract().is_zero()
+    }
+
     /// Returns `true` if this tick's price is strictly above `price`.
     pub fn is_above(&self, price: Decimal) -> bool {
         self.price > price
@@ -296,6 +313,7 @@ impl NormalizedTick {
     pub fn is_at(&self, price: Decimal) -> bool {
         self.price == price
     }
+
 }
 
 impl std::fmt::Display for NormalizedTick {
@@ -1129,5 +1147,65 @@ mod tests {
         let mut tick = make_tick_at(1_000);
         tick.price = rust_decimal_macros::dec!(99);
         assert!(!tick.is_at(rust_decimal_macros::dec!(100)));
+    }
+
+    // ── NormalizedTick::is_buy ────────────────────────────────────────────────
+
+    #[test]
+    fn test_is_buy_true_when_side_is_buy() {
+        let mut tick = make_tick_at(1_000);
+        tick.side = Some(TradeSide::Buy);
+        assert!(tick.is_buy());
+    }
+
+    #[test]
+    fn test_is_buy_false_when_side_is_sell() {
+        let mut tick = make_tick_at(1_000);
+        tick.side = Some(TradeSide::Sell);
+        assert!(!tick.is_buy());
+    }
+
+    #[test]
+    fn test_is_buy_false_when_side_is_none() {
+        let mut tick = make_tick_at(1_000);
+        tick.side = None;
+        assert!(!tick.is_buy());
+    }
+
+    // --- side_str / is_round_lot ---
+
+    #[test]
+    fn test_side_str_buy() {
+        let mut tick = make_tick_at(1_000);
+        tick.side = Some(TradeSide::Buy);
+        assert_eq!(tick.side_str(), "buy");
+    }
+
+    #[test]
+    fn test_side_str_sell() {
+        let mut tick = make_tick_at(1_000);
+        tick.side = Some(TradeSide::Sell);
+        assert_eq!(tick.side_str(), "sell");
+    }
+
+    #[test]
+    fn test_side_str_unknown_when_none() {
+        let mut tick = make_tick_at(1_000);
+        tick.side = None;
+        assert_eq!(tick.side_str(), "unknown");
+    }
+
+    #[test]
+    fn test_is_round_lot_true_for_integer_quantity() {
+        let mut tick = make_tick_at(1_000);
+        tick.quantity = rust_decimal_macros::dec!(100);
+        assert!(tick.is_round_lot());
+    }
+
+    #[test]
+    fn test_is_round_lot_false_for_fractional_quantity() {
+        let mut tick = make_tick_at(1_000);
+        tick.quantity = rust_decimal_macros::dec!(0.5);
+        assert!(!tick.is_round_lot());
     }
 }

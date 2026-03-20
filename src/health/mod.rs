@@ -484,6 +484,31 @@ impl HealthMonitor {
             .map(|e| e.clone())
             .collect()
     }
+
+    /// The stale feed with the oldest `last_tick_ms`, or `None` if no feeds are stale.
+    ///
+    /// "Oldest" means the feed that has gone the longest without a heartbeat
+    /// — i.e., the one with the smallest `last_tick_ms`. Feeds with
+    /// `last_tick_ms == None` are placed last (they have never ticked).
+    pub fn oldest_stale_feed(&self) -> Option<FeedHealth> {
+        self.feeds
+            .iter()
+            .filter(|e| e.status == HealthStatus::Stale)
+            .min_by_key(|e| e.last_tick_ms.unwrap_or(u64::MAX))
+            .map(|e| e.clone())
+    }
+
+    /// Fraction of registered feeds that are currently `Healthy`: `healthy / total`.
+    ///
+    /// Returns `0.0` when no feeds are registered.
+    pub fn healthy_ratio(&self) -> f64 {
+        let total = self.feeds.len();
+        if total == 0 {
+            return 0.0;
+        }
+        self.healthy_count() as f64 / total as f64
+    }
+
 }
 
 #[cfg(test)]
@@ -1290,5 +1315,85 @@ mod tests {
     fn test_unknown_feed_count_zero_with_no_feeds() {
         let m = HealthMonitor::new(5_000);
         assert_eq!(m.unknown_feed_count(), 0);
+    }
+
+    // ── HealthMonitor::all_healthy ────────────────────────────────────────────
+
+    #[test]
+    fn test_all_healthy_vacuously_true_with_no_feeds() {
+        // all_healthy is vacuously true when no feeds are registered
+        let m = HealthMonitor::new(5_000);
+        assert!(m.all_healthy());
+    }
+
+    #[test]
+    fn test_all_healthy_true_when_all_feeds_healthy() {
+        let m = HealthMonitor::new(5_000);
+        m.register("A", None);
+        m.register("B", None);
+        m.heartbeat("A", 1_000).unwrap();
+        m.heartbeat("B", 1_000).unwrap();
+        assert!(m.all_healthy());
+    }
+
+    #[test]
+    fn test_all_healthy_false_when_one_feed_unknown() {
+        let m = HealthMonitor::new(5_000);
+        m.register("A", None);
+        m.register("B", None);
+        m.heartbeat("A", 1_000).unwrap();
+        // B still unknown
+        assert!(!m.all_healthy());
+    }
+
+    // --- oldest_stale_feed / healthy_ratio ---
+
+    #[test]
+    fn test_oldest_stale_feed_returns_feed_with_smallest_last_tick() {
+        let mut m = monitor();
+        m.register("A", None);
+        m.register("B", None);
+        m.heartbeat("A", 1_000).unwrap(); // older tick
+        m.heartbeat("B", 3_000).unwrap(); // newer tick
+        m.check_all(10_000); // both stale (>5s threshold)
+        let oldest = m.oldest_stale_feed().unwrap();
+        assert_eq!(oldest.feed_id, "A");
+    }
+
+    #[test]
+    fn test_oldest_stale_feed_none_when_no_stale_feeds() {
+        let mut m = monitor();
+        m.register("A", None);
+        m.heartbeat("A", 9_000).unwrap();
+        m.check_all(10_000); // 1s elapsed < 5s threshold → healthy
+        assert!(m.oldest_stale_feed().is_none());
+    }
+
+    #[test]
+    fn test_healthy_ratio_zero_when_no_feeds() {
+        let m = monitor();
+        assert_eq!(m.healthy_ratio(), 0.0);
+    }
+
+    #[test]
+    fn test_healthy_ratio_one_when_all_healthy() {
+        let mut m = monitor();
+        m.register("A", None);
+        m.register("B", None);
+        m.heartbeat("A", 9_000).unwrap();
+        m.heartbeat("B", 9_500).unwrap();
+        m.check_all(10_000); // both healthy
+        assert!((m.healthy_ratio() - 1.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_healthy_ratio_half_when_one_of_two_healthy() {
+        let mut m = monitor();
+        m.register("A", None);
+        m.register("B", None);
+        m.heartbeat("A", 1_000).unwrap(); // stale
+        m.heartbeat("B", 9_500).unwrap(); // healthy
+        m.check_all(10_000);
+        assert!((m.healthy_ratio() - 0.5).abs() < 1e-10);
     }
 }

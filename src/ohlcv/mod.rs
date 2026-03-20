@@ -427,6 +427,47 @@ impl OhlcvBar {
     pub fn hlc3(&self) -> Decimal {
         self.typical_price()
     }
+
+    /// OHLC4: `(open + high + low + close) / 4`.
+    ///
+    /// Gives equal weight to all four price points. Sometimes used as a smoother
+    /// proxy than typical price because it incorporates the open.
+    pub fn ohlc4(&self) -> Decimal {
+        (self.open + self.high + self.low + self.close) / Decimal::from(4)
+    }
+
+    /// Returns `true` if this bar is a marubozu — no upper or lower wicks.
+    ///
+    /// A marubozu has `open == low` and `close == high` (bullish) or
+    /// `open == high` and `close == low` (bearish). It signals strong
+    /// one-directional momentum with no intrabar rejection.
+    /// A zero-range bar (all prices equal) is considered a marubozu.
+    pub fn is_marubozu(&self) -> bool {
+        self.wick_upper().is_zero() && self.wick_lower().is_zero()
+    }
+
+    /// Returns `true` if this bar's body engulfs `prev`'s body.
+    ///
+    /// Engulfing requires: `self.open < prev.open.min(prev.close)` and
+    /// `self.close > prev.open.max(prev.close)` (or vice versa for bearish).
+    /// Specifically, `self.body_low < prev.body_low` and
+    /// `self.body_high > prev.body_high`.
+    ///
+    /// Does NOT require opposite directions — use in combination with
+    /// [`is_bullish`](Self::is_bullish) / [`is_bearish`](Self::is_bearish) if
+    /// classic engulfing patterns are needed.
+    pub fn is_engulfing(&self, prev: &OhlcvBar) -> bool {
+        let self_lo = self.open.min(self.close);
+        let self_hi = self.open.max(self.close);
+        let prev_lo = prev.open.min(prev.close);
+        let prev_hi = prev.open.max(prev.close);
+        self_lo < prev_lo && self_hi > prev_hi
+    }
+
+    /// Duration of this bar's timeframe in milliseconds.
+    pub fn bar_duration_ms(&self) -> u64 {
+        self.timeframe.duration_ms()
+    }
 }
 
 impl std::fmt::Display for OhlcvBar {
@@ -2092,5 +2133,98 @@ mod tests {
     fn test_wick_ratio_none_for_zero_range_bar() {
         let bar = make_ohlcv_bar(dec!(100), dec!(100), dec!(100), dec!(100));
         assert!(bar.wick_ratio().is_none());
+    }
+
+    // ── OhlcvBar::is_bullish ──────────────────────────────────────────────────
+
+    #[test]
+    fn test_is_bullish_true_when_close_above_open() {
+        let bar = make_ohlcv_bar(dec!(100), dec!(115), dec!(95), dec!(110));
+        assert!(bar.is_bullish());
+    }
+
+    #[test]
+    fn test_is_bullish_false_when_close_below_open() {
+        let bar = make_ohlcv_bar(dec!(110), dec!(115), dec!(100), dec!(105));
+        assert!(!bar.is_bullish());
+    }
+
+    #[test]
+    fn test_is_bullish_false_when_doji() {
+        let bar = make_ohlcv_bar(dec!(100), dec!(105), dec!(95), dec!(100));
+        assert!(!bar.is_bullish());
+    }
+
+    // ── OhlcvBar::bar_duration_ms ─────────────────────────────────────────────
+
+    #[test]
+    fn test_bar_duration_ms_one_minute() {
+        let bar = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        assert_eq!(bar.bar_duration_ms(), 60_000);
+    }
+
+    #[test]
+    fn test_bar_duration_ms_consistent_with_timeframe() {
+        let mut bar = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        bar.timeframe = Timeframe::Hours(1);
+        assert_eq!(bar.bar_duration_ms(), 3_600_000);
+    }
+
+    #[test]
+    fn test_bar_duration_ms_seconds_timeframe() {
+        let mut bar = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        bar.timeframe = Timeframe::Seconds(30);
+        assert_eq!(bar.bar_duration_ms(), 30_000);
+    }
+
+    // --- ohlc4 / is_marubozu / is_engulfing ---
+
+    #[test]
+    fn test_ohlc4_equals_average_of_all_four_prices() {
+        let b = bar(100, 120, 80, 110);
+        // (100 + 120 + 80 + 110) / 4 = 410 / 4 = 102.5
+        let expected = (Decimal::from(100) + Decimal::from(120) + Decimal::from(80) + Decimal::from(110))
+            / Decimal::from(4);
+        assert_eq!(b.ohlc4(), expected);
+    }
+
+    #[test]
+    fn test_is_marubozu_true_when_no_wicks() {
+        // Bullish marubozu: open=low=100, close=high=110
+        let b = bar(100, 110, 100, 110);
+        assert!(b.is_marubozu());
+    }
+
+    #[test]
+    fn test_is_marubozu_false_when_has_upper_wick() {
+        let b = bar(100, 115, 100, 110);
+        assert!(!b.is_marubozu());
+    }
+
+    #[test]
+    fn test_is_marubozu_false_when_has_lower_wick() {
+        let b = bar(100, 110, 95, 110);
+        assert!(!b.is_marubozu());
+    }
+
+    #[test]
+    fn test_is_engulfing_true_when_body_contains_prev_body() {
+        let prev = bar(100, 110, 95, 105); // prev body: 100-105
+        let curr = bar(98, 115, 95, 108);  // curr body: 98-108 engulfs 100-105
+        assert!(curr.is_engulfing(&prev));
+    }
+
+    #[test]
+    fn test_is_engulfing_false_when_only_partial_overlap() {
+        let prev = bar(100, 115, 90, 112); // prev body: 100-112
+        let curr = bar(101, 115, 90, 113); // curr body: 101-113 — lo=101 > 100, not engulfing
+        assert!(!curr.is_engulfing(&prev));
+    }
+
+    #[test]
+    fn test_is_engulfing_false_for_equal_bodies() {
+        let prev = bar(100, 110, 90, 108);
+        let curr = bar(100, 110, 90, 108); // exactly equal
+        assert!(!curr.is_engulfing(&prev));
     }
 }

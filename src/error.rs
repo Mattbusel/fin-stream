@@ -329,6 +329,11 @@ impl StreamError {
         )
     }
 
+    /// Returns `true` if this is a tick parse error.
+    pub fn is_parse_error(&self) -> bool {
+        matches!(self, StreamError::ParseError { .. })
+    }
+
     /// Human-readable category string for this error.
     ///
     /// Returns one of `"connection"`, `"data"`, `"pipeline"`, `"book"`,
@@ -1015,5 +1020,28 @@ mod tests {
     #[test]
     fn test_is_feed_error_false_for_ring_buffer_empty() {
         assert!(!StreamError::RingBufferEmpty.is_feed_error());
+    }
+
+    // ── StreamError::is_parse_error ───────────────────────────────────────────
+
+    #[test]
+    fn test_is_parse_error_true_for_parse_error() {
+        let e = StreamError::ParseError {
+            exchange: "binance".into(),
+            reason: "unexpected field".into(),
+        };
+        assert!(e.is_parse_error());
+    }
+
+    #[test]
+    fn test_is_parse_error_false_for_connection_failed() {
+        let e = StreamError::ConnectionFailed { url: "ws://x".into(), reason: "timeout".into() };
+        assert!(!e.is_parse_error());
+    }
+
+    #[test]
+    fn test_is_parse_error_false_for_stale_feed() {
+        let e = StreamError::StaleFeed { feed_id: "x".into(), elapsed_ms: 1, threshold_ms: 1 };
+        assert!(!e.is_parse_error());
     }
 }

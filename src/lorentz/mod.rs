@@ -266,6 +266,14 @@ impl LorentzTransform {
         Ok((1.0 - 1.0 / (gamma * gamma)).sqrt())
     }
 
+    /// Proper velocity: `w = β × γ`.
+    ///
+    /// Unlike coordinate velocity `β`, proper velocity is unbounded and
+    /// equals the spatial displacement per unit proper time.
+    pub fn proper_velocity(&self) -> f64 {
+        self.beta * self.gamma
+    }
+
     /// The configured velocity parameter `beta = v/c`.
     pub fn beta(&self) -> f64 {
         self.beta
@@ -373,6 +381,25 @@ impl LorentzTransform {
     /// # Complexity: O(1)
     pub fn time_contraction(&self, coordinate_time: f64) -> f64 {
         coordinate_time / self.gamma
+    }
+
+    /// Returns `true` if this boost is ultrarelativistic (`beta > 0.9`).
+    ///
+    /// At `beta > 0.9` the Lorentz factor `gamma > 2.3`, and relativistic
+    /// effects dominate. Useful as a sanity guard before applying the boost
+    /// to financial time-series where very high velocities indicate data issues.
+    pub fn is_ultrarelativistic(&self) -> bool {
+        self.beta > 0.9
+    }
+
+    /// Relativistic spatial momentum factor: `gamma × beta`.
+    ///
+    /// This is the spatial component of the four-momentum (up to a mass factor).
+    /// At `beta = 0` the result is `0`; as `beta → 1` it diverges.
+    ///
+    /// # Complexity: O(1)
+    pub fn momentum_factor(&self) -> f64 {
+        self.gamma * self.beta
     }
 
     /// Computes the Lorentz-invariant spacetime interval between two events.
@@ -1322,5 +1349,58 @@ mod tests {
     fn test_length_contraction_factor_less_than_one_for_nonzero_beta() {
         let t = LorentzTransform::new(0.9).unwrap();
         assert!(t.length_contraction_factor() < 1.0);
+    }
+
+    // ── LorentzTransform::proper_velocity ────────────────────────────────────
+
+    #[test]
+    fn test_proper_velocity_zero_at_rest() {
+        let t = LorentzTransform::new(0.0).unwrap();
+        assert!((t.proper_velocity() - 0.0).abs() < 1e-12);
+    }
+
+    #[test]
+    fn test_proper_velocity_equals_beta_times_gamma() {
+        let t = LorentzTransform::new(0.6).unwrap();
+        assert!((t.proper_velocity() - t.beta() * t.gamma()).abs() < 1e-12);
+    }
+
+    #[test]
+    fn test_proper_velocity_greater_than_beta_for_high_speed() {
+        // At v=0.8c, gamma≈1.667, so proper_velocity = 0.8*1.667 ≈ 1.333 > 0.8
+        let t = LorentzTransform::new(0.8).unwrap();
+        assert!(t.proper_velocity() > t.beta());
+    }
+
+    // --- is_ultrarelativistic / momentum_factor ---
+
+    #[test]
+    fn test_is_ultrarelativistic_true_above_0_9() {
+        let t = LorentzTransform::new(0.95).unwrap();
+        assert!(t.is_ultrarelativistic());
+    }
+
+    #[test]
+    fn test_is_ultrarelativistic_false_below_0_9() {
+        let t = LorentzTransform::new(0.5).unwrap();
+        assert!(!t.is_ultrarelativistic());
+    }
+
+    #[test]
+    fn test_is_ultrarelativistic_false_at_exactly_0_9() {
+        let t = LorentzTransform::new(0.9).unwrap();
+        assert!(!t.is_ultrarelativistic()); // strictly greater than 0.9
+    }
+
+    #[test]
+    fn test_momentum_factor_zero_at_rest() {
+        let t = LorentzTransform::new(0.0).unwrap();
+        assert!(t.momentum_factor().abs() < 1e-12);
+    }
+
+    #[test]
+    fn test_momentum_factor_equals_gamma_times_beta() {
+        let t = LorentzTransform::new(0.6).unwrap();
+        assert!((t.momentum_factor() - t.gamma() * t.beta()).abs() < 1e-12);
     }
 }

@@ -432,6 +432,15 @@ impl SessionAwareness {
             .unwrap_or(false)
     }
 
+    /// Returns `true` if the current time is within the final 60 minutes of
+    /// the regular session.
+    pub fn is_last_trading_hour(&self, utc_ms: u64) -> bool {
+        match self.remaining_session_ms(utc_ms) {
+            Some(remaining) => remaining <= 3_600_000,
+            None => false,
+        }
+    }
+
     fn next_forex_close_ms(&self, utc_ms: u64) -> u64 {
         if self.forex_status(utc_ms) == TradingStatus::Closed {
             return utc_ms;
@@ -1563,5 +1572,28 @@ mod tests {
         let t1 = sa.remaining_until_close_ms(MON_OPEN_UTC_MS).unwrap();
         let t2 = sa.remaining_until_close_ms(MON_OPEN_UTC_MS + 60_000).unwrap();
         assert!(t1 > t2);
+    }
+
+    // ── SessionAnalyzer::is_last_trading_hour ─────────────────────────────────
+
+    #[test]
+    fn test_is_last_trading_hour_true_within_last_hour() {
+        let sa = sa(MarketSession::UsEquity);
+        // 30 minutes before close: MON_CLOSE_UTC_MS - 30*60*1000
+        let thirty_before_close = MON_CLOSE_UTC_MS - 30 * 60 * 1_000;
+        assert!(sa.is_last_trading_hour(thirty_before_close));
+    }
+
+    #[test]
+    fn test_is_last_trading_hour_false_at_open() {
+        let sa = sa(MarketSession::UsEquity);
+        // At market open: 6.5 hours remaining — not last hour
+        assert!(!sa.is_last_trading_hour(MON_OPEN_UTC_MS));
+    }
+
+    #[test]
+    fn test_is_last_trading_hour_false_when_closed() {
+        let sa = sa(MarketSession::UsEquity);
+        assert!(!sa.is_last_trading_hour(SAT_UTC_MS));
     }
 }
