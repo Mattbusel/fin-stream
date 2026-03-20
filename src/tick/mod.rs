@@ -1071,6 +1071,35 @@ impl NormalizedTick {
         Some(variance.sqrt())
     }
 
+    /// Price of the first tick in the slice.
+    ///
+    /// Returns `None` if the slice is empty.
+    pub fn first_price(ticks: &[NormalizedTick]) -> Option<Decimal> {
+        ticks.first().map(|t| t.price)
+    }
+
+    /// Percentage return from first to last tick price: (last − first) / first.
+    ///
+    /// Returns `None` if the slice has fewer than 2 ticks or the first price is zero.
+    pub fn price_return_pct(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let n = ticks.len();
+        if n < 2 { return None; }
+        let first = ticks[0].price;
+        if first.is_zero() { return None; }
+        ((ticks[n - 1].price - first) / first).to_f64()
+    }
+
+    /// Total quantity traded strictly above `price`.
+    pub fn volume_above_price(ticks: &[NormalizedTick], price: Decimal) -> Decimal {
+        ticks.iter().filter(|t| t.price > price).map(|t| t.quantity).sum()
+    }
+
+    /// Total quantity traded strictly below `price`.
+    pub fn volume_below_price(ticks: &[NormalizedTick], price: Decimal) -> Decimal {
+        ticks.iter().filter(|t| t.price < price).map(|t| t.quantity).sum()
+    }
+
 }
 
 impl std::fmt::Display for NormalizedTick {
