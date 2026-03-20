@@ -6142,4 +6142,77 @@ mod tests {
         let ws = OhlcvBar::avg_wick_size(&[b]).unwrap();
         assert!((ws - 15.0).abs() < 1e-6, "expected 15.0, got {}", ws);
     }
+
+    // ── OhlcvBar::mean_volume_ratio ────────────────────────────────────────────
+
+    #[test]
+    fn test_mean_volume_ratio_empty_for_empty_slice() {
+        assert!(OhlcvBar::mean_volume_ratio(&[]).is_empty());
+    }
+
+    #[test]
+    fn test_mean_volume_ratio_sums_to_n_times_mean() {
+        let mut b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105)); b1.volume = dec!(100);
+        let mut b2 = make_ohlcv_bar(dec!(105), dec!(115), dec!(103), dec!(110)); b2.volume = dec!(300);
+        // mean = 200; ratios: 0.5, 1.5
+        let ratios = OhlcvBar::mean_volume_ratio(&[b1, b2]);
+        assert_eq!(ratios.len(), 2);
+        let r0 = ratios[0].unwrap();
+        let r1 = ratios[1].unwrap();
+        assert!((r0 - 0.5).abs() < 1e-6, "expected 0.5, got {}", r0);
+        assert!((r1 - 1.5).abs() < 1e-6, "expected 1.5, got {}", r1);
+    }
+
+    // ── OhlcvBar::price_compression_ratio ────────────────────────────────────
+
+    #[test]
+    fn test_price_compression_ratio_none_for_zero_range() {
+        // open==high==low==close → range=0
+        let b = make_ohlcv_bar(dec!(100), dec!(100), dec!(100), dec!(100));
+        assert!(OhlcvBar::price_compression_ratio(&[b]).is_none());
+    }
+
+    #[test]
+    fn test_price_compression_ratio_in_range() {
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(108));
+        let r = OhlcvBar::price_compression_ratio(&[b]).unwrap();
+        assert!(r >= 0.0 && r <= 1.0, "expected value in [0,1], got {}", r);
+    }
+
+    // ── OhlcvBar::open_close_spread ───────────────────────────────────────────
+
+    #[test]
+    fn test_open_close_spread_none_for_empty() {
+        assert!(OhlcvBar::open_close_spread(&[]).is_none());
+    }
+
+    #[test]
+    fn test_open_close_spread_zero_for_doji() {
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100));
+        let s = OhlcvBar::open_close_spread(&[b]).unwrap();
+        assert!((s - 0.0).abs() < 1e-9, "doji should have spread=0, got {}", s);
+    }
+
+    #[test]
+    fn test_open_close_spread_positive_for_directional_bar() {
+        let b = make_ohlcv_bar(dec!(100), dec!(115), dec!(98), dec!(110));
+        let s = OhlcvBar::open_close_spread(&[b]).unwrap();
+        assert!(s > 0.0, "directional bar should have positive spread, got {}", s);
+    }
+
+    // ── OhlcvBar::close_above_high_ma ────────────────────────────────────────
+
+    #[test]
+    fn test_close_above_high_ma_zero_for_too_few_bars() {
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        assert_eq!(OhlcvBar::close_above_high_ma(&[b], 2), 0);
+    }
+
+    #[test]
+    fn test_close_above_high_ma_detects_breakout() {
+        // 2-bar high MA = (110+120)/2=115; close of b2=118 > 115
+        let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let b2 = make_ohlcv_bar(dec!(110), dec!(120), dec!(108), dec!(118));
+        assert_eq!(OhlcvBar::close_above_high_ma(&[b1, b2], 2), 1);
+    }
 }

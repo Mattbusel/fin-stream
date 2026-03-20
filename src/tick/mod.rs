@@ -4660,4 +4660,87 @@ mod tests {
         let mut t2 = make_tick_pq(dec!(101), dec!(2)); t2.side = Some(TradeSide::Sell);
         assert_eq!(NormalizedTick::avg_sell_quantity(&[t1, t2]), Some(dec!(4)));
     }
+
+    // ── NormalizedTick::price_mean_reversion_score ────────────────────────────
+
+    #[test]
+    fn test_price_mean_reversion_score_none_for_empty() {
+        assert!(NormalizedTick::price_mean_reversion_score(&[]).is_none());
+    }
+
+    #[test]
+    fn test_price_mean_reversion_score_in_range() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(90), dec!(1)),
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(110), dec!(1)),
+        ];
+        let score = NormalizedTick::price_mean_reversion_score(&ticks).unwrap();
+        assert!(score >= 0.0 && score <= 1.0, "score should be in [0, 1], got {}", score);
+    }
+
+    // ── NormalizedTick::largest_price_move ────────────────────────────────────
+
+    #[test]
+    fn test_largest_price_move_none_for_single_tick() {
+        use rust_decimal_macros::dec;
+        let t = make_tick_pq(dec!(100), dec!(1));
+        assert!(NormalizedTick::largest_price_move(&[t]).is_none());
+    }
+
+    #[test]
+    fn test_largest_price_move_correct() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(105), dec!(1)),  // move = 5
+            make_tick_pq(dec!(102), dec!(1)),  // move = 3
+        ];
+        assert_eq!(NormalizedTick::largest_price_move(&ticks), Some(dec!(5)));
+    }
+
+    // ── NormalizedTick::tick_rate ─────────────────────────────────────────────
+
+    #[test]
+    fn test_tick_rate_none_for_single_tick() {
+        use rust_decimal_macros::dec;
+        let t = make_tick_pq(dec!(100), dec!(1));
+        assert!(NormalizedTick::tick_rate(&[t]).is_none());
+    }
+
+    #[test]
+    fn test_tick_rate_correct() {
+        use rust_decimal_macros::dec;
+        let mut t1 = make_tick_pq(dec!(100), dec!(1)); t1.received_at_ms = 0;
+        let mut t2 = make_tick_pq(dec!(101), dec!(1)); t2.received_at_ms = 2;
+        let mut t3 = make_tick_pq(dec!(102), dec!(1)); t3.received_at_ms = 4;
+        // 3 ticks over 4ms → 0.75 ticks/ms
+        let rate = NormalizedTick::tick_rate(&[t1, t2, t3]).unwrap();
+        assert!((rate - 0.75).abs() < 1e-9, "expected 0.75 ticks/ms, got {}", rate);
+    }
+
+    // ── NormalizedTick::buy_notional_fraction ─────────────────────────────────
+
+    #[test]
+    fn test_buy_notional_fraction_none_for_empty() {
+        assert!(NormalizedTick::buy_notional_fraction(&[]).is_none());
+    }
+
+    #[test]
+    fn test_buy_notional_fraction_one_when_all_buys() {
+        use rust_decimal_macros::dec;
+        let mut t = make_tick_pq(dec!(100), dec!(5)); t.side = Some(TradeSide::Buy);
+        let frac = NormalizedTick::buy_notional_fraction(&[t]).unwrap();
+        assert!((frac - 1.0).abs() < 1e-9, "all buys should give fraction=1.0, got {}", frac);
+    }
+
+    #[test]
+    fn test_buy_notional_fraction_in_range_for_mixed() {
+        use rust_decimal_macros::dec;
+        let mut buy = make_tick_pq(dec!(100), dec!(3)); buy.side = Some(TradeSide::Buy);
+        let mut sell = make_tick_pq(dec!(100), dec!(1)); sell.side = Some(TradeSide::Sell);
+        let frac = NormalizedTick::buy_notional_fraction(&[buy, sell]).unwrap();
+        assert!(frac > 0.0 && frac < 1.0, "mixed ticks should be in (0,1), got {}", frac);
+    }
 }
