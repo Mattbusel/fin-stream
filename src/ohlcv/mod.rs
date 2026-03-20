@@ -1127,6 +1127,19 @@ impl OhlcvBar {
         }
         (net_move / total_path).to_f64()
     }
+
+    /// Mean CLV across a slice of bars; `None` for an empty slice or
+    /// if any CLV cannot be computed.
+    pub fn mean_clv(bars: &[OhlcvBar]) -> Option<f64> {
+        if bars.is_empty() {
+            return None;
+        }
+        let clvs: Vec<f64> = bars.iter().filter_map(|b| b.close_location_value()).collect();
+        if clvs.is_empty() {
+            return None;
+        }
+        Some(clvs.iter().sum::<f64>() / clvs.len() as f64)
+    }
 }
 
 impl std::fmt::Display for OhlcvBar {
@@ -4041,5 +4054,50 @@ mod tests {
             make_ohlcv_bar(dec!(100), dec!(100), dec!(100), dec!(100)),
         ];
         assert!(OhlcvBar::price_efficiency_ratio(&bars).is_none());
+    }
+
+    // ── close_location_value / mean_clv ───────────────────────────────────────
+
+    #[test]
+    fn test_clv_plus_one_when_close_at_high() {
+        // close == high: CLV = ((high-low)-(0)) / (high-low) = 1
+        let bar = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(110));
+        let clv = bar.close_location_value().unwrap();
+        assert!((clv - 1.0).abs() < 1e-10, "CLV should be 1.0 when close == high, got {clv}");
+    }
+
+    #[test]
+    fn test_clv_minus_one_when_close_at_low() {
+        let bar = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(90));
+        let clv = bar.close_location_value().unwrap();
+        assert!((clv + 1.0).abs() < 1e-10, "CLV should be -1.0 when close == low, got {clv}");
+    }
+
+    #[test]
+    fn test_clv_zero_when_close_at_midpoint() {
+        let bar = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100));
+        let clv = bar.close_location_value().unwrap();
+        assert!(clv.abs() < 1e-10, "CLV should be 0 at midpoint, got {clv}");
+    }
+
+    #[test]
+    fn test_clv_none_for_zero_range_bar() {
+        let bar = make_ohlcv_bar(dec!(100), dec!(100), dec!(100), dec!(100));
+        assert!(bar.close_location_value().is_none());
+    }
+
+    #[test]
+    fn test_mean_clv_none_for_empty_slice() {
+        assert!(OhlcvBar::mean_clv(&[]).is_none());
+    }
+
+    #[test]
+    fn test_mean_clv_positive_for_bullish_closes() {
+        let bars = vec![
+            make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(108)), // close near high
+            make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(106)), // close above mid
+        ];
+        let clv = OhlcvBar::mean_clv(&bars).unwrap();
+        assert!(clv > 0.0, "mean CLV should be positive when closes are near highs");
     }
 }
