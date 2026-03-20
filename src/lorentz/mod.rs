@@ -240,6 +240,15 @@ impl LorentzTransform {
         self.gamma - 1.0
     }
 
+    /// Time dilation factor: `γ` (gamma).
+    ///
+    /// Equivalent to [`gamma`](Self::gamma) but named for clarity when used in
+    /// a time-dilation context. A moving clock ticks slower by this factor
+    /// relative to the stationary frame.
+    pub fn time_dilation_factor(&self) -> f64 {
+        self.gamma
+    }
+
     /// Computes beta (v/c) from a Lorentz gamma factor. Returns an error if `gamma < 1.0`.
     pub fn beta_from_gamma(gamma: f64) -> Result<f64, StreamError> {
         if gamma.is_nan() || gamma < 1.0 {
@@ -1205,5 +1214,31 @@ mod tests {
     fn test_kinetic_energy_ratio_positive_for_nonzero_beta() {
         let lt = LorentzTransform::new(0.8).unwrap();
         assert!(lt.kinetic_energy_ratio() > 0.0);
+    }
+
+    #[test]
+    fn test_composition_zero_with_zero_is_zero() {
+        let t1 = LorentzTransform::new(0.0).unwrap();
+        let t2 = LorentzTransform::new(0.0).unwrap();
+        let composed = t1.composition(&t2).unwrap();
+        assert!(composed.beta().abs() < 1e-12);
+    }
+
+    #[test]
+    fn test_composition_with_opposite_is_near_zero() {
+        let t1 = LorentzTransform::new(0.6).unwrap();
+        let t2 = t1.inverse(); // beta = -0.6
+        let composed = t1.composition(&t2).unwrap();
+        // (0.6 + (-0.6)) / (1 + 0.6*(-0.6)) = 0 / 0.64 = 0
+        assert!(composed.beta().abs() < 1e-12);
+    }
+
+    #[test]
+    fn test_composition_velocity_addition_known_value() {
+        // 0.5c + 0.5c = (0.5+0.5)/(1+0.25) = 1.0/1.25 = 0.8
+        let t1 = LorentzTransform::new(0.5).unwrap();
+        let t2 = LorentzTransform::new(0.5).unwrap();
+        let composed = t1.composition(&t2).unwrap();
+        assert!((composed.beta() - 0.8).abs() < 1e-12);
     }
 }

@@ -316,6 +316,11 @@ impl StreamError {
         }
     }
 
+    /// Returns `true` if this is a configuration error.
+    pub fn is_config_error(&self) -> bool {
+        matches!(self, StreamError::ConfigError { .. })
+    }
+
     /// Human-readable category string for this error.
     ///
     /// Returns one of `"connection"`, `"data"`, `"pipeline"`, `"book"`,

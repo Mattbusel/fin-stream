@@ -277,6 +277,11 @@ impl NormalizedTick {
     pub fn is_above(&self, price: Decimal) -> bool {
         self.price > price
     }
+
+    /// Returns `true` if this tick's price is strictly below `price`.
+    pub fn is_below(&self, price: Decimal) -> bool {
+        self.price < price
+    }
 }
 
 impl std::fmt::Display for NormalizedTick {

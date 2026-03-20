@@ -378,6 +378,18 @@ impl OhlcvBar {
         }
         Some(self.body() / r)
     }
+
+    /// Returns `true` if the upper wick is longer than the candle body.
+    ///
+    /// Indicates a bearish rejection at the high (supply above current price).
+    pub fn is_long_upper_wick(&self) -> bool {
+        self.wick_upper() > self.body()
+    }
+
+    /// Absolute price change over the bar: `|close − open|`.
+    pub fn price_change_abs(&self) -> Decimal {
+        (self.close - self.open).abs()
+    }
 }
 
 impl std::fmt::Display for OhlcvBar {
@@ -689,6 +701,18 @@ impl OhlcvAggregator {
     /// been fed since the last flush or reset).
     pub fn is_active(&self) -> bool {
         self.current_bar.is_some()
+    }
+
+    /// Volume-weighted average price of the current in-progress bar.
+    ///
+    /// Returns `None` if no bar is currently being built or the bar has zero
+    /// volume (should not happen with real ticks).
+    pub fn vwap_current(&self) -> Option<Decimal> {
+        let bar = self.current_bar.as_ref()?;
+        if bar.volume.is_zero() {
+            return None;
+        }
+        Some(self.price_volume_sum / bar.volume)
     }
 }
 
@@ -1394,6 +1418,24 @@ mod tests {
     fn test_close_location_value_zero_range_returns_none() {
         let bar = make_bar(dec!(100), dec!(100), dec!(100), dec!(100));
         assert!(bar.close_location_value().is_none());
+    }
+
+    #[test]
+    fn test_body_direction_bullish() {
+        let bar = make_bar(dec!(90), dec!(110), dec!(85), dec!(105));
+        assert_eq!(bar.body_direction(), BarDirection::Bullish);
+    }
+
+    #[test]
+    fn test_body_direction_bearish() {
+        let bar = make_bar(dec!(105), dec!(110), dec!(85), dec!(90));
+        assert_eq!(bar.body_direction(), BarDirection::Bearish);
+    }
+
+    #[test]
+    fn test_body_direction_neutral() {
+        let bar = make_bar(dec!(100), dec!(110), dec!(85), dec!(100));
+        assert_eq!(bar.body_direction(), BarDirection::Neutral);
     }
 
     // ── OhlcvAggregator::last_bar ─────────────────────────────────────────────

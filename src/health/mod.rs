@@ -399,6 +399,23 @@ impl HealthMonitor {
         self.feeds.iter().all(|e| e.status == HealthStatus::Healthy)
     }
 
+    /// Count of feeds in each health state: `(healthy, stale, unknown)`.
+    ///
+    /// Equivalent to calling [`healthy_count`](Self::healthy_count),
+    /// [`stale_count`](Self::stale_count), and [`unknown_count`](Self::unknown_count)
+    /// in one pass.
+    pub fn status_summary(&self) -> (usize, usize, usize) {
+        let (mut healthy, mut stale, mut unknown) = (0, 0, 0);
+        for e in self.feeds.iter() {
+            match e.status {
+                HealthStatus::Healthy => healthy += 1,
+                HealthStatus::Stale => stale += 1,
+                HealthStatus::Unknown => unknown += 1,
+            }
+        }
+        (healthy, stale, unknown)
+    }
+
     /// Feed identifiers whose status is exactly [`HealthStatus::Stale`].
     ///
     /// Unlike [`unhealthy_feeds`](Self::unhealthy_feeds), feeds with
@@ -434,6 +451,17 @@ impl HealthMonitor {
             return 0.0;
         }
         self.total_tick_count() as f64 / count as f64
+    }
+
+    /// Maximum `consecutive_stale` count across all registered feeds.
+    ///
+    /// Returns `0` if no feeds are registered or none have been stale yet.
+    pub fn max_consecutive_stale(&self) -> u32 {
+        self.feeds
+            .iter()
+            .map(|e| e.consecutive_stale)
+            .max()
+            .unwrap_or(0)
     }
 }
 
@@ -1121,5 +1149,32 @@ mod tests {
         m.heartbeat("B", 1_000).unwrap();
         // A=3, B=1 → avg=2.0
         assert!((m.avg_tick_count() - 2.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_status_summary_all_unknown() {
+        let m = monitor();
+        m.register("A", None);
+        m.register("B", None);
+        let (healthy, stale, unknown) = m.status_summary();
+        assert_eq!(healthy, 0);
+        assert_eq!(stale, 0);
+        assert_eq!(unknown, 2);
+    }
+
+    #[test]
+    fn test_status_summary_mixed() {
+        let m = monitor();
+        m.register("A", None);
+        m.register("B", None);
+        m.register("C", None);
+        m.heartbeat("A", 1_000).unwrap();
+        m.heartbeat("B", 5_000).unwrap();
+        // A is stale (tick at 1_000, check at 10_000 > 5_000 threshold), B is healthy, C unknown
+        m.check_all(10_000);
+        let (healthy, stale, unknown) = m.status_summary();
+        assert_eq!(stale, 1);
+        assert_eq!(unknown, 1);
+        assert_eq!(healthy, 1);
     }
 }

@@ -74,6 +74,11 @@ impl WsStats {
     pub fn has_traffic(&self) -> bool {
         self.total_messages_received > 0
     }
+
+    /// Returns `true` if `total_messages_received >= threshold`.
+    pub fn is_high_volume(&self, threshold: u64) -> bool {
+        self.total_messages_received >= threshold
+    }
 }
 
 /// Reconnection policy for a WebSocket feed.

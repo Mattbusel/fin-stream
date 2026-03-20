@@ -396,6 +396,14 @@ impl SessionAwareness {
             .unwrap_or(0)
     }
 
+    /// Returns `true` if the market is in regular trading hours only
+    /// (`TradingStatus::Open`), not extended hours or closed.
+    pub fn is_regular_session(&self, utc_ms: u64) -> bool {
+        self.status(utc_ms)
+            .map(|s| s == TradingStatus::Open)
+            .unwrap_or(false)
+    }
+
     fn next_forex_close_ms(&self, utc_ms: u64) -> u64 {
         if self.forex_status(utc_ms) == TradingStatus::Closed {
             return utc_ms;
