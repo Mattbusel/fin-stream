@@ -998,4 +998,26 @@ mod tests {
         let stale = m.most_stale_feed().unwrap();
         assert_eq!(stale.feed_id, "A");
     }
+
+    #[test]
+    fn test_stale_feeds_empty_when_all_healthy() {
+        let m = monitor();
+        m.register("A", None);
+        m.heartbeat("A", 1_000).unwrap();
+        assert!(m.stale_feeds().is_empty());
+    }
+
+    #[test]
+    fn test_stale_feeds_returns_all_stale() {
+        // stale_timeout = 5_000 ms; heartbeat A at 1_000, then check at 10_000
+        let m = monitor();
+        m.register("A", None);
+        m.register("B", None);
+        m.heartbeat("A", 1_000).unwrap();
+        m.heartbeat("B", 9_500).unwrap();
+        m.check_all(10_000);
+        let stale = m.stale_feeds();
+        assert_eq!(stale.len(), 1);
+        assert_eq!(stale[0].feed_id, "A");
+    }
 }

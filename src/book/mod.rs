@@ -1251,4 +1251,32 @@ mod tests {
         b.apply(delta("BTC-USD", BookSide::Bid, dec!(100), dec!(0))).unwrap(); // remove
         assert!(b.is_empty());
     }
+
+    // ── OrderBook::clear ──────────────────────────────────────────────────────
+
+    #[test]
+    fn test_clear_empty_book_is_noop() {
+        let mut b = book("BTC-USD");
+        b.clear();
+        assert!(b.is_empty());
+    }
+
+    #[test]
+    fn test_clear_removes_all_levels() {
+        let mut b = book("BTC-USD");
+        b.apply(delta("BTC-USD", BookSide::Bid, dec!(100), dec!(1))).unwrap();
+        b.apply(delta("BTC-USD", BookSide::Ask, dec!(101), dec!(2))).unwrap();
+        b.clear();
+        assert!(b.is_empty());
+    }
+
+    #[test]
+    fn test_clear_allows_fresh_apply_after() {
+        let mut b = book("BTC-USD");
+        b.apply(delta("BTC-USD", BookSide::Bid, dec!(100), dec!(1))).unwrap();
+        b.clear();
+        // After clear, a new bid should work without sequence issues
+        b.apply(delta("BTC-USD", BookSide::Bid, dec!(99), dec!(5))).unwrap();
+        assert_eq!(b.bid_depth(), 1);
+    }
 }

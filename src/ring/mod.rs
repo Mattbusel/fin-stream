@@ -973,4 +973,32 @@ mod tests {
         let ratio = consumer.fill_ratio();
         assert!((ratio - 3.0 / 7.0).abs() < 1e-9, "got {ratio}");
     }
+
+    // ── SpscProducer::fill_ratio ──────────────────────────────────────────────
+
+    #[test]
+    fn test_producer_fill_ratio_empty_is_zero() {
+        let ring: SpscRing<u32, 8> = SpscRing::new();
+        let (producer, _) = ring.split();
+        assert!((producer.fill_ratio() - 0.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_producer_fill_ratio_full_is_one() {
+        let ring: SpscRing<u32, 4> = SpscRing::new(); // capacity = 3
+        let (producer, _) = ring.split();
+        for i in 0..3 {
+            producer.push(i).unwrap();
+        }
+        assert!((producer.fill_ratio() - 1.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_producer_and_consumer_fill_ratio_agree() {
+        let ring: SpscRing<u32, 8> = SpscRing::new();
+        let (producer, consumer) = ring.split();
+        producer.push(1).unwrap();
+        producer.push(2).unwrap();
+        assert!((producer.fill_ratio() - consumer.fill_ratio()).abs() < 1e-9);
+    }
 }

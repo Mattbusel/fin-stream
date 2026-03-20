@@ -922,4 +922,21 @@ mod tests {
         let avg = stats.avg_message_size().unwrap();
         assert!((avg - 100.0).abs() < 1e-9);
     }
+
+    // ── WsStats::total_data_mb ────────────────────────────────────────────────
+
+    #[test]
+    fn test_total_data_mb_zero_bytes() {
+        let stats = WsStats::default();
+        assert!((stats.total_data_mb() - 0.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_total_data_mb_one_mib() {
+        let stats = WsStats {
+            total_messages_received: 1,
+            total_bytes_received: 1_048_576,
+        };
+        assert!((stats.total_data_mb() - 1.0).abs() < 1e-9);
+    }
 }

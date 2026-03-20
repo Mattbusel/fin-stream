@@ -1346,4 +1346,42 @@ mod tests {
         let one_hour_in = MON_OPEN_UTC_MS + 3_600_000;
         assert_eq!(sa.time_in_session_ms(one_hour_in).unwrap(), 3_600_000);
     }
+
+    // ── SessionAwareness::minutes_until_close ─────────────────────────────────
+
+    #[test]
+    fn test_minutes_until_close_crypto_is_max() {
+        let sa = sa(MarketSession::Crypto);
+        assert_eq!(sa.minutes_until_close(MON_OPEN_UTC_MS), u64::MAX);
+    }
+
+    #[test]
+    fn test_minutes_until_close_equity_already_closed() {
+        let sa = sa(MarketSession::UsEquity);
+        // Already closed on Saturday
+        assert_eq!(sa.minutes_until_close(SAT_UTC_MS), 0);
+    }
+
+    #[test]
+    fn test_minutes_until_close_equity_open_positive() {
+        let sa = sa(MarketSession::UsEquity);
+        let mins = sa.minutes_until_close(MON_OPEN_UTC_MS);
+        assert!(mins > 0, "expected > 0 minutes until close, got {mins}");
+    }
+
+    #[test]
+    fn test_remaining_session_ms_complements_elapsed() {
+        let sa = sa(MarketSession::UsEquity);
+        let one_hour_in = MON_OPEN_UTC_MS + 3_600_000;
+        let elapsed = sa.time_in_session_ms(one_hour_in).unwrap();
+        let remaining = sa.remaining_session_ms(one_hour_in).unwrap();
+        let duration_ms = MarketSession::UsEquity.session_duration_ms();
+        assert_eq!(elapsed + remaining, duration_ms);
+    }
+
+    #[test]
+    fn test_remaining_session_ms_closed_returns_none() {
+        let sa = sa(MarketSession::UsEquity);
+        assert!(sa.remaining_session_ms(SAT_UTC_MS).is_none());
+    }
 }

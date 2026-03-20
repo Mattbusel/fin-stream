@@ -729,4 +729,22 @@ mod tests {
     fn test_is_fatal_ring_buffer_full_is_not_fatal() {
         assert!(!StreamError::RingBufferFull { capacity: 8 }.is_fatal());
     }
+
+    // ── StreamError::is_recoverable ───────────────────────────────────────────
+
+    #[test]
+    fn test_is_recoverable_inverse_of_is_fatal() {
+        let fatal = StreamError::ConfigError { reason: "bad".into() };
+        let transient = StreamError::RingBufferFull { capacity: 8 };
+        assert!(fatal.is_fatal() && !fatal.is_recoverable());
+        assert!(!transient.is_fatal() && transient.is_recoverable());
+    }
+
+    #[test]
+    fn test_is_recoverable_connection_failed() {
+        assert!(StreamError::ConnectionFailed {
+            url: "wss://x".into(),
+            reason: "timeout".into()
+        }.is_recoverable());
+    }
 }

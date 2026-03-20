@@ -959,4 +959,25 @@ mod tests {
         let tick = make_tick_at(1_000).with_side(TradeSide::Buy).with_side(TradeSide::Sell);
         assert_eq!(tick.side, Some(TradeSide::Sell));
     }
+
+    // ── NormalizedTick::is_neutral ────────────────────────────────────────────
+
+    #[test]
+    fn test_is_neutral_true_when_no_side() {
+        let mut tick = make_tick_at(1_000);
+        tick.side = None;
+        assert!(tick.is_neutral());
+    }
+
+    #[test]
+    fn test_is_neutral_false_when_buy() {
+        let tick = make_tick_at(1_000).with_side(TradeSide::Buy);
+        assert!(!tick.is_neutral());
+    }
+
+    #[test]
+    fn test_is_neutral_false_when_sell() {
+        let tick = make_tick_at(1_000).with_side(TradeSide::Sell);
+        assert!(!tick.is_neutral());
+    }
 }
