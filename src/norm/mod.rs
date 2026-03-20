@@ -1225,6 +1225,28 @@ impl ZScoreNormalizer {
         let mean = self.mean()?.to_f64()?;
         value.to_f64().map(|v| v - mean)
     }
+
+    /// Returns a `Vec` of window values that are within `sigma` standard deviations of the mean.
+    ///
+    /// Useful for robust statistics after removing extreme outliers.
+    /// Returns all values if std-dev is zero (no outliers possible), empty vec if window is empty.
+    pub fn trim_outliers(&self, sigma: f64) -> Vec<Decimal> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return vec![]; }
+        let mean = match self.mean() { Some(m) => m, None => return vec![] };
+        let std = match self.std_dev().and_then(|s| s.to_f64()) {
+            Some(s) if s > 0.0 => s,
+            _ => return self.window.iter().copied().collect(),
+        };
+        let mean_f64 = match mean.to_f64() { Some(m) => m, None => return vec![] };
+        self.window.iter().copied()
+            .filter(|v| {
+                v.to_f64()
+                    .map(|vf| ((vf - mean_f64) / std).abs() <= sigma)
+                    .unwrap_or(false)
+            })
+            .collect()
+    }
 }
 
 #[cfg(test)]

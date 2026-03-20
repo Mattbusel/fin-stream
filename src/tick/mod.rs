@@ -462,6 +462,14 @@ impl NormalizedTick {
         self.volume_notional().to_f64().unwrap_or(0.0)
     }
 
+    /// Rate of price change relative to a prior tick: `(price - prev.price) / dt_ms`.
+    ///
+    /// Returns `None` if `dt_ms` is zero (same timestamp).
+    pub fn price_velocity(&self, prev: &NormalizedTick, dt_ms: u64) -> Option<Decimal> {
+        if dt_ms == 0 { return None; }
+        Some((self.price - prev.price) / Decimal::from(dt_ms))
+    }
+
     /// Volume-weighted average price across a slice of ticks.
     ///
     /// Returns `None` if the slice is empty or total volume is zero.
