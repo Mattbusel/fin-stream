@@ -410,6 +410,11 @@ impl MinMaxNormalizer {
         let skew = vals.iter().map(|v| ((v - mean) / std_dev).powi(3)).sum::<f64>() / n_f;
         Some(skew)
     }
+
+    /// The most recently added value, or `None` if the window is empty.
+    pub fn latest(&self) -> Option<Decimal> {
+        self.window.back().copied()
+    }
 }
 
 #[cfg(test)]
@@ -1034,6 +1039,59 @@ impl ZScoreNormalizer {
     pub fn window_mean_f64(&self) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
         self.mean()?.to_f64()
+    }
+
+    /// Returns `true` if `value` is within `sigma_tolerance` standard
+    /// deviations of the window mean (inclusive).
+    ///
+    /// Equivalent to `|z_score(value)| <= sigma_tolerance`.  Returns `false`
+    /// when the window has fewer than 2 observations (z-score undefined).
+    pub fn is_near_mean(&self, value: Decimal, sigma_tolerance: f64) -> bool {
+        let n = self.window.len();
+        if n < 2 {
+            return false;
+        }
+        let n_dec = Decimal::from(n as u64);
+        use rust_decimal::prelude::ToPrimitive;
+        let mean = self.sum / n_dec;
+        let variance: Decimal = self.window.iter()
+            .map(|&x| {
+                let diff = x - mean;
+                diff * diff
+            })
+            .sum::<Decimal>() / n_dec;
+        let std_dev = variance.to_f64().unwrap_or(0.0).sqrt();
+        if std_dev == 0.0 {
+            return true;
+        }
+        let diff = (value - mean).abs().to_f64().unwrap_or(f64::MAX);
+        diff / std_dev <= sigma_tolerance
+    }
+
+    /// Excess kurtosis of the window: `(Σ((x-mean)⁴/n) / std_dev⁴) - 3`.
+    ///
+    /// Returns `None` if the window has fewer than 4 observations or std dev is zero.
+    /// A normal distribution has excess kurtosis of 0; positive values indicate
+    /// heavier tails (leptokurtic); negative values indicate lighter tails (platykurtic).
+    pub fn kurtosis(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let n = self.window.len();
+        if n < 4 {
+            return None;
+        }
+        let n_f = n as f64;
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.len() < n {
+            return None;
+        }
+        let mean = vals.iter().sum::<f64>() / n_f;
+        let variance = vals.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / n_f;
+        let std_dev = variance.sqrt();
+        if std_dev == 0.0 {
+            return None;
+        }
+        let kurt = vals.iter().map(|v| ((v - mean) / std_dev).powi(4)).sum::<f64>() / n_f - 3.0;
+        Some(kurt)
     }
 }
 

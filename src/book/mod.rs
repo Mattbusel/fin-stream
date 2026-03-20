@@ -537,6 +537,17 @@ impl OrderBook {
         self.asks.iter().take(n).map(|(_, qty)| *qty).sum()
     }
 
+    /// Returns `true` if there is a non-zero ask entry at exactly `price`.
+    pub fn has_ask_at(&self, price: Decimal) -> bool {
+        self.asks.get(&price).map(|q| !q.is_zero()).unwrap_or(false)
+    }
+
+    /// Returns `(bid_levels, ask_levels)` — the number of distinct price levels
+    /// on each side of the book.
+    pub fn bid_ask_depth(&self) -> (usize, usize) {
+        (self.bids.len(), self.asks.len())
+    }
+
     /// Spread as a percentage of the mid-price: `spread / mid × 100`.
     ///
     /// Returns `None` if either best bid or best ask is absent, or if the
@@ -867,6 +878,37 @@ impl OrderBook {
             .map(|(p, q)| PriceLevel::new(*p, *q))
             .collect();
         (bids, asks)
+    }
+
+    /// Returns the best bid price, or `None` if the bid side is empty.
+    pub fn best_bid_price(&self) -> Option<Decimal> {
+        self.best_bid().map(|l| l.price)
+    }
+
+    /// Returns the best ask price, or `None` if the ask side is empty.
+    pub fn best_ask_price(&self) -> Option<Decimal> {
+        self.best_ask().map(|l| l.price)
+    }
+
+    /// Returns `true` if the book is crossed: best bid ≥ best ask.
+    ///
+    /// A crossed book indicates an invalid state (stale snapshot or missed
+    /// delta). Under normal operation this should always be `false`.
+    pub fn is_crossed(&self) -> bool {
+        match (self.best_bid(), self.best_ask()) {
+            (Some(bid), Some(ask)) => bid.price >= ask.price,
+            _ => false,
+        }
+    }
+
+    /// Returns `true` if there is at least one bid level in the book.
+    pub fn has_bids(&self) -> bool {
+        !self.bids.is_empty()
+    }
+
+    /// Returns `true` if there is at least one ask level in the book.
+    pub fn has_asks(&self) -> bool {
+        !self.asks.is_empty()
     }
 
     fn check_crossed(&self) -> Result<(), StreamError> {
@@ -1909,6 +1951,37 @@ mod tests {
         assert_eq!(b.top_n_ask_volume(3), dec!(0));
     }
 
+    // --- has_ask_at / bid_ask_depth ---
+
+    #[test]
+    fn test_has_ask_at_true_when_ask_exists() {
+        let mut b = book("BTC-USD");
+        b.apply(delta("BTC-USD", BookSide::Ask, dec!(101), dec!(2))).unwrap();
+        assert!(b.has_ask_at(dec!(101)));
+    }
+
+    #[test]
+    fn test_has_ask_at_false_when_no_ask_at_price() {
+        let mut b = book("BTC-USD");
+        b.apply(delta("BTC-USD", BookSide::Ask, dec!(102), dec!(1))).unwrap();
+        assert!(!b.has_ask_at(dec!(101)));
+    }
+
+    #[test]
+    fn test_bid_ask_depth_correct_counts() {
+        let mut b = book("BTC-USD");
+        b.apply(delta("BTC-USD", BookSide::Bid, dec!(100), dec!(1))).unwrap();
+        b.apply(delta("BTC-USD", BookSide::Bid, dec!(99), dec!(1))).unwrap();
+        b.apply(delta("BTC-USD", BookSide::Ask, dec!(101), dec!(1))).unwrap();
+        assert_eq!(b.bid_ask_depth(), (2, 1));
+    }
+
+    #[test]
+    fn test_bid_ask_depth_zero_for_empty_book() {
+        let b = book("BTC-USD");
+        assert_eq!(b.bid_ask_depth(), (0, 0));
+    }
+
     // ── OrderBook::is_tight_spread ────────────────────────────────────────────
 
     #[test]
@@ -1933,5 +2006,74 @@ mod tests {
     fn test_is_tight_spread_false_when_empty() {
         let b = book("BTC-USD");
         assert!(!b.is_tight_spread(dec!(10)));
+    }
+
+    // ── OrderBook::best_bid_price / best_ask_price ────────────────────────────
+
+    #[test]
+    fn test_best_bid_price_returns_price() {
+        let mut b = book("X");
+        b.apply(delta("X", BookSide::Bid, dec!(99), dec!(5))).unwrap();
+        b.apply(delta("X", BookSide::Bid, dec!(98), dec!(3))).unwrap();
+        assert_eq!(b.best_bid_price(), Some(dec!(99)));
+    }
+
+    #[test]
+    fn test_best_ask_price_returns_price() {
+        let mut b = book("X");
+        b.apply(delta("X", BookSide::Ask, dec!(101), dec!(5))).unwrap();
+        b.apply(delta("X", BookSide::Ask, dec!(102), dec!(3))).unwrap();
+        assert_eq!(b.best_ask_price(), Some(dec!(101)));
+    }
+
+    #[test]
+    fn test_best_bid_price_none_when_empty() {
+        assert_eq!(book("X").best_bid_price(), None);
+    }
+
+    #[test]
+    fn test_best_ask_price_none_when_empty() {
+        assert_eq!(book("X").best_ask_price(), None);
+    }
+
+    // ── OrderBook::is_crossed ─────────────────────────────────────────────────
+
+    #[test]
+    fn test_is_crossed_false_when_normal() {
+        let mut b = book("X");
+        b.apply(delta("X", BookSide::Bid, dec!(99), dec!(1))).unwrap();
+        b.apply(delta("X", BookSide::Ask, dec!(101), dec!(1))).unwrap();
+        assert!(!b.is_crossed());
+    }
+
+    #[test]
+    fn test_is_crossed_false_when_empty() {
+        assert!(!book("X").is_crossed());
+    }
+
+    // ── OrderBook::has_bids / has_asks ────────────────────────────────────────
+
+    #[test]
+    fn test_has_bids_true_when_bid_present() {
+        let mut b = book("X");
+        b.apply(delta("X", BookSide::Bid, dec!(99), dec!(1))).unwrap();
+        assert!(b.has_bids());
+    }
+
+    #[test]
+    fn test_has_bids_false_when_empty() {
+        assert!(!book("X").has_bids());
+    }
+
+    #[test]
+    fn test_has_asks_true_when_ask_present() {
+        let mut b = book("X");
+        b.apply(delta("X", BookSide::Ask, dec!(101), dec!(1))).unwrap();
+        assert!(b.has_asks());
+    }
+
+    #[test]
+    fn test_has_asks_false_when_empty() {
+        assert!(!book("X").has_asks());
     }
 }

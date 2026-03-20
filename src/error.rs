@@ -463,6 +463,68 @@ impl StreamError {
     pub fn is_sequence_gap(&self) -> bool {
         matches!(self, StreamError::SequenceGap { .. })
     }
+
+    /// Returns `true` for errors that indicate a data integrity violation:
+    /// a crossed order book or a sequence gap in the delta stream.
+    ///
+    /// These errors mean the feed's internal state may be corrupted and
+    /// typically require a book reset or reconnect.
+    pub fn is_data_integrity_error(&self) -> bool {
+        matches!(
+            self,
+            StreamError::BookCrossed { .. } | StreamError::SequenceGap { .. }
+        )
+    }
+
+    /// Returns `true` if this error is associated with a specific symbol or feed ID.
+    ///
+    /// Covers book errors and feed-health errors that carry an identifier.
+    pub fn is_symbol_error(&self) -> bool {
+        matches!(
+            self,
+            StreamError::BookCrossed { .. }
+                | StreamError::BookReconstructionFailed { .. }
+                | StreamError::SequenceGap { .. }
+                | StreamError::StaleFeed { .. }
+                | StreamError::UnknownFeed { .. }
+        )
+    }
+
+    /// Returns a numeric error code for this variant.
+    ///
+    /// Codes are grouped by category:
+    /// - 1xxx: connection errors
+    /// - 2xxx: feed/parse errors
+    /// - 3xxx: configuration errors
+    /// - 4xxx: book errors
+    /// - 5xxx: backpressure/buffer errors
+    /// - 6xxx: data errors
+    /// - 7xxx: computation errors
+    pub fn to_error_code(&self) -> u32 {
+        match self {
+            StreamError::ConnectionFailed { .. } => 1001,
+            StreamError::Disconnected { .. } => 1002,
+            StreamError::ReconnectExhausted { .. } => 1003,
+            StreamError::Io(_) => 1004,
+            StreamError::WebSocket(_) => 1005,
+            StreamError::ParseError { .. } => 2001,
+            StreamError::UnknownExchange(_) => 2002,
+            StreamError::StaleFeed { .. } => 2003,
+            StreamError::UnknownFeed { .. } => 2004,
+            StreamError::ConfigError { .. } => 3001,
+            StreamError::BookReconstructionFailed { .. } => 4001,
+            StreamError::BookCrossed { .. } => 4002,
+            StreamError::SequenceGap { .. } => 4003,
+            StreamError::Backpressure { .. } => 5001,
+            StreamError::RingBufferFull { .. } => 5002,
+            StreamError::RingBufferEmpty => 5003,
+            StreamError::AggregationError { .. } => 6001,
+            StreamError::NormalizationError { .. } => 6002,
+            StreamError::InvalidTick { .. } => 6003,
+            StreamError::FinPrimitives(_) => 6004,
+            StreamError::LorentzConfigError { .. } => 7001,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -1163,5 +1225,69 @@ mod tests {
     #[test]
     fn test_is_sequence_gap_false_for_ring_buffer_empty() {
         assert!(!StreamError::RingBufferEmpty.is_sequence_gap());
+    }
+
+    // ── StreamError::is_symbol_error ─────────────────────────────────────────
+
+    #[test]
+    fn test_is_symbol_error_true_for_book_crossed() {
+        let e = StreamError::BookCrossed {
+            symbol: "X".into(),
+            bid: rust_decimal_macros::dec!(100),
+            ask: rust_decimal_macros::dec!(99),
+        };
+        assert!(e.is_symbol_error());
+    }
+
+    #[test]
+    fn test_is_symbol_error_true_for_stale_feed() {
+        let e = StreamError::StaleFeed {
+            feed_id: "feed1".into(),
+            elapsed_ms: 10_000,
+            threshold_ms: 5_000,
+        };
+        assert!(e.is_symbol_error());
+    }
+
+    #[test]
+    fn test_is_symbol_error_false_for_io_error() {
+        assert!(!StreamError::Io("disk error".into()).is_symbol_error());
+    }
+
+    #[test]
+    fn test_is_symbol_error_false_for_config_error() {
+        assert!(!StreamError::ConfigError { reason: "bad".into() }.is_symbol_error());
+    }
+
+    // ── StreamError::to_error_code ────────────────────────────────────────────
+
+    #[test]
+    fn test_to_error_code_connection_failed_is_1001() {
+        let e = StreamError::ConnectionFailed {
+            url: "wss://example.com".into(),
+            reason: "timeout".into(),
+        };
+        assert_eq!(e.to_error_code(), 1001);
+    }
+
+    #[test]
+    fn test_to_error_code_book_crossed_is_4002() {
+        let e = StreamError::BookCrossed {
+            symbol: "X".into(),
+            bid: rust_decimal_macros::dec!(100),
+            ask: rust_decimal_macros::dec!(99),
+        };
+        assert_eq!(e.to_error_code(), 4002);
+    }
+
+    #[test]
+    fn test_to_error_code_ring_buffer_empty_is_5003() {
+        assert_eq!(StreamError::RingBufferEmpty.to_error_code(), 5003);
+    }
+
+    #[test]
+    fn test_to_error_code_lorentz_is_7001() {
+        let e = StreamError::LorentzConfigError { reason: "bad beta".into() };
+        assert_eq!(e.to_error_code(), 7001);
     }
 }

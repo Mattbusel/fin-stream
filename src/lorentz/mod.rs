@@ -441,6 +441,15 @@ impl LorentzTransform {
         (self.gamma - 1.0) * rest_mass
     }
 
+    /// Time component of the four-velocity: `u⁰ = γ`.
+    ///
+    /// In special relativity the four-velocity is `(γ, γβ, 0, 0)` (using the
+    /// convention where `c = 1`). This returns the time component, which equals
+    /// the Lorentz factor.  At rest `gamma = 1`; as `beta → 1` it diverges.
+    pub fn four_velocity_time(&self) -> f64 {
+        self.gamma
+    }
+
     /// Computes the Lorentz-invariant spacetime interval between two events.
     ///
     /// The interval is defined as `ds² = (Δt)² - (Δx)²` (signature `+−`).
@@ -595,6 +604,24 @@ impl LorentzTransform {
             });
         }
         Self::new((b1 + b2) / denom)
+    }
+
+    /// Relativistic Doppler factor for a source moving toward the observer at `β`.
+    ///
+    /// `D = √((1 + β) / (1 − β))`.
+    /// `D > 1` (blue-shift) when approaching; `D < 1` (red-shift) when receding;
+    /// `D = 1` at rest.
+    pub fn doppler_factor(&self) -> f64 {
+        ((1.0 + self.beta) / (1.0 - self.beta)).sqrt()
+    }
+
+    /// Relativistic aberration angle for a light ray with direction cosine `cos_theta`.
+    ///
+    /// Computes the observed angle using `cos θ' = (cos θ + β) / (1 + β cos θ)`,
+    /// returning the aberrated angle in radians in `[0, π]`.
+    pub fn aberration_angle(&self, cos_theta: f64) -> f64 {
+        let cos_prime = (cos_theta + self.beta) / (1.0 + self.beta * cos_theta);
+        cos_prime.clamp(-1.0, 1.0).acos()
     }
 }
 
@@ -1476,6 +1503,26 @@ mod tests {
         assert!((ke - (total - m)).abs() < 1e-12);
     }
 
+    // --- four_velocity_time ---
+
+    #[test]
+    fn test_four_velocity_time_equals_gamma() {
+        let t = LorentzTransform::new(0.6).unwrap();
+        assert!((t.four_velocity_time() - t.gamma()).abs() < 1e-12);
+    }
+
+    #[test]
+    fn test_four_velocity_time_one_at_rest() {
+        let t = LorentzTransform::new(0.0).unwrap();
+        assert!((t.four_velocity_time() - 1.0).abs() < 1e-12);
+    }
+
+    #[test]
+    fn test_four_velocity_time_greater_than_one_when_moving() {
+        let t = LorentzTransform::new(0.5).unwrap();
+        assert!(t.four_velocity_time() > 1.0);
+    }
+
     // ── LorentzTransform::rapidity ────────────────────────────────────────────
 
     #[test]
@@ -1494,5 +1541,56 @@ mod tests {
     fn test_rapidity_positive_for_nonzero_beta() {
         let t = LorentzTransform::new(0.8).unwrap();
         assert!(t.rapidity() > 0.0);
+    }
+
+    // ── LorentzTransform::doppler_factor ──────────────────────────────────────
+
+    #[test]
+    fn test_doppler_factor_one_at_rest() {
+        let t = LorentzTransform::new(0.0).unwrap();
+        assert!((t.doppler_factor() - 1.0).abs() < 1e-12);
+    }
+
+    #[test]
+    fn test_doppler_factor_greater_than_one_when_approaching() {
+        let t = LorentzTransform::new(0.6).unwrap();
+        // sqrt((1.6)/(0.4)) = sqrt(4) = 2
+        assert!((t.doppler_factor() - 2.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_doppler_factor_inverse_of_receding() {
+        let t1 = LorentzTransform::new(0.6).unwrap();
+        let t2 = LorentzTransform::new(0.6).unwrap();
+        // Forward and inverse doppler factors multiply to 1
+        let fwd = t1.doppler_factor();
+        let rev = 1.0 / t2.doppler_factor();
+        assert!((fwd - 1.0 / rev).abs() < 1e-10);
+    }
+
+    // ── LorentzTransform::aberration_angle ────────────────────────────────────
+
+    #[test]
+    fn test_aberration_angle_at_rest_unchanged() {
+        let t = LorentzTransform::new(0.0).unwrap();
+        let angle_in = std::f64::consts::PI / 3.0; // 60°
+        let cos_in = angle_in.cos();
+        let angle_out = t.aberration_angle(cos_in);
+        assert!((angle_out - angle_in).abs() < 1e-12);
+    }
+
+    #[test]
+    fn test_aberration_angle_head_on_unchanged() {
+        let t = LorentzTransform::new(0.5).unwrap();
+        // cos(0) = 1 → head-on → still 0 angle
+        let angle_out = t.aberration_angle(1.0);
+        assert!(angle_out.abs() < 1e-12);
+    }
+
+    #[test]
+    fn test_aberration_angle_range_zero_to_pi() {
+        let t = LorentzTransform::new(0.8).unwrap();
+        let angle = t.aberration_angle(0.0);
+        assert!(angle >= 0.0 && angle <= std::f64::consts::PI);
     }
 }

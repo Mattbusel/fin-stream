@@ -557,6 +557,45 @@ impl HealthMonitor {
         self.feeds.iter().all(|e| e.last_tick_ms.is_some())
     }
 
+    /// Returns the `tick_count` for `feed_id`, or `None` if the feed is not
+    /// registered.
+    pub fn tick_count_for(&self, feed_id: &str) -> Option<u64> {
+        self.feeds.iter()
+            .find(|e| e.feed_id == feed_id)
+            .map(|e| e.tick_count)
+    }
+
+    /// Average tick count across all registered feeds.
+    ///
+    /// Returns `0.0` when no feeds are registered.
+    pub fn average_tick_count(&self) -> f64 {
+        let total = self.feeds.len();
+        if total == 0 {
+            return 0.0;
+        }
+        self.total_tick_count() as f64 / total as f64
+    }
+
+    /// Returns `true` if at least one feed currently has
+    /// [`HealthStatus::Unknown`] status.
+    pub fn has_any_unknown(&self) -> bool {
+        self.feeds.iter().any(|e| e.status == HealthStatus::Unknown)
+    }
+
+    /// Returns `true` if at least one feed is unhealthy but not all feeds
+    /// are unhealthy.
+    ///
+    /// A fully-healthy or fully-down monitor both return `false`.
+    /// Returns `false` when no feeds are registered.
+    pub fn is_degraded(&self) -> bool {
+        let total = self.feeds.len();
+        if total == 0 {
+            return false;
+        }
+        let healthy = self.healthy_count();
+        healthy > 0 && healthy < total
+    }
+
 }
 
 #[cfg(test)]
@@ -1537,6 +1576,48 @@ mod tests {
         assert!(m.all_feeds_seen());
     }
 
+    // --- tick_count_for / average_tick_count ---
+
+    #[test]
+    fn test_tick_count_for_returns_correct_count() {
+        let mut m = monitor();
+        m.register("A", None);
+        m.heartbeat("A", 1_000).unwrap();
+        m.heartbeat("A", 2_000).unwrap();
+        assert_eq!(m.tick_count_for("A"), Some(2));
+    }
+
+    #[test]
+    fn test_tick_count_for_none_when_not_registered() {
+        let m = monitor();
+        assert!(m.tick_count_for("nonexistent").is_none());
+    }
+
+    #[test]
+    fn test_tick_count_for_zero_when_no_heartbeats() {
+        let mut m = monitor();
+        m.register("A", None);
+        assert_eq!(m.tick_count_for("A"), Some(0));
+    }
+
+    #[test]
+    fn test_average_tick_count_zero_when_no_feeds() {
+        let m = monitor();
+        assert_eq!(m.average_tick_count(), 0.0);
+    }
+
+    #[test]
+    fn test_average_tick_count_correct_value() {
+        let mut m = monitor();
+        m.register("A", None);
+        m.register("B", None);
+        m.heartbeat("A", 1_000).unwrap();
+        m.heartbeat("A", 2_000).unwrap(); // A: 2 ticks
+        m.heartbeat("B", 1_000).unwrap(); // B: 1 tick
+        // avg = (2 + 1) / 2 = 1.5
+        assert!((m.average_tick_count() - 1.5).abs() < 1e-10);
+    }
+
     // ── HealthMonitor::stale_ratio ────────────────────────────────────────────
 
     #[test]
@@ -1565,5 +1646,57 @@ mod tests {
         m.heartbeat("B", 9_500).unwrap();
         m.check_all(10_000);
         assert!((m.stale_ratio() - 0.5).abs() < 1e-10);
+    }
+
+    // ── HealthMonitor::has_any_unknown ────────────────────────────────────────
+
+    #[test]
+    fn test_has_any_unknown_true_for_fresh_feed() {
+        let m = HealthMonitor::new(5_000);
+        m.register("feed", None);
+        // Newly registered feed starts as Unknown
+        assert!(m.has_any_unknown());
+    }
+
+    #[test]
+    fn test_has_any_unknown_false_after_heartbeat() {
+        let m = HealthMonitor::new(5_000);
+        m.register("feed", None);
+        m.heartbeat("feed", 1_000).unwrap();
+        assert!(!m.has_any_unknown());
+    }
+
+    #[test]
+    fn test_has_any_unknown_false_with_no_feeds() {
+        let m = HealthMonitor::new(5_000);
+        assert!(!m.has_any_unknown());
+    }
+
+    // ── HealthMonitor::is_degraded ────────────────────────────────────────────
+
+    #[test]
+    fn test_is_degraded_true_when_some_unhealthy() {
+        let m = HealthMonitor::new(5_000);
+        m.register("A", None);
+        m.register("B", None);
+        m.heartbeat("A", 9_500).unwrap(); // recent → healthy
+        m.heartbeat("B", 1_000).unwrap(); // old → stale
+        m.check_all(10_000);
+        // A: healthy, B: stale → is_degraded
+        assert!(m.is_degraded());
+    }
+
+    #[test]
+    fn test_is_degraded_false_when_all_healthy() {
+        let m = HealthMonitor::new(5_000);
+        m.register("A", None);
+        m.heartbeat("A", 1_000).unwrap();
+        assert!(!m.is_degraded());
+    }
+
+    #[test]
+    fn test_is_degraded_false_with_no_feeds() {
+        let m = HealthMonitor::new(5_000);
+        assert!(!m.is_degraded());
     }
 }

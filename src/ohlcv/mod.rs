@@ -518,9 +518,63 @@ impl OhlcvBar {
         }
     }
 
+    /// Body as a percentage of the total high-low range.
+    ///
+    /// Returns `None` when the range is zero (all four prices equal).
+    /// A 100% body means no wicks (marubozu); near 0% means a doji.
+    pub fn body_pct(&self) -> Option<Decimal> {
+        let range = self.range();
+        if range.is_zero() {
+            return None;
+        }
+        Some(self.body() / range * Decimal::ONE_HUNDRED)
+    }
+
+    /// Returns `true` if this bar is a bullish hammer: a long lower wick,
+    /// small body near the top of the range, and little or no upper wick.
+    ///
+    /// Specifically: the lower wick is at least twice the body, and the upper
+    /// wick is no more than the body.
+    pub fn is_bullish_hammer(&self) -> bool {
+        let body = self.body();
+        if body.is_zero() {
+            return false;
+        }
+        let lower = self.wick_lower();
+        let upper = self.wick_upper();
+        lower >= body * Decimal::TWO && upper <= body
+    }
+
     /// Duration of this bar's timeframe in milliseconds.
     pub fn bar_duration_ms(&self) -> u64 {
         self.timeframe.duration_ms()
+    }
+
+    /// Returns `true` if this bar resembles a gravestone doji.
+    ///
+    /// A gravestone doji has open ≈ close ≈ low (body within `epsilon` of
+    /// zero and close within `epsilon` of the low), with a long upper wick.
+    pub fn is_gravestone_doji(&self, epsilon: Decimal) -> bool {
+        self.body() <= epsilon && (self.close - self.low).abs() <= epsilon
+    }
+
+    /// Returns `true` if this bar resembles a dragonfly doji.
+    ///
+    /// A dragonfly doji has open ≈ close ≈ high (body within `epsilon` of
+    /// zero and close within `epsilon` of the high), with a long lower wick.
+    pub fn is_dragonfly_doji(&self, epsilon: Decimal) -> bool {
+        self.body() <= epsilon && (self.high - self.close).abs() <= epsilon
+    }
+
+    /// Interpolates a price within the bar's high-low range.
+    ///
+    /// `pct = 0.0` returns `low`; `pct = 1.0` returns `high`.
+    /// Values outside `[0.0, 1.0]` are clamped to that interval.
+    pub fn price_at_pct(&self, pct: f64) -> Decimal {
+        use rust_decimal::prelude::FromPrimitive;
+        let pct_clamped = pct.clamp(0.0, 1.0);
+        let factor = Decimal::from_f64(pct_clamped).unwrap_or(Decimal::ZERO);
+        self.low + self.range() * factor
     }
 }
 
@@ -2346,6 +2400,49 @@ mod tests {
         assert_eq!(b.bar_type(), "doji");
     }
 
+    // --- body_pct / is_bullish_hammer ---
+
+    #[test]
+    fn test_body_pct_none_for_zero_range() {
+        let b = bar(100, 100, 100, 100);
+        assert!(b.body_pct().is_none());
+    }
+
+    #[test]
+    fn test_body_pct_100_for_marubozu() {
+        // open=low=100, close=high=110 → body=10, range=10, pct=100
+        let b = bar(100, 110, 100, 110);
+        assert_eq!(b.body_pct().unwrap(), Decimal::ONE_HUNDRED);
+    }
+
+    #[test]
+    fn test_body_pct_50_for_half_body() {
+        // open=100, close=105, high=110, low=100 → body=5, range=10, pct=50
+        let b = bar(100, 110, 100, 105);
+        assert_eq!(b.body_pct().unwrap(), Decimal::from(50));
+    }
+
+    #[test]
+    fn test_is_bullish_hammer_true_for_classic_hammer() {
+        // long lower wick, small body near top, tiny upper wick
+        // open=108, high=110, low=100, close=109 → body=1, lower=8, upper=1
+        let b = bar(108, 110, 100, 109);
+        assert!(b.is_bullish_hammer());
+    }
+
+    #[test]
+    fn test_is_bullish_hammer_false_when_lower_wick_not_long_enough() {
+        // open=100, high=110, low=98, close=108 → body=8, lower=2 < 2*8=16
+        let b = bar(100, 110, 98, 108);
+        assert!(!b.is_bullish_hammer());
+    }
+
+    #[test]
+    fn test_is_bullish_hammer_false_for_doji() {
+        let b = bar(100, 110, 90, 100); // open == close, body = 0
+        assert!(!b.is_bullish_hammer());
+    }
+
     #[test]
     fn test_is_engulfing_true_when_body_contains_prev_body() {
         let prev = bar(100, 110, 95, 105); // prev body: 100-105
@@ -2395,5 +2492,64 @@ mod tests {
         // open=100, close=110, low=100 → no lower wick
         let bar = make_ohlcv_bar(dec!(100), dec!(110), dec!(100), dec!(110));
         assert!(!bar.has_lower_wick());
+    }
+
+    // ── OhlcvBar::is_gravestone_doji ──────────────────────────────────────────
+
+    #[test]
+    fn test_is_gravestone_doji_true() {
+        // open=close=low=100, high=110 → body=0, close≈low → gravestone
+        let bar = make_ohlcv_bar(dec!(100), dec!(110), dec!(100), dec!(100));
+        assert!(bar.is_gravestone_doji(dec!(0)));
+    }
+
+    #[test]
+    fn test_is_gravestone_doji_false_when_close_above_low() {
+        // open=100, close=105, low=99, high=110 → body=5 → not a doji
+        let bar = make_ohlcv_bar(dec!(100), dec!(110), dec!(99), dec!(105));
+        assert!(!bar.is_gravestone_doji(dec!(1)));
+    }
+
+    // ── OhlcvBar::is_dragonfly_doji ───────────────────────────────────────────
+
+    #[test]
+    fn test_is_dragonfly_doji_true() {
+        // open=close=high=110, low=100 → body=0, close≈high → dragonfly
+        let bar = make_ohlcv_bar(dec!(110), dec!(110), dec!(100), dec!(110));
+        assert!(bar.is_dragonfly_doji(dec!(0)));
+    }
+
+    #[test]
+    fn test_is_dragonfly_doji_false_when_close_below_high() {
+        // close=105, high=110 → close not near high
+        let bar = make_ohlcv_bar(dec!(105), dec!(110), dec!(100), dec!(105));
+        assert!(!bar.is_dragonfly_doji(dec!(1)));
+    }
+
+    // ── OhlcvBar::price_at_pct ───────────────────────────────────────────────
+
+    #[test]
+    fn test_price_at_pct_zero_returns_low() {
+        let bar = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100));
+        assert_eq!(bar.price_at_pct(0.0), dec!(90));
+    }
+
+    #[test]
+    fn test_price_at_pct_one_returns_high() {
+        let bar = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100));
+        assert_eq!(bar.price_at_pct(1.0), dec!(110));
+    }
+
+    #[test]
+    fn test_price_at_pct_half_returns_midpoint() {
+        let bar = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100));
+        // low=90, range=20, 0.5*20=10 → 90+10=100
+        assert_eq!(bar.price_at_pct(0.5), dec!(100));
+    }
+
+    #[test]
+    fn test_price_at_pct_clamped_above_one() {
+        let bar = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100));
+        assert_eq!(bar.price_at_pct(2.0), dec!(110));
     }
 }

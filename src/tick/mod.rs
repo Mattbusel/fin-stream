@@ -335,6 +335,21 @@ impl NormalizedTick {
         self.volume_notional() > threshold
     }
 
+    /// Returns `true` if this tick's price is zero.
+    ///
+    /// A zero price typically indicates a malformed or uninitialized tick.
+    pub fn is_zero_price(&self) -> bool {
+        self.price.is_zero()
+    }
+
+    /// Returns `true` if the tick is still fresh relative to `now_ms`.
+    ///
+    /// "Fresh" means the tick arrived within the last `max_age_ms` milliseconds.
+    /// Returns `false` when `now_ms < ts_ms` (clock skew guard).
+    pub fn is_fresh(&self, now_ms: u64, max_age_ms: u64) -> bool {
+        now_ms.saturating_sub(self.received_at_ms) <= max_age_ms
+    }
+
     /// Returns `true` if this tick's price is strictly above `price`.
     pub fn is_above(&self, price: Decimal) -> bool {
         self.price > price
@@ -348,6 +363,27 @@ impl NormalizedTick {
     /// Returns `true` if this tick's price equals `price`.
     pub fn is_at(&self, price: Decimal) -> bool {
         self.price == price
+    }
+
+    /// Returns `true` if the tick has a definite direction (buy or sell).
+    ///
+    /// Neutral ticks (where `side` is `None`) return `false`.
+    pub fn is_aggressive(&self) -> bool {
+        self.side.is_some()
+    }
+
+    /// Signed price difference: `self.price - other.price`.
+    ///
+    /// Positive when this tick's price is higher than the other's.
+    pub fn price_diff_from(&self, other: &NormalizedTick) -> Decimal {
+        self.price - other.price
+    }
+
+    /// Returns `true` if the trade quantity is strictly less than `threshold`.
+    ///
+    /// The inverse of [`is_large_trade`](Self::is_large_trade).
+    pub fn is_micro_trade(&self, threshold: Decimal) -> bool {
+        self.quantity < threshold
     }
 
 }
@@ -1341,5 +1377,100 @@ mod tests {
         tick.quantity = rust_decimal_macros::dec!(5);
         // notional = 500, threshold = 500 → false (strictly greater)
         assert!(!tick.is_notional_large_trade(rust_decimal_macros::dec!(500)));
+    }
+
+    #[test]
+    fn test_is_aggressive_true_when_buy() {
+        let mut tick = make_tick_at(1_000);
+        tick.side = Some(TradeSide::Buy);
+        assert!(tick.is_aggressive());
+    }
+
+    #[test]
+    fn test_is_aggressive_true_when_sell() {
+        let mut tick = make_tick_at(1_000);
+        tick.side = Some(TradeSide::Sell);
+        assert!(tick.is_aggressive());
+    }
+
+    #[test]
+    fn test_is_aggressive_false_when_neutral() {
+        let tick = make_tick_at(1_000); // side = None
+        assert!(!tick.is_aggressive());
+    }
+
+    #[test]
+    fn test_price_diff_from_positive_when_higher() {
+        let mut t1 = make_tick_at(1_000);
+        let mut t2 = make_tick_at(1_000);
+        t1.price = rust_decimal_macros::dec!(105);
+        t2.price = rust_decimal_macros::dec!(100);
+        assert_eq!(t1.price_diff_from(&t2), rust_decimal_macros::dec!(5));
+    }
+
+    #[test]
+    fn test_price_diff_from_negative_when_lower() {
+        let mut t1 = make_tick_at(1_000);
+        let mut t2 = make_tick_at(1_000);
+        t1.price = rust_decimal_macros::dec!(95);
+        t2.price = rust_decimal_macros::dec!(100);
+        assert_eq!(t1.price_diff_from(&t2), rust_decimal_macros::dec!(-5));
+    }
+
+    #[test]
+    fn test_is_micro_trade_true_when_below_threshold() {
+        let mut tick = make_tick_at(1_000);
+        tick.quantity = rust_decimal_macros::dec!(0.5);
+        assert!(tick.is_micro_trade(rust_decimal_macros::dec!(1)));
+    }
+
+    #[test]
+    fn test_is_micro_trade_false_when_equal_threshold() {
+        let mut tick = make_tick_at(1_000);
+        tick.quantity = rust_decimal_macros::dec!(1);
+        assert!(!tick.is_micro_trade(rust_decimal_macros::dec!(1)));
+    }
+
+    #[test]
+    fn test_is_micro_trade_false_when_above_threshold() {
+        let mut tick = make_tick_at(1_000);
+        tick.quantity = rust_decimal_macros::dec!(2);
+        assert!(!tick.is_micro_trade(rust_decimal_macros::dec!(1)));
+    }
+
+    // --- is_zero_price / is_fresh ---
+
+    #[test]
+    fn test_is_zero_price_true_for_zero() {
+        let mut tick = make_tick_at(1_000);
+        tick.price = rust_decimal_macros::dec!(0);
+        assert!(tick.is_zero_price());
+    }
+
+    #[test]
+    fn test_is_zero_price_false_for_nonzero() {
+        let tick = make_tick_at(1_000); // price set by make_tick_at
+        assert!(!tick.is_zero_price());
+    }
+
+    #[test]
+    fn test_is_fresh_true_when_within_age() {
+        let tick = make_tick_at(1_000);
+        // received_at = 1000, now = 2000, max_age = 1500 → 1000 <= 1500 → fresh
+        assert!(tick.is_fresh(2_000, 1_500));
+    }
+
+    #[test]
+    fn test_is_fresh_false_when_too_old() {
+        let tick = make_tick_at(1_000);
+        // received_at = 1000, now = 5000, max_age = 2000 → 4000 > 2000 → not fresh
+        assert!(!tick.is_fresh(5_000, 2_000));
+    }
+
+    #[test]
+    fn test_is_fresh_true_when_now_less_than_received() {
+        // Clock skew: now < received_at → saturating_sub = 0 ≤ max_age
+        let tick = make_tick_at(5_000);
+        assert!(tick.is_fresh(3_000, 100));
     }
 }

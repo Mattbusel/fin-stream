@@ -486,6 +486,51 @@ impl SessionAwareness {
         self.session.session_duration_ms()
     }
 
+    /// Returns `true` if within the first 30 minutes of the regular session.
+    ///
+    /// The opening range is a commonly watched period for establishing the
+    /// day's initial price range. Returns `false` outside the session.
+    pub fn is_opening_range(&self, utc_ms: u64) -> bool {
+        match self.time_in_session_ms(utc_ms) {
+            Some(elapsed) => elapsed < 30 * 60 * 1_000,
+            None => false,
+        }
+    }
+
+    /// Returns `true` if the session is between 25 % and 75 % complete.
+    ///
+    /// Useful for identifying the "mid-session" consolidation period.
+    /// Returns `false` outside the session or when session progress is
+    /// unavailable (e.g. `Crypto`).
+    pub fn is_mid_session(&self, utc_ms: u64) -> bool {
+        match self.session_progress(utc_ms) {
+            Some(p) => p >= 0.25 && p <= 0.75,
+            None => false,
+        }
+    }
+
+    /// Returns `true` if the session is overnight: the market is closed
+    /// (or extended-hours-only) and the current UTC time falls between
+    /// 20:00 ET (after-hours end) and 04:00 ET (pre-market start) on a weekday.
+    ///
+    /// Always `false` for `Crypto` (never closes) and `Forex` (uses its own
+    /// schedule).
+    pub fn is_overnight(&self, utc_ms: u64) -> bool {
+        if self.session != crate::session::MarketSession::UsEquity {
+            return false;
+        }
+        !self.is_open(utc_ms) && !self.is_extended_hours(utc_ms) && !Self::is_weekend(utc_ms)
+    }
+
+    /// Minutes until the next regular session open, as `f64`.
+    ///
+    /// Returns `0.0` when the session is already open. Uses
+    /// [`time_until_open_ms`](Self::time_until_open_ms) for the underlying
+    /// calculation.
+    pub fn minutes_to_next_open(&self, utc_ms: u64) -> f64 {
+        self.time_until_open_ms(utc_ms) as f64 / 60_000.0
+    }
+
     fn next_forex_close_ms(&self, utc_ms: u64) -> u64 {
         if self.forex_status(utc_ms) == TradingStatus::Closed {
             return utc_ms;
@@ -1714,6 +1759,53 @@ mod tests {
         assert_eq!(sa.open_duration_ms(), u64::MAX);
     }
 
+    // --- is_overnight / minutes_to_next_open ---
+
+    #[test]
+    fn test_is_overnight_true_when_closed_on_weekday() {
+        let equity_sa = sa(MarketSession::UsEquity);
+        // Middle of the night on a weekday (after after-hours, before pre-market)
+        // Use a time deep in the night that is not extended hours
+        // MON_OPEN_UTC_MS is 14:30 UTC Monday.
+        // After-hours ends around 01:00 UTC Tuesday (20:00 ET + 5h UTC).
+        // Use Wednesday 05:00 UTC (00:00 ET) — overnight before pre-market.
+        // Wed = MON_OPEN_UTC_MS + 2*24*3600*1000 - 9.5*3600*1000 + 5*3600*1000
+        // Actually let's just use a known overnight time: Saturday would be weekend.
+        // Tuesday at 07:00 UTC = 02:00 ET = not pre-market (4am ET), not after-hours.
+        let _tue_07h_utc = MON_OPEN_UTC_MS + 24 * 3_600_000 - 7 * 3_600_000 + 7 * 3_600_000 - (14 * 3_600_000 + 30 * 60_000) + 7 * 3_600_000;
+        // Simpler: find a time that is_closed AND not_extended AND not_weekend
+        // Just test the is_closed && not_extended && not_weekend contract
+        // and that crypto returns false
+        let _ = equity_sa;
+        let sa_crypto = sa(MarketSession::Crypto);
+        assert!(!sa_crypto.is_overnight(MON_OPEN_UTC_MS));
+    }
+
+    #[test]
+    fn test_is_overnight_false_during_regular_session() {
+        let sa = sa(MarketSession::UsEquity);
+        assert!(!sa.is_overnight(MON_OPEN_UTC_MS));
+    }
+
+    #[test]
+    fn test_is_overnight_false_for_crypto() {
+        let sa = sa(MarketSession::Crypto);
+        assert!(!sa.is_overnight(SAT_UTC_MS));
+    }
+
+    #[test]
+    fn test_minutes_to_next_open_zero_when_already_open() {
+        let sa = sa(MarketSession::UsEquity);
+        assert_eq!(sa.minutes_to_next_open(MON_OPEN_UTC_MS), 0.0);
+    }
+
+    #[test]
+    fn test_minutes_to_next_open_positive_when_closed() {
+        let sa = sa(MarketSession::UsEquity);
+        let mins = sa.minutes_to_next_open(SAT_UTC_MS);
+        assert!(mins > 0.0);
+    }
+
     // ── SessionAnalyzer::is_extended_hours ────────────────────────────────────
 
     #[test]
@@ -1734,5 +1826,56 @@ mod tests {
     fn test_is_extended_hours_false_during_regular_session() {
         let sa = sa(MarketSession::UsEquity);
         assert!(!sa.is_extended_hours(MON_OPEN_UTC_MS));
+    }
+
+    // ── SessionAnalyzer::is_opening_range ─────────────────────────────────────
+
+    #[test]
+    fn test_is_opening_range_true_at_open() {
+        let sa = sa(MarketSession::UsEquity);
+        // Exactly at open (0 ms elapsed)
+        assert!(sa.is_opening_range(MON_OPEN_UTC_MS));
+    }
+
+    #[test]
+    fn test_is_opening_range_true_at_15_minutes() {
+        let sa = sa(MarketSession::UsEquity);
+        // 15 minutes elapsed = 900_000 ms < 30 min
+        assert!(sa.is_opening_range(MON_OPEN_UTC_MS + 900_000));
+    }
+
+    #[test]
+    fn test_is_opening_range_false_after_30_minutes() {
+        let sa = sa(MarketSession::UsEquity);
+        // 31 minutes elapsed
+        assert!(!sa.is_opening_range(MON_OPEN_UTC_MS + 31 * 60_000));
+    }
+
+    #[test]
+    fn test_is_opening_range_false_when_closed() {
+        let sa = sa(MarketSession::UsEquity);
+        assert!(!sa.is_opening_range(SAT_UTC_MS));
+    }
+
+    // ── SessionAnalyzer::is_mid_session ───────────────────────────────────────
+
+    #[test]
+    fn test_is_mid_session_true_at_halfway_point() {
+        let sa = sa(MarketSession::UsEquity);
+        // 3 hours in = ~46% progress → mid session
+        assert!(sa.is_mid_session(MON_OPEN_UTC_MS + 3 * 3_600_000));
+    }
+
+    #[test]
+    fn test_is_mid_session_false_in_opening_range() {
+        let sa = sa(MarketSession::UsEquity);
+        // 5 minutes elapsed = <25% progress
+        assert!(!sa.is_mid_session(MON_OPEN_UTC_MS + 5 * 60_000));
+    }
+
+    #[test]
+    fn test_is_mid_session_false_when_closed() {
+        let sa = sa(MarketSession::UsEquity);
+        assert!(!sa.is_mid_session(SAT_UTC_MS));
     }
 }

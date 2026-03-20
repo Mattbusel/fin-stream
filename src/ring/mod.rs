@@ -272,6 +272,20 @@ impl<T, const N: usize> SpscRing<T, N> {
         self.len() as f64 / cap as f64
     }
 
+    /// Returns `true` if there is enough free space to push `n` more items.
+    ///
+    /// Equivalent to `self.len() + n <= self.capacity()`.
+    pub fn has_capacity(&self, n: usize) -> bool {
+        self.len() + n <= self.capacity()
+    }
+
+    /// Fill level as a percentage of capacity: `fill_ratio() * 100.0`.
+    ///
+    /// Returns `0.0` when empty and `100.0` when full.
+    pub fn utilization_pct(&self) -> f64 {
+        self.fill_ratio() * 100.0
+    }
+
     /// Drain all items currently in the ring into a `Vec`, in FIFO order.
     ///
     /// Only safe to call when no producer/consumer pair is active (i.e., before
@@ -1146,5 +1160,31 @@ mod tests {
         ring.push(3).unwrap();
         let ratio = ring.fill_ratio();
         assert!((ratio - 3.0 / 7.0).abs() < 1e-10);
+    }
+
+    // ── SpscRing::utilization_pct ─────────────────────────────────────────────
+
+    #[test]
+    fn test_utilization_pct_zero_when_empty() {
+        let ring: SpscRing<u32, 8> = SpscRing::new();
+        assert_eq!(ring.utilization_pct(), 0.0);
+    }
+
+    #[test]
+    fn test_utilization_pct_100_when_full() {
+        let ring: SpscRing<u32, 8> = SpscRing::new(); // capacity = 7
+        for i in 0..7u32 {
+            ring.push(i).unwrap();
+        }
+        assert!((ring.utilization_pct() - 100.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_utilization_pct_equals_fill_ratio_times_100() {
+        let ring: SpscRing<u32, 8> = SpscRing::new();
+        ring.push(1u32).unwrap();
+        ring.push(2u32).unwrap();
+        let ratio = ring.fill_ratio();
+        assert!((ring.utilization_pct() - ratio * 100.0).abs() < 1e-10);
     }
 }

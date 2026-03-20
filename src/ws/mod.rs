@@ -77,6 +77,17 @@ impl WsStats {
         self.total_bytes_received as f64 * 1_000.0 / elapsed_ms as f64
     }
 
+    /// Average number of messages per byte received.
+    ///
+    /// Returns `None` when no bytes have been received (avoids division by
+    /// zero). A higher value means smaller average message size.
+    pub fn messages_per_byte(&self) -> Option<f64> {
+        if self.total_bytes_received == 0 {
+            return None;
+        }
+        Some(self.total_messages_received as f64 / self.total_bytes_received as f64)
+    }
+
     /// Returns `true` if the current message rate is below `min_rate` (msgs/s).
     ///
     /// Returns `true` when `elapsed_ms` is zero (no time elapsed → rate = 0).
@@ -1269,5 +1280,27 @@ mod tests {
     fn test_bandwidth_bps_zero_bytes() {
         let stats = WsStats { total_messages_received: 5, total_bytes_received: 0 };
         assert_eq!(stats.bandwidth_bps(5_000), 0.0);
+    }
+
+    // --- WsStats::messages_per_byte ---
+
+    #[test]
+    fn test_messages_per_byte_none_when_no_bytes() {
+        let stats = WsStats { total_messages_received: 5, total_bytes_received: 0 };
+        assert!(stats.messages_per_byte().is_none());
+    }
+
+    #[test]
+    fn test_messages_per_byte_correct_value() {
+        let stats = WsStats { total_messages_received: 100, total_bytes_received: 10_000 };
+        // 100 / 10_000 = 0.01
+        assert!((stats.messages_per_byte().unwrap() - 0.01).abs() < 1e-12);
+    }
+
+    #[test]
+    fn test_messages_per_byte_less_than_one_for_large_messages() {
+        let stats = WsStats { total_messages_received: 1, total_bytes_received: 500 };
+        let mpb = stats.messages_per_byte().unwrap();
+        assert!(mpb < 1.0);
     }
 }
