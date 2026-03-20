@@ -574,7 +574,7 @@ impl OrderBook {
         if self.bid_depth() < 2 {
             return None;
         }
-        let best = *self.bids.keys().next_back()?;
+        let best = self.best_bid_price()?;
         let worst = *self.bids.keys().next()?;
         Some(best - worst)
     }
