@@ -635,6 +635,22 @@ impl SessionAwareness {
         }
     }
 
+    /// Returns `true` if `date` is a triple witching day (third Friday of March, June,
+    /// September, or December) — the quarterly expiration of index futures, index options,
+    /// and single-stock options.
+    pub fn is_triple_witching(date: NaiveDate) -> bool {
+        let month = date.month();
+        if !matches!(month, 3 | 6 | 9 | 12) {
+            return false;
+        }
+        if date.weekday() != Weekday::Fri {
+            return false;
+        }
+        // Third Friday: day is in [15, 21]
+        let day = date.day();
+        day >= 15 && day <= 21
+    }
+
     /// Fraction of the session remaining: `1.0 - session_progress`.
     ///
     /// Returns `None` if the session is not open.
@@ -2249,5 +2265,42 @@ mod tests {
         let sa = sa(MarketSession::Crypto);
         let t = MON_OPEN_UTC_MS + 150 * 60_000;
         assert!(!sa.is_lunch_hour(t));
+    }
+
+    // ── SessionAwareness::is_triple_witching ───────────────────────────────────
+
+    #[test]
+    fn test_is_triple_witching_true_third_friday_march() {
+        // 2024-03-15 = third Friday of March 2024
+        let date = NaiveDate::from_ymd_opt(2024, 3, 15).unwrap();
+        assert!(SessionAwareness::is_triple_witching(date));
+    }
+
+    #[test]
+    fn test_is_triple_witching_true_third_friday_september() {
+        // 2024-09-20 = third Friday of September 2024
+        let date = NaiveDate::from_ymd_opt(2024, 9, 20).unwrap();
+        assert!(SessionAwareness::is_triple_witching(date));
+    }
+
+    #[test]
+    fn test_is_triple_witching_false_wrong_month() {
+        // 2024-01-19 = third Friday of January — not a witching month
+        let date = NaiveDate::from_ymd_opt(2024, 1, 19).unwrap();
+        assert!(!SessionAwareness::is_triple_witching(date));
+    }
+
+    #[test]
+    fn test_is_triple_witching_false_first_friday_of_witching_month() {
+        // 2024-03-01 = first Friday of March — not third
+        let date = NaiveDate::from_ymd_opt(2024, 3, 1).unwrap();
+        assert!(!SessionAwareness::is_triple_witching(date));
+    }
+
+    #[test]
+    fn test_is_triple_witching_false_wrong_weekday() {
+        // 2024-03-20 = Wednesday, third week of March
+        let date = NaiveDate::from_ymd_opt(2024, 3, 20).unwrap();
+        assert!(!SessionAwareness::is_triple_witching(date));
     }
 }

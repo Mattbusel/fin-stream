@@ -662,6 +662,13 @@ impl HealthMonitor {
         self.feeds.iter().any(|e| e.status == HealthStatus::Unknown)
     }
 
+    /// Count of feeds in [`HealthStatus::Stale`] state (degraded but not unknown).
+    ///
+    /// Degraded = stale. Excludes healthy and unknown feeds.
+    pub fn degraded_count(&self) -> usize {
+        self.feeds.iter().filter(|e| e.status == HealthStatus::Stale).count()
+    }
+
 }
 
 #[cfg(test)]
@@ -1970,5 +1977,33 @@ mod tests {
         m.register("BTC-USD", None);
         m.heartbeat("BTC-USD", 1_000).unwrap();
         assert!(!m.any_unknown());
+    }
+
+    // ── HealthMonitor::degraded_count ─────────────────────────────────────────
+
+    #[test]
+    fn test_degraded_count_zero_when_all_healthy() {
+        let m = HealthMonitor::new(5_000);
+        m.register("A", None);
+        m.heartbeat("A", 9_500).unwrap();
+        m.check_all(10_000);
+        assert_eq!(m.degraded_count(), 0);
+    }
+
+    #[test]
+    fn test_degraded_count_one_when_one_stale() {
+        let m = HealthMonitor::new(5_000);
+        m.register("A", None);
+        m.register("B", None);
+        m.heartbeat("A", 9_500).unwrap(); // healthy
+        m.heartbeat("B", 1_000).unwrap(); // stale
+        m.check_all(10_000);
+        assert_eq!(m.degraded_count(), 1);
+    }
+
+    #[test]
+    fn test_degraded_count_zero_when_empty() {
+        let m = HealthMonitor::new(5_000);
+        assert_eq!(m.degraded_count(), 0);
     }
 }

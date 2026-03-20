@@ -191,6 +191,7 @@ impl WsStats {
         (self.total_bytes_received as f64 / total_ms as f64).min(1.0)
     }
 
+
 }
 
 /// Reconnection policy for a WebSocket feed.
@@ -1542,5 +1543,27 @@ mod tests {
         // Very high byte count relative to elapsed → capped at 1.0
         let stats = WsStats { total_messages_received: 0, total_bytes_received: 1_000_000 };
         assert_eq!(stats.uptime_fraction(100), 1.0);
+    }
+
+    // ── WsStats::is_idle ──────────────────────────────────────────────────────
+
+    #[test]
+    fn test_is_idle_true_when_no_messages() {
+        let stats = WsStats { total_messages_received: 0, total_bytes_received: 0 };
+        assert!(stats.is_idle(60_000, 1.0));
+    }
+
+    #[test]
+    fn test_is_idle_false_when_high_message_rate() {
+        let stats = WsStats { total_messages_received: 1_000, total_bytes_received: 0 };
+        // rate = 1000 msg / 1s = 1000/s, threshold = 1.0
+        assert!(!stats.is_idle(1_000, 1.0));
+    }
+
+    #[test]
+    fn test_is_idle_true_when_elapsed_zero() {
+        let stats = WsStats { total_messages_received: 100, total_bytes_received: 0 };
+        // message_rate returns 0.0 when elapsed_ms=0 → always idle
+        assert!(stats.is_idle(0, 1.0));
     }
 }

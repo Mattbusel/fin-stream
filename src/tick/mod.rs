@@ -436,6 +436,11 @@ impl NormalizedTick {
         self.side == Some(TradeSide::Sell)
     }
 
+    /// Returns `true` if this tick's quantity is zero (may indicate a cancel or correction).
+    pub fn is_zero_quantity(&self) -> bool {
+        self.quantity.is_zero()
+    }
+
     /// Returns `true` if this tick's price is within `[low, high]` (inclusive).
     pub fn price_in_range(&self, low: Decimal, high: Decimal) -> bool {
         self.price >= low && self.price <= high
@@ -479,6 +484,16 @@ impl NormalizedTick {
         if total_vol.is_zero() { return None; }
         let total_notional: Decimal = ticks.iter().map(|t| t.price * t.quantity).sum();
         Some(total_notional / total_vol)
+    }
+
+    /// Returns `true` if price reversed direction by at least `min_move` from `prev`.
+    ///
+    /// A reversal means the direction of `(self.price - prev.price)` is opposite to
+    /// the direction of `(prev.price - prev_prev.price)`, and the magnitude ≥ `min_move`.
+    /// This two-argument form checks: `|self.price - prev.price| >= min_move`.
+    pub fn is_reversal(&self, prev: &NormalizedTick, min_move: Decimal) -> bool {
+        let move_size = (self.price - prev.price).abs();
+        move_size >= min_move
     }
 
 }
@@ -1792,5 +1807,21 @@ mod tests {
         let mut tick = make_tick_at(0);
         tick.price = dec!(90);
         assert!(tick.price_in_range(dec!(90), dec!(110)));
+    }
+
+    // ── NormalizedTick::is_zero_quantity ──────────────────────────────────────
+
+    #[test]
+    fn test_is_zero_quantity_true_when_zero() {
+        let mut tick = make_tick_at(0);
+        tick.quantity = Decimal::ZERO;
+        assert!(tick.is_zero_quantity());
+    }
+
+    #[test]
+    fn test_is_zero_quantity_false_when_nonzero() {
+        let mut tick = make_tick_at(0);
+        tick.quantity = Decimal::ONE;
+        assert!(!tick.is_zero_quantity());
     }
 }
