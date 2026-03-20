@@ -1882,6 +1882,64 @@ impl OhlcvBar {
         Some(total / bars.len() as f64)
     }
 
+    /// Ratio of each bar's volume to the mean volume of the window.
+    ///
+    /// Returns a `Vec` of `Option<f64>` — `None` entries indicate bars where
+    /// the mean cannot be computed (e.g., empty slice) or the conversion
+    /// failed. Returns an empty `Vec` for an empty slice.
+    pub fn mean_volume_ratio(bars: &[OhlcvBar]) -> Vec<Option<f64>> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() {
+            return vec![];
+        }
+        let mean = match Self::mean_volume(bars) {
+            Some(m) if !m.is_zero() => m,
+            _ => return bars.iter().map(|_| None).collect(),
+        };
+        bars.iter().map(|b| (b.volume / mean).to_f64()).collect()
+    }
+
+    /// Count of bars where `close > n`-bar simple moving average of highs.
+    ///
+    /// Returns 0 if `n < 1` or the slice has fewer than `n` bars.
+    pub fn close_above_high_ma(bars: &[OhlcvBar], n: usize) -> usize {
+        if n < 1 || bars.len() < n {
+            return 0;
+        }
+        let high_ma: Decimal = bars.iter().take(n).map(|b| b.high).sum::<Decimal>()
+            / Decimal::from(n as u32);
+        bars[n - 1..].iter().filter(|b| b.close > high_ma).count()
+    }
+
+    /// Price compression ratio: `mean_body / mean_range`.
+    ///
+    /// A value near 1 indicates full-body candles (strong directional moves);
+    /// near 0 indicates indecision or doji-heavy periods. Returns `None` if
+    /// the slice is empty or mean range is zero.
+    pub fn price_compression_ratio(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let mean_body = Self::average_body(bars)?;
+        let mean_range = Self::mean_range(bars)?;
+        if mean_range.is_zero() {
+            return None;
+        }
+        (mean_body / mean_range).to_f64()
+    }
+
+    /// Mean absolute difference between open and close across all bars.
+    ///
+    /// Returns `None` if the slice is empty.
+    pub fn open_close_spread(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() {
+            return None;
+        }
+        let total: f64 = bars.iter()
+            .filter_map(|b| (b.close - b.open).abs().to_f64())
+            .sum();
+        Some(total / bars.len() as f64)
+    }
+
 }
 
 impl std::fmt::Display for OhlcvBar {

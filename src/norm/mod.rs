@@ -876,6 +876,34 @@ impl MinMaxNormalizer {
         self.coefficient_of_variation()
     }
 
+    /// Count of window values that are strictly above the window mean.
+    ///
+    /// Returns `None` if the window is empty or the mean cannot be computed.
+    pub fn value_above_mean_count(&self) -> Option<usize> {
+        let mean = self.mean()?;
+        Some(self.window.iter().filter(|&&v| v > mean).count())
+    }
+
+    /// Length of the longest consecutive run of values above the window mean.
+    ///
+    /// Returns `None` if the window is empty or the mean cannot be computed.
+    pub fn consecutive_above_mean(&self) -> Option<usize> {
+        let mean = self.mean()?;
+        let mut max_run = 0usize;
+        let mut current = 0usize;
+        for &v in &self.window {
+            if v > mean {
+                current += 1;
+                if current > max_run {
+                    max_run = current;
+                }
+            } else {
+                current = 0;
+            }
+        }
+        Some(max_run)
+    }
+
 }
 
 #[cfg(test)]
@@ -2157,6 +2185,36 @@ mod tests {
         let r = n.normalized_std_dev().unwrap();
         assert!(r > 0.0, "expected positive normalized std dev, got {}", r);
     }
+
+    // ── MinMaxNormalizer::value_above_mean_count ──────────────────────────────
+
+    #[test]
+    fn test_minmax_value_above_mean_count_none_for_empty() {
+        assert!(norm(4).value_above_mean_count().is_none());
+    }
+
+    #[test]
+    fn test_minmax_value_above_mean_count_correct() {
+        // values: 1,2,3,4 → mean=2.5 → above: 3,4 → count=2
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        assert_eq!(n.value_above_mean_count().unwrap(), 2);
+    }
+
+    // ── MinMaxNormalizer::consecutive_above_mean ──────────────────────────────
+
+    #[test]
+    fn test_minmax_consecutive_above_mean_none_for_empty() {
+        assert!(norm(4).consecutive_above_mean().is_none());
+    }
+
+    #[test]
+    fn test_minmax_consecutive_above_mean_correct() {
+        // values: 1,5,6,7 → mean=4.75 → above: 5,6,7 → run=3
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(5), dec!(6), dec!(7)] { n.update(v); }
+        assert_eq!(n.consecutive_above_mean().unwrap(), 3);
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -3097,6 +3155,34 @@ impl ZScoreNormalizer {
     /// Normalised standard deviation (alias for [`coefficient_of_variation`](Self::coefficient_of_variation)).
     pub fn normalized_std_dev(&self) -> Option<f64> {
         self.coefficient_of_variation()
+    }
+
+    /// Count of window values that are strictly above the window mean.
+    ///
+    /// Returns `None` if the window is empty or the mean cannot be computed.
+    pub fn value_above_mean_count(&self) -> Option<usize> {
+        let mean = self.mean()?;
+        Some(self.window.iter().filter(|&&v| v > mean).count())
+    }
+
+    /// Length of the longest consecutive run of values above the window mean.
+    ///
+    /// Returns `None` if the window is empty or the mean cannot be computed.
+    pub fn consecutive_above_mean(&self) -> Option<usize> {
+        let mean = self.mean()?;
+        let mut max_run = 0usize;
+        let mut current = 0usize;
+        for &v in &self.window {
+            if v > mean {
+                current += 1;
+                if current > max_run {
+                    max_run = current;
+                }
+            } else {
+                current = 0;
+            }
+        }
+        Some(max_run)
     }
 
 }
@@ -4695,5 +4781,35 @@ mod zscore_stability_tests {
         for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
         let r = n.normalized_std_dev().unwrap();
         assert!(r > 0.0, "expected positive normalized std dev, got {}", r);
+    }
+
+    // ── ZScoreNormalizer::value_above_mean_count ──────────────────────────────
+
+    #[test]
+    fn test_zscore_value_above_mean_count_none_for_empty() {
+        assert!(znorm(4).value_above_mean_count().is_none());
+    }
+
+    #[test]
+    fn test_zscore_value_above_mean_count_correct() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        // mean=2.5, above: 3 and 4 → 2
+        assert_eq!(n.value_above_mean_count().unwrap(), 2);
+    }
+
+    // ── ZScoreNormalizer::consecutive_above_mean ──────────────────────────────
+
+    #[test]
+    fn test_zscore_consecutive_above_mean_none_for_empty() {
+        assert!(znorm(4).consecutive_above_mean().is_none());
+    }
+
+    #[test]
+    fn test_zscore_consecutive_above_mean_correct() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(5), dec!(6), dec!(7)] { n.update(v); }
+        // mean=4.75, above: 5,6,7 → run=3
+        assert_eq!(n.consecutive_above_mean().unwrap(), 3);
     }
 }

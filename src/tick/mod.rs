@@ -1449,6 +1449,50 @@ impl NormalizedTick {
         Some(total / Decimal::from(sells.len() as u32))
     }
 
+    /// Fraction of prices that are below the VWAP (mean-reversion pressure).
+    ///
+    /// Values close to 0.5 suggest equilibrium; values far from 0.5 suggest
+    /// directional bias. Returns `None` if VWAP cannot be computed.
+    pub fn price_mean_reversion_score(ticks: &[NormalizedTick]) -> Option<f64> {
+        let vwap = Self::vwap(ticks)?;
+        let below = ticks.iter().filter(|t| t.price < vwap).count();
+        Some(below as f64 / ticks.len() as f64)
+    }
+
+    /// Largest absolute price move between consecutive ticks.
+    ///
+    /// Returns `None` if fewer than 2 ticks.
+    pub fn largest_price_move(ticks: &[NormalizedTick]) -> Option<Decimal> {
+        if ticks.len() < 2 {
+            return None;
+        }
+        ticks.windows(2).map(|w| (w[1].price - w[0].price).abs()).reduce(Decimal::max)
+    }
+
+    /// Number of ticks per millisecond of elapsed time.
+    ///
+    /// Returns `None` if fewer than 2 ticks or the time span is zero.
+    pub fn tick_rate(ticks: &[NormalizedTick]) -> Option<f64> {
+        let span = Self::time_span_ms(ticks)? as f64;
+        if span == 0.0 {
+            return None;
+        }
+        Some(ticks.len() as f64 / span)
+    }
+
+    /// Fraction of total notional volume that comes from buy-side trades.
+    ///
+    /// Returns `None` if total notional volume is zero or the slice is empty.
+    pub fn buy_notional_fraction(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let total = Self::total_notional(ticks);
+        if total.is_zero() {
+            return None;
+        }
+        let buy = Self::buy_notional(ticks);
+        (buy / total).to_f64()
+    }
+
 }
 
 impl std::fmt::Display for NormalizedTick {
