@@ -757,6 +757,7 @@ impl MinMaxNormalizer {
         let hi = self.window.iter().copied().reduce(Decimal::max)?;
         Some(hi - lo)
     }
+
 }
 
 #[cfg(test)]
@@ -1807,6 +1808,39 @@ mod tests {
         for v in [dec!(10), dec!(50), dec!(30), dec!(20), dec!(40)] { n.update(v); }
         assert_eq!(n.rolling_range(), Some(dec!(40)));
     }
+
+    // ── MinMaxNormalizer::skewness ─────────────────────────────────────────────
+
+    #[test]
+    fn test_minmax_skewness_none_for_fewer_than_3() {
+        let mut n = norm(5);
+        n.update(dec!(1)); n.update(dec!(2));
+        assert!(n.skewness().is_none());
+    }
+
+    #[test]
+    fn test_minmax_skewness_near_zero_for_symmetric_data() {
+        let mut n = norm(5);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4), dec!(5)] { n.update(v); }
+        let s = n.skewness().unwrap();
+        assert!(s.abs() < 0.5);
+    }
+
+    // ── MinMaxNormalizer::kurtosis ─────────────────────────────────────
+
+    #[test]
+    fn test_minmax_kurtosis_none_for_fewer_than_4() {
+        let mut n = norm(5);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        assert!(n.kurtosis().is_none());
+    }
+
+    #[test]
+    fn test_minmax_kurtosis_returns_f64_for_populated_window() {
+        let mut n = norm(5);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4), dec!(5)] { n.update(v); }
+        assert!(n.kurtosis().is_some());
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -2631,6 +2665,7 @@ impl ZScoreNormalizer {
         let hi = self.running_max()?;
         Some(hi - lo)
     }
+
 }
 
 #[cfg(test)]
@@ -4003,5 +4038,38 @@ mod zscore_stability_tests {
         let mut n = znorm(5);
         for v in [dec!(10), dec!(50), dec!(30), dec!(20), dec!(40)] { n.update(v); }
         assert_eq!(n.rolling_range(), Some(dec!(40)));
+    }
+
+    // ── ZScoreNormalizer::skewness ─────────────────────────────────────────────
+
+    #[test]
+    fn test_zscore_skewness_none_for_fewer_than_3() {
+        let mut n = znorm(5);
+        n.update(dec!(1)); n.update(dec!(2));
+        assert!(n.skewness().is_none());
+    }
+
+    #[test]
+    fn test_zscore_skewness_near_zero_for_symmetric_data() {
+        let mut n = znorm(5);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4), dec!(5)] { n.update(v); }
+        let s = n.skewness().unwrap();
+        assert!(s.abs() < 0.5);
+    }
+
+    // ── ZScoreNormalizer::kurtosis ─────────────────────────────────────
+
+    #[test]
+    fn test_zscore_kurtosis_none_for_fewer_than_4() {
+        let mut n = znorm(5);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        assert!(n.kurtosis().is_none());
+    }
+
+    #[test]
+    fn test_zscore_kurtosis_returns_f64_for_populated_window() {
+        let mut n = znorm(5);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4), dec!(5)] { n.update(v); }
+        assert!(n.kurtosis().is_some());
     }
 }

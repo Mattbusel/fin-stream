@@ -1156,6 +1156,25 @@ impl NormalizedTick {
         (sum / Decimal::from((ticks.len() - 1) as u32)).to_f64()
     }
 
+    /// Largest single-trade quantity among sell-side ticks.
+    ///
+    /// Returns `None` if there are no sell-side ticks.
+    pub fn largest_sell(ticks: &[NormalizedTick]) -> Option<Decimal> {
+        ticks.iter().filter(|t| t.is_sell()).map(|t| t.quantity).reduce(Decimal::max)
+    }
+
+    /// Largest single-trade quantity among buy-side ticks.
+    ///
+    /// Returns `None` if there are no buy-side ticks.
+    pub fn largest_buy(ticks: &[NormalizedTick]) -> Option<Decimal> {
+        ticks.iter().filter(|t| t.is_buy()).map(|t| t.quantity).reduce(Decimal::max)
+    }
+
+    /// Total number of ticks in the slice (alias for `slice.len()`).
+    pub fn trade_count(ticks: &[NormalizedTick]) -> usize {
+        ticks.len()
+    }
+
 }
 
 impl std::fmt::Display for NormalizedTick {
@@ -3827,5 +3846,86 @@ mod tests {
         ];
         let spread = NormalizedTick::avg_inter_tick_spread(&ticks).unwrap();
         assert!((spread - 2.0).abs() < 1e-9);
+    }
+
+    // ── NormalizedTick::price_range ───────────────────────────────────────────
+
+    #[test]
+    fn test_price_range_none_for_empty() {
+        assert!(NormalizedTick::price_range(&[]).is_none());
+    }
+
+    #[test]
+    fn test_price_range_correct() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(90), dec!(1)),
+            make_tick_pq(dec!(110), dec!(1)),
+            make_tick_pq(dec!(100), dec!(1)),
+        ];
+        assert_eq!(NormalizedTick::price_range(&ticks), Some(dec!(20)));
+    }
+
+    // ── NormalizedTick::median_price ──────────────────────────────────────────
+
+    #[test]
+    fn test_median_price_none_for_empty() {
+        assert!(NormalizedTick::median_price(&[]).is_none());
+    }
+
+    #[test]
+    fn test_median_price_returns_middle_value() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(10), dec!(1)),
+            make_tick_pq(dec!(30), dec!(1)),
+            make_tick_pq(dec!(20), dec!(1)),
+        ];
+        // sorted: 10,20,30 → idx 1 = 20
+        assert_eq!(NormalizedTick::median_price(&ticks), Some(dec!(20)));
+    }
+
+    // ── NormalizedTick::largest_sell / largest_buy ────────────────────────────
+
+    #[test]
+    fn test_largest_sell_none_for_no_sell_ticks() {
+        use rust_decimal_macros::dec;
+        let mut t = make_tick_pq(dec!(100), dec!(5));
+        t.side = Some(TradeSide::Buy);
+        assert!(NormalizedTick::largest_sell(&[t]).is_none());
+    }
+
+    #[test]
+    fn test_largest_sell_returns_max_sell_qty() {
+        use rust_decimal_macros::dec;
+        let mut t1 = make_tick_pq(dec!(100), dec!(3));
+        t1.side = Some(TradeSide::Sell);
+        let mut t2 = make_tick_pq(dec!(100), dec!(7));
+        t2.side = Some(TradeSide::Sell);
+        assert_eq!(NormalizedTick::largest_sell(&[t1, t2]), Some(dec!(7)));
+    }
+
+    #[test]
+    fn test_largest_buy_returns_max_buy_qty() {
+        use rust_decimal_macros::dec;
+        let mut t1 = make_tick_pq(dec!(100), dec!(2));
+        t1.side = Some(TradeSide::Buy);
+        let mut t2 = make_tick_pq(dec!(100), dec!(9));
+        t2.side = Some(TradeSide::Buy);
+        assert_eq!(NormalizedTick::largest_buy(&[t1, t2]), Some(dec!(9)));
+    }
+
+    // ── NormalizedTick::trade_count ───────────────────────────────────────────
+
+    #[test]
+    fn test_trade_count_zero_for_empty() {
+        assert_eq!(NormalizedTick::trade_count(&[]), 0);
+    }
+
+    #[test]
+    fn test_trade_count_matches_slice_length() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![make_tick_pq(dec!(100), dec!(1)), make_tick_pq(dec!(101), dec!(2))];
+        assert_eq!(NormalizedTick::trade_count(&ticks), 2);
     }
 }
