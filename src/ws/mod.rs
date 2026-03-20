@@ -894,4 +894,22 @@ mod tests {
         let rate = stats.byte_rate(1_000); // 1 second
         assert!((rate - 1_000_000.0).abs() < 1.0);
     }
+
+    // ── WsStats::avg_message_size ─────────────────────────────────────────────
+
+    #[test]
+    fn test_avg_message_size_none_when_no_messages() {
+        let stats = WsStats::default();
+        assert!(stats.avg_message_size().is_none());
+    }
+
+    #[test]
+    fn test_avg_message_size_basic() {
+        let stats = WsStats {
+            total_messages_received: 10,
+            total_bytes_received: 1_000,
+        };
+        let avg = stats.avg_message_size().unwrap();
+        assert!((avg - 100.0).abs() < 1e-9);
+    }
 }

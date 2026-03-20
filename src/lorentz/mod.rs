@@ -1049,4 +1049,29 @@ mod tests {
         let p = SpacetimePoint::new(2.0, 3.0);
         assert!(p.distance_to(p).abs() < EPS);
     }
+
+    // ── LorentzTransform::gamma_at ────────────────────────────────────────────
+
+    #[test]
+    fn test_gamma_at_zero_is_one() {
+        assert!((LorentzTransform::gamma_at(0.0) - 1.0).abs() < EPS);
+    }
+
+    #[test]
+    fn test_gamma_at_matches_constructor_gamma() {
+        let lt = LorentzTransform::new(0.6).unwrap();
+        let expected = lt.gamma();
+        let computed = LorentzTransform::gamma_at(0.6);
+        assert!((computed - expected).abs() < EPS);
+    }
+
+    #[test]
+    fn test_gamma_at_one_is_infinite() {
+        assert!(LorentzTransform::gamma_at(1.0).is_infinite());
+    }
+
+    #[test]
+    fn test_gamma_at_above_one_is_nan() {
+        assert!(LorentzTransform::gamma_at(1.1).is_nan());
+    }
 }

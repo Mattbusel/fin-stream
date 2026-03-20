@@ -955,4 +955,35 @@ mod tests {
         let fh = m.get("X").unwrap();
         assert!(!fh.is_healthy());
     }
+
+    // ── HealthMonitor::most_stale_feed ────────────────────────────────────────
+
+    #[test]
+    fn test_most_stale_feed_none_when_no_feeds() {
+        let m = HealthMonitor::new(5_000);
+        assert!(m.most_stale_feed().is_none());
+    }
+
+    #[test]
+    fn test_most_stale_feed_returns_unticked_feed_first() {
+        let m = HealthMonitor::new(5_000);
+        m.register("A", None);
+        m.register("B", None);
+        m.heartbeat("A", 1_000_000).unwrap();
+        // B never received a tick → most stale
+        let stale = m.most_stale_feed().unwrap();
+        assert_eq!(stale.feed_id, "B");
+    }
+
+    #[test]
+    fn test_most_stale_feed_returns_oldest_last_tick() {
+        let m = HealthMonitor::new(5_000);
+        m.register("A", None);
+        m.register("B", None);
+        m.heartbeat("A", 1_000).unwrap();
+        m.heartbeat("B", 5_000).unwrap();
+        // A has older last_tick_ms → most stale
+        let stale = m.most_stale_feed().unwrap();
+        assert_eq!(stale.feed_id, "A");
+    }
 }

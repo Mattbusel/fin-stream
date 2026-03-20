@@ -1240,4 +1240,48 @@ mod tests {
         let sa = sa(MarketSession::UsEquity);
         assert!(!sa.is_market_hours(SAT_UTC_MS));
     }
+
+    // ── MarketSession::has_extended_hours ─────────────────────────────────────
+
+    #[test]
+    fn test_us_equity_has_extended_hours() {
+        assert!(MarketSession::UsEquity.has_extended_hours());
+    }
+
+    #[test]
+    fn test_crypto_has_no_extended_hours() {
+        assert!(!MarketSession::Crypto.has_extended_hours());
+    }
+
+    #[test]
+    fn test_forex_has_no_extended_hours() {
+        assert!(!MarketSession::Forex.has_extended_hours());
+    }
+
+    // ── SessionAwareness::time_in_session_ms ──────────────────────────────────
+
+    #[test]
+    fn test_time_in_session_ms_none_when_closed() {
+        let sa = sa(MarketSession::UsEquity);
+        assert!(sa.time_in_session_ms(SAT_UTC_MS).is_none());
+    }
+
+    #[test]
+    fn test_time_in_session_ms_none_for_crypto() {
+        let sa = sa(MarketSession::Crypto);
+        assert!(sa.time_in_session_ms(MON_OPEN_UTC_MS).is_none());
+    }
+
+    #[test]
+    fn test_time_in_session_ms_zero_at_open() {
+        let sa = sa(MarketSession::UsEquity);
+        assert_eq!(sa.time_in_session_ms(MON_OPEN_UTC_MS).unwrap(), 0);
+    }
+
+    #[test]
+    fn test_time_in_session_ms_one_hour_in() {
+        let sa = sa(MarketSession::UsEquity);
+        let one_hour_in = MON_OPEN_UTC_MS + 3_600_000;
+        assert_eq!(sa.time_in_session_ms(one_hour_in).unwrap(), 3_600_000);
+    }
 }
