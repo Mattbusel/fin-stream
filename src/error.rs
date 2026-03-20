@@ -552,6 +552,17 @@ impl StreamError {
     pub fn error_category_code(&self) -> u32 {
         self.to_error_code() / 1000
     }
+
+    /// Returns `true` for ring-buffer and backpressure errors (category 5xxx).
+    pub fn is_buffer_error(&self) -> bool {
+        matches!(
+            self,
+            StreamError::Backpressure { .. }
+                | StreamError::RingBufferFull { .. }
+                | StreamError::RingBufferEmpty
+        )
+    }
+
 }
 
 #[cfg(test)]

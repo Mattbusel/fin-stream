@@ -965,6 +965,21 @@ impl OrderBook {
         (spread / mid).to_f64()
     }
 
+    /// Bid-ask volume imbalance: `(bid_vol - ask_vol) / (bid_vol + ask_vol)`.
+    ///
+    /// Returns a value in `[-1.0, 1.0]`. Positive = more bid volume; negative = more ask volume.
+    /// Returns `None` if both sides are empty.
+    pub fn volume_imbalance(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let bid = self.total_bid_volume();
+        let ask = self.total_ask_volume();
+        let total = bid + ask;
+        if total.is_zero() {
+            return None;
+        }
+        ((bid - ask) / total).to_f64()
+    }
+
     fn check_crossed(&self) -> Result<(), StreamError> {
         if let (Some(bid), Some(ask)) = (self.best_bid(), self.best_ask()) {
             if bid.price >= ask.price {

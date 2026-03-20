@@ -660,6 +660,27 @@ impl LorentzTransform {
     pub fn warp_factor(&self) -> f64 {
         self.gamma().cbrt()
     }
+
+    /// Four-momentum `(E, p)` in natural units (`c = 1`).
+    ///
+    /// Returns `(γ·mass, γ·mass·β)` where the first component is the relativistic
+    /// energy and the second is the relativistic momentum magnitude.
+    pub fn four_momentum(&self, mass: f64) -> (f64, f64) {
+        let g = self.gamma();
+        (g * mass, g * mass * self.beta)
+    }
+
+    /// Relativistic momentum per unit rest mass: `γ × β`.
+    ///
+    /// Scales linearly with β at low speeds; diverges as β → 1.
+    pub fn momentum_ratio(&self) -> f64 {
+        self.gamma() * self.beta
+    }
+
+    /// Returns `true` if β > 0.9, the conventional ultra-relativistic threshold.
+    pub fn is_ultra_relativistic(&self) -> bool {
+        self.beta > 0.9
+    }
 }
 
 #[cfg(test)]

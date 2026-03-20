@@ -600,6 +600,16 @@ impl OhlcvBar {
         self.open == self.close && self.high == self.low && self.open == self.high
     }
 
+    /// True range: `max(high - low, |high - prev_close|, |low - prev_close|)`.
+    ///
+    /// This is the ATR building block. Without a previous close, returns `high - low`.
+    pub fn true_range_with_prev(&self, prev_close: Decimal) -> Decimal {
+        let hl = self.high - self.low;
+        let hc = (self.high - prev_close).abs();
+        let lc = (self.low - prev_close).abs();
+        hl.max(hc).max(lc)
+    }
+
     /// Returns the ratio of close to high, or `None` if high is zero.
     pub fn close_to_high_ratio(&self) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
