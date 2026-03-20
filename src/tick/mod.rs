@@ -11,8 +11,10 @@
 //! - Thread-safe: TickNormalizer is Send + Sync
 
 use crate::error::StreamError;
+use chrono::DateTime;
 use rust_decimal::Decimal;
 use std::str::FromStr;
+use tracing::trace;
 
 /// Supported exchanges.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
@@ -120,12 +122,20 @@ impl TickNormalizer {
 
     /// Normalize a raw tick into canonical form.
     pub fn normalize(&self, raw: RawTick) -> Result<NormalizedTick, StreamError> {
-        match raw.exchange {
+        let tick = match raw.exchange {
             Exchange::Binance => self.normalize_binance(raw),
             Exchange::Coinbase => self.normalize_coinbase(raw),
             Exchange::Alpaca => self.normalize_alpaca(raw),
             Exchange::Polygon => self.normalize_polygon(raw),
-        }
+        }?;
+        trace!(
+            exchange = %tick.exchange,
+            symbol = %tick.symbol,
+            price = %tick.price,
+            exchange_ts_ms = ?tick.exchange_ts_ms,
+            "tick normalized"
+        );
+        Ok(tick)
     }
 
     fn normalize_binance(&self, raw: RawTick) -> Result<NormalizedTick, StreamError> {
@@ -168,6 +178,12 @@ impl TickNormalizer {
             .get("trade_id")
             .and_then(|v| v.as_str())
             .map(str::to_string);
+        // Coinbase Advanced Trade sends an ISO 8601 timestamp in the "time" field.
+        let exchange_ts_ms = p
+            .get("time")
+            .and_then(|v| v.as_str())
+            .and_then(|s| DateTime::parse_from_rfc3339(s).ok())
+            .map(|dt| dt.timestamp_millis() as u64);
         Ok(NormalizedTick {
             exchange: raw.exchange,
             symbol: raw.symbol,
@@ -175,7 +191,7 @@ impl TickNormalizer {
             quantity: qty,
             side,
             trade_id,
-            exchange_ts_ms: None,
+            exchange_ts_ms,
             received_at_ms: raw.received_at_ms,
         })
     }
@@ -231,15 +247,20 @@ fn parse_decimal_field(
         exchange: exchange.to_string(),
         reason: format!("missing field '{}'", field),
     })?;
-    let s = if let Some(s) = raw.as_str() {
-        s.to_string()
-    } else if let Some(n) = raw.as_f64() {
-        n.to_string()
-    } else {
-        return Err(StreamError::ParseError {
-            exchange: exchange.to_string(),
-            reason: format!("field '{}' is not a string or number", field),
-        });
+    // Use the JSON-native string representation for both string and number
+    // values. For JSON strings this is a direct parse. For JSON numbers we use
+    // serde_json::Number::to_string(), which preserves the original text (e.g.
+    // "50000.12345678") rather than round-tripping through f64 and losing
+    // sub-microsecond precision.
+    let s: String = match raw {
+        serde_json::Value::String(s) => s.clone(),
+        serde_json::Value::Number(n) => n.to_string(),
+        _ => {
+            return Err(StreamError::ParseError {
+                exchange: exchange.to_string(),
+                reason: format!("field '{}' is not a string or number", field),
+            });
+        }
     };
     Decimal::from_str(&s).map_err(|e| StreamError::ParseError {
         exchange: exchange.to_string(),

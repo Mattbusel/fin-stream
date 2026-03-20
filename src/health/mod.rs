@@ -104,15 +104,26 @@ impl HealthMonitor {
         );
     }
 
+    /// Remove a previously registered feed from the monitor.
+    ///
+    /// Returns the last known [`FeedHealth`] for the feed, or `None` if it
+    /// was not registered.
+    pub fn deregister(&self, feed_id: &str) -> Option<FeedHealth> {
+        self.feeds.remove(feed_id).map(|(_, v)| v)
+    }
+
     /// Record a tick heartbeat for a feed.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StreamError::UnknownFeed`] if `feed_id` has not been
+    /// registered via [`register`](Self::register).
     pub fn heartbeat(&self, feed_id: &str, ts_ms: u64) -> Result<(), StreamError> {
         let mut entry = self
             .feeds
             .get_mut(feed_id)
-            .ok_or_else(|| StreamError::StaleFeed {
+            .ok_or_else(|| StreamError::UnknownFeed {
                 feed_id: feed_id.to_string(),
-                elapsed_ms: 0,
-                threshold_ms: 0,
             })?;
         entry.last_tick_ms = Some(ts_ms);
         entry.tick_count += 1;
@@ -152,13 +163,12 @@ impl HealthMonitor {
         self.feeds.iter().map(|e| e.clone()).collect()
     }
 
-    /// Number of registered feeds.
     /// Total number of registered feeds.
     pub fn feed_count(&self) -> usize {
         self.feeds.len()
     }
 
-    /// Count of feeds by status.
+    /// Number of feeds currently in the [`HealthStatus::Healthy`] state.
     pub fn healthy_count(&self) -> usize {
         self.feeds
             .iter()
@@ -213,10 +223,10 @@ mod tests {
     }
 
     #[test]
-    fn test_heartbeat_unknown_feed_returns_error() {
+    fn test_heartbeat_unknown_feed_returns_unknown_feed_error() {
         let m = monitor();
         let result = m.heartbeat("ghost", 1000);
-        assert!(result.is_err());
+        assert!(matches!(result, Err(StreamError::UnknownFeed { .. })));
     }
 
     #[test]
@@ -371,5 +381,32 @@ mod tests {
     fn test_circuit_open_returns_false_for_unknown_feed() {
         let m = monitor();
         assert!(!m.is_circuit_open("ghost"));
+    }
+
+    #[test]
+    fn test_deregister_removes_feed() {
+        let m = monitor();
+        m.register("BTC-USD", None);
+        m.heartbeat("BTC-USD", 1_000_000).unwrap();
+        let removed = m.deregister("BTC-USD");
+        assert!(removed.is_some());
+        assert_eq!(removed.unwrap().feed_id, "BTC-USD");
+        assert!(m.get("BTC-USD").is_none());
+        assert_eq!(m.feed_count(), 0);
+    }
+
+    #[test]
+    fn test_deregister_unknown_feed_returns_none() {
+        let m = monitor();
+        assert!(m.deregister("ghost").is_none());
+    }
+
+    #[test]
+    fn test_heartbeat_after_deregister_returns_unknown_feed_error() {
+        let m = monitor();
+        m.register("BTC-USD", None);
+        m.deregister("BTC-USD");
+        let result = m.heartbeat("BTC-USD", 1_000_000);
+        assert!(matches!(result, Err(StreamError::UnknownFeed { .. })));
     }
 }

@@ -87,13 +87,13 @@ fn test_pipeline_processes_all_stages() {
     assert_eq!(bar.bar_start_ms, 60_000);
 
     // Stage 3: MinMax normalization of the close price.
-    let mut normalizer = MinMaxNormalizer::new(4);
+    let mut normalizer = MinMaxNormalizer::new(4).unwrap();
     // Seed the window with the known price range.
-    normalizer.update(49000.0);
-    normalizer.update(51000.0);
+    normalizer.update(dec!(49000));
+    normalizer.update(dec!(51000));
 
     let close_f64 = bar.close.to_string().parse::<f64>().unwrap();
-    let normalized = normalizer.normalize(close_f64).unwrap();
+    let normalized = normalizer.normalize(bar.close).unwrap();
     assert!(
         normalized >= 0.0 && normalized <= 1.0,
         "normalized close must be in [0, 1], got {normalized}"
@@ -130,8 +130,8 @@ fn test_pipeline_empty_input_no_panic() {
     assert!(agg.current_bar().is_none());
 
     // Normalizer with empty window: normalize must return an error (not panic).
-    let mut norm = MinMaxNormalizer::new(4);
-    let err = norm.normalize(1.0).unwrap_err();
+    let mut norm = MinMaxNormalizer::new(4).unwrap();
+    let err = norm.normalize(dec!(1)).unwrap_err();
     assert!(matches!(err, StreamError::NormalizationError { .. }));
 
     // Lorentz transform with beta = 0 is the identity — must not panic.
@@ -184,8 +184,8 @@ fn test_pipeline_ring_to_ohlcv_fifo_ordering() {
 /// Normalization of a sequence of close prices must produce values in [0, 1].
 #[test]
 fn test_pipeline_normalization_bounds() {
-    let closes = [50000.0_f64, 50100.0, 49900.0, 50050.0, 50200.0];
-    let mut norm = MinMaxNormalizer::new(closes.len());
+    let closes = [dec!(50000), dec!(50100), dec!(49900), dec!(50050), dec!(50200)];
+    let mut norm = MinMaxNormalizer::new(closes.len()).unwrap();
     for &c in &closes {
         norm.update(c);
     }
@@ -226,7 +226,7 @@ fn test_pipeline_lorentz_invalid_beta_returns_error() {
 #[test]
 fn test_pipeline_multi_bar_sequence() {
     let mut agg = OhlcvAggregator::new("BTC-USD", Timeframe::Minutes(1)).unwrap();
-    let mut norm = MinMaxNormalizer::new(10);
+    let mut norm = MinMaxNormalizer::new(10).unwrap();
 
     let tick_groups: &[(rust_decimal::Decimal, u64)] = &[
         (dec!(50000), 60_000),  // bar 1
@@ -241,7 +241,7 @@ fn test_pipeline_multi_bar_sequence() {
         let tick = make_tick("BTC-USD", price, dec!(1), ts);
         let bars = agg.feed(&tick).unwrap();
         for bar in bars {
-            norm.update(bar.close.to_string().parse::<f64>().unwrap());
+            norm.update(bar.close);
             completed.push(bar);
         }
     }
@@ -253,8 +253,7 @@ fn test_pipeline_multi_bar_sequence() {
 
     // Normalizer has two observations; both should normalize cleanly.
     for bar in &completed {
-        let c = bar.close.to_string().parse::<f64>().unwrap();
-        let v = norm.normalize(c).unwrap();
+        let v = norm.normalize(bar.close).unwrap();
         assert!(v >= 0.0 && v <= 1.0);
     }
 }

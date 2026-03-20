@@ -27,8 +27,10 @@
 //! ## Performance
 //!
 //! The SPSC ring buffer sustains 100 K+ ticks/second with no heap allocation
-//! on the fast path. All error paths return `Result<_, StreamError>` -- the
-//! library never panics in release builds.
+//! on the fast path. All error paths return `Result<_, StreamError>` — the
+//! library never panics on the hot path. Construction functions validate their
+//! arguments and panic on misuse with a clear message (e.g. ring capacity of 0,
+//! normalizer window size of 0).
 //!
 //! ## Modules
 //!
@@ -45,24 +47,15 @@
 //! [`tick`] | Raw-to-normalized tick conversion for all exchanges |
 //! [`ws`] | WebSocket connection management and reconnect policy |
 
-#[path = "book/mod.rs"]
 pub mod book;
 pub mod error;
-#[path = "health/mod.rs"]
 pub mod health;
-#[path = "lorentz/mod.rs"]
 pub mod lorentz;
-#[path = "norm/mod.rs"]
 pub mod norm;
-#[path = "ohlcv/mod.rs"]
 pub mod ohlcv;
-#[path = "ring/mod.rs"]
 pub mod ring;
-#[path = "session/mod.rs"]
 pub mod session;
-#[path = "tick/mod.rs"]
 pub mod tick;
-#[path = "ws/mod.rs"]
 pub mod ws;
 
 pub use book::{BookDelta, BookSide, OrderBook, PriceLevel};

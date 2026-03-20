@@ -40,6 +40,16 @@ impl Timeframe {
     }
 }
 
+impl std::fmt::Display for Timeframe {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Timeframe::Seconds(s) => write!(f, "{s}s"),
+            Timeframe::Minutes(m) => write!(f, "{m}m"),
+            Timeframe::Hours(h) => write!(f, "{h}h"),
+        }
+    }
+}
+
 /// A completed or partial OHLCV bar.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct OhlcvBar {
@@ -106,6 +116,13 @@ impl OhlcvAggregator {
     /// Feed a tick. Returns completed bars (including any empty gap bars when
     /// `emit_empty_bars` is true). At most one real completed bar plus zero or
     /// more empty bars can be returned per call.
+    ///
+    /// Bar boundaries are aligned using the exchange-side timestamp
+    /// (`exchange_ts_ms`) when available, falling back to the local system
+    /// clock (`received_at_ms`). Using the exchange timestamp avoids
+    /// misalignment caused by variable network latency.
+    #[must_use = "completed bars are returned; ignoring them loses bar data"]
+    #[inline]
     pub fn feed(&mut self, tick: &NormalizedTick) -> Result<Vec<OhlcvBar>, StreamError> {
         if tick.symbol != self.symbol {
             return Err(StreamError::ParseError {
@@ -116,38 +133,45 @@ impl OhlcvAggregator {
                 ),
             });
         }
-        let bar_start = self.timeframe.bar_start_ms(tick.received_at_ms);
+
+        // Prefer the authoritative exchange timestamp; fall back to local clock.
+        let tick_ts = tick.exchange_ts_ms.unwrap_or(tick.received_at_ms);
+        let bar_start = self.timeframe.bar_start_ms(tick_ts);
         let mut emitted: Vec<OhlcvBar> = Vec::new();
 
-        if let Some(prev) = &self.current_bar {
-            if prev.bar_start_ms != bar_start {
-                // Complete the previous bar.
-                let mut completed = prev.clone();
-                completed.is_complete = true;
-                let prev_close = completed.close;
-                let prev_start = completed.bar_start_ms;
-                emitted.push(completed);
-                self.current_bar = None;
+        // Check whether the incoming tick belongs to a new bar window.
+        let bar_window_changed = self
+            .current_bar
+            .as_ref()
+            .map(|b| b.bar_start_ms != bar_start)
+            .unwrap_or(false);
 
-                // Optionally fill any empty bar windows between prev_start and bar_start.
-                if self.emit_empty_bars {
-                    let dur = self.timeframe.duration_ms();
-                    let mut gap_start = prev_start + dur;
-                    while gap_start < bar_start {
-                        emitted.push(OhlcvBar {
-                            symbol: self.symbol.clone(),
-                            timeframe: self.timeframe,
-                            bar_start_ms: gap_start,
-                            open: prev_close,
-                            high: prev_close,
-                            low: prev_close,
-                            close: prev_close,
-                            volume: Decimal::ZERO,
-                            trade_count: 0,
-                            is_complete: true,
-                        });
-                        gap_start += dur;
-                    }
+        if bar_window_changed {
+            // Take ownership — avoids cloning the current bar.
+            let mut completed = self.current_bar.take().unwrap_or_else(|| unreachable!());
+            completed.is_complete = true;
+            let prev_close = completed.close;
+            let prev_start = completed.bar_start_ms;
+            emitted.push(completed);
+
+            // Optionally fill any empty bar windows between prev_start and bar_start.
+            if self.emit_empty_bars {
+                let dur = self.timeframe.duration_ms();
+                let mut gap_start = prev_start + dur;
+                while gap_start < bar_start {
+                    emitted.push(OhlcvBar {
+                        symbol: self.symbol.clone(),
+                        timeframe: self.timeframe,
+                        bar_start_ms: gap_start,
+                        open: prev_close,
+                        high: prev_close,
+                        low: prev_close,
+                        close: prev_close,
+                        volume: Decimal::ZERO,
+                        trade_count: 0,
+                        is_complete: true,
+                    });
+                    gap_start += dur;
                 }
             }
         }
@@ -188,6 +212,7 @@ impl OhlcvAggregator {
     }
 
     /// Flush the current partial bar as complete.
+    #[must_use = "the flushed bar is returned; ignoring it loses the partial bar"]
     pub fn flush(&mut self) -> Option<OhlcvBar> {
         let mut bar = self.current_bar.take()?;
         bar.is_complete = true;
@@ -224,6 +249,25 @@ mod tests {
         }
     }
 
+    fn make_tick_with_exchange_ts(
+        symbol: &str,
+        price: Decimal,
+        qty: Decimal,
+        exchange_ts_ms: u64,
+        received_at_ms: u64,
+    ) -> NormalizedTick {
+        NormalizedTick {
+            exchange: Exchange::Binance,
+            symbol: symbol.to_string(),
+            price,
+            quantity: qty,
+            side: Some(TradeSide::Buy),
+            trade_id: None,
+            exchange_ts_ms: Some(exchange_ts_ms),
+            received_at_ms,
+        }
+    }
+
     fn agg(symbol: &str, tf: Timeframe) -> OhlcvAggregator {
         OhlcvAggregator::new(symbol, tf).unwrap()
     }
@@ -248,6 +292,13 @@ mod tests {
         let tf = Timeframe::Minutes(1);
         let ts = 61_500; // 1min 1.5sec
         assert_eq!(tf.bar_start_ms(ts), 60_000);
+    }
+
+    #[test]
+    fn test_timeframe_display() {
+        assert_eq!(Timeframe::Seconds(30).to_string(), "30s");
+        assert_eq!(Timeframe::Minutes(5).to_string(), "5m");
+        assert_eq!(Timeframe::Hours(4).to_string(), "4h");
     }
 
     #[test]
@@ -363,6 +414,27 @@ mod tests {
         let agg = agg("ETH-USD", Timeframe::Hours(1));
         assert_eq!(agg.symbol(), "ETH-USD");
         assert_eq!(agg.timeframe(), Timeframe::Hours(1));
+    }
+
+    #[test]
+    fn test_bar_aligned_by_exchange_ts_not_received_ts() {
+        // exchange_ts_ms puts tick in minute 1 (60_000..120_000)
+        // received_at_ms puts tick in minute 2 (120_000..180_000) due to latency
+        // Bar should use the exchange timestamp.
+        let mut agg = agg("BTC-USD", Timeframe::Minutes(1));
+        let tick = make_tick_with_exchange_ts("BTC-USD", dec!(50000), dec!(1), 60_500, 120_100);
+        agg.feed(&tick).unwrap();
+        let bar = agg.current_bar().unwrap();
+        assert_eq!(bar.bar_start_ms, 60_000, "bar should use exchange_ts_ms");
+    }
+
+    #[test]
+    fn test_bar_falls_back_to_received_ts_when_no_exchange_ts() {
+        let mut agg = agg("BTC-USD", Timeframe::Minutes(1));
+        let tick = make_tick("BTC-USD", dec!(50000), dec!(1), 75_000);
+        agg.feed(&tick).unwrap();
+        let bar = agg.current_bar().unwrap();
+        assert_eq!(bar.bar_start_ms, 60_000);
     }
 
     // --- emit_empty_bars tests ---

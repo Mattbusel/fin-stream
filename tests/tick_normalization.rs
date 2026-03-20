@@ -13,10 +13,12 @@ use std::str::FromStr;
 /// must land in [0.0, 1.0].
 #[test]
 fn test_normalized_prices_in_unit_interval() {
-    let mut norm = MinMaxNormalizer::new(20);
+    let mut norm = MinMaxNormalizer::new(20).unwrap();
 
     // Simulate 20 sequential close prices
-    let prices: Vec<f64> = (0..20).map(|i| 50_000.0 + i as f64 * 100.0).collect();
+    let prices: Vec<Decimal> = (0..20)
+        .map(|i| dec!(50000) + Decimal::from(i) * dec!(100))
+        .collect();
     for &p in &prices {
         norm.update(p);
     }
@@ -33,18 +35,18 @@ fn test_normalized_prices_in_unit_interval() {
 /// Values outside the window range are clamped to [0, 1].
 #[test]
 fn test_normalized_value_clamped_outside_window() {
-    let mut norm = MinMaxNormalizer::new(5);
+    let mut norm = MinMaxNormalizer::new(5).unwrap();
     for i in 0..5 {
-        norm.update(i as f64 * 10.0); // window: [0, 10, 20, 30, 40]
+        norm.update(Decimal::from(i) * dec!(10)); // window: [0, 10, 20, 30, 40]
     }
 
     // Below min
-    assert_eq!(norm.normalize(-100.0).unwrap(), 0.0);
+    assert_eq!(norm.normalize(dec!(-100)).unwrap(), 0.0);
     // Above max
-    assert_eq!(norm.normalize(1_000.0).unwrap(), 1.0);
+    assert_eq!(norm.normalize(dec!(1000)).unwrap(), 1.0);
     // At boundaries
-    assert_eq!(norm.normalize(0.0).unwrap(), 0.0);
-    assert_eq!(norm.normalize(40.0).unwrap(), 1.0);
+    assert_eq!(norm.normalize(dec!(0)).unwrap(), 0.0);
+    assert_eq!(norm.normalize(dec!(40)).unwrap(), 1.0);
 }
 
 // ── Rolling window resets ─────────────────────────────────────────────────────
@@ -52,57 +54,57 @@ fn test_normalized_value_clamped_outside_window() {
 /// After `reset()`, the window is empty and `normalize()` returns an error.
 #[test]
 fn test_rolling_window_reset_makes_window_empty() {
-    let mut norm = MinMaxNormalizer::new(5);
+    let mut norm = MinMaxNormalizer::new(5).unwrap();
     for i in 0..5 {
-        norm.update(i as f64);
+        norm.update(Decimal::from(i));
     }
     assert!(!norm.is_empty());
     norm.reset();
     assert!(norm.is_empty());
-    assert!(norm.normalize(1.0).is_err());
+    assert!(norm.normalize(dec!(1)).is_err());
 }
 
 /// After a reset, feeding new values produces a fresh normalization range.
 #[test]
 fn test_rolling_window_reset_then_renormalize_fresh_range() {
-    let mut norm = MinMaxNormalizer::new(3);
+    let mut norm = MinMaxNormalizer::new(3).unwrap();
     // First range: 0..10
-    norm.update(0.0);
-    norm.update(5.0);
-    norm.update(10.0);
-    assert_eq!(norm.normalize(10.0).unwrap(), 1.0);
+    norm.update(dec!(0));
+    norm.update(dec!(5));
+    norm.update(dec!(10));
+    assert_eq!(norm.normalize(dec!(10)).unwrap(), 1.0);
 
     norm.reset();
 
     // New range: 100..200
-    norm.update(100.0);
-    norm.update(150.0);
-    norm.update(200.0);
+    norm.update(dec!(100));
+    norm.update(dec!(150));
+    norm.update(dec!(200));
     // Now 100 should normalize to 0.0 and 200 to 1.0
-    assert_eq!(norm.normalize(100.0).unwrap(), 0.0);
-    assert_eq!(norm.normalize(200.0).unwrap(), 1.0);
+    assert_eq!(norm.normalize(dec!(100)).unwrap(), 0.0);
+    assert_eq!(norm.normalize(dec!(200)).unwrap(), 1.0);
     // 150 should be 0.5
-    let mid = norm.normalize(150.0).unwrap();
+    let mid = norm.normalize(dec!(150)).unwrap();
     assert!((mid - 0.5).abs() < 1e-10, "mid should be 0.5, got {mid}");
 }
 
 /// The rolling window evicts old values and the normalization range shifts.
 #[test]
 fn test_rolling_window_evicts_and_range_shifts() {
-    let mut norm = MinMaxNormalizer::new(3);
-    norm.update(0.0); // will be evicted on 4th update
-    norm.update(50.0);
-    norm.update(100.0);
+    let mut norm = MinMaxNormalizer::new(3).unwrap();
+    norm.update(dec!(0)); // will be evicted on 4th update
+    norm.update(dec!(50));
+    norm.update(dec!(100));
 
     let (min1, max1) = norm.min_max().unwrap();
-    assert_eq!(min1, 0.0);
-    assert_eq!(max1, 100.0);
+    assert_eq!(min1, dec!(0));
+    assert_eq!(max1, dec!(100));
 
-    // 4th update evicts 0.0; new window: [50, 100, 200]
-    norm.update(200.0);
+    // 4th update evicts 0; new window: [50, 100, 200]
+    norm.update(dec!(200));
     let (min2, max2) = norm.min_max().unwrap();
-    assert_eq!(min2, 50.0);
-    assert_eq!(max2, 200.0);
+    assert_eq!(min2, dec!(50));
+    assert_eq!(max2, dec!(200));
 }
 
 // ── All exchange normalizations produce values within expected range ──────────
@@ -152,7 +154,7 @@ fn test_all_exchange_normalized_tick_has_positive_price() {
 #[test]
 fn test_normalized_binance_ticks_in_unit_interval_via_min_max() {
     let normalizer = TickNormalizer::new();
-    let mut norm = MinMaxNormalizer::new(10);
+    let mut norm = MinMaxNormalizer::new(10).unwrap();
 
     let prices = [
         "50000", "50100", "49900", "50200", "49800", "50300", "49700", "50400", "49600", "50500",
@@ -168,14 +170,12 @@ fn test_normalized_binance_ticks_in_unit_interval_via_min_max() {
 
     // Seed the normalizer with all prices
     for tick in &ticks {
-        let price_f64: f64 = tick.price.to_string().parse().unwrap();
-        norm.update(price_f64);
+        norm.update(tick.price);
     }
 
     // Every tick's price should normalize to [0, 1]
     for tick in &ticks {
-        let price_f64: f64 = tick.price.to_string().parse().unwrap();
-        let v = norm.normalize(price_f64).unwrap();
+        let v = norm.normalize(tick.price).unwrap();
         assert!(
             (0.0..=1.0).contains(&v),
             "normalized price {} = {} is out of [0, 1]",

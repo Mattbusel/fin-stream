@@ -138,6 +138,7 @@ impl LorentzTransform {
     /// ```
     ///
     /// # Complexity: O(1), no heap allocation.
+    #[must_use]
     pub fn transform(&self, p: SpacetimePoint) -> SpacetimePoint {
         let t_prime = self.gamma * (p.t - self.beta * p.x);
         let x_prime = self.gamma * (p.x - self.beta * p.t);
@@ -159,6 +160,7 @@ impl LorentzTransform {
     /// point rounding.
     ///
     /// # Complexity: O(1), no heap allocation.
+    #[must_use]
     pub fn inverse_transform(&self, p: SpacetimePoint) -> SpacetimePoint {
         let t_orig = self.gamma * (p.t + self.beta * p.x);
         let x_orig = self.gamma * (p.x + self.beta * p.t);

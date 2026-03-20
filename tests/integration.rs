@@ -188,7 +188,7 @@ fn test_health_monitor_multi_feed_scenario() {
 
 // ── Session awareness ────────────────────────────────────────────────────────
 
-const SAT_UTC_MS: u64 = 1705104000000;
+const SAT_UTC_MS: u64 = 1705147200000; // 2024-01-13 12:00 UTC = 07:00 EST (Saturday in ET)
 const MON_OPEN_UTC_MS: u64 = 1704724200000; // Mon Jan 08 2024 14:30 UTC = 09:30 ET
 
 #[test]
@@ -354,12 +354,11 @@ fn test_tick_to_ohlcv_to_normalized_pipeline() {
     assert_eq!(bar.trade_count, 5);
 
     // Normalize the close price.
-    let mut norm = MinMaxNormalizer::new(10);
+    let mut norm = MinMaxNormalizer::new(10).unwrap();
     for &p in prices {
-        norm.update(p);
+        norm.update(Decimal::try_from(p).unwrap());
     }
-    let close_f64: f64 = bar.close.to_string().parse().unwrap();
-    let normalized = norm.normalize(close_f64).unwrap();
+    let normalized = norm.normalize(bar.close).unwrap();
     assert!((0.0..=1.0).contains(&normalized));
 }
 
@@ -385,16 +384,16 @@ fn test_lorentz_transform_on_ohlcv_timestamps() {
 /// Pipeline: normalize prices, then apply Lorentz transform to (time, price).
 #[test]
 fn test_normalize_then_lorentz_pipeline() {
-    let mut norm = MinMaxNormalizer::new(5);
+    let mut norm = MinMaxNormalizer::new(5).unwrap();
     let prices: &[f64] = &[100.0, 105.0, 95.0, 110.0, 90.0];
     for &p in prices {
-        norm.update(p);
+        norm.update(Decimal::try_from(p).unwrap());
     }
 
     let lt = LorentzTransform::new(0.3).unwrap();
 
     for (i, &p) in prices.iter().enumerate() {
-        let x = norm.normalize(p).unwrap(); // in [0, 1]
+        let x = norm.normalize(Decimal::try_from(p).unwrap()).unwrap(); // in [0, 1]
         let t = i as f64;
         let pt = SpacetimePoint::new(t, x);
         let transformed = lt.transform(pt);

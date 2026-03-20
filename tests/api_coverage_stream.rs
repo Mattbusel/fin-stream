@@ -124,39 +124,39 @@ fn test_spacetime_point_fields_round_trip() {
 
 #[test]
 fn test_min_max_normalizer_window_size_accessor() {
-    let n = MinMaxNormalizer::new(8);
+    let n = MinMaxNormalizer::new(8).unwrap();
     assert_eq!(n.window_size(), 8);
 }
 
 #[test]
 fn test_min_max_normalizer_is_empty_before_update() {
-    let n = MinMaxNormalizer::new(4);
+    let n = MinMaxNormalizer::new(4).unwrap();
     assert!(n.is_empty());
 }
 
 #[test]
 fn test_min_max_normalizer_not_empty_after_update() {
-    let mut n = MinMaxNormalizer::new(4);
-    n.update(10.0);
+    let mut n = MinMaxNormalizer::new(4).unwrap();
+    n.update(dec!(10));
     assert!(!n.is_empty());
 }
 
 #[test]
 fn test_min_max_normalizer_reset_clears_state() {
-    let mut n = MinMaxNormalizer::new(4);
-    n.update(10.0);
-    n.update(20.0);
+    let mut n = MinMaxNormalizer::new(4).unwrap();
+    n.update(dec!(10));
+    n.update(dec!(20));
     assert!(!n.is_empty());
     n.reset();
     assert!(n.is_empty());
     // After reset, normalize must fail (empty window).
-    assert!(n.normalize(15.0).is_err());
+    assert!(n.normalize(dec!(15)).is_err());
 }
 
 #[test]
 fn test_min_max_normalizer_normalize_empty_returns_error() {
-    let mut n = MinMaxNormalizer::new(4);
-    assert!(n.normalize(5.0).is_err());
+    let mut n = MinMaxNormalizer::new(4).unwrap();
+    assert!(n.normalize(dec!(5)).is_err());
 }
 
 // ── OhlcvAggregator ────────────────────────────────────────────────────────

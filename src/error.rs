@@ -5,6 +5,8 @@
 //! backpressure, and the streaming pipeline internals (ring buffer, aggregation,
 //! normalization, transforms).
 
+use rust_decimal::Decimal;
+
 /// Unified error type for all fin-stream pipeline operations.
 ///
 /// Each variant carries enough context to reconstruct the failure site without
@@ -59,6 +61,24 @@ pub enum StreamError {
         threshold_ms: u64,
     },
 
+    /// Feed identifier is not registered with the health monitor.
+    #[error("Unknown feed '{feed_id}': not registered with the health monitor")]
+    UnknownFeed {
+        /// Identifier of the feed that was not found.
+        feed_id: String,
+    },
+
+    /// A configuration parameter is invalid.
+    ///
+    /// Returned by constructors when a parameter violates documented invariants
+    /// (e.g. reconnect multiplier < 1.0, zero channel capacity). Distinct from
+    /// runtime errors such as [`ConnectionFailed`](Self::ConnectionFailed).
+    #[error("Invalid configuration: {reason}")]
+    ConfigError {
+        /// Description of the configuration violation.
+        reason: String,
+    },
+
     /// Order book reconstruction failed.
     #[error("Order book reconstruction failed for '{symbol}': {reason}")]
     BookReconstructionFailed {
@@ -73,10 +93,21 @@ pub enum StreamError {
     BookCrossed {
         /// Symbol with the crossed book.
         symbol: String,
-        /// Best bid price as a string.
-        bid: String,
-        /// Best ask price as a string.
-        ask: String,
+        /// Best bid price.
+        bid: Decimal,
+        /// Best ask price.
+        ask: Decimal,
+    },
+
+    /// Order book sequence gap detected — one or more deltas were skipped.
+    #[error("Sequence gap for '{symbol}': expected {expected}, got {got}")]
+    SequenceGap {
+        /// Symbol whose delta stream has a gap.
+        symbol: String,
+        /// The sequence number that was expected.
+        expected: u64,
+        /// The sequence number that was actually received.
+        got: u64,
     },
 
     /// Backpressure: the downstream channel is full.
@@ -214,6 +245,23 @@ mod tests {
     }
 
     #[test]
+    fn test_unknown_feed_display() {
+        let e = StreamError::UnknownFeed {
+            feed_id: "ghost-feed".into(),
+        };
+        assert!(e.to_string().contains("ghost-feed"));
+        assert!(e.to_string().contains("not registered"));
+    }
+
+    #[test]
+    fn test_config_error_display() {
+        let e = StreamError::ConfigError {
+            reason: "multiplier must be >= 1.0".into(),
+        };
+        assert!(e.to_string().contains("multiplier"));
+    }
+
+    #[test]
     fn test_book_reconstruction_failed_display() {
         let e = StreamError::BookReconstructionFailed {
             symbol: "ETH-USD".into(),
@@ -226,10 +274,22 @@ mod tests {
     fn test_book_crossed_display() {
         let e = StreamError::BookCrossed {
             symbol: "BTC-USD".into(),
-            bid: "50001".into(),
-            ask: "50000".into(),
+            bid: Decimal::from(50001u32),
+            ask: Decimal::from(50000u32),
         };
         assert!(e.to_string().contains("crossed"));
+        assert!(e.to_string().contains("BTC-USD"));
+    }
+
+    #[test]
+    fn test_sequence_gap_display() {
+        let e = StreamError::SequenceGap {
+            symbol: "BTC-USD".into(),
+            expected: 5,
+            got: 7,
+        };
+        assert!(e.to_string().contains("5"));
+        assert!(e.to_string().contains("7"));
     }
 
     #[test]

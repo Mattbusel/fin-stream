@@ -9,12 +9,15 @@
 //! only the consumer writes `head`; each side therefore needs only
 //! `Acquire`/`Release` ordering, with no compare-and-swap loops.
 //!
-//! The buffer capacity is `N` items. The implementation leaves one slot unused
-//! (the "full" sentinel) so that `head == tail` unambiguously means *empty* and
-//! `tail - head == N` (modulo wrap) unambiguously means *full*. Wrap-around is
-//! handled by taking indices modulo `N` only when indexing the backing array,
-//! while the raw counters grow monotonically (up to `usize::MAX`); this avoids
-//! the classic ABA hazard on 64-bit platforms for any realistic workload.
+//! The buffer capacity is `N - 1` items. One slot is kept as the "full"
+//! sentinel so that `head == tail` unambiguously means *empty* and
+//! `tail - head == N - 1` (wrapping) unambiguously means *full*.
+//! Raw counters grow monotonically (up to `usize::MAX`), avoiding the classic
+//! ABA hazard on 64-bit platforms.
+//!
+//! Slots are backed by `MaybeUninit<T>` instead of `Option<T>`, removing the
+//! discriminant overhead and any branch in push/pop on the hot path.
+//! A custom `Drop` impl drains any remaining items to prevent leaks.
 //!
 //! ## Complexity
 //!
@@ -39,14 +42,14 @@
 
 use crate::error::StreamError;
 use std::cell::UnsafeCell;
+use std::mem::MaybeUninit;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
 /// A fixed-capacity SPSC ring buffer that holds items of type `T`.
 ///
-/// The const generic `N` sets the number of usable slots. The backing array
-/// has exactly `N` elements; one is kept as a sentinel so the buffer can hold
-/// at most `N - 1` items concurrently.
+/// The const generic `N` sets the number of backing slots. One slot is kept as
+/// a sentinel, so the buffer holds at most `N - 1` items concurrently.
 ///
 /// # Example
 ///
@@ -58,7 +61,7 @@ use std::sync::Arc;
 /// assert_eq!(ring.pop().unwrap(), 42);
 /// ```
 pub struct SpscRing<T, const N: usize> {
-    buf: Box<[UnsafeCell<Option<T>>; N]>,
+    buf: Box<[UnsafeCell<MaybeUninit<T>>; N]>,
     head: AtomicUsize,
     tail: AtomicUsize,
 }
@@ -73,22 +76,14 @@ impl<T, const N: usize> SpscRing<T, N> {
     /// # Panics
     ///
     /// Panics if `N <= 1`. The const generic `N` must be at least 2 to hold at
-    /// least one item (one slot is reserved as the full/empty sentinel). This
-    /// is an API misuse guard; it cannot be expressed as a compile-time error
-    /// with stable Rust const-generics.
-    ///
-    /// # Complexity
-    ///
-    /// O(N) for initialization of the backing array.
+    /// least one item (one slot is reserved as the full/empty sentinel).
     pub fn new() -> Self {
-        // API misuse guard: N == 0 or N == 1 makes the ring useless (0 items
-        // of usable capacity). This is intentional and documented.
         if N <= 1 {
             panic!("SpscRing capacity N must be > 1 (N={N})");
         }
-        // SAFETY: MaybeUninit array initialized element-by-element before use.
-        let buf: Vec<UnsafeCell<Option<T>>> = (0..N).map(|_| UnsafeCell::new(None)).collect();
-        let buf: Box<[UnsafeCell<Option<T>>; N]> = buf
+        let buf: Vec<UnsafeCell<MaybeUninit<T>>> =
+            (0..N).map(|_| UnsafeCell::new(MaybeUninit::uninit())).collect();
+        let buf: Box<[UnsafeCell<MaybeUninit<T>>; N]> = buf
             .try_into()
             .unwrap_or_else(|_| unreachable!("length is exactly N"));
         Self {
@@ -99,16 +94,12 @@ impl<T, const N: usize> SpscRing<T, N> {
     }
 
     /// Returns `true` if the buffer contains no items.
-    ///
-    /// # Complexity: O(1)
     #[inline]
     pub fn is_empty(&self) -> bool {
         self.head.load(Ordering::Acquire) == self.tail.load(Ordering::Acquire)
     }
 
     /// Returns `true` if the buffer has no free slots.
-    ///
-    /// # Complexity: O(1)
     #[inline]
     pub fn is_full(&self) -> bool {
         let head = self.head.load(Ordering::Acquire);
@@ -117,8 +108,6 @@ impl<T, const N: usize> SpscRing<T, N> {
     }
 
     /// Number of items currently in the buffer.
-    ///
-    /// # Complexity: O(1)
     #[inline]
     pub fn len(&self) -> usize {
         let head = self.head.load(Ordering::Acquire);
@@ -137,14 +126,9 @@ impl<T, const N: usize> SpscRing<T, N> {
     /// Returns `Err(StreamError::RingBufferFull)` if the buffer is full.
     /// Never panics.
     ///
-    /// # Complexity: O(1), allocation-free
-    ///
-    /// # Throughput note
-    ///
-    /// This is the hot path. It performs one `Acquire` load, one array write,
-    /// and one `Release` store. On a modern out-of-order CPU these three
-    /// operations typically retire within a single cache line access.
+    /// # Complexity: O(1), allocation-free.
     #[inline]
+    #[must_use = "dropping a push result silently discards the item when full"]
     pub fn push(&self, item: T) -> Result<(), StreamError> {
         let head = self.head.load(Ordering::Acquire);
         let tail = self.tail.load(Ordering::Relaxed);
@@ -155,7 +139,7 @@ impl<T, const N: usize> SpscRing<T, N> {
         // SAFETY: Only the producer writes to `tail % N` after checking the
         // distance invariant. No aliased mutable reference exists.
         unsafe {
-            *self.buf[slot].get() = Some(item);
+            (*self.buf[slot].get()).write(item);
         }
         self.tail.store(tail.wrapping_add(1), Ordering::Release);
         Ok(())
@@ -166,8 +150,9 @@ impl<T, const N: usize> SpscRing<T, N> {
     /// Returns `Err(StreamError::RingBufferEmpty)` if the buffer is empty.
     /// Never panics.
     ///
-    /// # Complexity: O(1), allocation-free
+    /// # Complexity: O(1), allocation-free.
     #[inline]
+    #[must_use = "dropping a pop result discards the dequeued item"]
     pub fn pop(&self) -> Result<T, StreamError> {
         let tail = self.tail.load(Ordering::Acquire);
         let head = self.head.load(Ordering::Relaxed);
@@ -175,18 +160,18 @@ impl<T, const N: usize> SpscRing<T, N> {
             return Err(StreamError::RingBufferEmpty);
         }
         let slot = head % N;
-        // SAFETY: Only the consumer reads from `head % N` after confirming
-        // the slot was written by the producer (tail > head).
-        let item = unsafe { (*self.buf[slot].get()).take() };
+        // SAFETY: The slot was written by the producer (tail > head guarantees
+        // it). assume_init_read() moves the value out; advancing head then
+        // marks the slot available for the producer to overwrite.
+        let item = unsafe { (*self.buf[slot].get()).assume_init_read() };
         self.head.store(head.wrapping_add(1), Ordering::Release);
-        item.ok_or(StreamError::RingBufferEmpty)
+        Ok(item)
     }
 
     /// Split the ring into a thread-safe producer/consumer pair.
     ///
-    /// After calling `split`, the original `SpscRing` is consumed. The
-    /// producer and consumer halves each hold an `Arc` to the shared backing
-    /// store so the buffer is kept alive until both halves are dropped.
+    /// The original `SpscRing` is consumed. Both halves hold an `Arc` to the
+    /// shared backing store.
     ///
     /// # Example
     ///
@@ -214,6 +199,25 @@ impl<T, const N: usize> SpscRing<T, N> {
     }
 }
 
+impl<T, const N: usize> Drop for SpscRing<T, N> {
+    fn drop(&mut self) {
+        // Drop all items that are still in the buffer to prevent leaks.
+        // Relaxed loads are safe here: we hold &mut self, so no other thread
+        // can be concurrently accessing head/tail.
+        let head = self.head.load(Ordering::Relaxed);
+        let tail = self.tail.load(Ordering::Relaxed);
+        let mut idx = head;
+        while idx != tail {
+            let slot = idx % N;
+            // SAFETY: All slots in [head, tail) are initialized.
+            unsafe {
+                (*self.buf[slot].get()).assume_init_drop();
+            }
+            idx = idx.wrapping_add(1);
+        }
+    }
+}
+
 impl<T, const N: usize> Default for SpscRing<T, N> {
     fn default() -> Self {
         Self::new()
@@ -221,11 +225,6 @@ impl<T, const N: usize> Default for SpscRing<T, N> {
 }
 
 /// Producer half of a split [`SpscRing`].
-///
-/// Only the producer may call [`push`](SpscProducer::push). Holding a
-/// `SpscProducer` on the same thread as a `SpscConsumer` for the same ring is
-/// logically valid but removes any concurrency benefit; prefer sending one half
-/// to a separate thread.
 pub struct SpscProducer<T, const N: usize> {
     inner: Arc<SpscRing<T, N>>,
 }
@@ -255,8 +254,6 @@ impl<T, const N: usize> SpscProducer<T, N> {
 }
 
 /// Consumer half of a split [`SpscRing`].
-///
-/// Only the consumer may call [`pop`](SpscConsumer::pop).
 pub struct SpscConsumer<T, const N: usize> {
     inner: Arc<SpscRing<T, N>>,
 }
@@ -334,19 +331,17 @@ mod tests {
         assert!(matches!(err, StreamError::RingBufferFull { capacity: 7 }));
     }
 
-    /// Push N-1 items successfully, pop one, then push one more.
     #[test]
     fn test_push_n_minus_1_pop_one_push_one() {
         let r: SpscRing<u32, 8> = SpscRing::new();
         for i in 0..7u32 {
             r.push(i).unwrap();
         }
-        assert_eq!(r.pop().unwrap(), 0); // pops first item
-        r.push(100).unwrap(); // should succeed now
+        assert_eq!(r.pop().unwrap(), 0);
+        r.push(100).unwrap();
         assert_eq!(r.len(), 7);
     }
 
-    /// Attempt to push N+1 items: all after capacity must return Err.
     #[test]
     fn test_push_n_plus_1_returns_full_error() {
         let r: SpscRing<u32, 4> = SpscRing::new(); // capacity = 3
@@ -379,14 +374,12 @@ mod tests {
     #[test]
     fn test_wraparound_correctness() {
         let r: SpscRing<u32, 4> = SpscRing::new(); // capacity = 3
-                                                   // First pass
         r.push(1).unwrap();
         r.push(2).unwrap();
         r.push(3).unwrap();
         assert_eq!(r.pop().unwrap(), 1);
         assert_eq!(r.pop().unwrap(), 2);
         assert_eq!(r.pop().unwrap(), 3);
-        // Second pass -- indices have wrapped
         r.push(10).unwrap();
         r.push(20).unwrap();
         r.push(30).unwrap();
@@ -395,7 +388,6 @@ mod tests {
         assert_eq!(r.pop().unwrap(), 30);
     }
 
-    /// Multiple wraparound cycles with interleaved push/pop.
     #[test]
     fn test_wraparound_many_cycles() {
         let r: SpscRing<u64, 8> = SpscRing::new(); // capacity = 7
@@ -432,6 +424,31 @@ mod tests {
         assert!(r.is_empty());
     }
 
+    // ── Drop correctness ─────────────────────────────────────────────────────
+
+    /// Verify that dropping a non-empty ring does not leak contained items.
+    #[test]
+    fn test_drop_drains_remaining_items() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::sync::Arc;
+
+        let drop_count = Arc::new(AtomicUsize::new(0));
+
+        struct Counted(Arc<AtomicUsize>);
+        impl Drop for Counted {
+            fn drop(&mut self) {
+                self.0.fetch_add(1, Ordering::Relaxed);
+            }
+        }
+
+        let ring: SpscRing<Counted, 8> = SpscRing::new();
+        ring.push(Counted(Arc::clone(&drop_count))).unwrap();
+        ring.push(Counted(Arc::clone(&drop_count))).unwrap();
+        ring.push(Counted(Arc::clone(&drop_count))).unwrap();
+        drop(ring);
+        assert_eq!(drop_count.load(Ordering::Relaxed), 3);
+    }
+
     // ── Concurrent producer / consumer ───────────────────────────────────────
 
     /// Spawn a producer thread that pushes 10 000 items and a consumer thread
@@ -448,7 +465,6 @@ mod tests {
                 if prod.push(sent).is_ok() {
                     sent += 1;
                 }
-                // Busy-retry on full -- acceptable in a unit test.
             }
         });
 
@@ -472,8 +488,6 @@ mod tests {
 
     // ── Throughput smoke test ────────────────────────────────────────────────
 
-    /// Verify that the ring can sustain 100 000 push/pop round trips without
-    /// errors. This is a correctness check; actual timing is left to the bench.
     #[test]
     fn test_throughput_100k_round_trips() {
         const ITEMS: usize = 100_000;

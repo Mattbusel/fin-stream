@@ -289,12 +289,11 @@ fn tick_normalize_binance_integer_price_succeeds() {
 
 // ── Order book delta application edge cases ───────────────────────────────────
 
-/// Applying deltas with out-of-order sequence numbers: the book must apply all
-/// deltas regardless of sequence order (it is the caller's responsibility to
-/// reorder if needed), and the last-sequence tracker must reflect the most
-/// recently applied delta's sequence number.
+/// Applying a delta with an out-of-order sequence number (lower than the last
+/// applied) must return `SequenceGap`. Callers should reset the book and
+/// request a fresh snapshot when this error is received.
 #[test]
-fn book_out_of_order_sequence_numbers_applied_regardless() {
+fn book_out_of_order_sequence_numbers_return_gap_error() {
     let mut book = OrderBook::new("BTC-USD");
 
     // Apply seq=3 first.
@@ -302,20 +301,23 @@ fn book_out_of_order_sequence_numbers_applied_regardless() {
         .unwrap();
     assert_eq!(book.last_sequence(), Some(3));
 
-    // Apply seq=1 (out of order, lower sequence number).
-    book.apply(BookDelta::new("BTC-USD", BookSide::Bid, dec!(49800), dec!(1)).with_sequence(1))
-        .unwrap();
-    // last_sequence tracks the last applied, not the highest seen.
-    assert_eq!(book.last_sequence(), Some(1));
-
-    // Both levels should be present.
-    assert_eq!(book.bid_depth(), 2);
+    // Apply seq=1 (out of order, expected=4, got=1) → SequenceGap.
+    let err = book
+        .apply(BookDelta::new("BTC-USD", BookSide::Bid, dec!(49800), dec!(1)).with_sequence(1))
+        .unwrap_err();
+    assert!(
+        matches!(err, fin_stream::StreamError::SequenceGap { expected: 4, got: 1, .. }),
+        "expected SequenceGap {{ expected: 4, got: 1 }}, got: {err:?}"
+    );
+    // last_sequence unchanged after rejected delta.
+    assert_eq!(book.last_sequence(), Some(3));
 }
 
-/// Applying two deltas with the same sequence number (duplicate): the second
-/// must overwrite the first at that price level; no error, no panic.
+/// Applying a duplicate sequence number (same seq after it was already applied)
+/// is treated as a gap: the book expects the next consecutive sequence number,
+/// so receiving the same number again returns `SequenceGap`.
 #[test]
-fn book_duplicate_sequence_numbers_last_write_wins() {
+fn book_duplicate_sequence_numbers_return_gap_error() {
     let mut book = OrderBook::new("ETH-USD");
 
     // First delta: add 5 units at 3000 with seq=10.
@@ -323,32 +325,39 @@ fn book_duplicate_sequence_numbers_last_write_wins() {
         .unwrap();
     assert_eq!(book.best_ask().unwrap().quantity, dec!(5));
 
-    // Duplicate seq=10 with different quantity — last write wins.
-    book.apply(BookDelta::new("ETH-USD", BookSide::Ask, dec!(3000), dec!(8)).with_sequence(10))
-        .unwrap();
-    assert_eq!(book.best_ask().unwrap().quantity, dec!(8));
-    assert_eq!(book.ask_depth(), 1);
+    // Duplicate seq=10: expected=11, got=10 → SequenceGap.
+    let err = book
+        .apply(BookDelta::new("ETH-USD", BookSide::Ask, dec!(3000), dec!(8)).with_sequence(10))
+        .unwrap_err();
+    assert!(
+        matches!(err, fin_stream::StreamError::SequenceGap { expected: 11, got: 10, .. }),
+        "expected SequenceGap {{ expected: 11, got: 10 }}, got: {err:?}"
+    );
+    // Quantity unchanged after rejected delta.
+    assert_eq!(book.best_ask().unwrap().quantity, dec!(5));
 }
 
-/// A delta with quantity zero must remove the price level even if applied
-/// after a sequence gap (i.e., the level exists from a previous non-consecutive
-/// sequence number).
+/// A sequence gap (e.g., seq 5 → seq 10) must return `SequenceGap`; the book
+/// is not modified by the rejected delta. The caller must reset the book to
+/// recover from a gap before applying further deltas.
 #[test]
-fn book_zero_qty_delta_removes_level_across_sequence_gap() {
+fn book_sequence_gap_returns_error_and_leaves_book_unchanged() {
     let mut book = OrderBook::new("BTC-USD");
 
     book.apply(BookDelta::new("BTC-USD", BookSide::Ask, dec!(50100), dec!(3)).with_sequence(5))
         .unwrap();
 
-    // Gap: sequence jumps from 5 to 10.
-    book.apply(BookDelta::new("BTC-USD", BookSide::Ask, dec!(50100), dec!(0)).with_sequence(10))
-        .unwrap();
-
+    // Gap: sequence jumps from 5 to 10 (expected 6, got 10).
+    let err = book
+        .apply(BookDelta::new("BTC-USD", BookSide::Ask, dec!(50100), dec!(0)).with_sequence(10))
+        .unwrap_err();
     assert!(
-        book.best_ask().is_none(),
-        "level must be removed by zero-qty delta"
+        matches!(err, fin_stream::StreamError::SequenceGap { expected: 6, got: 10, .. }),
+        "expected SequenceGap {{ expected: 6, got: 10 }}, got: {err:?}"
     );
-    assert_eq!(book.ask_depth(), 0);
+    // Level is NOT removed because the delta was rejected.
+    assert_eq!(book.ask_depth(), 1);
+    assert_eq!(book.best_ask().unwrap().quantity, dec!(3));
 }
 
 /// Applying multiple deltas without any sequence number set must not affect
@@ -401,22 +410,22 @@ fn book_reset_replaces_levels_and_accepts_subsequent_deltas() {
     assert_eq!(book.last_sequence(), Some(1));
 }
 
-/// Interleaved bid and ask deltas with non-contiguous sequences must not corrupt
-/// the book or produce incorrect best bid/ask.
+/// Interleaved bid and ask deltas with consecutive sequences are applied
+/// correctly and produce a consistent book state.
 #[test]
-fn book_interleaved_bid_ask_deltas_with_gaps_produce_correct_book() {
+fn book_interleaved_bid_ask_deltas_consecutive_produce_correct_book() {
     let mut book = OrderBook::new("BTC-USD");
 
     // Seq 1: add bid at 49000.
     book.apply(BookDelta::new("BTC-USD", BookSide::Bid, dec!(49000), dec!(3)).with_sequence(1))
         .unwrap();
 
-    // Seq 5 (gap of 3): add ask at 51000.
-    book.apply(BookDelta::new("BTC-USD", BookSide::Ask, dec!(51000), dec!(2)).with_sequence(5))
+    // Seq 2: add ask at 51000.
+    book.apply(BookDelta::new("BTC-USD", BookSide::Ask, dec!(51000), dec!(2)).with_sequence(2))
         .unwrap();
 
-    // Seq 2 (backfill): add another bid at 48900.
-    book.apply(BookDelta::new("BTC-USD", BookSide::Bid, dec!(48900), dec!(1)).with_sequence(2))
+    // Seq 3: add another bid at 48900.
+    book.apply(BookDelta::new("BTC-USD", BookSide::Bid, dec!(48900), dec!(1)).with_sequence(3))
         .unwrap();
 
     assert_eq!(book.best_bid().unwrap().price, dec!(49000));
@@ -424,4 +433,13 @@ fn book_interleaved_bid_ask_deltas_with_gaps_produce_correct_book() {
     assert_eq!(book.bid_depth(), 2);
     assert_eq!(book.ask_depth(), 1);
     assert_eq!(book.spread().unwrap(), dec!(2000));
+
+    // A non-consecutive sequence now returns SequenceGap.
+    let err = book
+        .apply(BookDelta::new("BTC-USD", BookSide::Bid, dec!(48800), dec!(1)).with_sequence(10))
+        .unwrap_err();
+    assert!(matches!(
+        err,
+        fin_stream::StreamError::SequenceGap { expected: 4, got: 10, .. }
+    ));
 }

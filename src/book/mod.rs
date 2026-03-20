@@ -8,7 +8,9 @@
 //! ## Guarantees
 //! - Deterministic: applying the same delta sequence always yields the same book
 //! - Non-panicking: all mutations return Result
-//! - Thread-safe: OrderBook is Send + Sync via internal RwLock
+//! - Single-owner mutable access: all mutation methods take `&mut self`; wrap
+//!   in `Arc<Mutex<OrderBook>>` or `Arc<RwLock<OrderBook>>` for shared
+//!   concurrent access across threads
 
 use crate::error::StreamError;
 use rust_decimal::Decimal;
@@ -84,8 +86,8 @@ impl BookDelta {
 /// Live order book for a single symbol.
 pub struct OrderBook {
     symbol: String,
-    bids: BTreeMap<Decimal, Decimal>, // price → quantity, descending iteration via neg key
-    asks: BTreeMap<Decimal, Decimal>, // price → quantity, ascending
+    bids: BTreeMap<Decimal, Decimal>, // price → quantity
+    asks: BTreeMap<Decimal, Decimal>, // price → quantity
     last_sequence: Option<u64>,
 }
 
@@ -101,6 +103,16 @@ impl OrderBook {
     }
 
     /// Apply an incremental delta. quantity == 0 removes the level.
+    ///
+    /// # Errors
+    ///
+    /// - [`StreamError::BookReconstructionFailed`] if the delta's symbol does
+    ///   not match this book.
+    /// - [`StreamError::SequenceGap`] if the delta carries a sequence number
+    ///   that is not exactly one greater than the last applied sequence.
+    /// - [`StreamError::BookCrossed`] if applying the delta would leave the
+    ///   best bid >= best ask.
+    #[must_use = "errors from apply() must be handled to avoid missed gaps or crossed-book state"]
     pub fn apply(&mut self, delta: BookDelta) -> Result<(), StreamError> {
         if delta.symbol != self.symbol {
             return Err(StreamError::BookReconstructionFailed {
@@ -111,6 +123,20 @@ impl OrderBook {
                 ),
             });
         }
+
+        // Sequence gap detection: if both the book and the delta carry a
+        // sequence number, they must be consecutive.
+        if let (Some(last), Some(incoming)) = (self.last_sequence, delta.sequence) {
+            let expected = last + 1;
+            if incoming != expected {
+                return Err(StreamError::SequenceGap {
+                    symbol: self.symbol.clone(),
+                    expected,
+                    got: incoming,
+                });
+            }
+        }
+
         let map = match delta.side {
             BookSide::Bid => &mut self.bids,
             BookSide::Ask => &mut self.asks,
@@ -126,7 +152,8 @@ impl OrderBook {
         self.check_crossed()
     }
 
-    /// Reset the book from a full snapshot.
+    /// Reset the book from a full snapshot, also resetting the sequence counter.
+    #[must_use = "errors from reset() indicate a crossed snapshot and must be handled"]
     pub fn reset(
         &mut self,
         bids: Vec<PriceLevel>,
@@ -134,6 +161,7 @@ impl OrderBook {
     ) -> Result<(), StreamError> {
         self.bids.clear();
         self.asks.clear();
+        self.last_sequence = None;
         for lvl in bids {
             if !lvl.quantity.is_zero() {
                 self.bids.insert(lvl.price, lvl.quantity);
@@ -221,8 +249,8 @@ impl OrderBook {
             if bid.price >= ask.price {
                 return Err(StreamError::BookCrossed {
                     symbol: self.symbol.clone(),
-                    bid: bid.price.to_string(),
-                    ask: ask.price.to_string(),
+                    bid: bid.price,
+                    ask: ask.price,
                 });
             }
         }
@@ -361,6 +389,22 @@ mod tests {
     }
 
     #[test]
+    fn test_order_book_reset_clears_sequence() {
+        let mut b = book("BTC-USD");
+        b.apply(
+            delta("BTC-USD", BookSide::Bid, dec!(49900), dec!(1)).with_sequence(5),
+        )
+        .unwrap();
+        assert_eq!(b.last_sequence(), Some(5));
+        b.reset(
+            vec![PriceLevel::new(dec!(50000), dec!(1))],
+            vec![PriceLevel::new(dec!(50100), dec!(1))],
+        )
+        .unwrap();
+        assert_eq!(b.last_sequence(), None);
+    }
+
+    #[test]
     fn test_order_book_depth_counts() {
         let mut b = book("BTC-USD");
         b.apply(delta("BTC-USD", BookSide::Bid, dec!(49900), dec!(1)))
@@ -413,6 +457,30 @@ mod tests {
         b.apply(delta("BTC-USD", BookSide::Bid, dec!(50000), dec!(1)).with_sequence(7))
             .unwrap();
         assert_eq!(b.last_sequence(), Some(7));
+    }
+
+    #[test]
+    fn test_order_book_sequence_gap_detected() {
+        let mut b = book("BTC-USD");
+        b.apply(delta("BTC-USD", BookSide::Bid, dec!(49900), dec!(1)).with_sequence(1))
+            .unwrap();
+        // Skip sequence 2, send 3 → gap
+        let result =
+            b.apply(delta("BTC-USD", BookSide::Ask, dec!(50100), dec!(1)).with_sequence(3));
+        assert!(matches!(
+            result,
+            Err(StreamError::SequenceGap { expected: 2, got: 3, .. })
+        ));
+    }
+
+    #[test]
+    fn test_order_book_sequential_deltas_accepted() {
+        let mut b = book("BTC-USD");
+        b.apply(delta("BTC-USD", BookSide::Bid, dec!(49900), dec!(1)).with_sequence(1))
+            .unwrap();
+        b.apply(delta("BTC-USD", BookSide::Ask, dec!(50100), dec!(1)).with_sequence(2))
+            .unwrap();
+        assert_eq!(b.last_sequence(), Some(2));
     }
 
     #[test]

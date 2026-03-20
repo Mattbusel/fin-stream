@@ -7,6 +7,7 @@
 use fin_stream::norm::MinMaxNormalizer;
 use fin_stream::ring::SpscRing;
 use proptest::prelude::*;
+use rust_decimal::Decimal;
 
 // ── SPSC ring buffer FIFO ordering ───────────────────────────────────────────
 
@@ -37,17 +38,19 @@ proptest! {
     /// then normalize(a) <= normalize(b). Tests the monotonicity invariant.
     #[test]
     fn prop_normalization_monotonicity(
-        // Window seeds: 5 values in [0.0, 1000.0]
-        seeds in prop::collection::vec(0.0f64..=1000.0, 5..=10usize),
+        // Window seeds: 5 integer values in [0, 100000]
+        seeds in prop::collection::vec(0i64..=100_000, 5..=10usize),
         // Two query values in the same range
-        a in 0.0f64..=1000.0,
-        b in 0.0f64..=1000.0,
+        a in 0i64..=100_000,
+        b in 0i64..=100_000,
     ) {
-        let mut norm = MinMaxNormalizer::new(seeds.len());
+        let mut norm = MinMaxNormalizer::new(seeds.len()).unwrap();
         for &v in &seeds {
-            norm.update(v);
+            norm.update(Decimal::from(v));
         }
-        if let (Ok(na), Ok(nb)) = (norm.normalize(a), norm.normalize(b)) {
+        let da = Decimal::from(a);
+        let db = Decimal::from(b);
+        if let (Ok(na), Ok(nb)) = (norm.normalize(da), norm.normalize(db)) {
             if a <= b {
                 prop_assert!(na <= nb + 1e-12,
                     "monotonicity violated: normalize({a}) = {na} > normalize({b}) = {nb}");
@@ -62,16 +65,14 @@ proptest! {
     /// normalize() always returns a value in [0.0, 1.0].
     #[test]
     fn prop_normalization_range_0_to_1(
-        seeds in prop::collection::vec(0.0f64..=1000.0, 2..=20usize),
-        query in any::<f64>(),
+        seeds in prop::collection::vec(0i64..=100_000, 2..=20usize),
+        query in 0i64..=100_000,
     ) {
-        // Skip NaN/inf queries (not representable as market prices).
-        prop_assume!(query.is_finite());
-        let mut norm = MinMaxNormalizer::new(seeds.len());
+        let mut norm = MinMaxNormalizer::new(seeds.len()).unwrap();
         for &v in &seeds {
-            norm.update(v);
+            norm.update(Decimal::from(v));
         }
-        let v = norm.normalize(query).unwrap();
+        let v = norm.normalize(Decimal::from(query)).unwrap();
         prop_assert!((0.0..=1.0).contains(&v),
             "normalize({query}) = {v} is outside [0.0, 1.0]");
     }

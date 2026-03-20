@@ -10,7 +10,11 @@
 //! - Configurable: reconnect policy and buffer sizes are constructor params
 
 use crate::error::StreamError;
+use futures_util::StreamExt;
 use std::time::Duration;
+use tokio::sync::mpsc;
+use tokio_tungstenite::{connect_async, tungstenite::Message};
+use tracing::{debug, info, warn};
 
 /// Reconnection policy for a WebSocket feed.
 ///
@@ -31,8 +35,10 @@ pub struct ReconnectPolicy {
 impl ReconnectPolicy {
     /// Build a reconnect policy with explicit parameters.
     ///
-    /// Returns an error if `multiplier < 1.0` (which would cause backoff to
-    /// shrink over time) or if `max_attempts == 0`.
+    /// # Errors
+    ///
+    /// Returns [`StreamError::ConfigError`] if `multiplier < 1.0` (which would
+    /// cause backoff to shrink over time) or if `max_attempts == 0`.
     pub fn new(
         max_attempts: u32,
         initial_backoff: Duration,
@@ -40,14 +46,14 @@ impl ReconnectPolicy {
         multiplier: f64,
     ) -> Result<Self, StreamError> {
         if multiplier < 1.0 {
-            return Err(StreamError::ConnectionFailed {
-                url: String::new(),
-                reason: "reconnect multiplier must be >= 1.0".into(),
+            return Err(StreamError::ConfigError {
+                reason: format!(
+                    "reconnect multiplier must be >= 1.0, got {multiplier}"
+                ),
             });
         }
         if max_attempts == 0 {
-            return Err(StreamError::ConnectionFailed {
-                url: String::new(),
+            return Err(StreamError::ConfigError {
                 reason: "max_attempts must be > 0".into(),
             });
         }
@@ -62,10 +68,10 @@ impl ReconnectPolicy {
     /// Backoff duration for attempt N (0-indexed).
     pub fn backoff_for_attempt(&self, attempt: u32) -> Duration {
         let factor = self.multiplier.powi(attempt as i32);
-        // Cap the f64 value *before* casting to u64.  When `attempt` is large
+        // Cap the f64 value *before* casting to u64. When `attempt` is large
         // (e.g. 63 with multiplier=2.0), `factor` becomes f64::INFINITY.
         // Casting f64::INFINITY as u64 is undefined behaviour in Rust — it
-        // saturates to 0 on some targets and panics in debug builds.  Clamping
+        // saturates to 0 on some targets and panics in debug builds. Clamping
         // to max_backoff in floating-point space first avoids the UB entirely.
         let max_ms = self.max_backoff.as_millis() as f64;
         let ms = (self.initial_backoff.as_millis() as f64 * factor).min(max_ms);
@@ -101,20 +107,20 @@ impl ConnectionConfig {
     /// Build a connection configuration for `url` with the given downstream
     /// channel capacity.
     ///
-    /// Returns an error if `url` is empty or `channel_capacity` is zero.
+    /// # Errors
+    ///
+    /// Returns [`StreamError::ConfigError`] if `url` is empty or
+    /// `channel_capacity` is zero.
     pub fn new(url: impl Into<String>, channel_capacity: usize) -> Result<Self, StreamError> {
         let url = url.into();
         if url.is_empty() {
-            return Err(StreamError::ConnectionFailed {
-                url: url.clone(),
-                reason: "URL must not be empty".into(),
+            return Err(StreamError::ConfigError {
+                reason: "WebSocket URL must not be empty".into(),
             });
         }
         if channel_capacity == 0 {
-            return Err(StreamError::Backpressure {
-                channel: url.clone(),
-                depth: 0,
-                capacity: 0,
+            return Err(StreamError::ConfigError {
+                reason: "channel_capacity must be > 0".into(),
             });
         }
         Ok(Self {
@@ -140,8 +146,9 @@ impl ConnectionConfig {
 
 /// Manages a single WebSocket feed: connect, receive, reconnect.
 ///
-/// In production, WsManager wraps tokio-tungstenite. In tests, it operates
-/// in simulation mode with injected messages.
+/// Call [`WsManager::run`] to enter the connection loop. Messages are forwarded
+/// to the [`mpsc::Sender`] supplied to `run`; the loop retries on disconnection
+/// according to the [`ReconnectPolicy`] in the [`ConnectionConfig`].
 pub struct WsManager {
     config: ConnectionConfig,
     connect_attempts: u32,
@@ -155,6 +162,94 @@ impl WsManager {
             config,
             connect_attempts: 0,
             is_connected: false,
+        }
+    }
+
+    /// Run the WebSocket connection loop, forwarding text messages to `message_tx`.
+    ///
+    /// The loop connects, reads frames until the socket closes or errors, then
+    /// waits the configured backoff and reconnects. Returns when either:
+    /// - `message_tx` is closed (receiver dropped), or
+    /// - reconnect attempts are exhausted ([`StreamError::ReconnectExhausted`]).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StreamError::ReconnectExhausted`] after all reconnect slots
+    /// are consumed, or the underlying connection error if reconnects are
+    /// exhausted immediately on the first attempt.
+    pub async fn run(&mut self, message_tx: mpsc::Sender<String>) -> Result<(), StreamError> {
+        loop {
+            info!(url = %self.config.url, attempt = self.connect_attempts, "connecting");
+            match self.try_connect(&message_tx).await {
+                Ok(()) => {
+                    // Clean close — receiver dropped or server sent Close frame.
+                    self.is_connected = false;
+                    debug!(url = %self.config.url, "connection closed cleanly");
+                    if message_tx.is_closed() {
+                        return Ok(());
+                    }
+                }
+                Err(e) => {
+                    self.is_connected = false;
+                    warn!(url = %self.config.url, error = %e, "connection error");
+                }
+            }
+
+            if !self.can_reconnect() {
+                return Err(StreamError::ReconnectExhausted {
+                    url: self.config.url.clone(),
+                    attempts: self.connect_attempts,
+                });
+            }
+            let backoff = self.next_reconnect_backoff()?;
+            info!(url = %self.config.url, backoff_ms = backoff.as_millis(), "reconnecting after backoff");
+            tokio::time::sleep(backoff).await;
+        }
+    }
+
+    /// Attempt a single connection, reading messages until close or error.
+    async fn try_connect(&mut self, message_tx: &mpsc::Sender<String>) -> Result<(), StreamError> {
+        let (ws_stream, _response) =
+            connect_async(&self.config.url)
+                .await
+                .map_err(|e| StreamError::ConnectionFailed {
+                    url: self.config.url.clone(),
+                    reason: e.to_string(),
+                })?;
+
+        self.is_connected = true;
+        self.connect_attempts += 1;
+        info!(url = %self.config.url, "connected");
+
+        let (_write, mut read) = ws_stream.split();
+
+        loop {
+            match read.next().await {
+                Some(Ok(Message::Text(text))) => {
+                    if message_tx.send(text.to_string()).await.is_err() {
+                        // Receiver dropped — clean shutdown.
+                        return Ok(());
+                    }
+                }
+                Some(Ok(Message::Binary(bytes))) => {
+                    // Convert binary frames to UTF-8 strings where possible.
+                    if let Ok(text) = String::from_utf8(bytes.to_vec()) {
+                        if message_tx.send(text).await.is_err() {
+                            return Ok(());
+                        }
+                    }
+                }
+                Some(Ok(Message::Ping(_) | Message::Pong(_) | Message::Frame(_))) => {
+                    // Control frames handled by tungstenite internally.
+                }
+                Some(Ok(Message::Close(_))) | None => {
+                    // Graceful close from server or stream exhausted.
+                    return Ok(());
+                }
+                Some(Err(e)) => {
+                    return Err(StreamError::WebSocket(e.to_string()));
+                }
+            }
         }
     }
 
@@ -243,26 +338,26 @@ mod tests {
     fn test_reconnect_policy_multiplier_below_1_rejected() {
         let result =
             ReconnectPolicy::new(10, Duration::from_millis(100), Duration::from_secs(30), 0.5);
-        assert!(result.is_err());
+        assert!(matches!(result, Err(StreamError::ConfigError { .. })));
     }
 
     #[test]
     fn test_reconnect_policy_zero_attempts_rejected() {
         let result =
             ReconnectPolicy::new(0, Duration::from_millis(100), Duration::from_secs(30), 2.0);
-        assert!(result.is_err());
+        assert!(matches!(result, Err(StreamError::ConfigError { .. })));
     }
 
     #[test]
     fn test_connection_config_empty_url_rejected() {
         let result = ConnectionConfig::new("", 1024);
-        assert!(result.is_err());
+        assert!(matches!(result, Err(StreamError::ConfigError { .. })));
     }
 
     #[test]
     fn test_connection_config_zero_capacity_rejected() {
         let result = ConnectionConfig::new("wss://example.com", 0);
-        assert!(result.is_err());
+        assert!(matches!(result, Err(StreamError::ConfigError { .. })));
     }
 
     #[test]

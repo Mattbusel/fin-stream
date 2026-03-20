@@ -605,12 +605,12 @@ fn test_ring_wraparound_fill_drain_refill() {
 
 #[test]
 fn test_normalization_range_always_0_to_1() {
-    let mut n = MinMaxNormalizer::new(10);
-    for i in 0..10 {
-        n.update(i as f64 * 5.0);
+    let mut n = MinMaxNormalizer::new(10).unwrap();
+    for i in 0i64..10 {
+        n.update(Decimal::from(i * 5));
     }
     for i in -5i64..55 {
-        let v = n.normalize(i as f64).unwrap();
+        let v = n.normalize(Decimal::from(i)).unwrap();
         assert!(
             (0.0..=1.0).contains(&v),
             "normalize({i}) = {v} is out of [0,1]"
@@ -620,31 +620,31 @@ fn test_normalization_range_always_0_to_1() {
 
 #[test]
 fn test_normalization_min_max_rolling_window() {
-    let mut n = MinMaxNormalizer::new(3);
-    n.update(10.0);
-    n.update(20.0);
-    n.update(30.0);
+    let mut n = MinMaxNormalizer::new(3).unwrap();
+    n.update(dec!(10));
+    n.update(dec!(20));
+    n.update(dec!(30));
     let (min1, max1) = n.min_max().unwrap();
-    assert_eq!(min1, 10.0);
-    assert_eq!(max1, 30.0);
-    // Push 40.0, evicting 10.0
-    n.update(40.0);
+    assert_eq!(min1, dec!(10));
+    assert_eq!(max1, dec!(30));
+    // Push 40, evicting 10
+    n.update(dec!(40));
     let (min2, max2) = n.min_max().unwrap();
-    assert_eq!(min2, 20.0);
-    assert_eq!(max2, 40.0);
+    assert_eq!(min2, dec!(20));
+    assert_eq!(max2, dec!(40));
 }
 
 #[test]
 fn test_normalization_reset_then_renormalize() {
-    let mut n = MinMaxNormalizer::new(5);
-    for i in 0..5 {
-        n.update(i as f64);
+    let mut n = MinMaxNormalizer::new(5).unwrap();
+    for i in 0i64..5 {
+        n.update(Decimal::from(i));
     }
     n.reset();
     assert!(n.is_empty());
-    n.update(100.0);
-    n.update(200.0);
-    let v = n.normalize(150.0).unwrap();
+    n.update(dec!(100));
+    n.update(dec!(200));
+    let v = n.normalize(dec!(150)).unwrap();
     assert!((v - 0.5).abs() < 1e-10);
 }
 
