@@ -379,6 +379,7 @@ impl NormalizedTick {
     /// Signed price difference: `self.price - other.price`.
     ///
     /// Alias for [`price_move_from`](Self::price_move_from).
+    #[deprecated(since = "2.2.0", note = "Use `price_move_from` instead")]
     pub fn price_diff_from(&self, other: &NormalizedTick) -> Decimal {
         self.price_move_from(other)
     }
@@ -412,6 +413,7 @@ impl NormalizedTick {
     /// Age of this tick in milliseconds: `now_ms - received_at_ms`.
     ///
     /// Alias for [`age_ms`](Self::age_ms).
+    #[deprecated(since = "2.2.0", note = "Use `age_ms` instead")]
     pub fn quote_age_ms(&self, now_ms: u64) -> u64 {
         self.age_ms(now_ms)
     }
@@ -419,6 +421,7 @@ impl NormalizedTick {
     /// Notional value of this tick: `price × quantity`.
     ///
     /// Alias for [`value`](Self::value).
+    #[deprecated(since = "2.2.0", note = "Use `value` instead")]
     pub fn notional_value(&self) -> Decimal {
         self.value()
     }
@@ -426,6 +429,7 @@ impl NormalizedTick {
     /// Returns `true` if the notional value (`price × quantity`) exceeds `threshold`.
     ///
     /// Alias for [`is_notional_large_trade`](Self::is_notional_large_trade).
+    #[deprecated(since = "2.2.0", note = "Use `is_notional_large_trade` instead")]
     pub fn is_high_value_tick(&self, threshold: Decimal) -> bool {
         self.is_notional_large_trade(threshold)
     }
@@ -442,6 +446,7 @@ impl NormalizedTick {
     /// Returns `true` if this tick's price is strictly above `reference`.
     ///
     /// Alias for [`is_above`](Self::is_above).
+    #[deprecated(since = "2.2.0", note = "Use `is_above` instead")]
     pub fn is_above_price(&self, reference: Decimal) -> bool {
         self.is_above(reference)
     }
@@ -459,6 +464,7 @@ impl NormalizedTick {
     /// Returns `true` if this tick's price exactly equals `target`.
     ///
     /// Alias for [`is_at`](Self::is_at).
+    #[deprecated(since = "2.2.0", note = "Use `is_at` instead")]
     pub fn is_at_price(&self, target: Decimal) -> bool {
         self.is_at(target)
     }
@@ -466,6 +472,7 @@ impl NormalizedTick {
     /// Returns `true` if this tick's price is strictly below `reference`.
     ///
     /// Alias for [`is_below`](Self::is_below).
+    #[deprecated(since = "2.2.0", note = "Use `is_below` instead")]
     pub fn is_below_price(&self, reference: Decimal) -> bool {
         self.is_below(reference)
     }
@@ -503,6 +510,7 @@ impl NormalizedTick {
     /// Returns `true` if this tick was received within `threshold_ms` of `now_ms`.
     ///
     /// Alias for [`is_fresh(now_ms, threshold_ms)`](Self::is_fresh).
+    #[deprecated(since = "2.2.0", note = "Use `is_fresh(now_ms, threshold_ms)` instead")]
     pub fn is_recent(&self, threshold_ms: u64, now_ms: u64) -> bool {
         self.is_fresh(now_ms, threshold_ms)
     }
@@ -510,6 +518,7 @@ impl NormalizedTick {
     /// Returns `true` if this tick is on the buy side.
     ///
     /// Alias for [`is_buy`](Self::is_buy).
+    #[deprecated(since = "2.2.0", note = "Use `is_buy` instead")]
     pub fn is_buy_side(&self) -> bool {
         self.is_buy()
     }
@@ -517,6 +526,7 @@ impl NormalizedTick {
     /// Returns `true` if this tick is on the sell side.
     ///
     /// Alias for [`is_sell`](Self::is_sell).
+    #[deprecated(since = "2.2.0", note = "Use `is_sell` instead")]
     pub fn is_sell_side(&self) -> bool {
         self.is_sell()
     }
@@ -537,6 +547,10 @@ impl NormalizedTick {
     }
 
     /// Returns `true` if this tick's quantity is strictly above `threshold`.
+    ///
+    /// Note: unlike [`is_large_trade`](Self::is_large_trade) which uses `>=`,
+    /// this method uses strict `>` for backwards compatibility.
+    #[deprecated(since = "2.2.0", note = "Use `is_large_trade` instead")]
     pub fn is_large_tick(&self, threshold: Decimal) -> bool {
         self.quantity > threshold
     }
@@ -668,6 +682,29 @@ impl NormalizedTick {
             .filter(|t| t.side == Some(TradeSide::Sell))
             .map(|t| t.quantity)
             .sum()
+    }
+
+    /// Price range across a slice of ticks: `max(price) − min(price)`.
+    ///
+    /// Returns `None` if the slice is empty.
+    pub fn price_range(ticks: &[NormalizedTick]) -> Option<Decimal> {
+        if ticks.is_empty() {
+            return None;
+        }
+        let max = ticks.iter().map(|t| t.price).max()?;
+        let min = ticks.iter().map(|t| t.price).min()?;
+        Some(max - min)
+    }
+
+    /// Arithmetic mean price across a slice of ticks.
+    ///
+    /// Returns `None` if the slice is empty.
+    pub fn average_price(ticks: &[NormalizedTick]) -> Option<Decimal> {
+        if ticks.is_empty() {
+            return None;
+        }
+        let sum: Decimal = ticks.iter().map(|t| t.price).sum();
+        Some(sum / Decimal::from(ticks.len() as u64))
     }
 
 }
@@ -2330,5 +2367,59 @@ mod tests {
         // 5 + 3 = 8, total = 10 (unknown 2 not counted)
         assert_eq!(accounted, rust_decimal_macros::dec!(8));
         assert!(accounted < total);
+    }
+
+    // ── price_range / average_price ───────────────────────────────────────────
+
+    fn make_tick_with_price(price: rust_decimal::Decimal) -> NormalizedTick {
+        NormalizedTick {
+            exchange: Exchange::Binance,
+            symbol: "BTCUSDT".into(),
+            price,
+            quantity: rust_decimal_macros::dec!(1),
+            side: None,
+            trade_id: None,
+            exchange_ts_ms: None,
+            received_at_ms: 0,
+        }
+    }
+
+    #[test]
+    fn test_price_range_none_for_empty_slice() {
+        assert!(NormalizedTick::price_range(&[]).is_none());
+    }
+
+    #[test]
+    fn test_price_range_zero_for_single_tick() {
+        let tick = make_tick_with_price(rust_decimal_macros::dec!(100));
+        assert_eq!(NormalizedTick::price_range(&[tick]), Some(rust_decimal_macros::dec!(0)));
+    }
+
+    #[test]
+    fn test_price_range_correct_for_multiple_ticks() {
+        let t1 = make_tick_with_price(rust_decimal_macros::dec!(95));
+        let t2 = make_tick_with_price(rust_decimal_macros::dec!(105));
+        let t3 = make_tick_with_price(rust_decimal_macros::dec!(100));
+        assert_eq!(NormalizedTick::price_range(&[t1, t2, t3]), Some(rust_decimal_macros::dec!(10)));
+    }
+
+    #[test]
+    fn test_average_price_none_for_empty_slice() {
+        assert!(NormalizedTick::average_price(&[]).is_none());
+    }
+
+    #[test]
+    fn test_average_price_equals_price_for_single_tick() {
+        let tick = make_tick_with_price(rust_decimal_macros::dec!(200));
+        assert_eq!(NormalizedTick::average_price(&[tick]), Some(rust_decimal_macros::dec!(200)));
+    }
+
+    #[test]
+    fn test_average_price_correct_for_multiple_ticks() {
+        let t1 = make_tick_with_price(rust_decimal_macros::dec!(90));
+        let t2 = make_tick_with_price(rust_decimal_macros::dec!(100));
+        let t3 = make_tick_with_price(rust_decimal_macros::dec!(110));
+        // (90 + 100 + 110) / 3 = 100
+        assert_eq!(NormalizedTick::average_price(&[t1, t2, t3]), Some(rust_decimal_macros::dec!(100)));
     }
 }

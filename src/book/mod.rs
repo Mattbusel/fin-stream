@@ -504,8 +504,8 @@ impl OrderBook {
     /// buying interest; < 1.0 means more selling pressure.
     pub fn bid_ask_volume_ratio(&self) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        let bid = self.total_bid_volume();
-        let ask = self.total_ask_volume();
+        let bid = self.bid_volume_total();
+        let ask = self.ask_volume_total();
         if bid.is_zero() || ask.is_zero() {
             return None;
         }
@@ -530,8 +530,8 @@ impl OrderBook {
     /// empty (sum is zero).
     pub fn imbalance_ratio(&self) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        let bid = self.total_bid_volume();
-        let ask = self.total_ask_volume();
+        let bid = self.bid_volume_total();
+        let ask = self.ask_volume_total();
         let total = bid + ask;
         if total.is_zero() {
             return None;
@@ -1086,8 +1086,8 @@ impl OrderBook {
     /// Returns `None` if both sides are empty.
     pub fn volume_imbalance(&self) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        let bid = self.total_bid_volume();
-        let ask = self.total_ask_volume();
+        let bid = self.bid_volume_total();
+        let ask = self.ask_volume_total();
         let total = bid + ask;
         if total.is_zero() {
             return None;

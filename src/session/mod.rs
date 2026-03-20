@@ -483,7 +483,8 @@ impl SessionAwareness {
     /// Returns `true` if the session is currently in the pre-open (pre-market)
     /// window — extended hours that precede the regular trading session.
     ///
-    /// Equivalent to `is_pre_market`. Always `false` for non-equity sessions.
+    /// Alias for [`is_pre_market`](Self::is_pre_market). Always `false` for non-equity sessions.
+    #[deprecated(since = "2.2.0", note = "Use `is_pre_market` instead")]
     pub fn is_pre_open(&self, utc_ms: u64) -> bool {
         self.is_pre_market(utc_ms)
     }
@@ -671,7 +672,8 @@ impl SessionAwareness {
 
     /// How far through the current session as a percentage (0.0–100.0).
     ///
-    /// Returns `0.0` if the session is not currently open.
+    /// Alias for [`progress_pct`](Self::progress_pct). Returns `0.0` if the session is not currently open.
+    #[deprecated(since = "2.2.0", note = "Use `progress_pct` instead")]
     pub fn session_progress_pct(&self, utc_ms: u64) -> f64 {
         let total = self.open_duration_ms();
         if total == 0 {

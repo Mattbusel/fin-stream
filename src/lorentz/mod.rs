@@ -688,8 +688,11 @@ impl LorentzTransform {
     }
 
     /// Returns `true` if β > 0.9, the conventional ultra-relativistic threshold.
+    ///
+    /// Alias for [`is_ultrarelativistic`](Self::is_ultrarelativistic).
+    #[deprecated(since = "2.2.0", note = "Use `is_ultrarelativistic` instead")]
     pub fn is_ultra_relativistic(&self) -> bool {
-        self.beta > 0.9
+        self.is_ultrarelativistic()
     }
 
     /// First-order Taylor approximation of γ valid for small β: `1 + β²/2`.
@@ -775,9 +778,10 @@ impl LorentzTransform {
 
     /// Length contraction: contracted length for a given proper (rest-frame) length.
     ///
-    /// `L_contracted = L_proper / gamma`. Objects appear shorter in the direction of motion.
+    /// Alias for [`length_contraction`](Self::length_contraction).
+    #[deprecated(since = "2.2.0", note = "Use `length_contraction` instead")]
     pub fn space_contraction(&self, proper_length: f64) -> f64 {
-        proper_length / self.gamma
+        self.length_contraction(proper_length)
     }
 
     /// Relativistic proper acceleration for a given coordinate force and rest mass.
