@@ -1100,6 +1100,44 @@ impl NormalizedTick {
         ticks.iter().filter(|t| t.price < price).map(|t| t.quantity).sum()
     }
 
+    /// Quantity-weighted average price (VWAP) across all ticks.
+    ///
+    /// Returns `None` if the slice is empty or total quantity is zero.
+    pub fn quantity_weighted_avg_price(ticks: &[NormalizedTick]) -> Option<Decimal> {
+        if ticks.is_empty() {
+            return None;
+        }
+        let total_qty: Decimal = ticks.iter().map(|t| t.quantity).sum();
+        if total_qty.is_zero() {
+            return None;
+        }
+        let weighted: Decimal = ticks.iter().map(|t| t.price * t.quantity).sum();
+        Some(weighted / total_qty)
+    }
+
+    /// Number of ticks with price strictly above `price`.
+    pub fn tick_count_above_price(ticks: &[NormalizedTick], price: Decimal) -> usize {
+        ticks.iter().filter(|t| t.price > price).count()
+    }
+
+    /// Number of ticks with price strictly below `price`.
+    pub fn tick_count_below_price(ticks: &[NormalizedTick], price: Decimal) -> usize {
+        ticks.iter().filter(|t| t.price < price).count()
+    }
+
+    /// Approximate price at the given percentile (0.0–1.0) by sorting tick prices.
+    ///
+    /// Returns `None` if the slice is empty or `percentile` is outside [0, 1].
+    pub fn price_at_percentile(ticks: &[NormalizedTick], percentile: f64) -> Option<Decimal> {
+        if ticks.is_empty() || !(0.0..=1.0).contains(&percentile) {
+            return None;
+        }
+        let mut prices: Vec<Decimal> = ticks.iter().map(|t| t.price).collect();
+        prices.sort();
+        let idx = ((prices.len() - 1) as f64 * percentile).round() as usize;
+        Some(prices[idx])
+    }
+
 }
 
 impl std::fmt::Display for NormalizedTick {
@@ -3628,5 +3666,88 @@ mod tests {
         ];
         // only price=90 is below 100
         assert_eq!(NormalizedTick::volume_below_price(&ticks, dec!(100)), dec!(5));
+    }
+
+    // ── NormalizedTick::quantity_weighted_avg_price ───────────────────────────
+
+    #[test]
+    fn test_qwap_none_for_empty_slice() {
+        assert!(NormalizedTick::quantity_weighted_avg_price(&[]).is_none());
+    }
+
+    #[test]
+    fn test_qwap_correct_for_equal_quantities() {
+        use rust_decimal_macros::dec;
+        // equal qty → simple average of prices
+        let ticks = vec![make_tick_pq(dec!(100), dec!(1)), make_tick_pq(dec!(200), dec!(1))];
+        assert_eq!(NormalizedTick::quantity_weighted_avg_price(&ticks), Some(dec!(150)));
+    }
+
+    #[test]
+    fn test_qwap_weighted_towards_higher_volume() {
+        use rust_decimal_macros::dec;
+        // price=100 qty=1, price=200 qty=3 → (100+600)/4 = 175
+        let ticks = vec![make_tick_pq(dec!(100), dec!(1)), make_tick_pq(dec!(200), dec!(3))];
+        assert_eq!(NormalizedTick::quantity_weighted_avg_price(&ticks), Some(dec!(175)));
+    }
+
+    // ── NormalizedTick::tick_count_above_price / tick_count_below_price ───────
+
+    #[test]
+    fn test_tick_count_above_price_zero_for_empty_slice() {
+        use rust_decimal_macros::dec;
+        assert_eq!(NormalizedTick::tick_count_above_price(&[], dec!(100)), 0);
+    }
+
+    #[test]
+    fn test_tick_count_above_price_correct() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(90), dec!(1)),
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(110), dec!(1)),
+            make_tick_pq(dec!(120), dec!(1)),
+        ];
+        assert_eq!(NormalizedTick::tick_count_above_price(&ticks, dec!(100)), 2);
+    }
+
+    #[test]
+    fn test_tick_count_below_price_correct() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(90), dec!(1)),
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(110), dec!(1)),
+        ];
+        assert_eq!(NormalizedTick::tick_count_below_price(&ticks, dec!(100)), 1);
+    }
+
+    // ── NormalizedTick::price_at_percentile ──────────────────────────────────
+
+    #[test]
+    fn test_price_at_percentile_none_for_empty_slice() {
+        use rust_decimal_macros::dec;
+        assert!(NormalizedTick::price_at_percentile(&[], 0.5).is_none());
+    }
+
+    #[test]
+    fn test_price_at_percentile_none_for_out_of_range() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![make_tick_pq(dec!(100), dec!(1))];
+        assert!(NormalizedTick::price_at_percentile(&ticks, 1.5).is_none());
+    }
+
+    #[test]
+    fn test_price_at_percentile_median_for_sorted_prices() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(10), dec!(1)),
+            make_tick_pq(dec!(20), dec!(1)),
+            make_tick_pq(dec!(30), dec!(1)),
+            make_tick_pq(dec!(40), dec!(1)),
+            make_tick_pq(dec!(50), dec!(1)),
+        ];
+        // 50th percentile → index 2 → price=30
+        assert_eq!(NormalizedTick::price_at_percentile(&ticks, 0.5), Some(dec!(30)));
     }
 }

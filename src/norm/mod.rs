@@ -740,6 +740,11 @@ impl MinMaxNormalizer {
     pub fn window_values_below(&self, threshold: Decimal) -> Vec<Decimal> {
         self.window.iter().copied().filter(|&v| v < threshold).collect()
     }
+
+    /// Count of window values equal to `value`.
+    pub fn count_equal(&self, value: Decimal) -> usize {
+        self.window.iter().filter(|&&v| v == value).count()
+    }
 }
 
 #[cfg(test)]
@@ -1744,6 +1749,38 @@ mod tests {
         assert!(below.contains(&dec!(1)));
         assert!(below.contains(&dec!(3)));
     }
+
+    // ── MinMaxNormalizer::percentile_rank ─────────────────────────────────────
+
+    #[test]
+    fn test_minmax_percentile_rank_none_for_empty_window() {
+        assert!(norm(3).percentile_rank(dec!(5)).is_none());
+    }
+
+    #[test]
+    fn test_minmax_percentile_rank_correct() {
+        let mut n = norm(5);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4), dec!(5)] { n.update(v); }
+        // <= 3: {1, 2, 3} = 3/5 = 0.6
+        let rank = n.percentile_rank(dec!(3)).unwrap();
+        assert!((rank - 0.6).abs() < 1e-9);
+    }
+
+    // ── MinMaxNormalizer::count_equal ─────────────────────────────────────────
+
+    #[test]
+    fn test_minmax_count_equal_zero_for_no_match() {
+        let mut n = norm(3);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        assert_eq!(n.count_equal(dec!(99)), 0);
+    }
+
+    #[test]
+    fn test_minmax_count_equal_counts_duplicates() {
+        let mut n = norm(5);
+        for v in [dec!(5), dec!(5), dec!(3), dec!(5), dec!(2)] { n.update(v); }
+        assert_eq!(n.count_equal(dec!(5)), 3);
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -2167,10 +2204,7 @@ impl ZScoreNormalizer {
     /// Convenience wrapper around [`normalize`](Self::normalize) for alert logic.
     /// Returns `false` if the normalizer window is empty or std-dev is zero.
     pub fn is_extreme(&self, value: Decimal, sigma: f64) -> bool {
-        self.normalize(value)
-            .ok()
-            .map(|z| z.abs() > sigma)
-            .unwrap_or(false)
+        self.normalize(value).ok().map_or(false, |z| z.abs() > sigma)
     }
 
     /// The most recently added value, or `None` if the window is empty.
@@ -2290,9 +2324,7 @@ impl ZScoreNormalizer {
         let Some(mean_f64) = mean.to_f64() else { return vec![]; };
         self.window.iter().copied()
             .filter(|v| {
-                v.to_f64()
-                    .map(|vf| ((vf - mean_f64) / std).abs() <= sigma)
-                    .unwrap_or(false)
+                v.to_f64().map_or(false, |vf| ((vf - mean_f64) / std).abs() <= sigma)
             })
             .collect()
     }
@@ -2558,6 +2590,11 @@ impl ZScoreNormalizer {
     /// Returns all window values strictly below `threshold`.
     pub fn window_values_below(&self, threshold: Decimal) -> Vec<Decimal> {
         self.window.iter().copied().filter(|&v| v < threshold).collect()
+    }
+
+    /// Count of window values equal to `value`.
+    pub fn count_equal(&self, value: Decimal) -> usize {
+        self.window.iter().filter(|&&v| v == value).count()
     }
 }
 
@@ -3870,5 +3907,37 @@ mod zscore_stability_tests {
         assert_eq!(below.len(), 2);
         assert!(below.contains(&dec!(1)));
         assert!(below.contains(&dec!(3)));
+    }
+
+    // ── ZScoreNormalizer::percentile_rank ─────────────────────────────────────
+
+    #[test]
+    fn test_zscore_percentile_rank_none_for_empty_window() {
+        assert!(znorm(3).percentile_rank(dec!(5)).is_none());
+    }
+
+    #[test]
+    fn test_zscore_percentile_rank_correct() {
+        let mut n = znorm(5);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4), dec!(5)] { n.update(v); }
+        // <= 3: {1, 2, 3} = 3/5 = 0.6
+        let rank = n.percentile_rank(dec!(3)).unwrap();
+        assert!((rank - 0.6).abs() < 1e-9);
+    }
+
+    // ── ZScoreNormalizer::count_equal ─────────────────────────────────────────
+
+    #[test]
+    fn test_zscore_count_equal_zero_for_no_match() {
+        let mut n = znorm(3);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        assert_eq!(n.count_equal(dec!(99)), 0);
+    }
+
+    #[test]
+    fn test_zscore_count_equal_counts_duplicates() {
+        let mut n = znorm(5);
+        for v in [dec!(5), dec!(5), dec!(3), dec!(5), dec!(2)] { n.update(v); }
+        assert_eq!(n.count_equal(dec!(5)), 3);
     }
 }

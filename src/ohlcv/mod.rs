@@ -1520,6 +1520,42 @@ impl OhlcvBar {
         }
         bars.windows(2).filter(|w| w[1].open != w[0].close).count()
     }
+
+    /// Bar efficiency: ratio of net price move to total range.
+    ///
+    /// `(close - open).abs() / (high - low)`.  Returns `None` for a zero-range bar.
+    pub fn bar_efficiency(bar: &OhlcvBar) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let range = bar.high - bar.low;
+        if range.is_zero() {
+            return None;
+        }
+        let body = (bar.close - bar.open).abs();
+        (body / range).to_f64()
+    }
+
+    /// Sum of upper and lower wick lengths for each bar.
+    ///
+    /// Upper wick = `high - close.max(open)`, lower wick = `close.min(open) - low`.
+    pub fn wicks_sum(bars: &[OhlcvBar]) -> Decimal {
+        bars.iter().map(|b| {
+            let body_top = b.close.max(b.open);
+            let body_bot = b.close.min(b.open);
+            (b.high - body_top) + (body_bot - b.low)
+        }).sum()
+    }
+
+    /// Mean of `(high - close)` across all bars — average distance from close to high.
+    ///
+    /// Returns `None` for an empty slice.
+    pub fn avg_close_to_high(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() {
+            return None;
+        }
+        let sum: Decimal = bars.iter().map(|b| b.high - b.close).sum();
+        (sum / Decimal::from(bars.len() as u32)).to_f64()
+    }
 }
 
 impl std::fmt::Display for OhlcvBar {
@@ -1616,8 +1652,7 @@ impl OhlcvAggregator {
         let bar_window_changed = self
             .current_bar
             .as_ref()
-            .map(|b| b.bar_start_ms != bar_start)
-            .unwrap_or(false);
+            .map_or(false, |b| b.bar_start_ms != bar_start);
 
         if bar_window_changed {
             // Take ownership — avoids cloning the current bar.
@@ -5168,5 +5203,88 @@ mod tests {
         let b3 = make_ohlcv_bar(dec!(110), dec!(120), dec!(108), dec!(115)); // no gap
         let b4 = make_ohlcv_bar(dec!(120), dec!(130), dec!(118), dec!(128)); // gap: open=120 != 115
         assert_eq!(OhlcvBar::gap_bars_count(&[b1, b2, b3, b4]), 2);
+    }
+
+    // ── OhlcvBar::inside_bar / outside_bar (instance method) ─────────────────
+
+    #[test]
+    fn test_inside_bar_true_when_range_inside_prior_v2() {
+        let prior = make_ohlcv_bar(dec!(100), dec!(120), dec!(80), dec!(110));
+        let bar   = make_ohlcv_bar(dec!(105), dec!(115), dec!(90), dec!(108));
+        assert!(bar.inside_bar(&prior));
+    }
+
+    #[test]
+    fn test_inside_bar_false_when_high_exceeds_prior_v2() {
+        let prior = make_ohlcv_bar(dec!(100), dec!(120), dec!(80), dec!(110));
+        let bar   = make_ohlcv_bar(dec!(105), dec!(125), dec!(90), dec!(118));
+        assert!(!bar.inside_bar(&prior));
+    }
+
+    #[test]
+    fn test_outside_bar_true_when_range_engulfs_prior_v2() {
+        let prior = make_ohlcv_bar(dec!(100), dec!(115), dec!(90), dec!(108));
+        let bar   = make_ohlcv_bar(dec!(95), dec!(120), dec!(85), dec!(112));
+        assert!(bar.outside_bar(&prior));
+    }
+
+    #[test]
+    fn test_outside_bar_false_when_range_is_inside_v2() {
+        let prior = make_ohlcv_bar(dec!(100), dec!(120), dec!(80), dec!(110));
+        let bar   = make_ohlcv_bar(dec!(105), dec!(115), dec!(90), dec!(108));
+        assert!(!bar.outside_bar(&prior));
+    }
+
+    // ── OhlcvBar::bar_efficiency ──────────────────────────────────────────────
+
+    #[test]
+    fn test_bar_efficiency_none_for_zero_range_bar() {
+        let bar = make_ohlcv_bar(dec!(100), dec!(100), dec!(100), dec!(100));
+        assert!(OhlcvBar::bar_efficiency(&bar).is_none());
+    }
+
+    #[test]
+    fn test_bar_efficiency_one_for_full_trend_bar() {
+        // open=100, high=110, low=100, close=110 → body=10, range=10 → efficiency=1.0
+        let bar = make_ohlcv_bar(dec!(100), dec!(110), dec!(100), dec!(110));
+        let eff = OhlcvBar::bar_efficiency(&bar).unwrap();
+        assert!((eff - 1.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_bar_efficiency_between_zero_and_one() {
+        let bar = make_ohlcv_bar(dec!(100), dec!(115), dec!(95), dec!(108));
+        let eff = OhlcvBar::bar_efficiency(&bar).unwrap();
+        assert!(eff >= 0.0 && eff <= 1.0);
+    }
+
+    // ── OhlcvBar::wicks_sum ───────────────────────────────────────────────────
+
+    #[test]
+    fn test_wicks_sum_zero_for_empty_slice() {
+        assert_eq!(OhlcvBar::wicks_sum(&[]), dec!(0));
+    }
+
+    #[test]
+    fn test_wicks_sum_correct_for_doji_like_bar() {
+        // open=close=100, high=110, low=90 → upper=10, lower=10, total=20
+        let bar = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100));
+        assert_eq!(OhlcvBar::wicks_sum(&[bar]), dec!(20));
+    }
+
+    // ── OhlcvBar::avg_close_to_high ───────────────────────────────────────────
+
+    #[test]
+    fn test_avg_close_to_high_none_for_empty_slice() {
+        assert!(OhlcvBar::avg_close_to_high(&[]).is_none());
+    }
+
+    #[test]
+    fn test_avg_close_to_high_correct_for_two_bars() {
+        // b1: high=110, close=105 → 5; b2: high=120, close=115 → 5; avg=5.0
+        let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(95), dec!(105));
+        let b2 = make_ohlcv_bar(dec!(110), dec!(120), dec!(108), dec!(115));
+        let avg = OhlcvBar::avg_close_to_high(&[b1, b2]).unwrap();
+        assert!((avg - 5.0).abs() < 1e-9);
     }
 }
