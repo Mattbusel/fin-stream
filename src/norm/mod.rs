@@ -1265,6 +1265,27 @@ impl ZScoreNormalizer {
         self.normalize(latest).ok()
     }
 
+    /// Exponential moving average of z-scores for all values in the current window.
+    ///
+    /// `alpha` is the smoothing factor (0 < alpha ≤ 1). Higher alpha gives more weight
+    /// to recent z-scores. Returns `None` if the window has fewer than 2 observations.
+    pub fn ema_of_z_scores(&self, alpha: f64) -> Option<f64> {
+        let n = self.window.len();
+        if n < 2 {
+            return None;
+        }
+        let mut ema: Option<f64> = None;
+        for &value in &self.window {
+            if let Ok(z) = self.normalize(value) {
+                ema = Some(match ema {
+                    None => z,
+                    Some(prev) => alpha * z + (1.0 - alpha) * prev,
+                });
+            }
+        }
+        ema
+    }
+
     /// Chainable alias for `update`: feeds `value` into the window and returns `&mut Self`.
     pub fn add_observation(&mut self, value: Decimal) -> &mut Self {
         self.update(value);
@@ -1979,6 +2000,33 @@ mod zscore_tests {
         let mut n = znorm(4);
         for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
         assert!(n.variance_f64().unwrap() > 0.0);
+    }
+
+    // ── ZScoreNormalizer::ema_of_z_scores ────────────────────────────────────
+
+    #[test]
+    fn test_ema_of_z_scores_none_when_single_value() {
+        let mut n = znorm(4);
+        n.update(dec!(5));
+        assert!(n.ema_of_z_scores(0.5).is_none());
+    }
+
+    #[test]
+    fn test_ema_of_z_scores_returns_some_with_variance() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] {
+            n.update(v);
+        }
+        let ema = n.ema_of_z_scores(0.3);
+        assert!(ema.is_some());
+    }
+
+    #[test]
+    fn test_ema_of_z_scores_zero_when_all_same() {
+        let mut n = znorm(4);
+        for _ in 0..4 { n.update(dec!(5)); }
+        // All z-scores are 0.0 → EMA = 0.0
+        assert_eq!(n.ema_of_z_scores(0.5), Some(0.0));
     }
 
     // ── ZScoreNormalizer::std_dev_f64 ─────────────────────────────────────────

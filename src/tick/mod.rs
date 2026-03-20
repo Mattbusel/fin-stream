@@ -422,6 +422,11 @@ impl NormalizedTick {
         self.notional_value() > threshold
     }
 
+    /// Returns `true` if this tick was received within `threshold_ms` of `now_ms`.
+    pub fn is_recent(&self, threshold_ms: u64, now_ms: u64) -> bool {
+        now_ms.saturating_sub(self.received_at_ms) <= threshold_ms
+    }
+
     /// Returns `true` if this tick is on the buy side.
     ///
     /// Returns `false` if the side is `Sell` or `None`.
@@ -1917,5 +1922,28 @@ mod tests {
         let mut tick = make_tick_at(0);
         tick.price = Decimal::from(102u32);
         assert!(!tick.is_within_spread(Decimal::from(99u32), Decimal::from(101u32)));
+    }
+
+    // ── NormalizedTick::is_recent ─────────────────────────────────────────────
+
+    #[test]
+    fn test_is_recent_true_when_within_threshold() {
+        let tick = make_tick_at(9_500);
+        // now=10000, threshold=1000 → age=500ms ≤ 1000ms
+        assert!(tick.is_recent(1_000, 10_000));
+    }
+
+    #[test]
+    fn test_is_recent_false_when_beyond_threshold() {
+        let tick = make_tick_at(8_000);
+        // now=10000, threshold=1000 → age=2000ms > 1000ms
+        assert!(!tick.is_recent(1_000, 10_000));
+    }
+
+    #[test]
+    fn test_is_recent_true_at_exact_threshold() {
+        let tick = make_tick_at(9_000);
+        // age=1000ms, threshold=1000ms → exactly at threshold
+        assert!(tick.is_recent(1_000, 10_000));
     }
 }

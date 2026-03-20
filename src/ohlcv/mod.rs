@@ -519,6 +519,23 @@ impl OhlcvBar {
         (self.close - self.open).abs()
     }
 
+    /// Volume change vs the previous bar: `self.volume - prev.volume`.
+    pub fn volume_delta(&self, prev: &OhlcvBar) -> Decimal {
+        self.volume - prev.volume
+    }
+
+    /// Returns `true` if this bar's range is less than 50% of the previous bar's range.
+    ///
+    /// Indicates price consolidation / compression.
+    pub fn is_consolidating(&self, prev: &OhlcvBar) -> bool {
+        let prev_range = prev.high - prev.low;
+        if prev_range.is_zero() {
+            return false;
+        }
+        let this_range = self.high - self.low;
+        this_range < prev_range / Decimal::TWO
+    }
+
     /// High-low range as a percentage of the open price: `(high - low) / open * 100`.
     ///
     /// Returns `None` if open is zero.
@@ -2876,6 +2893,40 @@ mod tests {
         // open == close → body = 0
         let bar = make_ohlcv_bar(dec!(100), dec!(105), dec!(95), dec!(100));
         assert_eq!(bar.body_size(), dec!(0));
+    }
+
+    // ── OhlcvBar::volume_delta / is_consolidating ────────────────────────────
+
+    #[test]
+    fn test_volume_delta_positive_when_increasing() {
+        let mut prev = make_ohlcv_bar(dec!(100), dec!(105), dec!(95), dec!(102));
+        prev.volume = dec!(1000);
+        let mut bar = make_ohlcv_bar(dec!(102), dec!(110), dec!(98), dec!(108));
+        bar.volume = dec!(1500);
+        assert_eq!(bar.volume_delta(&prev), dec!(500));
+    }
+
+    #[test]
+    fn test_volume_delta_negative_when_decreasing() {
+        let mut prev = make_ohlcv_bar(dec!(100), dec!(105), dec!(95), dec!(102));
+        prev.volume = dec!(1500);
+        let mut bar = make_ohlcv_bar(dec!(102), dec!(110), dec!(98), dec!(108));
+        bar.volume = dec!(1000);
+        assert_eq!(bar.volume_delta(&prev), dec!(-500));
+    }
+
+    #[test]
+    fn test_is_consolidating_true_when_small_range() {
+        let prev = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105)); // range=20
+        let bar  = make_ohlcv_bar(dec!(102), dec!(106), dec!(100), dec!(104)); // range=6 < 10
+        assert!(bar.is_consolidating(&prev));
+    }
+
+    #[test]
+    fn test_is_consolidating_false_when_large_range() {
+        let prev = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105)); // range=20
+        let bar  = make_ohlcv_bar(dec!(102), dec!(115), dec!(95), dec!(110)); // range=20, not < 10
+        assert!(!bar.is_consolidating(&prev));
     }
 
     // ── OhlcvBar::price_at_pct ───────────────────────────────────────────────

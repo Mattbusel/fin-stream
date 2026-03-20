@@ -697,6 +697,14 @@ impl LorentzTransform {
         self.beta / other.beta
     }
 
+    /// Proper length from an observed (length-contracted) length: `observed * gamma`.
+    ///
+    /// Inverse of length contraction: recovers the rest-frame length from an
+    /// observed measurement made in the moving frame.
+    pub fn proper_length(&self, observed: f64) -> f64 {
+        observed * self.gamma()
+    }
+
     /// Classifies a spacetime interval `(dt, dx)` as `"timelike"`, `"lightlike"`, or `"spacelike"`.
     ///
     /// Spacetime interval: `s² = dt² - dx²` (in natural units, c = 1).
@@ -1857,5 +1865,21 @@ mod tests {
         let a = LorentzTransform::new(0.3).unwrap();
         let b = LorentzTransform::new(0.6).unwrap();
         assert!(a.velocity_ratio(&b) < 1.0);
+    }
+
+    // ── LorentzTransform::proper_length ──────────────────────────────────────
+
+    #[test]
+    fn test_proper_length_at_rest_equals_observed() {
+        let t = LorentzTransform::new(0.0).unwrap();
+        // beta=0 → gamma=1 → proper_length = observed
+        assert!((t.proper_length(10.0) - 10.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_proper_length_greater_than_observed_when_moving() {
+        let t = LorentzTransform::new(0.6).unwrap();
+        // gamma=1.25 → proper_length = 1.25 * observed
+        assert!((t.proper_length(8.0) - 10.0).abs() < 1e-9);
     }
 }

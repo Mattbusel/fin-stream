@@ -639,6 +639,14 @@ impl SessionAwareness {
         }
     }
 
+    /// Returns `true` if `date` falls in a typical US earnings season month
+    /// (January, April, July, or October).
+    ///
+    /// These months see heavy corporate earnings reports, increasing market volatility.
+    pub fn is_earnings_season(date: NaiveDate) -> bool {
+        matches!(date.month(), 1 | 4 | 7 | 10)
+    }
+
     /// Returns `true` if `utc_ms` falls within the midday 12:00–13:00 ET quiet period
     /// (3 hours into the 6.5-hour US equity session).
     ///
@@ -2371,5 +2379,25 @@ mod tests {
         let from = NaiveDate::from_ymd_opt(2024, 1, 12).unwrap();
         let to   = NaiveDate::from_ymd_opt(2024, 1, 8).unwrap();
         assert_eq!(SessionAwareness::trading_days_elapsed(from, to), 0);
+    }
+
+    // ── SessionAwareness::is_earnings_season ──────────────────────────────────
+
+    #[test]
+    fn test_is_earnings_season_true_in_january() {
+        let d = NaiveDate::from_ymd_opt(2024, 1, 15).unwrap();
+        assert!(SessionAwareness::is_earnings_season(d));
+    }
+
+    #[test]
+    fn test_is_earnings_season_true_in_october() {
+        let d = NaiveDate::from_ymd_opt(2024, 10, 10).unwrap();
+        assert!(SessionAwareness::is_earnings_season(d));
+    }
+
+    #[test]
+    fn test_is_earnings_season_false_in_march() {
+        let d = NaiveDate::from_ymd_opt(2024, 3, 15).unwrap();
+        assert!(!SessionAwareness::is_earnings_season(d));
     }
 }
