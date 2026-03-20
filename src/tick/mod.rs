@@ -312,6 +312,29 @@ impl NormalizedTick {
         (self.price - other.price).abs()
     }
 
+    /// Signed latency between the local receipt timestamp and the exchange
+    /// timestamp, in milliseconds.
+    ///
+    /// Returns `ts_ms as i64 - exchange_ts_ms as i64`.  Positive values mean
+    /// the tick arrived at the local system after the exchange stamped it
+    /// (normal network latency).  Negative values indicate clock skew between
+    /// the exchange and local clock.  Returns `None` if `exchange_ts_ms` is
+    /// absent.
+    pub fn exchange_latency_ms(&self) -> Option<i64> {
+        self.exchange_ts_ms
+            .map(|e| self.received_at_ms as i64 - e as i64)
+    }
+
+    /// Returns `true` if the notional value of this trade (`price × quantity`)
+    /// exceeds `threshold`.
+    ///
+    /// Unlike [`is_large_trade`](Self::is_large_trade) (which compares raw
+    /// quantity), this method uses the trade's dollar value, making it useful
+    /// for comparing block-trade size across instruments with different prices.
+    pub fn is_notional_large_trade(&self, threshold: Decimal) -> bool {
+        self.volume_notional() > threshold
+    }
+
     /// Returns `true` if this tick's price is strictly above `price`.
     pub fn is_above(&self, price: Decimal) -> bool {
         self.price > price
@@ -1277,5 +1300,46 @@ mod tests {
         let mut tick = make_tick_at(1_000);
         tick.side = None;
         assert!(!tick.is_sell());
+    }
+
+    // --- exchange_latency_ms / is_notional_large_trade ---
+
+    #[test]
+    fn test_exchange_latency_ms_positive_for_normal_delivery() {
+        let mut tick = make_tick_at(1_100);
+        tick.exchange_ts_ms = Some(1_000);
+        assert_eq!(tick.exchange_latency_ms(), Some(100));
+    }
+
+    #[test]
+    fn test_exchange_latency_ms_negative_for_clock_skew() {
+        let mut tick = make_tick_at(1_000);
+        tick.exchange_ts_ms = Some(1_100);
+        assert_eq!(tick.exchange_latency_ms(), Some(-100));
+    }
+
+    #[test]
+    fn test_exchange_latency_ms_none_when_no_exchange_ts() {
+        let mut tick = make_tick_at(1_000);
+        tick.exchange_ts_ms = None;
+        assert!(tick.exchange_latency_ms().is_none());
+    }
+
+    #[test]
+    fn test_is_notional_large_trade_true_when_above_threshold() {
+        let mut tick = make_tick_at(1_000);
+        tick.price = rust_decimal_macros::dec!(100);
+        tick.quantity = rust_decimal_macros::dec!(10);
+        // notional = 1000, threshold = 500 → true
+        assert!(tick.is_notional_large_trade(rust_decimal_macros::dec!(500)));
+    }
+
+    #[test]
+    fn test_is_notional_large_trade_false_when_at_or_below_threshold() {
+        let mut tick = make_tick_at(1_000);
+        tick.price = rust_decimal_macros::dec!(100);
+        tick.quantity = rust_decimal_macros::dec!(5);
+        // notional = 500, threshold = 500 → false (strictly greater)
+        assert!(!tick.is_notional_large_trade(rust_decimal_macros::dec!(500)));
     }
 }

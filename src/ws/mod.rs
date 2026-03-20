@@ -67,6 +67,16 @@ impl WsStats {
         self.total_bytes_received as f64 / 1_024.0
     }
 
+    /// Average received bandwidth in bytes per second over `elapsed_ms`.
+    ///
+    /// Returns `0.0` when `elapsed_ms` is zero (avoids division by zero).
+    pub fn bandwidth_bps(&self, elapsed_ms: u64) -> f64 {
+        if elapsed_ms == 0 {
+            return 0.0;
+        }
+        self.total_bytes_received as f64 * 1_000.0 / elapsed_ms as f64
+    }
+
     /// Returns `true` if the current message rate is below `min_rate` (msgs/s).
     ///
     /// Returns `true` when `elapsed_ms` is zero (no time elapsed → rate = 0).
@@ -1238,5 +1248,26 @@ mod tests {
     fn test_total_data_kb_equals_1024_times_mb() {
         let stats = WsStats { total_messages_received: 1, total_bytes_received: 2_097_152 };
         assert!((stats.total_data_kb() - stats.total_data_mb() * 1_024.0).abs() < 1e-6);
+    }
+
+    // --- WsStats::bandwidth_bps ---
+
+    #[test]
+    fn test_bandwidth_bps_zero_when_elapsed_zero() {
+        let stats = WsStats { total_messages_received: 0, total_bytes_received: 1_000 };
+        assert_eq!(stats.bandwidth_bps(0), 0.0);
+    }
+
+    #[test]
+    fn test_bandwidth_bps_correct_value() {
+        let stats = WsStats { total_messages_received: 1, total_bytes_received: 10_000 };
+        // 10_000 bytes / 1s = 10_000 bps
+        assert!((stats.bandwidth_bps(1_000) - 10_000.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_bandwidth_bps_zero_bytes() {
+        let stats = WsStats { total_messages_received: 5, total_bytes_received: 0 };
+        assert_eq!(stats.bandwidth_bps(5_000), 0.0);
     }
 }

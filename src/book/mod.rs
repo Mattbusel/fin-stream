@@ -508,6 +508,35 @@ impl OrderBook {
         self.bids.iter().rev().take(n).map(|(_, qty)| *qty).sum()
     }
 
+    /// Normalised order-book imbalance: `(bid_vol − ask_vol) / (bid_vol + ask_vol)`.
+    ///
+    /// Returns a value in `[-1.0, 1.0]`.  `+1.0` means all volume is on the
+    /// bid side (strong buying pressure); `-1.0` means all volume is on the
+    /// ask side (strong selling pressure).  Returns `None` when both sides are
+    /// empty (sum is zero).
+    pub fn imbalance_ratio(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let bid = self.total_bid_volume();
+        let ask = self.total_ask_volume();
+        let total = bid + ask;
+        if total.is_zero() {
+            return None;
+        }
+        let bid_f = bid.to_f64()?;
+        let ask_f = ask.to_f64()?;
+        let total_f = bid_f + ask_f;
+        Some((bid_f - ask_f) / total_f)
+    }
+
+    /// Total volume across the top `n` ask price levels (best-to-worst order,
+    /// i.e. lowest asks first).
+    ///
+    /// If there are fewer than `n` levels, the volume of all existing levels is
+    /// returned. Returns `Decimal::ZERO` for an empty ask side.
+    pub fn top_n_ask_volume(&self, n: usize) -> Decimal {
+        self.asks.iter().take(n).map(|(_, qty)| *qty).sum()
+    }
+
     /// Spread as a percentage of the mid-price: `spread / mid × 100`.
     ///
     /// Returns `None` if either best bid or best ask is absent, or if the
@@ -851,6 +880,19 @@ impl OrderBook {
             }
         }
         Ok(())
+    }
+
+    /// Spread expressed in basis points relative to mid-price: `(ask - bid) / mid × 10_000`.
+    ///
+    /// Returns `None` when either side is empty or mid-price is zero.
+    pub fn spread_bps(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let mid = self.mid_price()?;
+        if mid.is_zero() {
+            return None;
+        }
+        let spread = self.spread()?;
+        (spread / mid * Decimal::from(10_000u32)).to_f64()
     }
 }
 
@@ -1821,6 +1863,50 @@ mod tests {
     fn test_top_n_bid_volume_zero_for_empty_book() {
         let b = book("BTC-USD");
         assert_eq!(b.top_n_bid_volume(3), dec!(0));
+    }
+
+    // --- imbalance_ratio / top_n_ask_volume ---
+
+    #[test]
+    fn test_imbalance_ratio_positive_when_more_bids() {
+        let mut b = book("BTC-USD");
+        b.apply(delta("BTC-USD", BookSide::Bid, dec!(100), dec!(3))).unwrap();
+        b.apply(delta("BTC-USD", BookSide::Ask, dec!(101), dec!(1))).unwrap();
+        // (3 - 1) / (3 + 1) = 0.5
+        let ratio = b.imbalance_ratio().unwrap();
+        assert!((ratio - 0.5).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_imbalance_ratio_negative_when_more_asks() {
+        let mut b = book("BTC-USD");
+        b.apply(delta("BTC-USD", BookSide::Bid, dec!(100), dec!(1))).unwrap();
+        b.apply(delta("BTC-USD", BookSide::Ask, dec!(101), dec!(3))).unwrap();
+        // (1 - 3) / (1 + 3) = -0.5
+        let ratio = b.imbalance_ratio().unwrap();
+        assert!((ratio - (-0.5)).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_imbalance_ratio_none_when_both_empty() {
+        let b = book("BTC-USD");
+        assert!(b.imbalance_ratio().is_none());
+    }
+
+    #[test]
+    fn test_top_n_ask_volume_sums_lowest_asks() {
+        let mut b = book("BTC-USD");
+        b.apply(delta("BTC-USD", BookSide::Ask, dec!(100), dec!(2))).unwrap(); // best ask
+        b.apply(delta("BTC-USD", BookSide::Ask, dec!(101), dec!(3))).unwrap();
+        b.apply(delta("BTC-USD", BookSide::Ask, dec!(102), dec!(5))).unwrap(); // worst
+        // top 2: 100 (2) + 101 (3) = 5
+        assert_eq!(b.top_n_ask_volume(2), dec!(5));
+    }
+
+    #[test]
+    fn test_top_n_ask_volume_zero_for_empty_book() {
+        let b = book("BTC-USD");
+        assert_eq!(b.top_n_ask_volume(3), dec!(0));
     }
 
     // ── OrderBook::is_tight_spread ────────────────────────────────────────────

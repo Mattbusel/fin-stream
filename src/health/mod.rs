@@ -543,6 +543,20 @@ impl HealthMonitor {
             .collect()
     }
 
+    /// Returns `true` if at least one registered feed currently has
+    /// [`HealthStatus::Stale`] status.
+    pub fn is_any_feed_stale(&self) -> bool {
+        self.feeds.iter().any(|e| e.status == HealthStatus::Stale)
+    }
+
+    /// Returns `true` if every registered feed has received at least one
+    /// heartbeat (`last_tick_ms` is `Some`).
+    ///
+    /// Returns `true` vacuously when no feeds are registered.
+    pub fn all_feeds_seen(&self) -> bool {
+        self.feeds.iter().all(|e| e.last_tick_ms.is_some())
+    }
+
 }
 
 #[cfg(test)]
@@ -1470,6 +1484,57 @@ mod tests {
         m.register("A", None);
         m.heartbeat("A", 1_000).unwrap();
         assert!(m.feeds_never_seen().is_empty());
+    }
+
+    // --- is_any_feed_stale / all_feeds_seen ---
+
+    #[test]
+    fn test_is_any_feed_stale_true_when_stale_feed_exists() {
+        let mut m = monitor();
+        m.register("A", None);
+        m.heartbeat("A", 1_000).unwrap();
+        m.check_all(10_000); // elapsed > threshold → stale
+        assert!(m.is_any_feed_stale());
+    }
+
+    #[test]
+    fn test_is_any_feed_stale_false_when_all_healthy() {
+        let mut m = monitor();
+        m.register("A", None);
+        m.heartbeat("A", 9_500).unwrap();
+        m.check_all(10_000); // 500ms elapsed → healthy
+        assert!(!m.is_any_feed_stale());
+    }
+
+    #[test]
+    fn test_is_any_feed_stale_false_when_no_feeds() {
+        let m = monitor();
+        assert!(!m.is_any_feed_stale());
+    }
+
+    #[test]
+    fn test_all_feeds_seen_true_when_all_have_heartbeat() {
+        let mut m = monitor();
+        m.register("A", None);
+        m.register("B", None);
+        m.heartbeat("A", 1_000).unwrap();
+        m.heartbeat("B", 2_000).unwrap();
+        assert!(m.all_feeds_seen());
+    }
+
+    #[test]
+    fn test_all_feeds_seen_false_when_one_never_seen() {
+        let mut m = monitor();
+        m.register("A", None);
+        m.register("B", None);
+        m.heartbeat("A", 1_000).unwrap();
+        assert!(!m.all_feeds_seen());
+    }
+
+    #[test]
+    fn test_all_feeds_seen_true_vacuously_when_no_feeds() {
+        let m = monitor();
+        assert!(m.all_feeds_seen());
     }
 
     // ── HealthMonitor::stale_ratio ────────────────────────────────────────────

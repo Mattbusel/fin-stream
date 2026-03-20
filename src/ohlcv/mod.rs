@@ -495,6 +495,29 @@ impl OhlcvBar {
         self.wick_upper().max(self.wick_lower())
     }
 
+    /// Returns `true` if this bar is an inside bar: both `high` and `low` are
+    /// strictly within the previous bar's range.
+    ///
+    /// Unlike [`is_harami`](Self::is_harami), which compares body ranges,
+    /// this method compares the full high-low range including wicks.
+    pub fn is_inside_bar(&self, prev: &OhlcvBar) -> bool {
+        self.high < prev.high && self.low > prev.low
+    }
+
+    /// Classifies this bar as `"bullish"`, `"bearish"`, or `"doji"`.
+    ///
+    /// A doji is a bar whose body is zero (open equals close). Otherwise the
+    /// direction is determined by whether close is above or below open.
+    pub fn bar_type(&self) -> &'static str {
+        if self.close == self.open {
+            "doji"
+        } else if self.close > self.open {
+            "bullish"
+        } else {
+            "bearish"
+        }
+    }
+
     /// Duration of this bar's timeframe in milliseconds.
     pub fn bar_duration_ms(&self) -> u64 {
         self.timeframe.duration_ms()
@@ -2280,6 +2303,47 @@ mod tests {
         // open=low=100, close=high=110 → both wicks zero
         let b = bar(100, 110, 100, 110);
         assert!(b.tail_length().is_zero());
+    }
+
+    // --- is_inside_bar / bar_type ---
+
+    #[test]
+    fn test_is_inside_bar_true_when_range_within_prev() {
+        let prev = bar(90, 120, 80, 110); // prev range: 80-120
+        let curr = bar(95, 115, 85, 100); // curr range: 85-115 — inside 80-120
+        assert!(curr.is_inside_bar(&prev));
+    }
+
+    #[test]
+    fn test_is_inside_bar_false_when_high_exceeds_prev_high() {
+        let prev = bar(90, 110, 80, 100); // prev high = 110
+        let curr = bar(95, 112, 85, 100); // curr high = 112 > 110
+        assert!(!curr.is_inside_bar(&prev));
+    }
+
+    #[test]
+    fn test_is_inside_bar_false_when_equal_range() {
+        let prev = bar(90, 110, 80, 100);
+        let curr = bar(90, 110, 80, 100); // same high/low — not strictly inside
+        assert!(!curr.is_inside_bar(&prev));
+    }
+
+    #[test]
+    fn test_bar_type_bullish() {
+        let b = bar(100, 110, 90, 105); // close > open
+        assert_eq!(b.bar_type(), "bullish");
+    }
+
+    #[test]
+    fn test_bar_type_bearish() {
+        let b = bar(105, 110, 90, 100); // close < open
+        assert_eq!(b.bar_type(), "bearish");
+    }
+
+    #[test]
+    fn test_bar_type_doji() {
+        let b = bar(100, 110, 90, 100); // close == open
+        assert_eq!(b.bar_type(), "doji");
     }
 
     #[test]

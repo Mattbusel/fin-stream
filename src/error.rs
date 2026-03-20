@@ -458,6 +458,11 @@ impl StreamError {
             _ => None,
         }
     }
+
+    /// Returns `true` if this is a sequence gap error (missed delta).
+    pub fn is_sequence_gap(&self) -> bool {
+        matches!(self, StreamError::SequenceGap { .. })
+    }
 }
 
 #[cfg(test)]
@@ -1131,5 +1136,32 @@ mod tests {
     fn test_affected_symbol_none_for_ring_buffer_errors() {
         assert!(StreamError::RingBufferEmpty.affected_symbol().is_none());
         assert!(StreamError::RingBufferFull { capacity: 8 }.affected_symbol().is_none());
+    }
+
+    // --- StreamError::is_sequence_gap ---
+
+    #[test]
+    fn test_is_sequence_gap_true_for_sequence_gap() {
+        let e = StreamError::SequenceGap {
+            symbol: "BTC-USD".into(),
+            expected: 10,
+            got: 15,
+        };
+        assert!(e.is_sequence_gap());
+    }
+
+    #[test]
+    fn test_is_sequence_gap_false_for_book_crossed() {
+        let e = StreamError::BookCrossed {
+            symbol: "BTC-USD".into(),
+            bid: rust_decimal_macros::dec!(101),
+            ask: rust_decimal_macros::dec!(99),
+        };
+        assert!(!e.is_sequence_gap());
+    }
+
+    #[test]
+    fn test_is_sequence_gap_false_for_ring_buffer_empty() {
+        assert!(!StreamError::RingBufferEmpty.is_sequence_gap());
     }
 }

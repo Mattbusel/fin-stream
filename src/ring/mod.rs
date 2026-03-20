@@ -261,6 +261,17 @@ impl<T, const N: usize> SpscRing<T, N> {
         Some(unsafe { *(*self.buf[slot].get()).assume_init_ref() })
     }
 
+    /// Current fill level as a fraction of capacity: `len / capacity`.
+    ///
+    /// Returns `0.0` when empty and `1.0` when full.
+    pub fn fill_ratio(&self) -> f64 {
+        let cap = self.capacity();
+        if cap == 0 {
+            return 0.0;
+        }
+        self.len() as f64 / cap as f64
+    }
+
     /// Drain all items currently in the ring into a `Vec`, in FIFO order.
     ///
     /// Only safe to call when no producer/consumer pair is active (i.e., before
@@ -1107,5 +1118,33 @@ mod tests {
         ring.push(42).unwrap();
         let _ = ring.peek_newest();
         assert_eq!(ring.len(), 1);
+    }
+
+    // --- fill_ratio ---
+
+    #[test]
+    fn test_fill_ratio_zero_when_empty() {
+        let ring: SpscRing<u32, 8> = SpscRing::new();
+        assert_eq!(ring.fill_ratio(), 0.0);
+    }
+
+    #[test]
+    fn test_fill_ratio_one_when_full() {
+        let ring: SpscRing<u32, 8> = SpscRing::new(); // capacity = N-1 = 7
+        for i in 0..7u32 {
+            ring.push(i).unwrap();
+        }
+        assert!((ring.fill_ratio() - 1.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_fill_ratio_half_when_half_full() {
+        let ring: SpscRing<u32, 8> = SpscRing::new(); // capacity = 7
+        // Push approximately half: 3 items out of 7 ≈ 0.428...
+        ring.push(1).unwrap();
+        ring.push(2).unwrap();
+        ring.push(3).unwrap();
+        let ratio = ring.fill_ratio();
+        assert!((ratio - 3.0 / 7.0).abs() < 1e-10);
     }
 }

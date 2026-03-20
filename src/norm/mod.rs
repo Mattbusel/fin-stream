@@ -1026,6 +1026,15 @@ impl ZScoreNormalizer {
         let sd = self.std_dev()?;
         Some(sd * sd)
     }
+
+    /// Current window mean as `f64`.
+    ///
+    /// A convenience over calling `mean()` and then converting to `f64`.
+    /// Returns `None` when the window is empty.
+    pub fn window_mean_f64(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        self.mean()?.to_f64()
+    }
 }
 
 #[cfg(test)]
@@ -1371,5 +1380,34 @@ mod zscore_tests {
         let variance = n.sample_variance().unwrap();
         let sd = n.std_dev().unwrap();
         assert!((variance - sd * sd).abs() < 1e-10);
+    }
+
+    // --- window_mean_f64 ---
+
+    #[test]
+    fn test_window_mean_f64_none_when_empty() {
+        let n = znorm(5);
+        assert!(n.window_mean_f64().is_none());
+    }
+
+    #[test]
+    fn test_window_mean_f64_correct_value() {
+        let mut n = znorm(4);
+        n.update(dec!(10));
+        n.update(dec!(20));
+        // mean = 15.0
+        let m = n.window_mean_f64().unwrap();
+        assert!((m - 15.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_window_mean_f64_matches_decimal_mean() {
+        let mut n = znorm(8);
+        for v in [dec!(2), dec!(4), dec!(4), dec!(4), dec!(5), dec!(5), dec!(7), dec!(9)] {
+            n.update(v);
+        }
+        use rust_decimal::prelude::ToPrimitive;
+        let expected = n.mean().unwrap().to_f64().unwrap();
+        assert!((n.window_mean_f64().unwrap() - expected).abs() < 1e-10);
     }
 }

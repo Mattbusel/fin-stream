@@ -464,6 +464,28 @@ impl SessionAwareness {
         }
     }
 
+    /// Returns `true` if the session is open and `utc_ms` is within
+    /// `margin_ms` of the end of the regular session.
+    ///
+    /// Returns `false` when outside the regular session (closed, extended,
+    /// etc.).  Uses the same remaining-time calculation as
+    /// [`remaining_session_ms`](Self::remaining_session_ms).
+    pub fn is_near_close(&self, utc_ms: u64, margin_ms: u64) -> bool {
+        match self.remaining_session_ms(utc_ms) {
+            Some(remaining) => remaining <= margin_ms,
+            None => false,
+        }
+    }
+
+    /// Duration of the regular (non-extended) session in milliseconds.
+    ///
+    /// For `UsEquity` this is 6.5 hours (23,400,000 ms); for `Crypto` it
+    /// returns `u64::MAX` (always open); for `Forex` it returns the
+    /// standard weekly duration (120 hours = 432,000,000 ms).
+    pub fn open_duration_ms(&self) -> u64 {
+        self.session.session_duration_ms()
+    }
+
     fn next_forex_close_ms(&self, utc_ms: u64) -> u64 {
         if self.forex_status(utc_ms) == TradingStatus::Closed {
             return utc_ms;
@@ -1653,6 +1675,43 @@ mod tests {
         let sa = sa(MarketSession::UsEquity);
         // At midnight UTC the elapsed fraction is 0.0, so remaining is 1.0
         assert!((sa.day_fraction_remaining(0) - 1.0).abs() < 1e-12);
+    }
+
+    // --- is_near_close / open_duration_ms ---
+
+    #[test]
+    fn test_is_near_close_true_within_margin() {
+        let sa = sa(MarketSession::UsEquity);
+        // 15 minutes before regular close, margin 30 minutes
+        let fifteen_before = MON_CLOSE_UTC_MS - 15 * 60_000;
+        assert!(sa.is_near_close(fifteen_before, 30 * 60_000));
+    }
+
+    #[test]
+    fn test_is_near_close_false_outside_margin() {
+        let sa = sa(MarketSession::UsEquity);
+        // 2 hours before close, margin 30 minutes
+        let two_hours_before = MON_CLOSE_UTC_MS - 2 * 3_600_000;
+        assert!(!sa.is_near_close(two_hours_before, 30 * 60_000));
+    }
+
+    #[test]
+    fn test_is_near_close_false_when_closed() {
+        let sa = sa(MarketSession::UsEquity);
+        assert!(!sa.is_near_close(SAT_UTC_MS, 3_600_000));
+    }
+
+    #[test]
+    fn test_open_duration_ms_us_equity() {
+        let sa = sa(MarketSession::UsEquity);
+        // 6.5 hours = 23,400,000 ms
+        assert_eq!(sa.open_duration_ms(), 6 * 3_600_000 + 30 * 60_000);
+    }
+
+    #[test]
+    fn test_open_duration_ms_crypto() {
+        let sa = sa(MarketSession::Crypto);
+        assert_eq!(sa.open_duration_ms(), u64::MAX);
     }
 
     // ── SessionAnalyzer::is_extended_hours ────────────────────────────────────

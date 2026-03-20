@@ -410,6 +410,18 @@ impl LorentzTransform {
         self.gamma * self.beta
     }
 
+    /// Relativistic momentum in natural units (c = 1): `p = γ·m·β`.
+    ///
+    /// For a position-size analogy: `mass` represents a notional stake and `beta`
+    /// represents velocity. The returned momentum scales that stake by the Lorentz
+    /// factor, giving a measure of "relativistic commitment" that grows non-linearly
+    /// as `beta → 1`.
+    ///
+    /// # Complexity: O(1)
+    pub fn momentum(&self, mass: f64) -> f64 {
+        self.gamma * mass * self.beta
+    }
+
     /// Relativistic total energy in natural units (c = 1): `E = γ·m`.
     ///
     /// For `rest_mass` expressed in the same energy units as the result, this
@@ -418,6 +430,15 @@ impl LorentzTransform {
     /// equals `rest_mass`.
     pub fn relativistic_energy(&self, rest_mass: f64) -> f64 {
         self.gamma * rest_mass
+    }
+
+    /// Relativistic kinetic energy in natural units (c = 1): `(γ − 1) · m`.
+    ///
+    /// This is the total relativistic energy minus the rest energy, i.e. the
+    /// work done to accelerate the particle from rest to `beta`. At rest
+    /// (`beta = 0`, `gamma = 1`) the result is zero.
+    pub fn kinetic_energy(&self, rest_mass: f64) -> f64 {
+        (self.gamma - 1.0) * rest_mass
     }
 
     /// Computes the Lorentz-invariant spacetime interval between two events.
@@ -1430,6 +1451,29 @@ mod tests {
         let t = LorentzTransform::new(0.8).unwrap();
         let m = 2.5;
         assert!((t.relativistic_energy(m) - t.gamma() * m).abs() < 1e-12);
+    }
+
+    // --- kinetic_energy ---
+
+    #[test]
+    fn test_kinetic_energy_zero_at_rest() {
+        let t = LorentzTransform::new(0.0).unwrap();
+        assert!(t.kinetic_energy(1.0).abs() < 1e-12);
+    }
+
+    #[test]
+    fn test_kinetic_energy_positive_for_moving_particle() {
+        let t = LorentzTransform::new(0.6).unwrap();
+        assert!(t.kinetic_energy(1.0) > 0.0);
+    }
+
+    #[test]
+    fn test_kinetic_energy_equals_total_minus_rest() {
+        let t = LorentzTransform::new(0.8).unwrap();
+        let m = 3.0;
+        let ke = t.kinetic_energy(m);
+        let total = t.relativistic_energy(m);
+        assert!((ke - (total - m)).abs() < 1e-12);
     }
 
     // ── LorentzTransform::rapidity ────────────────────────────────────────────
