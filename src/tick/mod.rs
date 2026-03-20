@@ -184,6 +184,20 @@ impl NormalizedTick {
     pub fn is_stale(&self, now_ms: u64, threshold_ms: u64) -> bool {
         self.age_ms(now_ms) > threshold_ms
     }
+
+    /// Returns `true` if the tick is a buyer-initiated trade.
+    ///
+    /// Returns `false` if side is `Sell` or `None` (side unknown).
+    pub fn is_buy(&self) -> bool {
+        self.side == Some(TradeSide::Buy)
+    }
+
+    /// Returns `true` if the tick is a seller-initiated trade.
+    ///
+    /// Returns `false` if side is `Buy` or `None` (side unknown).
+    pub fn is_sell(&self) -> bool {
+        self.side == Some(TradeSide::Sell)
+    }
 }
 
 impl std::fmt::Display for NormalizedTick {
@@ -778,5 +792,31 @@ mod tests {
     fn test_is_stale_false_for_fresh_tick() {
         let tick = make_tick_at(10_000);
         assert!(!tick.is_stale(10_500, 1_000));
+    }
+
+    // ── NormalizedTick::is_buy / is_sell ──────────────────────────────────────
+
+    #[test]
+    fn test_is_buy_true_for_buy_side() {
+        let mut tick = make_tick_at(1_000);
+        tick.side = Some(TradeSide::Buy);
+        assert!(tick.is_buy());
+        assert!(!tick.is_sell());
+    }
+
+    #[test]
+    fn test_is_sell_true_for_sell_side() {
+        let mut tick = make_tick_at(1_000);
+        tick.side = Some(TradeSide::Sell);
+        assert!(tick.is_sell());
+        assert!(!tick.is_buy());
+    }
+
+    #[test]
+    fn test_is_buy_false_for_unknown_side() {
+        let mut tick = make_tick_at(1_000);
+        tick.side = None;
+        assert!(!tick.is_buy());
+        assert!(!tick.is_sell());
     }
 }

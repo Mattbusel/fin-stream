@@ -221,6 +221,23 @@ impl StreamError {
         )
     }
 
+    /// Returns `true` for errors that arise inside the processing pipeline.
+    ///
+    /// Pipeline errors indicate internal structural failures — ring buffer full
+    /// or empty, aggregation shape mismatch, normalization range violations, or
+    /// Lorentz configuration errors. They do not indicate bad input data or
+    /// network problems.
+    pub fn is_pipeline_error(&self) -> bool {
+        matches!(
+            self,
+            StreamError::RingBufferFull { .. }
+                | StreamError::RingBufferEmpty
+                | StreamError::AggregationError { .. }
+                | StreamError::NormalizationError { .. }
+                | StreamError::LorentzConfigError { .. }
+        )
+    }
+
     /// Returns `true` for errors that indicate a connection-layer failure.
     ///
     /// Connection errors arise from network problems: initial connection refused,
@@ -553,5 +570,39 @@ mod tests {
             ask: rust_decimal_macros::dec!(99),
         }
         .is_connection_error());
+    }
+
+    // ── StreamError::is_pipeline_error ───────────────────────────────────────
+
+    #[test]
+    fn test_is_pipeline_error_ring_and_aggregation_variants() {
+        assert!(StreamError::RingBufferFull { capacity: 8 }.is_pipeline_error());
+        assert!(StreamError::RingBufferEmpty.is_pipeline_error());
+        assert!(StreamError::AggregationError {
+            reason: "wrong symbol".into()
+        }
+        .is_pipeline_error());
+        assert!(StreamError::NormalizationError {
+            reason: "out of range".into()
+        }
+        .is_pipeline_error());
+        assert!(StreamError::LorentzConfigError {
+            reason: "beta>=1".into()
+        }
+        .is_pipeline_error());
+    }
+
+    #[test]
+    fn test_is_pipeline_error_connection_errors_are_not_pipeline() {
+        assert!(!StreamError::ConnectionFailed {
+            url: "wss://x.io".into(),
+            reason: "refused".into()
+        }
+        .is_pipeline_error());
+        assert!(!StreamError::ParseError {
+            exchange: "Binance".into(),
+            reason: "bad json".into()
+        }
+        .is_pipeline_error());
     }
 }

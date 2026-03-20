@@ -73,6 +73,33 @@ impl SpacetimePoint {
             x: other.x - self.x,
         }
     }
+
+    /// Minkowski norm squared: `t² − x²`.
+    ///
+    /// The sign classifies the causal relationship of the event to the origin:
+    /// - Positive: time-like (inside the light cone — causally reachable).
+    /// - Zero: light-like / null (on the light cone).
+    /// - Negative: space-like (outside the light cone — causally disconnected).
+    pub fn norm_sq(self) -> f64 {
+        self.t * self.t - self.x * self.x
+    }
+
+    /// Returns `true` if this point is inside the light cone (`t² > x²`).
+    pub fn is_timelike(self) -> bool {
+        self.norm_sq() > 0.0
+    }
+
+    /// Returns `true` if this point lies on the light cone.
+    ///
+    /// Uses a tolerance of `1e-10` for floating-point comparisons.
+    pub fn is_lightlike(self) -> bool {
+        self.norm_sq().abs() < 1e-10
+    }
+
+    /// Returns `true` if this point is outside the light cone (`t² < x²`).
+    pub fn is_spacelike(self) -> bool {
+        self.norm_sq() < 0.0
+    }
 }
 
 /// Lorentz frame-boost transform for financial time series.
@@ -280,6 +307,23 @@ impl LorentzTransform {
         coordinate_time / self.gamma
     }
 
+    /// Return a new `LorentzTransform` that boosts in the opposite direction.
+    ///
+    /// If `self` has velocity `beta`, `self.inverse()` has velocity `-beta`.
+    /// Applying `self` then `self.inverse()` is the identity transform.
+    ///
+    /// This is equivalent to `LorentzTransform::new(-self.beta)` but avoids the
+    /// error branch since negating a valid beta always produces a valid result.
+    ///
+    /// # Complexity: O(1)
+    pub fn inverse(&self) -> Self {
+        // -beta is in (-1, 0] which is valid (we allow beta = 0 but not < 0 publicly;
+        // here we construct directly to allow the negated value).
+        let beta = -self.beta;
+        let gamma = 1.0 / (1.0 - beta * beta).sqrt();
+        Self { beta, gamma }
+    }
+
     /// Coordinate (lab-frame) time for a given proper time.
     ///
     /// Returns `proper_time * gamma`. This is the inverse of
@@ -342,6 +386,14 @@ impl LorentzTransform {
             result = result.compose(&next)?;
         }
         Ok(result)
+    }
+
+    /// Returns `true` if this transform is effectively the identity (`beta ≈ 0`).
+    ///
+    /// The identity leaves spacetime coordinates unchanged: `t' = t`, `x' = x`.
+    /// Uses a tolerance of `1e-10`.
+    pub fn is_identity(&self) -> bool {
+        self.beta.abs() < 1e-10
     }
 }
 
@@ -786,5 +838,31 @@ mod tests {
         let proper = 3.0_f64;
         let coord = lt.time_dilation(proper);
         assert!(coord > proper);
+    }
+
+    // ── LorentzTransform::inverse ─────────────────────────────────────────────
+
+    #[test]
+    fn test_inverse_negates_beta() {
+        let lt = LorentzTransform::new(0.6).unwrap();
+        let inv = lt.inverse();
+        assert!(approx_eq(inv.beta(), -0.6));
+    }
+
+    #[test]
+    fn test_inverse_preserves_gamma_magnitude() {
+        let lt = LorentzTransform::new(0.6).unwrap();
+        let inv = lt.inverse();
+        // gamma only depends on beta^2, so |gamma| is the same
+        assert!(approx_eq(inv.gamma(), lt.gamma()));
+    }
+
+    #[test]
+    fn test_inverse_roundtrips_point() {
+        let lt = LorentzTransform::new(0.5).unwrap();
+        let p = SpacetimePoint::new(3.0, 1.0);
+        let boosted = lt.transform(p);
+        let recovered = lt.inverse().transform(boosted);
+        assert!(point_approx_eq(recovered, p));
     }
 }

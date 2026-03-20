@@ -148,6 +148,14 @@ impl OhlcvBar {
         self.open.min(self.close) - self.low
     }
 
+    /// Signed price change: `close - open`.
+    ///
+    /// Positive for bullish bars, negative for bearish bars, zero for doji.
+    /// Unlike [`body`](Self::body), this preserves direction.
+    pub fn price_change(&self) -> Decimal {
+        self.close - self.open
+    }
+
     /// Typical price: `(high + low + close) / 3`.
     ///
     /// Commonly used as the basis for VWAP and commodity channel index (CCI)
@@ -161,6 +169,42 @@ impl OhlcvBar {
     /// The midpoint of the bar's price range, independent of open and close.
     pub fn median_price(&self) -> Decimal {
         (self.high + self.low) / Decimal::from(2)
+    }
+
+    /// Weighted close price: `(high + low + close × 2) / 4`.
+    ///
+    /// Gives extra weight to the closing price over the high and low extremes.
+    /// Commonly used as the basis for certain momentum and volatility indicators.
+    pub fn weighted_close(&self) -> Decimal {
+        (self.high + self.low + self.close + self.close) / Decimal::from(4)
+    }
+
+    /// Percentage price change: `(close − open) / open × 100`.
+    ///
+    /// Returns `None` if `open` is zero. Positive values indicate a bullish bar;
+    /// negative values indicate a bearish bar.
+    pub fn price_change_pct(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.open.is_zero() {
+            return None;
+        }
+        let pct = (self.close - self.open) / self.open * Decimal::from(100);
+        pct.to_f64()
+    }
+
+    /// Wick ratio: `(wick_upper + wick_lower) / range`.
+    ///
+    /// The fraction of the bar's total range that consists of wicks (shadows)
+    /// rather than body. Ranges from `0.0` (pure body, no wicks) to `1.0`
+    /// (pure wicks — a doji with effectively zero body relative to range).
+    /// Returns `None` if the bar's range is zero (all prices identical).
+    pub fn wick_ratio(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let range = self.range();
+        if range.is_zero() {
+            return None;
+        }
+        ((self.wick_upper() + self.wick_lower()) / range).to_f64()
     }
 }
 
@@ -189,6 +233,8 @@ pub struct OhlcvAggregator {
     bars_emitted: u64,
     /// Running sum of `price × quantity` for VWAP computation in the current bar.
     price_volume_sum: Decimal,
+    /// Cumulative volume across all completed bars (does not include the current partial bar).
+    total_volume: Decimal,
 }
 
 impl OhlcvAggregator {
@@ -211,6 +257,7 @@ impl OhlcvAggregator {
             emit_empty_bars: false,
             bars_emitted: 0,
             price_volume_sum: Decimal::ZERO,
+            total_volume: Decimal::ZERO,
         })
     }
 
@@ -327,6 +374,9 @@ impl OhlcvAggregator {
             }
         }
         self.bars_emitted += emitted.len() as u64;
+        for b in &emitted {
+            self.total_volume += b.volume;
+        }
         if let Some(b) = emitted.last() {
             self.last_bar = Some(b.clone());
         }
@@ -344,6 +394,7 @@ impl OhlcvAggregator {
         let mut bar = self.current_bar.take()?;
         bar.is_complete = true;
         self.bars_emitted += 1;
+        self.total_volume += bar.volume;
         self.last_bar = Some(bar.clone());
         Some(bar)
     }
@@ -370,6 +421,15 @@ impl OhlcvAggregator {
         self.last_bar = None;
         self.bars_emitted = 0;
         self.price_volume_sum = Decimal::ZERO;
+        self.total_volume = Decimal::ZERO;
+    }
+
+    /// Cumulative traded volume across all completed bars emitted by this aggregator.
+    ///
+    /// Does not include the current partial bar's volume. Reset to zero by
+    /// [`reset`](Self::reset).
+    pub fn total_volume(&self) -> Decimal {
+        self.total_volume
     }
 
     /// The symbol this aggregator tracks.
@@ -976,6 +1036,59 @@ mod tests {
         assert_eq!(agg.window_progress(150_000), Some(1.0));
     }
 
+    // ── OhlcvBar::price_change ────────────────────────────────────────────────
+
+    #[test]
+    fn test_price_change_bullish_is_positive() {
+        let bar = make_bar(dec!(100), dec!(110), dec!(98), dec!(105));
+        assert_eq!(bar.price_change(), dec!(5));
+    }
+
+    #[test]
+    fn test_price_change_bearish_is_negative() {
+        let bar = make_bar(dec!(105), dec!(110), dec!(98), dec!(100));
+        assert_eq!(bar.price_change(), dec!(-5));
+    }
+
+    #[test]
+    fn test_price_change_doji_is_zero() {
+        let bar = make_bar(dec!(100), dec!(102), dec!(98), dec!(100));
+        assert_eq!(bar.price_change(), dec!(0));
+    }
+
+    // ── OhlcvAggregator::total_volume ─────────────────────────────────────────
+
+    #[test]
+    fn test_total_volume_zero_before_completion() {
+        let mut agg = agg("BTC-USD", Timeframe::Minutes(1));
+        agg.feed(&make_tick("BTC-USD", dec!(100), dec!(2), 60_000)).unwrap();
+        // Bar not yet complete; total_volume should be zero
+        assert_eq!(agg.total_volume(), dec!(0));
+    }
+
+    #[test]
+    fn test_total_volume_accumulates_across_bars() {
+        let mut agg = agg("BTC-USD", Timeframe::Minutes(1));
+        // Bar 1: volume = 2
+        agg.feed(&make_tick("BTC-USD", dec!(100), dec!(2), 60_000)).unwrap();
+        // Trigger completion of bar 1
+        agg.feed(&make_tick("BTC-USD", dec!(101), dec!(3), 120_000)).unwrap();
+        // Bar 1 completed with volume 2. Bar 2 in progress with volume 3 (not counted).
+        assert_eq!(agg.total_volume(), dec!(2));
+        // Trigger completion of bar 2
+        agg.feed(&make_tick("BTC-USD", dec!(102), dec!(5), 180_000)).unwrap();
+        assert_eq!(agg.total_volume(), dec!(5)); // 2 + 3
+    }
+
+    #[test]
+    fn test_total_volume_reset_clears() {
+        let mut agg = agg("BTC-USD", Timeframe::Minutes(1));
+        agg.feed(&make_tick("BTC-USD", dec!(100), dec!(2), 60_000)).unwrap();
+        agg.feed(&make_tick("BTC-USD", dec!(101), dec!(3), 120_000)).unwrap();
+        agg.reset();
+        assert_eq!(agg.total_volume(), dec!(0));
+    }
+
     // ── OhlcvBar::typical_price / median_price ────────────────────────────────
 
     fn make_bar(open: Decimal, high: Decimal, low: Decimal, close: Decimal) -> OhlcvBar {
@@ -1053,5 +1166,66 @@ mod tests {
         assert!(agg.last_bar().is_some());
         agg.reset();
         assert!(agg.last_bar().is_none());
+    }
+
+    // ── OhlcvBar::weighted_close / price_change_pct / wick_ratio ─────────────
+
+    #[test]
+    fn test_weighted_close_basic() {
+        // (high + low + close*2) / 4 = (12 + 8 + 10*2) / 4 = 40/4 = 10
+        let bar = make_bar(dec!(9), dec!(12), dec!(8), dec!(10));
+        assert_eq!(bar.weighted_close(), dec!(10));
+    }
+
+    #[test]
+    fn test_weighted_close_weights_close_more_than_typical() {
+        // high=100, low=0, close=80 → typical=(100+0+80)/3≈60, weighted=(100+0+80+80)/4=65
+        let bar = make_bar(dec!(50), dec!(100), dec!(0), dec!(80));
+        assert_eq!(bar.weighted_close(), dec!(65));
+    }
+
+    #[test]
+    fn test_price_change_pct_bullish() {
+        // open=100, close=110 → +10%
+        let bar = make_bar(dec!(100), dec!(115), dec!(95), dec!(110));
+        let pct = bar.price_change_pct().unwrap();
+        assert!((pct - 10.0).abs() < 1e-9, "expected 10.0 got {pct}");
+    }
+
+    #[test]
+    fn test_price_change_pct_bearish() {
+        // open=200, close=180 → -10%
+        let bar = make_bar(dec!(200), dec!(210), dec!(175), dec!(180));
+        let pct = bar.price_change_pct().unwrap();
+        assert!((pct - (-10.0)).abs() < 1e-9, "expected -10.0 got {pct}");
+    }
+
+    #[test]
+    fn test_price_change_pct_zero_open_returns_none() {
+        let bar = make_bar(dec!(0), dec!(5), dec!(0), dec!(3));
+        assert!(bar.price_change_pct().is_none());
+    }
+
+    #[test]
+    fn test_wick_ratio_all_wicks() {
+        // open=close=5, high=10, low=0 → body=0, wicks=5+5=10, range=10 → ratio=1.0
+        let bar = make_bar(dec!(5), dec!(10), dec!(0), dec!(5));
+        let r = bar.wick_ratio().unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "expected 1.0 got {r}");
+    }
+
+    #[test]
+    fn test_wick_ratio_no_wicks() {
+        // open=low=0, close=high=10 → body=10, wicks=0, range=10 → ratio=0.0
+        let bar = make_bar(dec!(0), dec!(10), dec!(0), dec!(10));
+        let r = bar.wick_ratio().unwrap();
+        assert!((r - 0.0).abs() < 1e-9, "expected 0.0 got {r}");
+    }
+
+    #[test]
+    fn test_wick_ratio_zero_range_returns_none() {
+        // all prices identical → range=0
+        let bar = make_bar(dec!(5), dec!(5), dec!(5), dec!(5));
+        assert!(bar.wick_ratio().is_none());
     }
 }

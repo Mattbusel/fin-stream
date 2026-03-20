@@ -94,6 +94,22 @@ impl ReconnectPolicy {
         Ok(self)
     }
 
+    /// Set the exponential backoff multiplier.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StreamError::ConfigError`] if `multiplier < 1.0` (which would
+    /// cause the backoff to shrink on each attempt).
+    pub fn with_multiplier(mut self, multiplier: f64) -> Result<Self, StreamError> {
+        if multiplier < 1.0 {
+            return Err(StreamError::ConfigError {
+                reason: format!("reconnect multiplier must be >= 1.0, got {multiplier}"),
+            });
+        }
+        self.multiplier = multiplier;
+        Ok(self)
+    }
+
     /// Set the initial backoff duration for the first reconnect attempt.
     pub fn with_initial_backoff(mut self, duration: Duration) -> Self {
         self.initial_backoff = duration;
@@ -793,5 +809,25 @@ mod tests {
         let p = ReconnectPolicy::default()
             .with_initial_backoff(Duration::from_millis(200));
         assert_eq!(p.backoff_for_attempt(0), Duration::from_millis(200));
+    }
+
+    // ── ReconnectPolicy::with_multiplier ──────────────────────────────────────
+
+    #[test]
+    fn test_with_multiplier_valid() {
+        let p = ReconnectPolicy::default().with_multiplier(3.0).unwrap();
+        assert_eq!(p.multiplier, 3.0);
+    }
+
+    #[test]
+    fn test_with_multiplier_below_one_rejected() {
+        let result = ReconnectPolicy::default().with_multiplier(0.9);
+        assert!(matches!(result, Err(StreamError::ConfigError { .. })));
+    }
+
+    #[test]
+    fn test_with_multiplier_exactly_one_accepted() {
+        let p = ReconnectPolicy::default().with_multiplier(1.0).unwrap();
+        assert_eq!(p.multiplier, 1.0);
     }
 }

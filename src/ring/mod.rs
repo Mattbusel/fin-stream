@@ -390,6 +390,24 @@ impl<T, const N: usize> SpscConsumer<T, N> {
         self.inner.peek_clone()
     }
 
+    /// Pop at most `max` items from the ring in FIFO order, returning them as a `Vec`.
+    ///
+    /// Unlike [`drain`](Self::drain), this stops after `max` items even if more
+    /// are available — useful for bounded batch processing where a consumer must
+    /// not block indefinitely draining a fast producer.
+    ///
+    /// # Complexity: O(min(n, max)) where n is the current queue length.
+    pub fn try_pop_n(&self, max: usize) -> Vec<T> {
+        let mut out = Vec::with_capacity(max.min(self.inner.len()));
+        while out.len() < max {
+            match self.inner.pop() {
+                Ok(item) => out.push(item),
+                Err(_) => break,
+            }
+        }
+        out
+    }
+
     /// Return a by-value iterator that pops items from the ring in FIFO order.
     ///
     /// Unlike [`drain`](Self::drain), this does not collect into a `Vec` — items
@@ -808,5 +826,40 @@ mod tests {
                 }
             }
         }
+    }
+
+    // ── SpscConsumer::try_pop_n ───────────────────────────────────────────────
+
+    #[test]
+    fn test_try_pop_n_empty_returns_empty_vec() {
+        let ring: SpscRing<u32, 8> = SpscRing::new();
+        let (_, consumer) = ring.split();
+        assert!(consumer.try_pop_n(5).is_empty());
+    }
+
+    #[test]
+    fn test_try_pop_n_bounded_by_max() {
+        let ring: SpscRing<u32, 8> = SpscRing::new();
+        let (producer, consumer) = ring.split();
+        for i in 0..5 {
+            producer.push(i).unwrap();
+        }
+        let batch = consumer.try_pop_n(3);
+        assert_eq!(batch.len(), 3);
+        assert_eq!(batch, vec![0, 1, 2]);
+        // 2 remain
+        assert_eq!(consumer.len(), 2);
+    }
+
+    #[test]
+    fn test_try_pop_n_larger_than_available_returns_all() {
+        let ring: SpscRing<u32, 8> = SpscRing::new();
+        let (producer, consumer) = ring.split();
+        for i in 0..3 {
+            producer.push(i).unwrap();
+        }
+        let batch = consumer.try_pop_n(100);
+        assert_eq!(batch.len(), 3);
+        assert!(consumer.is_empty());
     }
 }

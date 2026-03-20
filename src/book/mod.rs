@@ -255,6 +255,34 @@ impl OrderBook {
         self.asks.values().copied().sum()
     }
 
+    /// Spread as a percentage of the mid-price: `spread / mid × 100`.
+    ///
+    /// Returns `None` if either best bid or best ask is absent, or if the
+    /// mid-price is zero.
+    pub fn spread_pct(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let mid = self.mid_price()?;
+        if mid.is_zero() {
+            return None;
+        }
+        let spread = self.spread()?;
+        (spread / mid * Decimal::from(100)).to_f64()
+    }
+
+    /// Total number of price levels across both sides of the book.
+    ///
+    /// Equivalent to `bid_depth() + ask_depth()`.
+    pub fn total_depth(&self) -> usize {
+        self.bids.len() + self.asks.len()
+    }
+
+    /// Total resting quantity across both sides of the book.
+    ///
+    /// Equivalent to `bid_volume_total() + ask_volume_total()`.
+    pub fn total_volume(&self) -> Decimal {
+        self.bid_volume_total() + self.ask_volume_total()
+    }
+
     /// The symbol this order book tracks.
     pub fn symbol(&self) -> &str {
         &self.symbol
@@ -308,6 +336,29 @@ impl OrderBook {
             return None;
         }
         (self.bid_volume_total() / ask).to_f64()
+    }
+
+    /// All bid levels, sorted descending by price (highest first).
+    ///
+    /// Equivalent to `top_bids(usize::MAX)` but more expressive when you want
+    /// the complete depth without specifying a level count.
+    pub fn all_bids(&self) -> Vec<PriceLevel> {
+        self.bids
+            .iter()
+            .rev()
+            .map(|(p, q)| PriceLevel::new(*p, *q))
+            .collect()
+    }
+
+    /// All ask levels, sorted ascending by price (lowest first).
+    ///
+    /// Equivalent to `top_asks(usize::MAX)` but more expressive when you want
+    /// the complete depth without specifying a level count.
+    pub fn all_asks(&self) -> Vec<PriceLevel> {
+        self.asks
+            .iter()
+            .map(|(p, q)| PriceLevel::new(*p, *q))
+            .collect()
     }
 
     /// Top N bids (descending by price).
@@ -383,6 +434,42 @@ impl OrderBook {
         }
         let price_vol_sum: Decimal = levels.iter().map(|l| l.price * l.quantity).sum();
         Some(price_vol_sum / total_vol)
+    }
+
+    /// Walk the book on `side` and return the average fill price to absorb `target_volume`.
+    ///
+    /// Sweeps levels from best to worst until `target_volume` is consumed, computing
+    /// the VWAP of the executed portion. If the book has less total volume than
+    /// `target_volume`, returns the VWAP of all available liquidity anyway.
+    ///
+    /// Returns `None` if the side is empty or `target_volume` is zero.
+    pub fn price_at_volume(&self, side: BookSide, target_volume: Decimal) -> Option<Decimal> {
+        if target_volume.is_zero() {
+            return None;
+        }
+        let levels: Vec<(Decimal, Decimal)> = match side {
+            BookSide::Bid => self.bids.iter().rev().map(|(p, q)| (*p, *q)).collect(),
+            BookSide::Ask => self.asks.iter().map(|(p, q)| (*p, *q)).collect(),
+        };
+        if levels.is_empty() {
+            return None;
+        }
+        let mut remaining = target_volume;
+        let mut notional = Decimal::ZERO;
+        let mut filled = Decimal::ZERO;
+        for (price, qty) in &levels {
+            if remaining.is_zero() {
+                break;
+            }
+            let take = (*qty).min(remaining);
+            notional += price * take;
+            filled += take;
+            remaining -= take;
+        }
+        if filled.is_zero() {
+            return None;
+        }
+        Some(notional / filled)
     }
 
     /// Return a full snapshot of all bid and ask levels.
@@ -869,5 +956,86 @@ mod tests {
         let mut b = book("BTC-USD");
         b.apply(delta("BTC-USD", BookSide::Bid, dec!(49900), dec!(5))).unwrap();
         assert!(b.bid_ask_ratio().is_none());
+    }
+
+    // ── OrderBook::all_bids / all_asks ────────────────────────────────────────
+
+    #[test]
+    fn test_all_bids_sorted_descending() {
+        let mut b = book("BTC-USD");
+        b.apply(delta("BTC-USD", BookSide::Bid, dec!(49800), dec!(1))).unwrap();
+        b.apply(delta("BTC-USD", BookSide::Bid, dec!(50000), dec!(2))).unwrap();
+        b.apply(delta("BTC-USD", BookSide::Bid, dec!(49900), dec!(3))).unwrap();
+        let bids = b.all_bids();
+        assert_eq!(bids.len(), 3);
+        assert_eq!(bids[0].price, dec!(50000));
+        assert_eq!(bids[1].price, dec!(49900));
+        assert_eq!(bids[2].price, dec!(49800));
+    }
+
+    #[test]
+    fn test_all_asks_sorted_ascending() {
+        let mut b = book("BTC-USD");
+        b.apply(delta("BTC-USD", BookSide::Ask, dec!(50100), dec!(1))).unwrap();
+        b.apply(delta("BTC-USD", BookSide::Ask, dec!(50300), dec!(2))).unwrap();
+        b.apply(delta("BTC-USD", BookSide::Ask, dec!(50200), dec!(3))).unwrap();
+        let asks = b.all_asks();
+        assert_eq!(asks.len(), 3);
+        assert_eq!(asks[0].price, dec!(50100));
+        assert_eq!(asks[1].price, dec!(50200));
+        assert_eq!(asks[2].price, dec!(50300));
+    }
+
+    #[test]
+    fn test_all_bids_empty_returns_empty() {
+        let b = book("BTC-USD");
+        assert!(b.all_bids().is_empty());
+    }
+
+    // ── spread_pct / total_depth / total_volume ──────────────────────────────
+
+    #[test]
+    fn test_spread_pct_basic() {
+        // bid=100, ask=101 → spread=1, mid=100.5 → pct ≈ 0.995%
+        let mut b = book("X");
+        b.apply(delta("X", BookSide::Bid, dec!(100), dec!(1))).unwrap();
+        b.apply(delta("X", BookSide::Ask, dec!(101), dec!(1))).unwrap();
+        let pct = b.spread_pct().unwrap();
+        assert!((pct - 100.0 / 100.5).abs() < 1e-9, "got {pct}");
+    }
+
+    #[test]
+    fn test_spread_pct_empty_book_returns_none() {
+        let b = book("X");
+        assert!(b.spread_pct().is_none());
+    }
+
+    #[test]
+    fn test_total_depth_counts_both_sides() {
+        let mut b = book("X");
+        b.apply(delta("X", BookSide::Bid, dec!(99), dec!(1))).unwrap();
+        b.apply(delta("X", BookSide::Bid, dec!(98), dec!(1))).unwrap();
+        b.apply(delta("X", BookSide::Ask, dec!(101), dec!(1))).unwrap();
+        assert_eq!(b.total_depth(), 3);
+    }
+
+    #[test]
+    fn test_total_depth_empty_is_zero() {
+        let b = book("X");
+        assert_eq!(b.total_depth(), 0);
+    }
+
+    #[test]
+    fn test_total_volume_sums_both_sides() {
+        let mut b = book("X");
+        b.apply(delta("X", BookSide::Bid, dec!(99), dec!(3))).unwrap();
+        b.apply(delta("X", BookSide::Ask, dec!(101), dec!(5))).unwrap();
+        assert_eq!(b.total_volume(), dec!(8));
+    }
+
+    #[test]
+    fn test_total_volume_empty_is_zero() {
+        let b = book("X");
+        assert_eq!(b.total_volume(), dec!(0));
     }
 }

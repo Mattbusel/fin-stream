@@ -108,6 +108,17 @@ impl SessionAwareness {
         }
     }
 
+    /// Returns `true` if the session is currently in [`TradingStatus::Extended`] status.
+    ///
+    /// For [`MarketSession::Crypto`] this always returns `false` (crypto is always
+    /// `Open`). For equity, `Extended` covers pre-market (4:00–9:30 ET) and
+    /// after-hours (16:00–20:00 ET).
+    pub fn is_extended(&self, utc_ms: u64) -> bool {
+        self.status(utc_ms)
+            .map(|s| s == TradingStatus::Extended)
+            .unwrap_or(false)
+    }
+
     /// Returns `true` if the session is currently in [`TradingStatus::Open`] status.
     ///
     /// Shorthand for `self.status(utc_ms).map(|s| s == TradingStatus::Open).unwrap_or(false)`.
@@ -165,6 +176,31 @@ impl SessionAwareness {
             MarketSession::Forex => self.next_forex_close_ms(utc_ms),
             MarketSession::UsEquity => self.next_us_equity_close_ms(utc_ms),
         }
+    }
+
+    /// Fraction `[0.0, 1.0]` of the current trading session elapsed at `utc_ms`.
+    ///
+    /// Returns `None` when:
+    /// - The session is not currently [`TradingStatus::Open`].
+    /// - The session never closes (e.g. [`MarketSession::Crypto`]).
+    ///
+    /// Returns `0.0` at the exact session open and `1.0` at the session close.
+    /// Values are clamped to `[0.0, 1.0]`.
+    pub fn session_progress(&self, utc_ms: u64) -> Option<f64> {
+        if !self.is_open(utc_ms) {
+            return None;
+        }
+        let duration_ms = self.session.session_duration_ms();
+        if duration_ms == u64::MAX {
+            return None; // Crypto never closes
+        }
+        let close_ms = self.next_close_ms(utc_ms);
+        if close_ms == u64::MAX {
+            return None;
+        }
+        let open_ms = close_ms.saturating_sub(duration_ms);
+        let elapsed = utc_ms.saturating_sub(open_ms);
+        Some((elapsed as f64 / duration_ms as f64).clamp(0.0, 1.0))
     }
 
     fn next_forex_close_ms(&self, utc_ms: u64) -> u64 {
@@ -982,5 +1018,32 @@ mod tests {
     #[test]
     fn test_session_duration_crypto_is_max() {
         assert_eq!(MarketSession::Crypto.session_duration_ms(), u64::MAX);
+    }
+
+    // ── SessionAwareness::is_extended ─────────────────────────────────────────
+
+    #[test]
+    fn test_is_extended_crypto_is_never_extended() {
+        let sa = sa(MarketSession::Crypto);
+        // Crypto is always Open, never Extended
+        assert!(!sa.is_extended(MON_OPEN_UTC_MS));
+    }
+
+    #[test]
+    fn test_is_extended_equity_during_extended_hours() {
+        // 7:00 AM EST on Monday 2024-01-08 = pre-market (Extended)
+        // 2024-01-08 00:00 UTC = 1704672000 s. 7:00 AM EST (UTC-5) = 12:00 UTC
+        // → 1704672000 + 12*3600 = 1704715200 s = 1704715200000 ms
+        let seven_am_est_ms = 1704715200_000u64;
+        let sa = sa(MarketSession::UsEquity);
+        assert_eq!(sa.status(seven_am_est_ms).unwrap(), TradingStatus::Extended);
+        assert!(sa.is_extended(seven_am_est_ms));
+    }
+
+    #[test]
+    fn test_is_extended_equity_during_open_is_false() {
+        let sa = sa(MarketSession::UsEquity);
+        // MON_OPEN_UTC_MS is during regular Open hours
+        assert!(!sa.is_extended(MON_OPEN_UTC_MS));
     }
 }

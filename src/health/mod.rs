@@ -272,6 +272,15 @@ impl HealthMonitor {
             .max()
     }
 
+    /// Sum of tick counts across all registered feeds.
+    ///
+    /// Useful for throughput monitoring: the total number of heartbeats seen
+    /// since the monitor was created (counts are not reset by
+    /// [`reset_all`](Self::reset_all)).
+    pub fn total_tick_count(&self) -> u64 {
+        self.feeds.iter().map(|e| e.tick_count).sum()
+    }
+
     /// Feed skew: `newest_tick_ms - oldest_tick_ms` across all registered feeds.
     ///
     /// Returns `None` if fewer than two feeds have received ticks. A large lag
@@ -792,5 +801,26 @@ mod tests {
         m.heartbeat("fast", 2_000_000).unwrap();
         m.heartbeat("slow", 1_000_000).unwrap();
         assert_eq!(m.lag_ms(), Some(1_000_000));
+    }
+
+    // ── HealthMonitor::total_tick_count ───────────────────────────────────────
+
+    #[test]
+    fn test_total_tick_count_zero_initially() {
+        let m = HealthMonitor::new(5_000);
+        m.register("A", None);
+        m.register("B", None);
+        assert_eq!(m.total_tick_count(), 0);
+    }
+
+    #[test]
+    fn test_total_tick_count_sums_across_feeds() {
+        let m = HealthMonitor::new(5_000);
+        m.register("A", None);
+        m.register("B", None);
+        m.heartbeat("A", 1_000_000).unwrap();
+        m.heartbeat("A", 1_001_000).unwrap();
+        m.heartbeat("B", 1_000_000).unwrap();
+        assert_eq!(m.total_tick_count(), 3);
     }
 }
