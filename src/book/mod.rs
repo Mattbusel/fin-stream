@@ -676,6 +676,15 @@ impl OrderBook {
         Some(Decimal::from(map.len()) / range)
     }
 
+    /// Ratio of ask levels to bid levels: `ask_count / bid_count`.
+    ///
+    /// Values > 1 indicate more ask granularity; < 1 more bid granularity.
+    /// Returns `None` if the bid side is empty.
+    pub fn ask_bid_level_ratio(&self) -> Option<f64> {
+        if self.bids.is_empty() { return None; }
+        Some(self.asks.len() as f64 / self.bids.len() as f64)
+    }
+
     /// Resting quantity at an exact price level on the given side.
     ///
     /// Returns `None` if there is no resting order at that price. This is a
@@ -1103,6 +1112,44 @@ impl OrderBook {
         if remaining > Decimal::ZERO { return None; } // not enough liquidity
         let avg_fill = cost / qty;
         Some((avg_fill - best_price).abs())
+    }
+
+    /// Estimated volume-weighted average execution price for a market buy of `quantity`.
+    ///
+    /// Walks up the ask side. Returns `None` if insufficient liquidity.
+    pub fn price_impact_buy(&self, quantity: Decimal) -> Option<Decimal> {
+        if quantity <= Decimal::ZERO {
+            return None;
+        }
+        let mut remaining = quantity;
+        let mut cost = Decimal::ZERO;
+        for (&price, &qty) in &self.asks {
+            if remaining.is_zero() { break; }
+            let fill = remaining.min(qty);
+            cost += fill * price;
+            remaining -= fill;
+        }
+        if !remaining.is_zero() { return None; }
+        Some(cost / quantity)
+    }
+
+    /// Estimated volume-weighted average execution price for a market sell of `quantity`.
+    ///
+    /// Walks down the bid side. Returns `None` if insufficient liquidity.
+    pub fn price_impact_sell(&self, quantity: Decimal) -> Option<Decimal> {
+        if quantity <= Decimal::ZERO {
+            return None;
+        }
+        let mut remaining = quantity;
+        let mut proceeds = Decimal::ZERO;
+        for (&price, &qty) in self.bids.iter().rev() {
+            if remaining.is_zero() { break; }
+            let fill = remaining.min(qty);
+            proceeds += fill * price;
+            remaining -= fill;
+        }
+        if !remaining.is_zero() { return None; }
+        Some(proceeds / quantity)
     }
 
     /// Number of distinct price levels on the ask side.

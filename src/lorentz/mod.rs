@@ -748,6 +748,13 @@ impl LorentzTransform {
     pub fn doppler_ratio(&self) -> f64 {
         ((1.0 + self.beta) / (1.0 - self.beta)).sqrt()
     }
+
+    /// Dilated coordinate time in milliseconds for a given proper time `proper_ms`.
+    ///
+    /// `t_coordinate = gamma * t_proper`. A moving clock ticks slower by factor γ.
+    pub fn time_dilation_ms(&self, proper_ms: f64) -> f64 {
+        self.gamma * proper_ms
+    }
 }
 
 #[cfg(test)]

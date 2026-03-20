@@ -543,6 +543,13 @@ impl SessionAwareness {
         self.time_in_session_ms(utc_ms).unwrap_or(0)
     }
 
+    /// Session progress as a percentage `[0.0, 100.0]`.
+    ///
+    /// Returns `0.0` outside the session.
+    pub fn progress_pct(&self, utc_ms: u64) -> f64 {
+        self.session_progress(utc_ms).unwrap_or(0.0) * 100.0
+    }
+
     /// Milliseconds remaining until the session closes at `utc_ms`.
     ///
     /// Returns `0` if the session is not open or already past close.
