@@ -589,17 +589,6 @@ impl NormalizedTick {
         Some((self.price - prev.price) / Decimal::from(dt_ms))
     }
 
-    /// Volume-weighted average price across a slice of ticks.
-    ///
-    /// Returns `None` if the slice is empty or total volume is zero.
-    pub fn vwap(ticks: &[NormalizedTick]) -> Option<Decimal> {
-        if ticks.is_empty() { return None; }
-        let total_vol: Decimal = ticks.iter().map(|t| t.quantity).sum();
-        if total_vol.is_zero() { return None; }
-        let total_notional: Decimal = ticks.iter().map(|t| t.price * t.quantity).sum();
-        Some(total_notional / total_vol)
-    }
-
     /// Returns `true` if price reversed direction by at least `min_move` from `prev`.
     ///
     /// A reversal means the direction of `(self.price - prev.price)` is opposite to
@@ -705,6 +694,22 @@ impl NormalizedTick {
         }
         let sum: Decimal = ticks.iter().map(|t| t.price).sum();
         Some(sum / Decimal::from(ticks.len() as u64))
+    }
+
+    /// Volume-weighted average price (VWAP) across a slice of ticks.
+    ///
+    /// Computes `Σ(price × quantity) / Σ(quantity)`.
+    /// Returns `None` if the slice is empty or total volume is zero.
+    pub fn vwap(ticks: &[NormalizedTick]) -> Option<Decimal> {
+        if ticks.is_empty() {
+            return None;
+        }
+        let notional: Decimal = ticks.iter().map(|t| t.value()).sum();
+        let volume: Decimal = ticks.iter().map(|t| t.quantity).sum();
+        if volume.is_zero() {
+            return None;
+        }
+        Some(notional / volume)
     }
 
 }
@@ -2421,5 +2426,46 @@ mod tests {
         let t3 = make_tick_with_price(rust_decimal_macros::dec!(110));
         // (90 + 100 + 110) / 3 = 100
         assert_eq!(NormalizedTick::average_price(&[t1, t2, t3]), Some(rust_decimal_macros::dec!(100)));
+    }
+
+    // ── vwap ─────────────────────────────────────────────────────────────────
+
+    fn make_tick_pq(price: rust_decimal::Decimal, qty: rust_decimal::Decimal) -> NormalizedTick {
+        NormalizedTick {
+            exchange: Exchange::Binance,
+            symbol: "BTCUSDT".into(),
+            price,
+            quantity: qty,
+            side: None,
+            trade_id: None,
+            exchange_ts_ms: None,
+            received_at_ms: 0,
+        }
+    }
+
+    #[test]
+    fn test_vwap_none_for_empty_slice() {
+        assert!(NormalizedTick::vwap(&[]).is_none());
+    }
+
+    #[test]
+    fn test_vwap_equals_price_for_single_tick() {
+        let tick = make_tick_pq(rust_decimal_macros::dec!(100), rust_decimal_macros::dec!(5));
+        assert_eq!(NormalizedTick::vwap(&[tick]), Some(rust_decimal_macros::dec!(100)));
+    }
+
+    #[test]
+    fn test_vwap_weighted_correctly() {
+        // 100 × 1 + 200 × 3 = 700; total qty = 4; VWAP = 175
+        let t1 = make_tick_pq(rust_decimal_macros::dec!(100), rust_decimal_macros::dec!(1));
+        let t2 = make_tick_pq(rust_decimal_macros::dec!(200), rust_decimal_macros::dec!(3));
+        assert_eq!(NormalizedTick::vwap(&[t1, t2]), Some(rust_decimal_macros::dec!(175)));
+    }
+
+    #[test]
+    fn test_vwap_none_for_zero_total_volume() {
+        let t1 = make_tick_pq(rust_decimal_macros::dec!(100), rust_decimal_macros::dec!(0));
+        let t2 = make_tick_pq(rust_decimal_macros::dec!(200), rust_decimal_macros::dec!(0));
+        assert!(NormalizedTick::vwap(&[t1, t2]).is_none());
     }
 }

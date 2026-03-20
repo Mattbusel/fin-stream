@@ -219,7 +219,7 @@ impl LorentzTransform {
     /// the velocity encoded in this transform. Negative mass is allowed for
     /// analytical purposes but physically meaningless.
     pub fn relativistic_momentum(&self, mass: f64) -> f64 {
-        mass * self.gamma * self.beta
+        mass * self.beta_times_gamma()
     }
 
     /// Kinetic energy factor: `γ − 1`.
@@ -228,7 +228,7 @@ impl LorentzTransform {
     /// returns the dimensionless factor `γ − 1` so callers can multiply by
     /// `mc²` in their own units. Zero at rest (`β = 0`).
     pub fn kinetic_energy_ratio(&self) -> f64 {
-        self.gamma - 1.0
+        self.gamma() - 1.0
     }
 
     /// Time dilation factor: `γ` (gamma).
@@ -237,14 +237,14 @@ impl LorentzTransform {
     /// a time-dilation context. A moving clock ticks slower by this factor
     /// relative to the stationary frame.
     pub fn time_dilation_factor(&self) -> f64 {
-        self.gamma
+        self.gamma()
     }
 
     /// Length contraction factor: `L' = L / gamma`.
     ///
     /// The reciprocal of the Lorentz factor — always in `(0.0, 1.0]`.
     pub fn length_contraction_factor(&self) -> f64 {
-        1.0 / self.gamma
+        1.0 / self.gamma()
     }
 
     /// Computes beta (v/c) from a Lorentz gamma factor. Returns an error if `gamma < 1.0`.
@@ -414,7 +414,7 @@ impl LorentzTransform {
     ///
     /// # Complexity: O(1)
     pub fn momentum_factor(&self) -> f64 {
-        self.gamma * self.beta
+        self.beta_times_gamma()
     }
 
     /// Relativistic momentum in natural units (c = 1): `p = γ·m·β`.
@@ -426,7 +426,7 @@ impl LorentzTransform {
     ///
     /// # Complexity: O(1)
     pub fn momentum(&self, mass: f64) -> f64 {
-        self.gamma * mass * self.beta
+        self.relativistic_momentum(mass)
     }
 
     /// Relativistic total energy in natural units (c = 1): `E = γ·m`.
@@ -436,7 +436,7 @@ impl LorentzTransform {
     /// the configured `beta`. At rest (`beta = 0`, `gamma = 1`) the result
     /// equals `rest_mass`.
     pub fn relativistic_energy(&self, rest_mass: f64) -> f64 {
-        self.gamma * rest_mass
+        self.gamma() * rest_mass
     }
 
     /// Relativistic kinetic energy in natural units (c = 1): `(γ − 1) · m`.
@@ -445,7 +445,7 @@ impl LorentzTransform {
     /// work done to accelerate the particle from rest to `beta`. At rest
     /// (`beta = 0`, `gamma = 1`) the result is zero.
     pub fn kinetic_energy(&self, rest_mass: f64) -> f64 {
-        (self.gamma - 1.0) * rest_mass
+        self.kinetic_energy_ratio() * rest_mass
     }
 
     /// Lorentz invariant `E² - p²` for a particle with the given `rest_mass`.
@@ -453,7 +453,7 @@ impl LorentzTransform {
     /// In natural units (`c = 1`) this equals `rest_mass²` for any velocity,
     /// confirming that mass is a Lorentz scalar.
     pub fn energy_momentum_invariant(&self, rest_mass: f64) -> f64 {
-        let e = self.gamma * rest_mass;
+        let e = self.relativistic_energy(rest_mass);
         let p = self.relativistic_momentum(rest_mass);
         e * e - p * p
     }
@@ -464,7 +464,7 @@ impl LorentzTransform {
     /// convention where `c = 1`). This returns the time component, which equals
     /// the Lorentz factor.  At rest `gamma = 1`; as `beta → 1` it diverges.
     pub fn four_velocity_time(&self) -> f64 {
-        self.gamma
+        self.gamma()
     }
 
     /// Proper time dilation: the ratio of proper time elapsed in the moving frame
@@ -472,7 +472,7 @@ impl LorentzTransform {
     ///
     /// `proper_dt = dt / gamma` — a moving clock runs slower.
     pub fn proper_time_dilation(&self, dt: f64) -> f64 {
-        dt / self.gamma
+        self.time_contraction(dt)
     }
 
     /// Computes the Lorentz-invariant spacetime interval between two events.
@@ -529,7 +529,7 @@ impl LorentzTransform {
     ///
     /// # Complexity: O(1)
     pub fn proper_time(&self, coordinate_time: f64) -> f64 {
-        coordinate_time / self.gamma
+        self.time_contraction(coordinate_time)
     }
 
     /// Return a new `LorentzTransform` that boosts in the opposite direction.
@@ -558,7 +558,7 @@ impl LorentzTransform {
     ///
     /// # Complexity: O(1)
     pub fn time_dilation(&self, proper_time: f64) -> f64 {
-        proper_time * self.gamma
+        self.dilate_time(proper_time)
     }
 
     /// Compose two Lorentz boosts into a single equivalent boost.
@@ -653,14 +653,14 @@ impl LorentzTransform {
     ///
     /// `m = rest_mass × γ` where `γ` is the Lorentz factor.
     pub fn relativistic_mass(&self, rest_mass: f64) -> f64 {
-        rest_mass * self.gamma()
+        self.relativistic_energy(rest_mass)
     }
 
     /// Ratio of kinetic energy to rest energy: `γ - 1`.
     ///
     /// Zero at rest (β = 0); grows without bound as β → 1.
     pub fn energy_ratio(&self) -> f64 {
-        self.gamma() - 1.0
+        self.kinetic_energy_ratio()
     }
 
     /// Warp factor in the Star Trek convention: `w = γ^(1/3)`.
@@ -684,7 +684,7 @@ impl LorentzTransform {
     ///
     /// Scales linearly with β at low speeds; diverges as β → 1.
     pub fn momentum_ratio(&self) -> f64 {
-        self.gamma() * self.beta
+        self.beta_times_gamma()
     }
 
     /// Returns `true` if β > 0.9, the conventional ultra-relativistic threshold.
@@ -715,14 +715,14 @@ impl LorentzTransform {
     /// Inverse of length contraction: recovers the rest-frame length from an
     /// observed measurement made in the moving frame.
     pub fn proper_length(&self, observed: f64) -> f64 {
-        observed * self.gamma()
+        self.dilate_time(observed)
     }
 
     /// Observed (length-contracted) length given a `rest_length`: `rest_length / gamma`.
     ///
     /// A moving object of rest length `L₀` appears shortened to `L₀ / γ` in the observer frame.
     pub fn length_contraction(&self, rest_length: f64) -> f64 {
-        rest_length / self.gamma()
+        self.time_contraction(rest_length)
     }
 
     /// Classifies a spacetime interval `(dt, dx)` as `"timelike"`, `"lightlike"`, or `"spacelike"`.
@@ -766,14 +766,14 @@ impl LorentzTransform {
     /// Values > 1 represent blue-shift (approaching); < 1 red-shift (receding).
     /// At rest (beta = 0) returns 1.0.
     pub fn doppler_ratio(&self) -> f64 {
-        ((1.0 + self.beta) / (1.0 - self.beta)).sqrt()
+        self.doppler_factor()
     }
 
     /// Dilated coordinate time in milliseconds for a given proper time `proper_ms`.
     ///
     /// `t_coordinate = gamma * t_proper`. A moving clock ticks slower by factor γ.
     pub fn time_dilation_ms(&self, proper_ms: f64) -> f64 {
-        self.gamma * proper_ms
+        self.dilate_time(proper_ms)
     }
 
     /// Length contraction: contracted length for a given proper (rest-frame) length.
@@ -797,14 +797,14 @@ impl LorentzTransform {
     ///
     /// Spatial component of the four-velocity; additive in rapidity space.
     pub fn momentum_rapidity(&self) -> f64 {
-        self.gamma * self.beta
+        self.beta_times_gamma()
     }
 
     /// Inverse Lorentz factor: `1 / gamma`.
     ///
     /// Equals `sqrt(1 - beta^2)`. Approaches 1 at low speeds; 0 at light speed.
     pub fn inverse_gamma(&self) -> f64 {
-        1.0 / self.gamma
+        self.length_contraction_factor()
     }
 
     /// Compose two collinear boosts: `beta_total = (beta1 + beta2) / (1 + beta1*beta2)`.
