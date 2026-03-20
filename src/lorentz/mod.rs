@@ -681,6 +681,23 @@ impl LorentzTransform {
     pub fn is_ultra_relativistic(&self) -> bool {
         self.beta > 0.9
     }
+
+    /// Classifies a spacetime interval `(dt, dx)` as `"timelike"`, `"lightlike"`, or `"spacelike"`.
+    ///
+    /// Spacetime interval: `s² = dt² - dx²` (in natural units, c = 1).
+    /// - `s² > 0` → timelike (causally connected)
+    /// - `s² = 0` → lightlike (on the light cone)
+    /// - `s² < 0` → spacelike (causally disconnected)
+    pub fn light_cone_check(dt: f64, dx: f64) -> &'static str {
+        let s_sq = dt * dt - dx * dx;
+        if s_sq > 1e-12 {
+            "timelike"
+        } else if s_sq < -1e-12 {
+            "spacelike"
+        } else {
+            "lightlike"
+        }
+    }
 }
 
 #[cfg(test)]

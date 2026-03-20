@@ -2744,6 +2744,36 @@ mod tests {
         assert_eq!(bar.true_range_with_prev(dec!(120)), dec!(25));
     }
 
+    // ── OhlcvBar::is_outside_bar / high_low_midpoint ─────────────────────────
+
+    #[test]
+    fn test_is_outside_bar_true() {
+        let prev = make_ohlcv_bar(dec!(100), dec!(105), dec!(95), dec!(100));
+        let bar  = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        assert!(bar.is_outside_bar(&prev));
+    }
+
+    #[test]
+    fn test_is_outside_bar_false_when_inside() {
+        let prev = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100));
+        let bar  = make_ohlcv_bar(dec!(100), dec!(105), dec!(95), dec!(100));
+        assert!(!bar.is_outside_bar(&prev));
+    }
+
+    #[test]
+    fn test_high_low_midpoint_correct() {
+        let bar = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100));
+        // (110 + 90) / 2 = 100
+        assert_eq!(bar.high_low_midpoint(), dec!(100));
+    }
+
+    #[test]
+    fn test_high_low_midpoint_uneven() {
+        let bar = make_ohlcv_bar(dec!(100), dec!(111), dec!(90), dec!(100));
+        // (111 + 90) / 2 = 100.5
+        assert_eq!(bar.high_low_midpoint(), dec!(100.5));
+    }
+
     // ── OhlcvBar::price_at_pct ───────────────────────────────────────────────
 
     #[test]

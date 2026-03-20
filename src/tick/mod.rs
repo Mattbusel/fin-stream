@@ -462,6 +462,17 @@ impl NormalizedTick {
         self.volume_notional().to_f64().unwrap_or(0.0)
     }
 
+    /// Volume-weighted average price across a slice of ticks.
+    ///
+    /// Returns `None` if the slice is empty or total volume is zero.
+    pub fn vwap(ticks: &[NormalizedTick]) -> Option<Decimal> {
+        if ticks.is_empty() { return None; }
+        let total_vol: Decimal = ticks.iter().map(|t| t.quantity).sum();
+        if total_vol.is_zero() { return None; }
+        let total_notional: Decimal = ticks.iter().map(|t| t.price * t.quantity).sum();
+        Some(total_notional / total_vol)
+    }
+
 }
 
 impl std::fmt::Display for NormalizedTick {
@@ -1719,5 +1730,59 @@ mod tests {
         tick.quantity = dec!(2);
         // notional = 20 < 100
         assert!(!tick.is_high_value_tick(dec!(100)));
+    }
+
+    // ── NormalizedTick::is_buy_side / is_sell_side / price_in_range ─────────
+
+    #[test]
+    fn test_is_buy_side_true_when_buy() {
+        let mut tick = make_tick_at(0);
+        tick.side = Some(TradeSide::Buy);
+        assert!(tick.is_buy_side());
+    }
+
+    #[test]
+    fn test_is_buy_side_false_when_sell() {
+        let mut tick = make_tick_at(0);
+        tick.side = Some(TradeSide::Sell);
+        assert!(!tick.is_buy_side());
+    }
+
+    #[test]
+    fn test_is_buy_side_false_when_none() {
+        let mut tick = make_tick_at(0);
+        tick.side = None;
+        assert!(!tick.is_buy_side());
+    }
+
+    #[test]
+    fn test_is_sell_side_true_when_sell() {
+        let mut tick = make_tick_at(0);
+        tick.side = Some(TradeSide::Sell);
+        assert!(tick.is_sell_side());
+    }
+
+    #[test]
+    fn test_price_in_range_true_when_within() {
+        use rust_decimal_macros::dec;
+        let mut tick = make_tick_at(0);
+        tick.price = dec!(100);
+        assert!(tick.price_in_range(dec!(90), dec!(110)));
+    }
+
+    #[test]
+    fn test_price_in_range_false_when_below() {
+        use rust_decimal_macros::dec;
+        let mut tick = make_tick_at(0);
+        tick.price = dec!(80);
+        assert!(!tick.price_in_range(dec!(90), dec!(110)));
+    }
+
+    #[test]
+    fn test_price_in_range_true_at_boundary() {
+        use rust_decimal_macros::dec;
+        let mut tick = make_tick_at(0);
+        tick.price = dec!(90);
+        assert!(tick.price_in_range(dec!(90), dec!(110)));
     }
 }

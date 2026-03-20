@@ -1802,4 +1802,49 @@ mod zscore_tests {
         // 2 of 4 values ≤ 2 → 0.5
         assert!((n.percentile(dec!(2)).unwrap() - 0.5).abs() < 1e-9);
     }
+
+    // ── ZScoreNormalizer::z_score_of_latest / deviation_from_mean ───────────
+
+    #[test]
+    fn test_z_score_of_latest_none_when_empty() {
+        let n = znorm(5);
+        assert!(n.z_score_of_latest().is_none());
+    }
+
+    #[test]
+    fn test_z_score_of_latest_zero_when_all_same() {
+        let mut n = znorm(4);
+        for _ in 0..4 {
+            n.update(dec!(5));
+        }
+        // std_dev = 0 → normalize returns Ok(0.0) → z_score_of_latest returns Some(0.0)
+        assert_eq!(n.z_score_of_latest(), Some(0.0));
+    }
+
+    #[test]
+    fn test_z_score_of_latest_returns_some_with_variance() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] {
+            n.update(v);
+        }
+        // latest = 4; should produce Some
+        assert!(n.z_score_of_latest().is_some());
+    }
+
+    #[test]
+    fn test_deviation_from_mean_none_when_empty() {
+        let n = znorm(5);
+        assert!(n.deviation_from_mean(dec!(10)).is_none());
+    }
+
+    #[test]
+    fn test_deviation_from_mean_correct() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] {
+            n.update(v);
+        }
+        // mean = 2.5, value = 4 → deviation = 1.5
+        let d = n.deviation_from_mean(dec!(4)).unwrap();
+        assert!((d - 1.5).abs() < 1e-9);
+    }
 }

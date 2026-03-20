@@ -519,6 +519,16 @@ impl SessionAwareness {
         }
     }
 
+    /// Returns which half of the trading session we are in: `1` for the first half,
+    /// `2` for the second half. Returns `0` if outside the session.
+    pub fn session_half(&self, utc_ms: u64) -> u8 {
+        match self.session_progress(utc_ms) {
+            Some(p) if p < 0.5 => 1,
+            Some(_) => 2,
+            None => 0,
+        }
+    }
+
     /// Returns `true` if the session is in the first 25% of its duration.
     ///
     /// Returns `false` outside the session.
@@ -2155,5 +2165,39 @@ mod tests {
     fn test_is_power_hour_false_when_closed() {
         let sa = sa(MarketSession::UsEquity);
         assert!(!sa.is_power_hour(SAT_UTC_MS));
+    }
+
+    // ── SessionAnalyzer::fraction_remaining ─────────────────────────────────
+
+    #[test]
+    fn test_fraction_remaining_one_at_open() {
+        let sa = sa(MarketSession::UsEquity);
+        // At open: progress=0, fraction remaining=1
+        let f = sa.fraction_remaining(MON_OPEN_UTC_MS).unwrap();
+        assert!((f - 1.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_fraction_remaining_zero_at_close() {
+        let sa = sa(MarketSession::UsEquity);
+        // 1ms before close: fraction remaining should be very small (< 0.01%)
+        let near_close_ms = MON_OPEN_UTC_MS + 6 * 3_600_000 + 30 * 60_000 - 1;
+        let f = sa.fraction_remaining(near_close_ms).unwrap();
+        assert!(f >= 0.0 && f < 0.0001);
+    }
+
+    #[test]
+    fn test_fraction_remaining_none_when_closed() {
+        let sa = sa(MarketSession::UsEquity);
+        assert!(sa.fraction_remaining(SAT_UTC_MS).is_none());
+    }
+
+    #[test]
+    fn test_fraction_remaining_plus_progress_equals_one() {
+        let sa = sa(MarketSession::UsEquity);
+        let t = MON_OPEN_UTC_MS + 2 * 3_600_000;
+        let prog = sa.session_progress(t).unwrap();
+        let rem = sa.fraction_remaining(t).unwrap();
+        assert!((prog + rem - 1.0).abs() < 1e-9);
     }
 }

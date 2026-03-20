@@ -1029,6 +1029,22 @@ impl OrderBook {
             }
         }
     }
+
+    /// Microprice: volume-weighted mid using top-of-book quantities.
+    ///
+    /// `microprice = (ask_qty * best_bid + bid_qty * best_ask) / (bid_qty + ask_qty)`
+    ///
+    /// More accurate than simple mid when the order book is imbalanced.
+    /// Returns `None` if either side is empty or total quantity is zero.
+    pub fn microprice(&self) -> Option<Decimal> {
+        let best_bid = *self.bids.keys().next_back()?;
+        let best_ask = *self.asks.keys().next()?;
+        let bid_qty = *self.bids.get(&best_bid)?;
+        let ask_qty = *self.asks.get(&best_ask)?;
+        let total_qty = bid_qty + ask_qty;
+        if total_qty.is_zero() { return None; }
+        Some((ask_qty * best_bid + bid_qty * best_ask) / total_qty)
+    }
 }
 
 #[cfg(test)]

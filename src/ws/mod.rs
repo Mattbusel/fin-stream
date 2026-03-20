@@ -1474,4 +1474,30 @@ mod tests {
         let stats = WsStats { total_messages_received: 1, total_bytes_received: 500 };
         assert!(stats.efficiency_ratio().unwrap() < 1.0);
     }
+
+    // ── WsStats::message_density / compression_ratio ────────────────────────
+
+    #[test]
+    fn test_message_density_same_as_message_rate() {
+        let stats = WsStats { total_messages_received: 100, total_bytes_received: 0 };
+        assert!((stats.message_density(1_000) - stats.message_rate(1_000)).abs() < 1e-12);
+    }
+
+    #[test]
+    fn test_message_density_zero_when_elapsed_zero() {
+        let stats = WsStats { total_messages_received: 100, total_bytes_received: 0 };
+        assert_eq!(stats.message_density(0), 0.0);
+    }
+
+    #[test]
+    fn test_compression_ratio_none_when_no_bytes() {
+        let stats = WsStats { total_messages_received: 5, total_bytes_received: 0 };
+        assert!(stats.compression_ratio().is_none());
+    }
+
+    #[test]
+    fn test_compression_ratio_same_as_efficiency_ratio() {
+        let stats = WsStats { total_messages_received: 100, total_bytes_received: 10_000 };
+        assert_eq!(stats.compression_ratio(), stats.efficiency_ratio());
+    }
 }

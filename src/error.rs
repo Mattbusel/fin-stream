@@ -1496,4 +1496,29 @@ mod tests {
         let e = StreamError::ConnectionFailed { url: "wss://x".into(), reason: "x".into() };
         assert!(!e.is_buffer_error());
     }
+
+    // ── StreamError::is_normalization_error / is_agg_error ──────────────────
+
+    #[test]
+    fn test_is_normalization_error_true() {
+        let e = StreamError::NormalizationError { reason: "empty window".into() };
+        assert!(e.is_normalization_error());
+    }
+
+    #[test]
+    fn test_is_normalization_error_false_for_parse_error() {
+        let e = StreamError::ParseError { exchange: "binance".into(), reason: "bad json".into() };
+        assert!(!e.is_normalization_error());
+    }
+
+    #[test]
+    fn test_is_agg_error_true() {
+        let e = StreamError::AggregationError { reason: "mismatched symbol".into() };
+        assert!(e.is_agg_error());
+    }
+
+    #[test]
+    fn test_is_agg_error_false_for_other() {
+        assert!(!StreamError::RingBufferEmpty.is_agg_error());
+    }
 }

@@ -1914,4 +1914,33 @@ mod tests {
         let m = HealthMonitor::new(5_000);
         assert!(m.most_stale_feed().is_none());
     }
+
+    // ── HealthMonitor::stale_ratio_excluding_unknown ────────────────────────
+
+    #[test]
+    fn test_stale_ratio_excl_unknown_zero_when_empty() {
+        let m = HealthMonitor::new(5_000);
+        assert_eq!(m.stale_ratio_excluding_unknown(), 0.0);
+    }
+
+    #[test]
+    fn test_stale_ratio_excl_unknown_zero_when_all_unknown() {
+        let m = HealthMonitor::new(5_000);
+        m.register("A", None);
+        m.register("B", None);
+        // Both unknown → excluded → ratio = 0.0
+        assert_eq!(m.stale_ratio_excluding_unknown(), 0.0);
+    }
+
+    #[test]
+    fn test_stale_ratio_excl_unknown_half_when_one_stale() {
+        let m = HealthMonitor::new(5_000);
+        m.register("A", None);
+        m.register("B", None);
+        m.heartbeat("A", 9_500).unwrap(); // recent → healthy
+        m.heartbeat("B", 1_000).unwrap(); // old → stale
+        m.check_all(10_000);
+        // A=Healthy, B=Stale → 1 stale of 2 known = 0.5
+        assert!((m.stale_ratio_excluding_unknown() - 0.5).abs() < 1e-10);
+    }
 }
