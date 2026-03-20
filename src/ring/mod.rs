@@ -404,6 +404,32 @@ impl<T, const N: usize> SpscRing<T, N> {
         out
     }
 
+    /// Returns the minimum item in the ring by cloning, without removing any items.
+    ///
+    /// Returns `None` if the ring is empty. Only valid before calling `split()`.
+    ///
+    /// # Complexity: O(n).
+    pub fn min_cloned(&self) -> Option<T>
+    where
+        T: Clone + Ord,
+    {
+        let head = self.head.load(Ordering::Acquire);
+        let tail = self.tail.load(Ordering::Acquire);
+        let len = tail.wrapping_sub(head);
+        if len == 0 {
+            return None;
+        }
+        let mut min_val = unsafe { (*self.buf[head % N].get()).assume_init_ref() }.clone();
+        for i in 1..len {
+            let slot = head.wrapping_add(i) % N;
+            let item = unsafe { (*self.buf[slot].get()).assume_init_ref() };
+            if item < &min_val {
+                min_val = item.clone();
+            }
+        }
+        Some(min_val)
+    }
+
     /// Returns the maximum item in the ring by cloning, without removing any items.
     ///
     /// Returns `None` if the ring is empty. Only valid before calling `split()`.
@@ -1462,6 +1488,32 @@ mod tests {
         let ring: SpscRing<u32, 8> = SpscRing::new();
         ring.push(42u32).unwrap();
         let _ = ring.to_vec_cloned();
+        assert_eq!(ring.len(), 1);
+    }
+
+    // ── SpscRing::min_cloned ─────────────────────────────────────────────────
+
+    #[test]
+    fn test_min_cloned_none_when_empty() {
+        let ring: SpscRing<u32, 8> = SpscRing::new();
+        assert!(ring.min_cloned().is_none());
+    }
+
+    #[test]
+    fn test_min_cloned_returns_minimum() {
+        let ring: SpscRing<u32, 8> = SpscRing::new();
+        ring.push(3u32).unwrap();
+        ring.push(1u32).unwrap();
+        ring.push(4u32).unwrap();
+        ring.push(2u32).unwrap();
+        assert_eq!(ring.min_cloned(), Some(1u32));
+    }
+
+    #[test]
+    fn test_min_cloned_does_not_drain() {
+        let ring: SpscRing<u32, 8> = SpscRing::new();
+        ring.push(10u32).unwrap();
+        let _ = ring.min_cloned();
         assert_eq!(ring.len(), 1);
     }
 

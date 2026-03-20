@@ -422,6 +422,15 @@ impl NormalizedTick {
         self.notional_value() > threshold
     }
 
+    /// Returns the trade side as a string slice: `"buy"`, `"sell"`, or `None`.
+    pub fn side_as_str(&self) -> Option<&'static str> {
+        match self.side {
+            Some(TradeSide::Buy) => Some("buy"),
+            Some(TradeSide::Sell) => Some("sell"),
+            None => None,
+        }
+    }
+
     /// Returns `true` if this tick was received within `threshold_ms` of `now_ms`.
     pub fn is_recent(&self, threshold_ms: u64, now_ms: u64) -> bool {
         now_ms.saturating_sub(self.received_at_ms) <= threshold_ms
@@ -1945,5 +1954,28 @@ mod tests {
         let tick = make_tick_at(9_000);
         // age=1000ms, threshold=1000ms → exactly at threshold
         assert!(tick.is_recent(1_000, 10_000));
+    }
+
+    // ── NormalizedTick::side_as_str ───────────────────────────────────────────
+
+    #[test]
+    fn test_side_as_str_buy() {
+        let mut tick = make_tick_at(0);
+        tick.side = Some(TradeSide::Buy);
+        assert_eq!(tick.side_as_str(), Some("buy"));
+    }
+
+    #[test]
+    fn test_side_as_str_sell() {
+        let mut tick = make_tick_at(0);
+        tick.side = Some(TradeSide::Sell);
+        assert_eq!(tick.side_as_str(), Some("sell"));
+    }
+
+    #[test]
+    fn test_side_as_str_none_when_unknown() {
+        let mut tick = make_tick_at(0);
+        tick.side = None;
+        assert!(tick.side_as_str().is_none());
     }
 }

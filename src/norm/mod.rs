@@ -207,6 +207,16 @@ impl MinMaxNormalizer {
         Some(max - min)
     }
 
+    /// Clamps `value` to the `[min, max]` range of the current window.
+    ///
+    /// Returns `value` unchanged if the window is empty (no clamping possible).
+    pub fn clamp_to_window(&mut self, value: Decimal) -> Decimal {
+        match self.min_max() {
+            None => value,
+            Some((min, max)) => value.max(min).min(max),
+        }
+    }
+
     /// Midpoint of the current window: `(min + max) / 2`.
     ///
     /// Returns `None` if the window is empty.
@@ -725,6 +735,35 @@ mod tests {
         assert_eq!(n.midpoint(), Some(dec!(42)));
     }
 
+    // ── MinMaxNormalizer::clamp_to_window ─────────────────────────────────────
+
+    #[test]
+    fn test_clamp_to_window_returns_value_unchanged_when_empty() {
+        let mut n = norm(4);
+        assert_eq!(n.clamp_to_window(dec!(50)), dec!(50));
+    }
+
+    #[test]
+    fn test_clamp_to_window_clamps_above_max() {
+        let mut n = norm(4);
+        for v in [dec!(10), dec!(20), dec!(30)] { n.update(v); }
+        assert_eq!(n.clamp_to_window(dec!(100)), dec!(30));
+    }
+
+    #[test]
+    fn test_clamp_to_window_clamps_below_min() {
+        let mut n = norm(4);
+        for v in [dec!(10), dec!(20), dec!(30)] { n.update(v); }
+        assert_eq!(n.clamp_to_window(dec!(5)), dec!(10));
+    }
+
+    #[test]
+    fn test_clamp_to_window_passthrough_when_in_range() {
+        let mut n = norm(4);
+        for v in [dec!(10), dec!(20), dec!(30)] { n.update(v); }
+        assert_eq!(n.clamp_to_window(dec!(15)), dec!(15));
+    }
+
     // ── MinMaxNormalizer::normalize_clamp ─────────────────────────────────────
 
     #[test]
@@ -1149,6 +1188,13 @@ impl ZScoreNormalizer {
         }
         let diff = (value - mean).abs().to_f64().unwrap_or(f64::MAX);
         diff / std_dev <= sigma_tolerance
+    }
+
+    /// Sum of all values currently in the window as `Decimal`.
+    ///
+    /// Returns `Decimal::ZERO` on an empty window.
+    pub fn window_sum(&self) -> Decimal {
+        self.sum
     }
 
     /// Sum of all values currently in the window as `f64`.

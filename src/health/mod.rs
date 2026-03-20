@@ -669,6 +669,17 @@ impl HealthMonitor {
         self.feeds.iter().filter(|e| e.status == HealthStatus::Stale).count()
     }
 
+    /// Milliseconds since the last heartbeat for `feed_id` at `now_ms`.
+    ///
+    /// Returns `None` if the feed is not registered or has never received a tick.
+    pub fn time_since_last_heartbeat(&self, feed_id: &str, now_ms: u64) -> Option<u64> {
+        self.feeds
+            .iter()
+            .find(|e| e.feed_id == feed_id)?
+            .last_tick_ms
+            .map(|t| now_ms.saturating_sub(t))
+    }
+
     /// IDs of all feeds currently in [`HealthStatus::Healthy`] state.
     pub fn healthy_feed_ids(&self) -> Vec<String> {
         self.feeds
@@ -2068,5 +2079,28 @@ mod tests {
         m.check_all(10_000);
         let ids = m.healthy_feed_ids();
         assert_eq!(ids, vec!["A".to_string()]);
+    }
+
+    // ── HealthMonitor::time_since_last_heartbeat ──────────────────────────────
+
+    #[test]
+    fn test_time_since_last_heartbeat_correct() {
+        let m = HealthMonitor::new(5_000);
+        m.register("BTC", None);
+        m.heartbeat("BTC", 9_000).unwrap();
+        assert_eq!(m.time_since_last_heartbeat("BTC", 10_000), Some(1_000));
+    }
+
+    #[test]
+    fn test_time_since_last_heartbeat_none_when_no_tick() {
+        let m = HealthMonitor::new(5_000);
+        m.register("ETH", None);
+        assert!(m.time_since_last_heartbeat("ETH", 10_000).is_none());
+    }
+
+    #[test]
+    fn test_time_since_last_heartbeat_none_when_unknown_feed() {
+        let m = HealthMonitor::new(5_000);
+        assert!(m.time_since_last_heartbeat("MISSING", 10_000).is_none());
     }
 }

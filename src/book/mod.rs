@@ -676,6 +676,17 @@ impl OrderBook {
         Some(Decimal::from(map.len()) / range)
     }
 
+    /// Ratio of total bid quantity to total ask quantity.
+    ///
+    /// Values > 1 indicate heavier buy-side resting volume; < 1 more sell-side.
+    /// Returns `None` if the ask side has zero volume.
+    pub fn bid_ask_qty_ratio(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let ask_vol = self.ask_volume_total();
+        if ask_vol.is_zero() { return None; }
+        (self.bid_volume_total() / ask_vol).to_f64()
+    }
+
     /// Ratio of ask levels to bid levels: `ask_count / bid_count`.
     ///
     /// Values > 1 indicate more ask granularity; < 1 more bid granularity.
@@ -2541,5 +2552,38 @@ mod tests {
         b.apply(delta("X", BookSide::Bid, dec!(99), dec!(1))).unwrap();
         b.apply(delta("X", BookSide::Bid, dec!(98), dec!(2))).unwrap();
         assert_eq!(b.bid_level_count(), 2);
+    }
+
+    // ── OrderBook::price_impact_buy / price_impact_sell ──────────────────────
+
+    #[test]
+    fn test_price_impact_buy_correct_single_level() {
+        let mut b = book("X");
+        b.apply(delta("X", BookSide::Ask, dec!(100), dec!(10))).unwrap();
+        // buy 5 units all at 100 → avg = 100
+        assert_eq!(b.price_impact_buy(dec!(5)), Some(dec!(100)));
+    }
+
+    #[test]
+    fn test_price_impact_buy_spans_levels() {
+        let mut b = book("X");
+        b.apply(delta("X", BookSide::Ask, dec!(100), dec!(5))).unwrap();
+        b.apply(delta("X", BookSide::Ask, dec!(101), dec!(5))).unwrap();
+        // buy 10: 5@100 + 5@101 → avg = 100.5
+        assert_eq!(b.price_impact_buy(dec!(10)), Some(dec!(100.5)));
+    }
+
+    #[test]
+    fn test_price_impact_buy_none_when_insufficient_liquidity() {
+        let mut b = book("X");
+        b.apply(delta("X", BookSide::Ask, dec!(100), dec!(3))).unwrap();
+        assert!(b.price_impact_buy(dec!(5)).is_none());
+    }
+
+    #[test]
+    fn test_price_impact_sell_correct_single_level() {
+        let mut b = book("X");
+        b.apply(delta("X", BookSide::Bid, dec!(99), dec!(10))).unwrap();
+        assert_eq!(b.price_impact_sell(dec!(5)), Some(dec!(99)));
     }
 }

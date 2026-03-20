@@ -536,6 +536,31 @@ impl OhlcvBar {
         this_range < prev_range / Decimal::TWO
     }
 
+    /// Volume as a ratio of `avg_volume`.
+    ///
+    /// Returns `None` if `avg_volume` is zero.
+    pub fn relative_volume(&self, avg_volume: Decimal) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if avg_volume.is_zero() {
+            return None;
+        }
+        (self.volume / avg_volume).to_f64()
+    }
+
+    /// Returns `true` if this bar opens in the direction of the prior bar's move
+    /// but closes against it (an intraday reversal signal).
+    ///
+    /// Specifically: prev was bullish (close > open), this bar opens near/above prev close,
+    /// and closes below prev open — or vice versa for a bearish reversal.
+    pub fn intraday_reversal(&self, prev: &OhlcvBar) -> bool {
+        let prev_bullish = prev.close > prev.open;
+        let this_bearish = self.close < self.open;
+        let prev_bearish = prev.close < prev.open;
+        let this_bullish = self.close > self.open;
+        (prev_bullish && this_bearish && self.open >= prev.close)
+            || (prev_bearish && this_bullish && self.open <= prev.close)
+    }
+
     /// High-low range as a percentage of the open price: `(high - low) / open * 100`.
     ///
     /// Returns `None` if open is zero.
@@ -2927,6 +2952,39 @@ mod tests {
         let prev = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105)); // range=20
         let bar  = make_ohlcv_bar(dec!(102), dec!(115), dec!(95), dec!(110)); // range=20, not < 10
         assert!(!bar.is_consolidating(&prev));
+    }
+
+    // ── OhlcvBar::relative_volume / intraday_reversal ─────────────────────────
+
+    #[test]
+    fn test_relative_volume_correct() {
+        let bar = make_ohlcv_bar(dec!(100), dec!(105), dec!(95), dec!(103));
+        // bar.volume = dec!(1) (default), avg = 2 → ratio = 0.5
+        let rv = bar.relative_volume(dec!(2)).unwrap();
+        assert!((rv - 0.5).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_relative_volume_none_when_avg_zero() {
+        let bar = make_ohlcv_bar(dec!(100), dec!(105), dec!(95), dec!(103));
+        assert!(bar.relative_volume(dec!(0)).is_none());
+    }
+
+    #[test]
+    fn test_intraday_reversal_true_for_bullish_then_bearish() {
+        // prev: open=100, close=105 (bullish)
+        let prev = make_ohlcv_bar(dec!(100), dec!(108), dec!(99), dec!(105));
+        // this: opens at 105 (≥ prev close), closes below prev open (100) → reversal
+        let bar = make_ohlcv_bar(dec!(105), dec!(107), dec!(97), dec!(98));
+        assert!(bar.intraday_reversal(&prev));
+    }
+
+    #[test]
+    fn test_intraday_reversal_false_for_continuation() {
+        // prev: open=100, close=105 (bullish), this also bullish at lower open
+        let prev = make_ohlcv_bar(dec!(100), dec!(108), dec!(99), dec!(105));
+        let bar = make_ohlcv_bar(dec!(104), dec!(115), dec!(103), dec!(113));
+        assert!(!bar.intraday_reversal(&prev));
     }
 
     // ── OhlcvBar::price_at_pct ───────────────────────────────────────────────

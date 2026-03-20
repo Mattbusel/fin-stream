@@ -705,6 +705,13 @@ impl LorentzTransform {
         observed * self.gamma()
     }
 
+    /// Observed (length-contracted) length given a `rest_length`: `rest_length / gamma`.
+    ///
+    /// A moving object of rest length `L₀` appears shortened to `L₀ / γ` in the observer frame.
+    pub fn length_contraction(&self, rest_length: f64) -> f64 {
+        rest_length / self.gamma()
+    }
+
     /// Classifies a spacetime interval `(dt, dx)` as `"timelike"`, `"lightlike"`, or `"spacelike"`.
     ///
     /// Spacetime interval: `s² = dt² - dx²` (in natural units, c = 1).
@@ -754,6 +761,13 @@ impl LorentzTransform {
     /// `t_coordinate = gamma * t_proper`. A moving clock ticks slower by factor γ.
     pub fn time_dilation_ms(&self, proper_ms: f64) -> f64 {
         self.gamma * proper_ms
+    }
+
+    /// Length contraction: contracted length for a given proper (rest-frame) length.
+    ///
+    /// `L_contracted = L_proper / gamma`. Objects appear shorter in the direction of motion.
+    pub fn space_contraction(&self, proper_length: f64) -> f64 {
+        proper_length / self.gamma
     }
 }
 
@@ -1888,5 +1902,29 @@ mod tests {
         let t = LorentzTransform::new(0.6).unwrap();
         // gamma=1.25 → proper_length = 1.25 * observed
         assert!((t.proper_length(8.0) - 10.0).abs() < 1e-9);
+    }
+
+    // ── LorentzTransform::length_contraction ─────────────────────────────────
+
+    #[test]
+    fn test_length_contraction_at_rest_equals_rest_length() {
+        let t = LorentzTransform::new(0.0).unwrap();
+        assert!((t.length_contraction(10.0) - 10.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_length_contraction_shorter_when_moving() {
+        let t = LorentzTransform::new(0.6).unwrap();
+        // gamma=1.25 → contracted = 10/1.25 = 8
+        assert!((t.length_contraction(10.0) - 8.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_length_contraction_proper_length_roundtrip() {
+        let t = LorentzTransform::new(0.8).unwrap();
+        let rest = 100.0;
+        let contracted = t.length_contraction(rest);
+        let recovered = t.proper_length(contracted);
+        assert!((recovered - rest).abs() < 1e-9);
     }
 }

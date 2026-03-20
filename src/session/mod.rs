@@ -646,6 +646,13 @@ impl SessionAwareness {
         }
     }
 
+    /// Returns the week of the month (1–5) for `date`.
+    ///
+    /// Week 1 contains day 1, week 2 contains day 8, etc.
+    pub fn week_of_month(date: NaiveDate) -> u32 {
+        (date.day() - 1) / 7 + 1
+    }
+
     /// Returns `true` if `date` falls in a typical US earnings season month
     /// (January, April, July, or October).
     ///
@@ -2406,5 +2413,25 @@ mod tests {
     fn test_is_earnings_season_false_in_march() {
         let d = NaiveDate::from_ymd_opt(2024, 3, 15).unwrap();
         assert!(!SessionAwareness::is_earnings_season(d));
+    }
+
+    // ── SessionAwareness::week_of_month ───────────────────────────────────────
+
+    #[test]
+    fn test_week_of_month_first_day_is_week_one() {
+        let d = NaiveDate::from_ymd_opt(2024, 1, 1).unwrap();
+        assert_eq!(SessionAwareness::week_of_month(d), 1);
+    }
+
+    #[test]
+    fn test_week_of_month_8th_is_week_two() {
+        let d = NaiveDate::from_ymd_opt(2024, 1, 8).unwrap();
+        assert_eq!(SessionAwareness::week_of_month(d), 2);
+    }
+
+    #[test]
+    fn test_week_of_month_15th_is_week_three() {
+        let d = NaiveDate::from_ymd_opt(2024, 3, 15).unwrap();
+        assert_eq!(SessionAwareness::week_of_month(d), 3);
     }
 }
