@@ -1478,6 +1478,48 @@ impl OhlcvBar {
         }
         bars.windows(2).map(|w| w[1].open - w[0].close).sum()
     }
+
+    /// Returns `true` if the last three bars form a "three white soldiers" pattern:
+    /// three consecutive bullish (close > open) bars, each closing above the prior bar's close.
+    pub fn three_white_soldiers(bars: &[OhlcvBar]) -> bool {
+        if bars.len() < 3 {
+            return false;
+        }
+        let last3 = &bars[bars.len() - 3..];
+        last3[0].close > last3[0].open
+            && last3[1].close > last3[1].open
+            && last3[2].close > last3[2].open
+            && last3[1].close > last3[0].close
+            && last3[2].close > last3[1].close
+    }
+
+    /// Returns `true` if the last three bars form a "three black crows" pattern:
+    /// three consecutive bearish (close < open) bars, each closing below the prior bar's close.
+    pub fn three_black_crows(bars: &[OhlcvBar]) -> bool {
+        if bars.len() < 3 {
+            return false;
+        }
+        let last3 = &bars[bars.len() - 3..];
+        last3[0].close < last3[0].open
+            && last3[1].close < last3[1].open
+            && last3[2].close < last3[2].open
+            && last3[1].close < last3[0].close
+            && last3[2].close < last3[1].close
+    }
+
+    /// Returns `true` if the bar opened with a gap relative to `prev_close`
+    /// (i.e. open != prev_close).
+    pub fn is_gap_bar(bar: &OhlcvBar, prev_close: Decimal) -> bool {
+        bar.open != prev_close
+    }
+
+    /// Counts consecutive-pair windows where a gap exists (open != prior close).
+    pub fn gap_bars_count(bars: &[OhlcvBar]) -> usize {
+        if bars.len() < 2 {
+            return 0;
+        }
+        bars.windows(2).filter(|w| w[1].open != w[0].close).count()
+    }
 }
 
 impl std::fmt::Display for OhlcvBar {
@@ -5038,5 +5080,93 @@ mod tests {
         let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100));
         let b2 = make_ohlcv_bar(dec!(90), dec!(95), dec!(80), dec!(85));
         assert_eq!(OhlcvBar::gap_sum(&[b1, b2]), dec!(-10));
+    }
+
+    // ── OhlcvBar::three_white_soldiers ────────────────────────────────────────
+
+    #[test]
+    fn test_three_white_soldiers_false_for_fewer_than_3_bars() {
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        assert!(!OhlcvBar::three_white_soldiers(&[b]));
+    }
+
+    #[test]
+    fn test_three_white_soldiers_true_for_classic_pattern() {
+        let b1 = make_ohlcv_bar(dec!(100), dec!(115), dec!(98), dec!(112));
+        let b2 = make_ohlcv_bar(dec!(112), dec!(128), dec!(110), dec!(125));
+        let b3 = make_ohlcv_bar(dec!(125), dec!(142), dec!(123), dec!(140));
+        assert!(OhlcvBar::three_white_soldiers(&[b1, b2, b3]));
+    }
+
+    #[test]
+    fn test_three_white_soldiers_false_for_bearish_bar_in_sequence() {
+        // b2 is bearish (close < open)
+        let b1 = make_ohlcv_bar(dec!(100), dec!(115), dec!(98), dec!(112));
+        let b2 = make_ohlcv_bar(dec!(115), dec!(120), dec!(105), dec!(108));
+        let b3 = make_ohlcv_bar(dec!(108), dec!(130), dec!(106), dec!(128));
+        assert!(!OhlcvBar::three_white_soldiers(&[b1, b2, b3]));
+    }
+
+    // ── OhlcvBar::three_black_crows ───────────────────────────────────────────
+
+    #[test]
+    fn test_three_black_crows_false_for_fewer_than_3_bars() {
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(95));
+        assert!(!OhlcvBar::three_black_crows(&[b]));
+    }
+
+    #[test]
+    fn test_three_black_crows_true_for_classic_pattern() {
+        let b1 = make_ohlcv_bar(dec!(140), dec!(142), dec!(110), dec!(112));
+        let b2 = make_ohlcv_bar(dec!(112), dec!(114), dec!(95), dec!(97));
+        let b3 = make_ohlcv_bar(dec!(97), dec!(99), dec!(80), dec!(82));
+        assert!(OhlcvBar::three_black_crows(&[b1, b2, b3]));
+    }
+
+    #[test]
+    fn test_three_black_crows_false_for_bullish_bar_in_sequence() {
+        // b2 is bullish
+        let b1 = make_ohlcv_bar(dec!(140), dec!(142), dec!(110), dec!(112));
+        let b2 = make_ohlcv_bar(dec!(108), dec!(120), dec!(106), dec!(118));
+        let b3 = make_ohlcv_bar(dec!(115), dec!(116), dec!(90), dec!(92));
+        assert!(!OhlcvBar::three_black_crows(&[b1, b2, b3]));
+    }
+
+    // ── OhlcvBar::is_gap_bar ─────────────────────────────────────────────────
+
+    #[test]
+    fn test_is_gap_bar_true_when_open_differs_from_prev_close() {
+        let bar = make_ohlcv_bar(dec!(105), dec!(115), dec!(100), dec!(110));
+        assert!(OhlcvBar::is_gap_bar(&bar, dec!(100)));
+    }
+
+    #[test]
+    fn test_is_gap_bar_false_when_open_equals_prev_close() {
+        let bar = make_ohlcv_bar(dec!(100), dec!(115), dec!(98), dec!(110));
+        assert!(!OhlcvBar::is_gap_bar(&bar, dec!(100)));
+    }
+
+    // ── OhlcvBar::gap_bars_count ──────────────────────────────────────────────
+
+    #[test]
+    fn test_gap_bars_count_zero_for_empty_slice() {
+        assert_eq!(OhlcvBar::gap_bars_count(&[]), 0);
+    }
+
+    #[test]
+    fn test_gap_bars_count_zero_when_no_gaps() {
+        // b1 close=100, b2 open=100 → no gap
+        let b1 = make_ohlcv_bar(dec!(90), dec!(105), dec!(88), dec!(100));
+        let b2 = make_ohlcv_bar(dec!(100), dec!(115), dec!(98), dec!(110));
+        assert_eq!(OhlcvBar::gap_bars_count(&[b1, b2]), 0);
+    }
+
+    #[test]
+    fn test_gap_bars_count_counts_all_gaps() {
+        let b1 = make_ohlcv_bar(dec!(90), dec!(105), dec!(88), dec!(100));
+        let b2 = make_ohlcv_bar(dec!(105), dec!(115), dec!(103), dec!(110)); // gap: open=105 != 100
+        let b3 = make_ohlcv_bar(dec!(110), dec!(120), dec!(108), dec!(115)); // no gap
+        let b4 = make_ohlcv_bar(dec!(120), dec!(130), dec!(118), dec!(128)); // gap: open=120 != 115
+        assert_eq!(OhlcvBar::gap_bars_count(&[b1, b2, b3, b4]), 2);
     }
 }

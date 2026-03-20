@@ -730,6 +730,16 @@ impl MinMaxNormalizer {
         }
         Some(self.count_below(threshold) as f64 / self.window.len() as f64)
     }
+
+    /// Returns all window values strictly above `threshold`.
+    pub fn window_values_above(&self, threshold: Decimal) -> Vec<Decimal> {
+        self.window.iter().copied().filter(|&v| v > threshold).collect()
+    }
+
+    /// Returns all window values strictly below `threshold`.
+    pub fn window_values_below(&self, threshold: Decimal) -> Vec<Decimal> {
+        self.window.iter().copied().filter(|&v| v < threshold).collect()
+    }
 }
 
 #[cfg(test)]
@@ -1702,6 +1712,38 @@ mod tests {
         let frac = n.fraction_below(dec!(3)).unwrap();
         assert!((frac - 0.4).abs() < 1e-9);
     }
+
+    // ── MinMaxNormalizer::window_values_above / window_values_below ───────────
+
+    #[test]
+    fn test_minmax_window_values_above_empty_window() {
+        assert!(norm(3).window_values_above(dec!(5)).is_empty());
+    }
+
+    #[test]
+    fn test_minmax_window_values_above_filters_correctly() {
+        let mut n = norm(5);
+        for v in [dec!(1), dec!(3), dec!(5), dec!(7), dec!(9)] { n.update(v); }
+        let above = n.window_values_above(dec!(5));
+        assert_eq!(above.len(), 2);
+        assert!(above.contains(&dec!(7)));
+        assert!(above.contains(&dec!(9)));
+    }
+
+    #[test]
+    fn test_minmax_window_values_below_empty_window() {
+        assert!(norm(3).window_values_below(dec!(5)).is_empty());
+    }
+
+    #[test]
+    fn test_minmax_window_values_below_filters_correctly() {
+        let mut n = norm(5);
+        for v in [dec!(1), dec!(3), dec!(5), dec!(7), dec!(9)] { n.update(v); }
+        let below = n.window_values_below(dec!(5));
+        assert_eq!(below.len(), 2);
+        assert!(below.contains(&dec!(1)));
+        assert!(below.contains(&dec!(3)));
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -2506,6 +2548,16 @@ impl ZScoreNormalizer {
             return None;
         }
         Some(self.count_below(threshold) as f64 / self.window.len() as f64)
+    }
+
+    /// Returns all window values strictly above `threshold`.
+    pub fn window_values_above(&self, threshold: Decimal) -> Vec<Decimal> {
+        self.window.iter().copied().filter(|&v| v > threshold).collect()
+    }
+
+    /// Returns all window values strictly below `threshold`.
+    pub fn window_values_below(&self, threshold: Decimal) -> Vec<Decimal> {
+        self.window.iter().copied().filter(|&v| v < threshold).collect()
     }
 }
 
@@ -3726,6 +3778,38 @@ mod zscore_stability_tests {
         assert!(!n.is_stable(1.0));
     }
 
+    // ── ZScoreNormalizer::window_values_above / window_values_below (moved here) ─
+
+    #[test]
+    fn test_zscore_window_values_above_via_znorm_empty() {
+        assert!(znorm(3).window_values_above(dec!(5)).is_empty());
+    }
+
+    #[test]
+    fn test_zscore_window_values_above_via_znorm_filters() {
+        let mut n = znorm(5);
+        for v in [dec!(1), dec!(3), dec!(5), dec!(7), dec!(9)] { n.update(v); }
+        let above = n.window_values_above(dec!(5));
+        assert_eq!(above.len(), 2);
+        assert!(above.contains(&dec!(7)));
+        assert!(above.contains(&dec!(9)));
+    }
+
+    #[test]
+    fn test_zscore_window_values_below_via_znorm_empty() {
+        assert!(znorm(3).window_values_below(dec!(5)).is_empty());
+    }
+
+    #[test]
+    fn test_zscore_window_values_below_via_znorm_filters() {
+        let mut n = znorm(5);
+        for v in [dec!(1), dec!(3), dec!(5), dec!(7), dec!(9)] { n.update(v); }
+        let below = n.window_values_below(dec!(5));
+        assert_eq!(below.len(), 2);
+        assert!(below.contains(&dec!(1)));
+        assert!(below.contains(&dec!(3)));
+    }
+
     // ── ZScoreNormalizer::fraction_above / fraction_below ─────────────────────
 
     #[test]
@@ -3754,5 +3838,37 @@ mod zscore_stability_tests {
         // below 3: {1, 2} = 2/5 = 0.4
         let frac = n.fraction_below(dec!(3)).unwrap();
         assert!((frac - 0.4).abs() < 1e-9);
+    }
+
+    // ── ZScoreNormalizer::window_values_above / window_values_below ──────────
+
+    #[test]
+    fn test_zscore_window_values_above_empty_window() {
+        assert!(znorm(3).window_values_above(dec!(0)).is_empty());
+    }
+
+    #[test]
+    fn test_zscore_window_values_above_filters_correctly() {
+        let mut n = znorm(5);
+        for v in [dec!(1), dec!(3), dec!(5), dec!(7), dec!(9)] { n.update(v); }
+        let above = n.window_values_above(dec!(5));
+        assert_eq!(above.len(), 2);
+        assert!(above.contains(&dec!(7)));
+        assert!(above.contains(&dec!(9)));
+    }
+
+    #[test]
+    fn test_zscore_window_values_below_empty_window() {
+        assert!(znorm(3).window_values_below(dec!(0)).is_empty());
+    }
+
+    #[test]
+    fn test_zscore_window_values_below_filters_correctly() {
+        let mut n = znorm(5);
+        for v in [dec!(1), dec!(3), dec!(5), dec!(7), dec!(9)] { n.update(v); }
+        let below = n.window_values_below(dec!(5));
+        assert_eq!(below.len(), 2);
+        assert!(below.contains(&dec!(1)));
+        assert!(below.contains(&dec!(3)));
     }
 }

@@ -3559,4 +3559,74 @@ mod tests {
         // last 3 ticks: qty 3+4+5 = 12
         assert_eq!(NormalizedTick::recent_volume(&ticks, 3), dec!(12));
     }
+
+    // ── NormalizedTick::first_price ───────────────────────────────────────────
+
+    #[test]
+    fn test_first_price_none_for_empty_slice() {
+        assert!(NormalizedTick::first_price(&[]).is_none());
+    }
+
+    #[test]
+    fn test_first_price_returns_first_tick_price() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![make_tick_pq(dec!(50), dec!(1)), make_tick_pq(dec!(60), dec!(1))];
+        assert_eq!(NormalizedTick::first_price(&ticks), Some(dec!(50)));
+    }
+
+    // ── NormalizedTick::price_return_pct ─────────────────────────────────────
+
+    #[test]
+    fn test_price_return_pct_none_for_single_tick() {
+        use rust_decimal_macros::dec;
+        assert!(NormalizedTick::price_return_pct(&[make_tick_pq(dec!(100), dec!(1))]).is_none());
+    }
+
+    #[test]
+    fn test_price_return_pct_positive_for_rising_price() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![make_tick_pq(dec!(100), dec!(1)), make_tick_pq(dec!(110), dec!(1))];
+        let pct = NormalizedTick::price_return_pct(&ticks).unwrap();
+        assert!((pct - 0.1).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_price_return_pct_negative_for_falling_price() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![make_tick_pq(dec!(100), dec!(1)), make_tick_pq(dec!(90), dec!(1))];
+        let pct = NormalizedTick::price_return_pct(&ticks).unwrap();
+        assert!((pct - (-0.1)).abs() < 1e-9);
+    }
+
+    // ── NormalizedTick::volume_above_price / volume_below_price ──────────────
+
+    #[test]
+    fn test_volume_above_price_zero_for_empty_slice() {
+        use rust_decimal_macros::dec;
+        assert_eq!(NormalizedTick::volume_above_price(&[], dec!(100)), dec!(0));
+    }
+
+    #[test]
+    fn test_volume_above_price_sums_above_threshold() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(90), dec!(5)),
+            make_tick_pq(dec!(100), dec!(10)),
+            make_tick_pq(dec!(110), dec!(3)),
+        ];
+        // only price=110 is above 100
+        assert_eq!(NormalizedTick::volume_above_price(&ticks, dec!(100)), dec!(3));
+    }
+
+    #[test]
+    fn test_volume_below_price_sums_below_threshold() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(90), dec!(5)),
+            make_tick_pq(dec!(100), dec!(10)),
+            make_tick_pq(dec!(110), dec!(3)),
+        ];
+        // only price=90 is below 100
+        assert_eq!(NormalizedTick::volume_below_price(&ticks, dec!(100)), dec!(5));
+    }
 }
