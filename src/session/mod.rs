@@ -543,6 +543,17 @@ impl SessionAwareness {
         self.time_in_session_ms(utc_ms).unwrap_or(0)
     }
 
+    /// Milliseconds remaining until the session closes at `utc_ms`.
+    ///
+    /// Returns `0` if the session is not open or already past close.
+    pub fn remaining_ms(&self, utc_ms: u64) -> u64 {
+        let elapsed = self.time_in_session_ms(utc_ms).unwrap_or(0);
+        let duration = self.session.session_duration_ms();
+        if duration == u64::MAX { return u64::MAX; }
+        elapsed.saturating_sub(0);
+        duration.saturating_sub(elapsed)
+    }
+
     /// Returns `true` if the session is in the first 25% of its duration.
     ///
     /// Returns `false` outside the session.
