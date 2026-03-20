@@ -1017,6 +1017,15 @@ impl ZScoreNormalizer {
         let mean_f = mean.abs().to_f64()?;
         Some(std_dev / mean_f)
     }
+
+    /// Population variance of the current window: `std_dev²`.
+    ///
+    /// Returns `None` when the window is empty (same conditions as
+    /// [`std_dev`](Self::std_dev)).
+    pub fn sample_variance(&self) -> Option<f64> {
+        let sd = self.std_dev()?;
+        Some(sd * sd)
+    }
 }
 
 #[cfg(test)]
@@ -1333,5 +1342,34 @@ mod zscore_tests {
         // mean = 5, std_dev = 2, cv = 2/5 = 0.4
         let cv = n.coefficient_of_variation().unwrap();
         assert!((cv - 0.4).abs() < 1e-5, "expected ~0.4 got {cv}");
+    }
+
+    // --- sample_variance ---
+
+    #[test]
+    fn test_sample_variance_none_when_empty() {
+        let n = znorm(5);
+        assert!(n.sample_variance().is_none());
+    }
+
+    #[test]
+    fn test_sample_variance_zero_for_constant_window() {
+        let mut n = znorm(3);
+        n.update(dec!(7));
+        n.update(dec!(7));
+        n.update(dec!(7));
+        assert!(n.sample_variance().unwrap().abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_sample_variance_equals_std_dev_squared() {
+        let mut n = znorm(8);
+        for v in [dec!(2), dec!(4), dec!(4), dec!(4), dec!(5), dec!(5), dec!(7), dec!(9)] {
+            n.update(v);
+        }
+        // std_dev ≈ 2.0, variance ≈ 4.0
+        let variance = n.sample_variance().unwrap();
+        let sd = n.std_dev().unwrap();
+        assert!((variance - sd * sd).abs() < 1e-10);
     }
 }

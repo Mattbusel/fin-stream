@@ -430,6 +430,23 @@ impl SessionAwareness {
         Some(close.saturating_sub(utc_ms))
     }
 
+    /// Returns `true` if the session is currently in the pre-open (pre-market)
+    /// window — extended hours that precede the regular trading session.
+    ///
+    /// Equivalent to `is_pre_market`. Always `false` for non-equity sessions.
+    pub fn is_pre_open(&self, utc_ms: u64) -> bool {
+        self.is_pre_market(utc_ms)
+    }
+
+    /// Fraction of the 24-hour UTC day **remaining** at `utc_ms`.
+    ///
+    /// Returns a value in `(0.0, 1.0]` — `1.0` exactly at midnight UTC,
+    /// approaching `0.0` just before the next midnight. The complement of
+    /// [`fraction_of_day_elapsed`](Self::fraction_of_day_elapsed).
+    pub fn day_fraction_remaining(&self, utc_ms: u64) -> f64 {
+        1.0 - self.fraction_of_day_elapsed(utc_ms)
+    }
+
     /// Returns `true` if the market is in regular trading hours only
     /// (`TradingStatus::Open`), not extended hours or closed.
     pub fn is_regular_session(&self, utc_ms: u64) -> bool {
@@ -1601,5 +1618,62 @@ mod tests {
     fn test_is_last_trading_hour_false_when_closed() {
         let sa = sa(MarketSession::UsEquity);
         assert!(!sa.is_last_trading_hour(SAT_UTC_MS));
+    }
+
+    // --- is_pre_open / day_fraction_remaining ---
+
+    #[test]
+    fn test_is_pre_open_true_in_pre_market_window() {
+        let sa = sa(MarketSession::UsEquity);
+        assert!(sa.is_pre_open(MON_OPEN_UTC_MS - 60_000));
+    }
+
+    #[test]
+    fn test_is_pre_open_false_during_regular_session() {
+        let sa = sa(MarketSession::UsEquity);
+        assert!(!sa.is_pre_open(MON_OPEN_UTC_MS));
+    }
+
+    #[test]
+    fn test_is_pre_open_false_when_closed() {
+        let sa = sa(MarketSession::UsEquity);
+        assert!(!sa.is_pre_open(SAT_UTC_MS));
+    }
+
+    #[test]
+    fn test_day_fraction_remaining_plus_elapsed_equals_one() {
+        let sa = sa(MarketSession::UsEquity);
+        let elapsed = sa.fraction_of_day_elapsed(MON_OPEN_UTC_MS);
+        let remaining = sa.day_fraction_remaining(MON_OPEN_UTC_MS);
+        assert!((elapsed + remaining - 1.0).abs() < 1e-12);
+    }
+
+    #[test]
+    fn test_day_fraction_remaining_one_at_midnight() {
+        let sa = sa(MarketSession::UsEquity);
+        // At midnight UTC the elapsed fraction is 0.0, so remaining is 1.0
+        assert!((sa.day_fraction_remaining(0) - 1.0).abs() < 1e-12);
+    }
+
+    // ── SessionAnalyzer::is_extended_hours ────────────────────────────────────
+
+    #[test]
+    fn test_is_extended_hours_true_in_pre_market() {
+        let sa = sa(MarketSession::UsEquity);
+        // 1 minute before regular open = pre-market
+        assert!(sa.is_extended_hours(MON_OPEN_UTC_MS - 60_000));
+    }
+
+    #[test]
+    fn test_is_extended_hours_true_in_after_hours() {
+        let sa = sa(MarketSession::UsEquity);
+        // 1 minute after regular close = after-hours
+        assert!(sa.is_extended_hours(MON_CLOSE_UTC_MS + 60_000));
+    }
+
+    #[test]
+    fn test_is_extended_hours_false_during_regular_session() {
+        let sa = sa(MarketSession::UsEquity);
+        assert!(!sa.is_extended_hours(MON_OPEN_UTC_MS));
     }
 }

@@ -520,6 +520,29 @@ impl HealthMonitor {
         self.healthy_count() as f64 / total as f64
     }
 
+    /// The feed with the highest lifetime tick count, or `None` if no feeds
+    /// are registered.
+    ///
+    /// "Most reliable" is defined as the feed that has processed the greatest
+    /// number of heartbeats since registration or last reset.
+    pub fn most_reliable_feed(&self) -> Option<FeedHealth> {
+        self.feeds.iter()
+            .max_by_key(|e| e.tick_count)
+            .map(|e| e.clone())
+    }
+
+    /// All feeds that have never received a heartbeat (`last_tick_ms` is
+    /// `None`).
+    ///
+    /// Useful for detecting feeds that were registered but have not yet
+    /// started streaming data.
+    pub fn feeds_never_seen(&self) -> Vec<FeedHealth> {
+        self.feeds.iter()
+            .filter(|e| e.last_tick_ms.is_none())
+            .map(|e| e.clone())
+            .collect()
+    }
+
 }
 
 #[cfg(test)]
@@ -1406,5 +1429,76 @@ mod tests {
         m.heartbeat("B", 9_500).unwrap(); // healthy
         m.check_all(10_000);
         assert!((m.healthy_ratio() - 0.5).abs() < 1e-10);
+    }
+
+    // --- most_reliable_feed / feeds_never_seen ---
+
+    #[test]
+    fn test_most_reliable_feed_returns_highest_tick_count() {
+        let mut m = monitor();
+        m.register("A", None);
+        m.register("B", None);
+        m.heartbeat("A", 1_000).unwrap();
+        m.heartbeat("B", 1_100).unwrap();
+        m.heartbeat("B", 1_200).unwrap();
+        // B has 2 ticks, A has 1
+        let best = m.most_reliable_feed().unwrap();
+        assert_eq!(best.feed_id, "B");
+    }
+
+    #[test]
+    fn test_most_reliable_feed_none_when_no_feeds() {
+        let m = monitor();
+        assert!(m.most_reliable_feed().is_none());
+    }
+
+    #[test]
+    fn test_feeds_never_seen_returns_feeds_with_no_heartbeat() {
+        let mut m = monitor();
+        m.register("A", None);
+        m.register("B", None);
+        m.heartbeat("A", 1_000).unwrap();
+        // B has no heartbeat
+        let never_seen = m.feeds_never_seen();
+        assert_eq!(never_seen.len(), 1);
+        assert_eq!(never_seen[0].feed_id, "B");
+    }
+
+    #[test]
+    fn test_feeds_never_seen_empty_when_all_have_heartbeat() {
+        let mut m = monitor();
+        m.register("A", None);
+        m.heartbeat("A", 1_000).unwrap();
+        assert!(m.feeds_never_seen().is_empty());
+    }
+
+    // ── HealthMonitor::stale_ratio ────────────────────────────────────────────
+
+    #[test]
+    fn test_stale_ratio_zero_with_no_feeds() {
+        let m = HealthMonitor::new(5_000);
+        assert_eq!(m.stale_ratio(), 0.0);
+    }
+
+    #[test]
+    fn test_stale_ratio_one_when_all_stale() {
+        let m = HealthMonitor::new(1_000);
+        m.register("A", None);
+        m.register("B", None);
+        m.heartbeat("A", 1_000).unwrap();
+        m.heartbeat("B", 1_000).unwrap();
+        m.check_all(5_000);
+        assert!((m.stale_ratio() - 1.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_stale_ratio_half_when_one_of_two_stale() {
+        let m = HealthMonitor::new(1_000);
+        m.register("A", None);
+        m.register("B", None);
+        m.heartbeat("A", 1_000).unwrap();
+        m.heartbeat("B", 9_500).unwrap();
+        m.check_all(10_000);
+        assert!((m.stale_ratio() - 0.5).abs() < 1e-10);
     }
 }

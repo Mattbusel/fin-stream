@@ -62,6 +62,11 @@ impl WsStats {
         self.total_bytes_received as f64 / 1_048_576.0
     }
 
+    /// Total bytes received expressed as kibibytes (KiB): `total_bytes / 1_024.0`.
+    pub fn total_data_kb(&self) -> f64 {
+        self.total_bytes_received as f64 / 1_024.0
+    }
+
     /// Returns `true` if the current message rate is below `min_rate` (msgs/s).
     ///
     /// Returns `true` when `elapsed_ms` is zero (no time elapsed → rate = 0).
@@ -1181,6 +1186,20 @@ mod tests {
         assert_eq!(stats.message_rate(5_000), 0.0);
     }
 
+    // ── WsStats::total_data_mb ────────────────────────────────────────────────
+
+    #[test]
+    fn test_total_data_mb_zero_when_no_bytes() {
+        let stats = WsStats { total_messages_received: 0, total_bytes_received: 0 };
+        assert_eq!(stats.total_data_mb(), 0.0);
+    }
+
+    #[test]
+    fn test_total_data_mb_fractional() {
+        let stats = WsStats { total_messages_received: 1, total_bytes_received: 524_288 };
+        assert!((stats.total_data_mb() - 0.5).abs() < 1e-10);
+    }
+
     // --- is_exhausted ---
 
     #[test]
@@ -1199,5 +1218,25 @@ mod tests {
     fn test_is_exhausted_false_below_max_attempts() {
         let policy = ReconnectPolicy::new(5, Duration::from_millis(100), Duration::from_secs(10), 2.0).unwrap();
         assert!(!policy.is_exhausted(4));
+    }
+
+    // --- WsStats::total_data_kb ---
+
+    #[test]
+    fn test_total_data_kb_zero_when_no_bytes() {
+        let stats = WsStats { total_messages_received: 0, total_bytes_received: 0 };
+        assert_eq!(stats.total_data_kb(), 0.0);
+    }
+
+    #[test]
+    fn test_total_data_kb_one_kib() {
+        let stats = WsStats { total_messages_received: 1, total_bytes_received: 1_024 };
+        assert!((stats.total_data_kb() - 1.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_total_data_kb_equals_1024_times_mb() {
+        let stats = WsStats { total_messages_received: 1, total_bytes_received: 2_097_152 };
+        assert!((stats.total_data_kb() - stats.total_data_mb() * 1_024.0).abs() < 1e-6);
     }
 }

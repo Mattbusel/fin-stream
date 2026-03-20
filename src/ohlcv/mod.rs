@@ -474,6 +474,27 @@ impl OhlcvBar {
         self_lo < prev_lo && self_hi > prev_hi
     }
 
+    /// Returns `true` if this bar is a harami: its body is entirely contained
+    /// within the previous bar's body.
+    ///
+    /// A harami is the opposite of an engulfing pattern. Neither bar needs to
+    /// be bullish or bearish — only the body ranges are compared.
+    pub fn is_harami(&self, prev: &OhlcvBar) -> bool {
+        let self_lo = self.open.min(self.close);
+        let self_hi = self.open.max(self.close);
+        let prev_lo = prev.open.min(prev.close);
+        let prev_hi = prev.open.max(prev.close);
+        self_lo > prev_lo && self_hi < prev_hi
+    }
+
+    /// The longer of the upper and lower wicks.
+    ///
+    /// Returns the maximum of `wick_upper()` and `wick_lower()`. Useful for
+    /// identifying long-tailed candles regardless of direction.
+    pub fn tail_length(&self) -> Decimal {
+        self.wick_upper().max(self.wick_lower())
+    }
+
     /// Duration of this bar's timeframe in milliseconds.
     pub fn bar_duration_ms(&self) -> u64 {
         self.timeframe.duration_ms()
@@ -2217,6 +2238,50 @@ mod tests {
         assert!(!b.is_marubozu());
     }
 
+    // --- is_harami / tail_length ---
+
+    #[test]
+    fn test_is_harami_true_when_body_inside_prev_body() {
+        let prev = bar(98, 115, 90, 108); // prev body: 98-108
+        let curr = bar(100, 110, 95, 105); // curr body: 100-105 — inside 98-108
+        assert!(curr.is_harami(&prev));
+    }
+
+    #[test]
+    fn test_is_harami_false_when_body_engulfs_prev() {
+        let prev = bar(100, 110, 95, 105); // prev body: 100-105
+        let curr = bar(98, 115, 90, 108);  // curr body: 98-108 — engulfs prev
+        assert!(!curr.is_harami(&prev));
+    }
+
+    #[test]
+    fn test_is_harami_false_when_bodies_equal() {
+        let prev = bar(100, 110, 90, 105);
+        let curr = bar(100, 110, 90, 105); // equal bodies
+        assert!(!curr.is_harami(&prev));
+    }
+
+    #[test]
+    fn test_tail_length_upper_wick_longer() {
+        // open=100, high=120, low=95, close=105 → upper_wick=15, lower_wick=5
+        let b = bar(100, 120, 95, 105);
+        assert_eq!(b.tail_length(), Decimal::from(15));
+    }
+
+    #[test]
+    fn test_tail_length_lower_wick_longer() {
+        // open=105, high=110, low=80, close=100 → upper_wick=5, lower_wick=20
+        let b = bar(105, 110, 80, 100);
+        assert_eq!(b.tail_length(), Decimal::from(20));
+    }
+
+    #[test]
+    fn test_tail_length_zero_for_marubozu() {
+        // open=low=100, close=high=110 → both wicks zero
+        let b = bar(100, 110, 100, 110);
+        assert!(b.tail_length().is_zero());
+    }
+
     #[test]
     fn test_is_engulfing_true_when_body_contains_prev_body() {
         let prev = bar(100, 110, 95, 105); // prev body: 100-105
@@ -2236,5 +2301,35 @@ mod tests {
         let prev = bar(100, 110, 90, 108);
         let curr = bar(100, 110, 90, 108); // exactly equal
         assert!(!curr.is_engulfing(&prev));
+    }
+
+    // ── OhlcvBar::has_upper_wick / has_lower_wick ─────────────────────────────
+
+    #[test]
+    fn test_has_upper_wick_true_when_high_above_max_oc() {
+        // open=100, close=110, high=115 → upper wick = 5
+        let bar = make_ohlcv_bar(dec!(100), dec!(115), dec!(100), dec!(110));
+        assert!(bar.has_upper_wick());
+    }
+
+    #[test]
+    fn test_has_upper_wick_false_for_full_body() {
+        // open=100, close=110, high=110 → no upper wick
+        let bar = make_ohlcv_bar(dec!(100), dec!(110), dec!(100), dec!(110));
+        assert!(!bar.has_upper_wick());
+    }
+
+    #[test]
+    fn test_has_lower_wick_true_when_low_below_min_oc() {
+        // open=105, close=110, low=100 → lower wick = 5
+        let bar = make_ohlcv_bar(dec!(105), dec!(110), dec!(100), dec!(110));
+        assert!(bar.has_lower_wick());
+    }
+
+    #[test]
+    fn test_has_lower_wick_false_for_full_body() {
+        // open=100, close=110, low=100 → no lower wick
+        let bar = make_ohlcv_bar(dec!(100), dec!(110), dec!(100), dec!(110));
+        assert!(!bar.has_lower_wick());
     }
 }

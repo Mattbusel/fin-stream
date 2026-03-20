@@ -410,6 +410,16 @@ impl LorentzTransform {
         self.gamma * self.beta
     }
 
+    /// Relativistic total energy in natural units (c = 1): `E = γ·m`.
+    ///
+    /// For `rest_mass` expressed in the same energy units as the result, this
+    /// returns the total energy of a particle with that rest mass moving at
+    /// the configured `beta`. At rest (`beta = 0`, `gamma = 1`) the result
+    /// equals `rest_mass`.
+    pub fn relativistic_energy(&self, rest_mass: f64) -> f64 {
+        self.gamma * rest_mass
+    }
+
     /// Computes the Lorentz-invariant spacetime interval between two events.
     ///
     /// The interval is defined as `ds² = (Δt)² - (Δx)²` (signature `+−`).
@@ -1399,5 +1409,46 @@ mod tests {
     fn test_momentum_factor_equals_gamma_times_beta() {
         let t = LorentzTransform::new(0.6).unwrap();
         assert!((t.momentum_factor() - t.gamma() * t.beta()).abs() < 1e-12);
+    }
+
+    // --- relativistic_energy ---
+
+    #[test]
+    fn test_relativistic_energy_equals_rest_mass_at_rest() {
+        let t = LorentzTransform::new(0.0).unwrap();
+        assert!((t.relativistic_energy(1.0) - 1.0).abs() < 1e-12);
+    }
+
+    #[test]
+    fn test_relativistic_energy_greater_than_rest_mass_for_moving_particle() {
+        let t = LorentzTransform::new(0.6).unwrap();
+        assert!(t.relativistic_energy(1.0) > 1.0);
+    }
+
+    #[test]
+    fn test_relativistic_energy_equals_gamma_times_rest_mass() {
+        let t = LorentzTransform::new(0.8).unwrap();
+        let m = 2.5;
+        assert!((t.relativistic_energy(m) - t.gamma() * m).abs() < 1e-12);
+    }
+
+    // ── LorentzTransform::rapidity ────────────────────────────────────────────
+
+    #[test]
+    fn test_rapidity_zero_at_rest() {
+        let t = LorentzTransform::new(0.0).unwrap();
+        assert!(t.rapidity().abs() < 1e-12);
+    }
+
+    #[test]
+    fn test_rapidity_equals_atanh_beta() {
+        let t = LorentzTransform::new(0.5).unwrap();
+        assert!((t.rapidity() - 0.5_f64.atanh()).abs() < 1e-12);
+    }
+
+    #[test]
+    fn test_rapidity_positive_for_nonzero_beta() {
+        let t = LorentzTransform::new(0.8).unwrap();
+        assert!(t.rapidity() > 0.0);
     }
 }

@@ -483,6 +483,31 @@ impl OrderBook {
         self.asks.range(..price).count()
     }
 
+    /// Ratio of total bid volume to total ask volume.
+    ///
+    /// Returns `None` when either side has zero volume (avoids division by
+    /// zero and meaningless ratios on empty books).  A value > 1.0 means more
+    /// buying interest; < 1.0 means more selling pressure.
+    pub fn bid_ask_volume_ratio(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let bid = self.total_bid_volume();
+        let ask = self.total_ask_volume();
+        if bid.is_zero() || ask.is_zero() {
+            return None;
+        }
+        let bid_f = bid.to_f64()?;
+        let ask_f = ask.to_f64()?;
+        Some(bid_f / ask_f)
+    }
+
+    /// Total volume across the top `n` bid price levels (best-to-worst order).
+    ///
+    /// If there are fewer than `n` levels, the volume of all existing levels is
+    /// returned. Returns `Decimal::ZERO` for an empty bid side.
+    pub fn top_n_bid_volume(&self, n: usize) -> Decimal {
+        self.bids.iter().rev().take(n).map(|(_, qty)| *qty).sum()
+    }
+
     /// Spread as a percentage of the mid-price: `spread / mid × 100`.
     ///
     /// Returns `None` if either best bid or best ask is absent, or if the
@@ -1745,5 +1770,82 @@ mod tests {
     fn test_ask_levels_below_zero_for_empty_book() {
         let b = book("BTC-USD");
         assert_eq!(b.ask_levels_below(dec!(100)), 0);
+    }
+
+    // --- bid_ask_volume_ratio / top_n_bid_volume ---
+
+    #[test]
+    fn test_bid_ask_volume_ratio_returns_correct_ratio() {
+        let mut b = book("BTC-USD");
+        b.apply(delta("BTC-USD", BookSide::Bid, dec!(100), dec!(3))).unwrap();
+        b.apply(delta("BTC-USD", BookSide::Ask, dec!(101), dec!(1))).unwrap();
+        // 3 / 1 = 3.0
+        let ratio = b.bid_ask_volume_ratio().unwrap();
+        assert!((ratio - 3.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_bid_ask_volume_ratio_none_when_ask_empty() {
+        let mut b = book("BTC-USD");
+        b.apply(delta("BTC-USD", BookSide::Bid, dec!(100), dec!(1))).unwrap();
+        assert!(b.bid_ask_volume_ratio().is_none());
+    }
+
+    #[test]
+    fn test_bid_ask_volume_ratio_none_when_bid_empty() {
+        let mut b = book("BTC-USD");
+        b.apply(delta("BTC-USD", BookSide::Ask, dec!(101), dec!(1))).unwrap();
+        assert!(b.bid_ask_volume_ratio().is_none());
+    }
+
+    #[test]
+    fn test_top_n_bid_volume_sums_top_levels() {
+        let mut b = book("BTC-USD");
+        b.apply(delta("BTC-USD", BookSide::Bid, dec!(100), dec!(1))).unwrap(); // worst
+        b.apply(delta("BTC-USD", BookSide::Bid, dec!(101), dec!(2))).unwrap();
+        b.apply(delta("BTC-USD", BookSide::Bid, dec!(102), dec!(3))).unwrap(); // best
+        // top 2: 102 (3) + 101 (2) = 5
+        assert_eq!(b.top_n_bid_volume(2), dec!(5));
+    }
+
+    #[test]
+    fn test_top_n_bid_volume_all_when_n_exceeds_levels() {
+        let mut b = book("BTC-USD");
+        b.apply(delta("BTC-USD", BookSide::Bid, dec!(100), dec!(1))).unwrap();
+        b.apply(delta("BTC-USD", BookSide::Bid, dec!(101), dec!(2))).unwrap();
+        // n=5 but only 2 levels → total = 3
+        assert_eq!(b.top_n_bid_volume(5), dec!(3));
+    }
+
+    #[test]
+    fn test_top_n_bid_volume_zero_for_empty_book() {
+        let b = book("BTC-USD");
+        assert_eq!(b.top_n_bid_volume(3), dec!(0));
+    }
+
+    // ── OrderBook::is_tight_spread ────────────────────────────────────────────
+
+    #[test]
+    fn test_is_tight_spread_true_when_spread_at_threshold() {
+        let mut b = book("BTC-USD");
+        b.apply(delta("BTC-USD", BookSide::Bid, dec!(100), dec!(1))).unwrap();
+        b.apply(delta("BTC-USD", BookSide::Ask, dec!(101), dec!(1))).unwrap();
+        // spread = 1, threshold = 1 → tight
+        assert!(b.is_tight_spread(dec!(1)));
+    }
+
+    #[test]
+    fn test_is_tight_spread_false_when_spread_above_threshold() {
+        let mut b = book("BTC-USD");
+        b.apply(delta("BTC-USD", BookSide::Bid, dec!(100), dec!(1))).unwrap();
+        b.apply(delta("BTC-USD", BookSide::Ask, dec!(103), dec!(1))).unwrap();
+        // spread = 3, threshold = 1 → not tight
+        assert!(!b.is_tight_spread(dec!(1)));
+    }
+
+    #[test]
+    fn test_is_tight_spread_false_when_empty() {
+        let b = book("BTC-USD");
+        assert!(!b.is_tight_spread(dec!(10)));
     }
 }

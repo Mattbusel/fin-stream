@@ -438,6 +438,26 @@ impl StreamError {
                 | StreamError::WebSocket(_)
         )
     }
+
+    /// The primary symbol, URL, or feed identifier associated with this error,
+    /// if any.
+    ///
+    /// Returns `None` for errors that are not tied to a specific identifier
+    /// (e.g. ring buffer errors, pipeline errors without a symbol field).
+    /// Useful for routing errors to per-symbol dashboards or alert channels.
+    pub fn affected_symbol(&self) -> Option<&str> {
+        match self {
+            StreamError::ConnectionFailed { url, .. }
+            | StreamError::Disconnected { url }
+            | StreamError::ReconnectExhausted { url, .. } => Some(url.as_str()),
+            StreamError::BookCrossed { symbol, .. }
+            | StreamError::BookReconstructionFailed { symbol, .. }
+            | StreamError::SequenceGap { symbol, .. } => Some(symbol.as_str()),
+            StreamError::StaleFeed { feed_id, .. }
+            | StreamError::UnknownFeed { feed_id } => Some(feed_id.as_str()),
+            _ => None,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -1048,5 +1068,68 @@ mod tests {
     fn test_is_parse_error_false_for_stale_feed() {
         let e = StreamError::StaleFeed { feed_id: "x".into(), elapsed_ms: 1, threshold_ms: 1 };
         assert!(!e.is_parse_error());
+    }
+
+    // ── StreamError::is_book_reconstruction_error ─────────────────────────────
+
+    #[test]
+    fn test_is_book_reconstruction_error_true() {
+        let e = StreamError::BookReconstructionFailed {
+            symbol: "BTC-USD".into(),
+            reason: "checksum mismatch".into(),
+        };
+        assert!(e.is_book_reconstruction_error());
+    }
+
+    #[test]
+    fn test_is_book_reconstruction_error_false_for_book_crossed() {
+        let e = StreamError::BookCrossed {
+            symbol: "BTC-USD".into(),
+            bid: rust_decimal_macros::dec!(101),
+            ask: rust_decimal_macros::dec!(99),
+        };
+        assert!(!e.is_book_reconstruction_error());
+    }
+
+    #[test]
+    fn test_is_book_reconstruction_error_false_for_ring_buffer_empty() {
+        assert!(!StreamError::RingBufferEmpty.is_book_reconstruction_error());
+    }
+
+    // --- StreamError::affected_symbol ---
+
+    #[test]
+    fn test_affected_symbol_returns_url_for_connection_failed() {
+        let e = StreamError::ConnectionFailed {
+            url: "wss://feed.io".into(),
+            reason: "refused".into(),
+        };
+        assert_eq!(e.affected_symbol(), Some("wss://feed.io"));
+    }
+
+    #[test]
+    fn test_affected_symbol_returns_symbol_for_book_crossed() {
+        let e = StreamError::BookCrossed {
+            symbol: "ETH-USD".into(),
+            bid: rust_decimal_macros::dec!(101),
+            ask: rust_decimal_macros::dec!(99),
+        };
+        assert_eq!(e.affected_symbol(), Some("ETH-USD"));
+    }
+
+    #[test]
+    fn test_affected_symbol_returns_feed_id_for_stale_feed() {
+        let e = StreamError::StaleFeed {
+            feed_id: "BTC-USD".into(),
+            elapsed_ms: 5_000,
+            threshold_ms: 2_000,
+        };
+        assert_eq!(e.affected_symbol(), Some("BTC-USD"));
+    }
+
+    #[test]
+    fn test_affected_symbol_none_for_ring_buffer_errors() {
+        assert!(StreamError::RingBufferEmpty.affected_symbol().is_none());
+        assert!(StreamError::RingBufferFull { capacity: 8 }.affected_symbol().is_none());
     }
 }

@@ -241,6 +241,26 @@ impl<T, const N: usize> SpscRing<T, N> {
         out
     }
 
+    /// Returns a copy of the most recently pushed item without consuming it,
+    /// or `None` if the ring is empty.
+    ///
+    /// "Newest" is the item at `tail - 1` — the last item that was pushed.
+    /// Unlike [`pop`](Self::pop) (which removes from the head), this leaves
+    /// the ring unchanged.
+    pub fn peek_newest(&self) -> Option<T>
+    where
+        T: Copy,
+    {
+        let head = self.head.load(Ordering::Acquire);
+        let tail = self.tail.load(Ordering::Acquire);
+        if tail == head {
+            return None;
+        }
+        let slot = tail.wrapping_sub(1) & (N - 1);
+        // SAFETY: slot is in [head, tail) so it holds an initialised item.
+        Some(unsafe { *(*self.buf[slot].get()).assume_init_ref() })
+    }
+
     /// Drain all items currently in the ring into a `Vec`, in FIFO order.
     ///
     /// Only safe to call when no producer/consumer pair is active (i.e., before
@@ -1062,5 +1082,30 @@ mod tests {
         let mut buf = vec![42u32];
         ring.drain_into(&mut buf);
         assert_eq!(buf, vec![42]);
+    }
+
+    // --- peek_newest ---
+
+    #[test]
+    fn test_peek_newest_none_when_empty() {
+        let ring: SpscRing<u32, 8> = SpscRing::new();
+        assert!(ring.peek_newest().is_none());
+    }
+
+    #[test]
+    fn test_peek_newest_returns_last_pushed() {
+        let ring: SpscRing<u32, 8> = SpscRing::new();
+        ring.push(10).unwrap();
+        ring.push(20).unwrap();
+        ring.push(30).unwrap();
+        assert_eq!(ring.peek_newest(), Some(30));
+    }
+
+    #[test]
+    fn test_peek_newest_does_not_consume() {
+        let ring: SpscRing<u32, 8> = SpscRing::new();
+        ring.push(42).unwrap();
+        let _ = ring.peek_newest();
+        assert_eq!(ring.len(), 1);
     }
 }

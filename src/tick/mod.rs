@@ -299,6 +299,19 @@ impl NormalizedTick {
         self.quantity.fract().is_zero()
     }
 
+    /// Returns `true` if this tick's symbol matches `other`'s symbol exactly.
+    pub fn is_same_symbol_as(&self, other: &NormalizedTick) -> bool {
+        self.symbol == other.symbol
+    }
+
+    /// Absolute price difference between this tick and `other`.
+    ///
+    /// Returns `|self.price - other.price|`. Useful for computing price drift
+    /// between two ticks of the same instrument without caring about direction.
+    pub fn price_distance_from(&self, other: &NormalizedTick) -> Decimal {
+        (self.price - other.price).abs()
+    }
+
     /// Returns `true` if this tick's price is strictly above `price`.
     pub fn is_above(&self, price: Decimal) -> bool {
         self.price > price
@@ -1207,5 +1220,62 @@ mod tests {
         let mut tick = make_tick_at(1_000);
         tick.quantity = rust_decimal_macros::dec!(0.5);
         assert!(!tick.is_round_lot());
+    }
+
+    // --- is_same_symbol_as / price_distance_from ---
+
+    #[test]
+    fn test_is_same_symbol_as_true_when_symbols_match() {
+        let t1 = make_tick_at(1_000);
+        let t2 = make_tick_at(2_000);
+        assert!(t1.is_same_symbol_as(&t2));
+    }
+
+    #[test]
+    fn test_is_same_symbol_as_false_when_symbols_differ() {
+        let t1 = make_tick_at(1_000);
+        let mut t2 = make_tick_at(2_000);
+        t2.symbol = "ETH-USD".to_string();
+        assert!(!t1.is_same_symbol_as(&t2));
+    }
+
+    #[test]
+    fn test_price_distance_from_is_absolute() {
+        let mut t1 = make_tick_at(1_000);
+        let mut t2 = make_tick_at(2_000);
+        t1.price = rust_decimal_macros::dec!(100);
+        t2.price = rust_decimal_macros::dec!(110);
+        assert_eq!(t1.price_distance_from(&t2), rust_decimal_macros::dec!(10));
+        assert_eq!(t2.price_distance_from(&t1), rust_decimal_macros::dec!(10));
+    }
+
+    #[test]
+    fn test_price_distance_from_zero_when_equal() {
+        let t1 = make_tick_at(1_000);
+        let t2 = make_tick_at(2_000);
+        assert!(t1.price_distance_from(&t2).is_zero());
+    }
+
+    // ── NormalizedTick::is_sell ───────────────────────────────────────────────
+
+    #[test]
+    fn test_is_sell_true_when_side_is_sell() {
+        let mut tick = make_tick_at(1_000);
+        tick.side = Some(TradeSide::Sell);
+        assert!(tick.is_sell());
+    }
+
+    #[test]
+    fn test_is_sell_false_when_side_is_buy() {
+        let mut tick = make_tick_at(1_000);
+        tick.side = Some(TradeSide::Buy);
+        assert!(!tick.is_sell());
+    }
+
+    #[test]
+    fn test_is_sell_false_when_side_is_none() {
+        let mut tick = make_tick_at(1_000);
+        tick.side = None;
+        assert!(!tick.is_sell());
     }
 }
