@@ -456,6 +456,16 @@ impl LorentzTransform {
         (self.gamma - 1.0) * rest_mass
     }
 
+    /// Lorentz invariant `E² - p²` for a particle with the given `rest_mass`.
+    ///
+    /// In natural units (`c = 1`) this equals `rest_mass²` for any velocity,
+    /// confirming that mass is a Lorentz scalar.
+    pub fn energy_momentum_invariant(&self, rest_mass: f64) -> f64 {
+        let e = self.gamma * rest_mass;
+        let p = self.relativistic_momentum(rest_mass);
+        e * e - p * p
+    }
+
     /// Time component of the four-velocity: `u⁰ = γ`.
     ///
     /// In special relativity the four-velocity is `(γ, γβ, 0, 0)` (using the
@@ -2000,5 +2010,23 @@ mod tests {
         let t1 = LorentzTransform::new(0.5).unwrap();
         let t2 = LorentzTransform::new(0.9).unwrap();
         assert!(t2.beta_times_gamma() > t1.beta_times_gamma());
+    }
+
+    // ── energy_momentum_invariant ─────────────────────────────────────────────
+
+    #[test]
+    fn test_energy_momentum_invariant_equals_mass_squared_at_rest() {
+        let t = LorentzTransform::new(0.0).unwrap();
+        let mass = 2.0;
+        let inv = t.energy_momentum_invariant(mass);
+        assert!((inv - mass * mass).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_energy_momentum_invariant_equals_mass_squared_at_velocity() {
+        let t = LorentzTransform::new(0.8).unwrap();
+        let mass = 3.0;
+        let inv = t.energy_momentum_invariant(mass);
+        assert!((inv - mass * mass).abs() < 1e-9);
     }
 }

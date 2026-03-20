@@ -775,6 +775,23 @@ impl OhlcvBar {
         self.open - prev.close
     }
 
+    /// Returns `true` if the close price is strictly above the bar's midpoint `(high + low) / 2`.
+    pub fn close_above_midpoint(&self) -> bool {
+        self.close > self.high_low_midpoint()
+    }
+
+    /// Price momentum: `self.close - prev.close`.
+    ///
+    /// Positive → price increased; negative → decreased.
+    pub fn close_momentum(&self, prev: &OhlcvBar) -> Decimal {
+        self.close - prev.close
+    }
+
+    /// Full high-low range of the bar: `high - low`.
+    pub fn bar_range(&self) -> Decimal {
+        self.high - self.low
+    }
+
     /// Duration of this bar's timeframe in milliseconds.
     pub fn bar_duration_ms(&self) -> u64 {
         self.timeframe.duration_ms()
@@ -3402,5 +3419,44 @@ mod tests {
         let prev = make_ohlcv_bar(dec!(100), dec!(105), dec!(95), dec!(102));
         let bar = make_ohlcv_bar(dec!(102), dec!(110), dec!(100), dec!(108));
         assert_eq!(bar.close_gap(&prev), dec!(0));
+    }
+
+    // ── close_above_midpoint ──────────────────────────────────────────────────
+
+    #[test]
+    fn test_close_above_midpoint_true_when_above_mid() {
+        // high=110, low=90 → mid=100; close=105 > 100
+        let bar = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        assert!(bar.close_above_midpoint());
+    }
+
+    #[test]
+    fn test_close_above_midpoint_false_when_at_mid() {
+        let bar = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100)); // close=mid=100
+        assert!(!bar.close_above_midpoint());
+    }
+
+    // ── close_momentum ────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_close_momentum_positive_when_rising() {
+        let prev = make_ohlcv_bar(dec!(100), dec!(105), dec!(95), dec!(100));
+        let bar = make_ohlcv_bar(dec!(100), dec!(115), dec!(98), dec!(110));
+        assert_eq!(bar.close_momentum(&prev), dec!(10));
+    }
+
+    #[test]
+    fn test_close_momentum_zero_when_unchanged() {
+        let prev = make_ohlcv_bar(dec!(100), dec!(105), dec!(95), dec!(100));
+        let bar = make_ohlcv_bar(dec!(100), dec!(110), dec!(95), dec!(100));
+        assert_eq!(bar.close_momentum(&prev), dec!(0));
+    }
+
+    // ── bar_range ─────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_bar_range_correct() {
+        let bar = make_ohlcv_bar(dec!(100), dec!(120), dec!(90), dec!(110));
+        assert_eq!(bar.bar_range(), dec!(30));
     }
 }

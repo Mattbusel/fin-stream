@@ -690,6 +690,15 @@ impl SessionAwareness {
         date.day() >= 22
     }
 
+    /// Human-readable name of the configured market session.
+    pub fn session_name(&self) -> &'static str {
+        match self.session {
+            MarketSession::UsEquity => "US Equity",
+            MarketSession::Crypto => "Crypto",
+            MarketSession::Forex => "Forex",
+        }
+    }
+
     /// Returns `true` if `date` falls in a typical US earnings season month
     /// (January, April, July, or October).
     ///
@@ -2666,5 +2675,25 @@ mod tests {
     fn test_is_expiry_week_false_for_early_month() {
         let d = NaiveDate::from_ymd_opt(2024, 1, 10).unwrap();
         assert!(!SessionAwareness::is_expiry_week(d));
+    }
+
+    // ── session_name ──────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_session_name_us_equity() {
+        let sa = SessionAwareness::new(MarketSession::UsEquity);
+        assert_eq!(sa.session_name(), "US Equity");
+    }
+
+    #[test]
+    fn test_session_name_crypto() {
+        let sa = SessionAwareness::new(MarketSession::Crypto);
+        assert_eq!(sa.session_name(), "Crypto");
+    }
+
+    #[test]
+    fn test_session_name_forex() {
+        let sa = SessionAwareness::new(MarketSession::Forex);
+        assert_eq!(sa.session_name(), "Forex");
     }
 }

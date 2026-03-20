@@ -303,6 +303,14 @@ impl OrderBook {
         self.total_notional(BookSide::Bid) + self.total_notional(BookSide::Ask)
     }
 
+    /// Returns `true` if a resting order exists at `price` on `side`.
+    pub fn price_level_exists(&self, side: BookSide, price: Decimal) -> bool {
+        match side {
+            BookSide::Bid => self.bids.contains_key(&price),
+            BookSide::Ask => self.asks.contains_key(&price),
+        }
+    }
+
     /// Remove all price levels from both sides of the book.
     ///
     /// Also clears the last seen sequence number. Useful when reconnecting to
@@ -2816,5 +2824,28 @@ mod tests {
     fn test_ask_price_at_rank_none_out_of_bounds() {
         let b = book("X");
         assert!(b.ask_price_at_rank(0).is_none());
+    }
+
+    // ── price_level_exists ────────────────────────────────────────────────────
+
+    #[test]
+    fn test_price_level_exists_true_when_present() {
+        let mut b = book("X");
+        b.apply(delta("X", BookSide::Bid, dec!(100), dec!(1))).unwrap();
+        assert!(b.price_level_exists(BookSide::Bid, dec!(100)));
+    }
+
+    #[test]
+    fn test_price_level_exists_false_when_absent() {
+        let b = book("X");
+        assert!(!b.price_level_exists(BookSide::Bid, dec!(100)));
+    }
+
+    #[test]
+    fn test_price_level_exists_ask_side() {
+        let mut b = book("X");
+        b.apply(delta("X", BookSide::Ask, dec!(101), dec!(5))).unwrap();
+        assert!(b.price_level_exists(BookSide::Ask, dec!(101)));
+        assert!(!b.price_level_exists(BookSide::Ask, dec!(102)));
     }
 }

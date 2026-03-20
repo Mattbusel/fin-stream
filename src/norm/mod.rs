@@ -1499,6 +1499,17 @@ impl ZScoreNormalizer {
             .count()
     }
 
+    /// Returns `true` if the absolute change between first-half and second-half window means
+    /// is below `threshold`. A stable mean indicates the distribution is not trending.
+    ///
+    /// Returns `false` if the window has fewer than 2 observations.
+    pub fn is_mean_stable(&self, threshold: f64) -> bool {
+        match self.rolling_mean_change() {
+            Some(change) => change.abs() < threshold,
+            None => false,
+        }
+    }
+
     /// Count of window values whose absolute z-score exceeds `z_threshold`.
     ///
     /// Returns `0` if the window has fewer than 2 observations or std-dev is zero.
@@ -1510,6 +1521,36 @@ impl ZScoreNormalizer {
                     .map_or(false, |z| z.abs() > z_threshold)
             })
             .count()
+    }
+
+    /// Median Absolute Deviation (MAD) of the current window.
+    ///
+    /// `MAD = median(|x_i - median(window)|)`. Returns `None` if the window
+    /// is empty.
+    pub fn mad(&self) -> Option<Decimal> {
+        let med = self.median()?;
+        let mut deviations: Vec<Decimal> = self.window.iter().map(|&x| (x - med).abs()).collect();
+        deviations.sort();
+        let n = deviations.len();
+        if n == 0 { return None; }
+        let mid = n / 2;
+        if n % 2 == 0 {
+            Some((deviations[mid - 1] + deviations[mid]) / Decimal::TWO)
+        } else {
+            Some(deviations[mid])
+        }
+    }
+
+    /// Robust z-score: `(value - median) / MAD`.
+    ///
+    /// More resistant to outliers than the standard z-score. Returns `None`
+    /// when the window is empty or MAD is zero.
+    pub fn robust_z_score(&self, value: Decimal) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let med = self.median()?;
+        let mad = self.mad()?;
+        if mad.is_zero() { return None; }
+        ((value - med) / mad).to_f64()
     }
 }
 
@@ -2366,5 +2407,37 @@ mod minmax_extra_tests {
         // mid = (1+4)/2 = 2.5, above: 3 and 4 = 2/4 = 0.5
         let f = n.fraction_above_mid().unwrap();
         assert!((f - 0.5).abs() < 1e-10);
+    }
+}
+
+#[cfg(test)]
+mod zscore_stability_tests {
+    use super::*;
+    use rust_decimal_macros::dec;
+
+    fn znorm(w: usize) -> ZScoreNormalizer {
+        ZScoreNormalizer::new(w).unwrap()
+    }
+
+    // ── is_mean_stable ────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_is_mean_stable_false_when_window_too_small() {
+        let n = znorm(4);
+        assert!(!n.is_mean_stable(1.0));
+    }
+
+    #[test]
+    fn test_is_mean_stable_true_when_flat() {
+        let mut n = znorm(4);
+        for _ in 0..4 { n.update(dec!(5)); }
+        assert!(n.is_mean_stable(0.001));
+    }
+
+    #[test]
+    fn test_is_mean_stable_false_when_trending() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(10), dec!(20)] { n.update(v); }
+        assert!(!n.is_mean_stable(0.5));
     }
 }

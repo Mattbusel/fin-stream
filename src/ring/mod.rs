@@ -404,6 +404,20 @@ impl<T, const N: usize> SpscRing<T, N> {
         out
     }
 
+    /// Returns a sorted `Vec` of all ring elements, cloned.
+    ///
+    /// The ring itself is not modified. An empty ring returns an empty vec.
+    ///
+    /// # Complexity: O(n log n).
+    pub fn to_vec_sorted(&self) -> Vec<T>
+    where
+        T: Clone + Ord,
+    {
+        let mut v = self.to_vec_cloned();
+        v.sort();
+        v
+    }
+
     /// Returns the minimum item in the ring by cloning, without removing any items.
     ///
     /// Returns `None` if the ring is empty. Only valid before calling `split()`.
@@ -1972,5 +1986,22 @@ mod tests {
         ring.push(-1i32).unwrap();
         // min by absolute value → -1 (abs=1)
         assert_eq!(ring.min_cloned_by(|&x| x.abs()), Some(-1));
+    }
+
+    // ── to_vec_sorted ─────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_to_vec_sorted_empty() {
+        let ring: SpscRing<u32, 4> = SpscRing::new();
+        assert_eq!(ring.to_vec_sorted(), Vec::<u32>::new());
+    }
+
+    #[test]
+    fn test_to_vec_sorted_returns_sorted_elements() {
+        let ring: SpscRing<u32, 8> = SpscRing::new();
+        ring.push(5u32).unwrap();
+        ring.push(1u32).unwrap();
+        ring.push(3u32).unwrap();
+        assert_eq!(ring.to_vec_sorted(), vec![1u32, 3, 5]);
     }
 }

@@ -278,6 +278,11 @@ impl HealthMonitor {
         self.stale_count() as f64 / total as f64
     }
 
+    /// Returns `true` if at least one registered feed is in [`HealthStatus::Stale`] state.
+    pub fn is_any_stale(&self) -> bool {
+        self.feeds.iter().any(|e| e.status == HealthStatus::Stale)
+    }
+
     /// Number of feeds currently in the [`HealthStatus::Stale`] state.
     pub fn stale_count(&self) -> usize {
         self.feeds
@@ -2318,5 +2323,31 @@ mod tests {
         m.heartbeat("BTC", 100).unwrap();
         m.heartbeat("ETH", 200).unwrap(); // ETH more recent
         assert_eq!(m.last_updated_feed_id(), Some("ETH".to_string()));
+    }
+
+    // ── is_any_stale ──────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_is_any_stale_false_when_no_feeds() {
+        let m = HealthMonitor::new(5_000);
+        assert!(!m.is_any_stale());
+    }
+
+    #[test]
+    fn test_is_any_stale_false_when_all_healthy() {
+        let m = HealthMonitor::new(5_000);
+        m.register("BTC", None);
+        m.heartbeat("BTC", 0).unwrap();
+        m.check_all(100);
+        assert!(!m.is_any_stale());
+    }
+
+    #[test]
+    fn test_is_any_stale_true_when_stale_feed() {
+        let m = HealthMonitor::new(5_000);
+        m.register("BTC", None);
+        m.heartbeat("BTC", 0).unwrap();
+        m.check_all(10_000); // 10s elapsed, threshold=5s → stale
+        assert!(m.is_any_stale());
     }
 }

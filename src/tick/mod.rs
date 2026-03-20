@@ -467,6 +467,20 @@ impl NormalizedTick {
         (self.price % step).is_zero()
     }
 
+    /// Returns the trade quantity signed by side: `+quantity` for Buy, `-quantity` for Sell, `0` for unknown.
+    pub fn signed_quantity(&self) -> Decimal {
+        match self.side {
+            Some(TradeSide::Buy) => self.quantity,
+            Some(TradeSide::Sell) => -self.quantity,
+            None => Decimal::ZERO,
+        }
+    }
+
+    /// Returns `(price, quantity)` as a convenient tuple.
+    pub fn as_price_level(&self) -> (Decimal, Decimal) {
+        (self.price, self.quantity)
+    }
+
     /// Returns `true` if this tick's quantity is strictly above `threshold`.
     pub fn quantity_above(&self, threshold: Decimal) -> bool {
         self.quantity > threshold
@@ -2181,5 +2195,37 @@ mod tests {
     fn test_is_market_open_tick_false_when_at_session_end() {
         let tick = make_tick_at(1_000);
         assert!(!tick.is_market_open_tick(100, 1_000)); // exclusive end
+    }
+
+    // ── signed_quantity ───────────────────────────────────────────────────────
+
+    #[test]
+    fn test_signed_quantity_positive_for_buy() {
+        let mut tick = make_tick_at(0);
+        tick.side = Some(TradeSide::Buy);
+        assert!(tick.signed_quantity() > rust_decimal::Decimal::ZERO);
+    }
+
+    #[test]
+    fn test_signed_quantity_negative_for_sell() {
+        let mut tick = make_tick_at(0);
+        tick.side = Some(TradeSide::Sell);
+        assert!(tick.signed_quantity() < rust_decimal::Decimal::ZERO);
+    }
+
+    #[test]
+    fn test_signed_quantity_zero_for_unknown() {
+        let tick = make_tick_at(0); // side=None
+        assert_eq!(tick.signed_quantity(), rust_decimal::Decimal::ZERO);
+    }
+
+    // ── as_price_level ────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_as_price_level_returns_price_and_quantity() {
+        let tick = make_tick_at(0); // price=100, qty=1
+        let (p, q) = tick.as_price_level();
+        assert_eq!(p, rust_decimal_macros::dec!(100));
+        assert_eq!(q, rust_decimal_macros::dec!(1));
     }
 }
