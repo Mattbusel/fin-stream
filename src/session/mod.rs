@@ -549,11 +549,7 @@ impl SessionAwareness {
     /// Returns which half of the trading session we are in: `1` for the first half,
     /// `2` for the second half. Returns `0` if outside the session.
     pub fn session_half(&self, utc_ms: u64) -> u8 {
-        match self.session_progress(utc_ms) {
-            Some(p) if p < 0.5 => 1,
-            Some(_) => 2,
-            None => 0,
-        }
+        self.session_progress(utc_ms).map_or(0, |p| if p < 0.5 { 1 } else { 2 })
     }
 
     /// Returns `true` if both `self` and `other` are simultaneously open at `utc_ms`.

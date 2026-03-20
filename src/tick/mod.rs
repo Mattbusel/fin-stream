@@ -902,6 +902,49 @@ impl NormalizedTick {
         Some(Self::buy_count(ticks) as f64 / ticks.len() as f64)
     }
 
+    /// Standard deviation of trade quantities across the slice.
+    ///
+    /// Returns `None` if the slice has fewer than 2 elements.
+    pub fn std_quantity(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let n = ticks.len();
+        if n < 2 {
+            return None;
+        }
+        let qtys: Vec<f64> = ticks.iter().filter_map(|t| t.quantity.to_f64()).collect();
+        if qtys.len() < 2 {
+            return None;
+        }
+        let mean = qtys.iter().sum::<f64>() / qtys.len() as f64;
+        let variance = qtys.iter().map(|q| (q - mean).powi(2)).sum::<f64>() / (qtys.len() - 1) as f64;
+        Some(variance.sqrt())
+    }
+
+    /// Fraction of sided volume that is buy-initiated: buy_vol / (buy_vol + sell_vol).
+    ///
+    /// Returns `None` if there are no sided ticks.
+    pub fn buy_pressure(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let buy = Self::buy_volume(ticks);
+        let sell = Self::sell_volume(ticks);
+        let total = buy + sell;
+        if total.is_zero() {
+            return None;
+        }
+        (buy / total).to_f64()
+    }
+
+    /// Mean notional value (price × quantity) per trade across the slice.
+    ///
+    /// Returns `None` if the slice is empty.
+    pub fn average_notional(ticks: &[NormalizedTick]) -> Option<Decimal> {
+        if ticks.is_empty() {
+            return None;
+        }
+        let total: Decimal = ticks.iter().map(|t| t.value()).sum();
+        Some(total / Decimal::from(ticks.len() as u64))
+    }
+
 }
 
 impl std::fmt::Display for NormalizedTick {

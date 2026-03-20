@@ -667,6 +667,22 @@ impl MinMaxNormalizer {
         let mean = self.mean()?;
         (value - mean).to_f64()
     }
+
+    /// Window range (max − min) as a `f64`.
+    ///
+    /// Returns `None` if the window has fewer than 1 element.
+    pub fn range_f64(&mut self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        self.range()?.to_f64()
+    }
+
+    /// Sum of all values in the window as a `f64`.
+    ///
+    /// Returns `None` if the window is empty.
+    pub fn sum_f64(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        self.sum()?.to_f64()
+    }
 }
 
 #[cfg(test)]

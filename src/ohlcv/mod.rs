@@ -1352,6 +1352,44 @@ impl OhlcvBar {
             .filter(|w| w[1].close > w[0].high)
             .count()
     }
+
+    /// Count of doji bars (|close − open| ≤ epsilon) in the slice.
+    pub fn doji_count(bars: &[OhlcvBar], epsilon: Decimal) -> usize {
+        bars.iter().filter(|b| b.is_doji(epsilon)).count()
+    }
+
+    /// Full channel width: `highest_high − lowest_low` across the slice.
+    ///
+    /// Returns `None` if the slice is empty.
+    pub fn channel_width(bars: &[OhlcvBar]) -> Option<Decimal> {
+        let hi = Self::highest_high(bars)?;
+        let lo = Self::lowest_low(bars)?;
+        Some(hi - lo)
+    }
+
+    /// Simple moving average of the last `n` close prices.
+    ///
+    /// Returns `None` if `n` is zero or the slice has fewer than `n` bars.
+    pub fn sma(bars: &[OhlcvBar], n: usize) -> Option<Decimal> {
+        if n == 0 || bars.len() < n {
+            return None;
+        }
+        let window = &bars[bars.len() - n..];
+        let sum: Decimal = window.iter().map(|b| b.close).sum();
+        Some(sum / Decimal::from(n as u64))
+    }
+
+    /// Mean wick ratio (upper_wick + lower_wick) / range across the slice.
+    ///
+    /// Bars where range is zero are excluded. Returns `None` if the slice is
+    /// empty or all bars have zero range.
+    pub fn mean_wick_ratio(bars: &[OhlcvBar]) -> Option<f64> {
+        let ratios: Vec<f64> = bars.iter().filter_map(|b| b.wick_ratio()).collect();
+        if ratios.is_empty() {
+            return None;
+        }
+        Some(ratios.iter().sum::<f64>() / ratios.len() as f64)
+    }
 }
 
 impl std::fmt::Display for OhlcvBar {

@@ -280,7 +280,7 @@ impl<T, const N: usize> SpscRing<T, N> {
     ///
     /// Equivalent to `self.len() + n <= self.capacity()`.
     pub fn has_capacity(&self, n: usize) -> bool {
-        self.len() + n <= self.capacity()
+        n <= self.remaining_capacity()
     }
 
     /// Fill level as a percentage of capacity: `fill_ratio() * 100.0`.
