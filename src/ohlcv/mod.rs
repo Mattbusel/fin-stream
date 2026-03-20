@@ -2140,6 +2140,58 @@ impl OhlcvBar {
         Some(total_ticks as f64 / total_ms as f64)
     }
 
+    /// Count of bars where the high is strictly greater than the previous bar's high.
+    ///
+    /// Returns 0 if fewer than 2 bars.
+    pub fn higher_highs_count(bars: &[OhlcvBar]) -> usize {
+        if bars.len() < 2 {
+            return 0;
+        }
+        bars.windows(2).filter(|w| w[1].high > w[0].high).count()
+    }
+
+    /// Count of bars where the low is strictly less than the previous bar's low.
+    ///
+    /// Returns 0 if fewer than 2 bars.
+    pub fn lower_lows_count(bars: &[OhlcvBar]) -> usize {
+        if bars.len() < 2 {
+            return 0;
+        }
+        bars.windows(2).filter(|w| w[1].low < w[0].low).count()
+    }
+
+    /// Mean `(close - open) / open * 100` across all bars.
+    ///
+    /// Bars with zero open are skipped. Returns `None` if no valid bars.
+    pub fn close_minus_open_pct(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let values: Vec<f64> = bars.iter().filter_map(|b| {
+            if b.open.is_zero() { return None; }
+            ((b.close - b.open) / b.open * Decimal::ONE_HUNDRED).to_f64()
+        }).collect();
+        if values.is_empty() {
+            return None;
+        }
+        Some(values.iter().sum::<f64>() / values.len() as f64)
+    }
+
+    /// Mean volume per unit of bar range.
+    ///
+    /// `volume / (high - low)`. Bars with zero range are skipped. Returns
+    /// `None` if the slice is empty or all bars have zero range.
+    pub fn volume_per_range(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let values: Vec<f64> = bars.iter().filter_map(|b| {
+            let r = b.range();
+            if r.is_zero() { return None; }
+            (b.volume / r).to_f64()
+        }).collect();
+        if values.is_empty() {
+            return None;
+        }
+        Some(values.iter().sum::<f64>() / values.len() as f64)
+    }
+
 }
 
 impl std::fmt::Display for OhlcvBar {
@@ -6610,5 +6662,57 @@ mod tests {
     #[test]
     fn test_bar_speed_none_for_empty() {
         assert!(OhlcvBar::bar_speed(&[]).is_none());
+    }
+
+    // ── OhlcvBar::higher_highs_count / lower_lows_count ──────────────────────
+
+    #[test]
+    fn test_higher_highs_count_zero_for_single_bar() {
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        assert_eq!(OhlcvBar::higher_highs_count(&[b]), 0);
+    }
+
+    #[test]
+    fn test_higher_highs_count_correct() {
+        let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let b2 = make_ohlcv_bar(dec!(105), dec!(120), dec!(103), dec!(115)); // high 120 > 110
+        let b3 = make_ohlcv_bar(dec!(115), dec!(115), dec!(110), dec!(112)); // high 115 < 120
+        assert_eq!(OhlcvBar::higher_highs_count(&[b1, b2, b3]), 1);
+    }
+
+    #[test]
+    fn test_lower_lows_count_correct() {
+        let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let b2 = make_ohlcv_bar(dec!(105), dec!(112), dec!(85), dec!(108)); // low 85 < 90
+        let b3 = make_ohlcv_bar(dec!(108), dec!(115), dec!(95), dec!(112)); // low 95 > 85
+        assert_eq!(OhlcvBar::lower_lows_count(&[b1, b2, b3]), 1);
+    }
+
+    // ── OhlcvBar::close_minus_open_pct ────────────────────────────────────────
+
+    #[test]
+    fn test_close_minus_open_pct_none_for_empty() {
+        assert!(OhlcvBar::close_minus_open_pct(&[]).is_none());
+    }
+
+    #[test]
+    fn test_close_minus_open_pct_positive_for_bull_bar() {
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(98), dec!(110));
+        let p = OhlcvBar::close_minus_open_pct(&[b]).unwrap();
+        assert!(p > 0.0, "bullish bar should give positive pct, got {}", p);
+    }
+
+    // ── OhlcvBar::volume_per_range ────────────────────────────────────────────
+
+    #[test]
+    fn test_volume_per_range_none_for_empty() {
+        assert!(OhlcvBar::volume_per_range(&[]).is_none());
+    }
+
+    #[test]
+    fn test_volume_per_range_positive_for_valid_bar() {
+        let mut b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105)); b.volume = dec!(100);
+        let r = OhlcvBar::volume_per_range(&[b]).unwrap();
+        assert!(r > 0.0, "expected positive volume/range, got {}", r);
     }
 }

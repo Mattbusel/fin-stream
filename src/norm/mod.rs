@@ -1026,6 +1026,29 @@ impl MinMaxNormalizer {
         Some(n / reciprocals.iter().sum::<f64>())
     }
 
+    /// Normalise `value` to the window's observed `[min, max]` range.
+    ///
+    /// Returns `None` if the window is empty or the range is zero.
+    pub fn range_normalized_value(&self, value: Decimal) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let min = self.window.iter().copied().reduce(Decimal::min)?;
+        let max = self.window.iter().copied().reduce(Decimal::max)?;
+        let range = max - min;
+        if range.is_zero() {
+            return None;
+        }
+        ((value - min) / range).to_f64()
+    }
+
+    /// Signed distance of `value` from the window median.
+    ///
+    /// `value - median`. Returns `None` if the window is empty.
+    pub fn distance_from_median(&self, value: Decimal) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let med = self.median()?;
+        (value - med).to_f64()
+    }
+
 }
 
 #[cfg(test)]
@@ -2448,6 +2471,53 @@ mod tests {
         let hm = n.harmonic_mean().unwrap();
         assert!(hm > 0.0 && hm < 4.0, "HM should be in (0, max), got {}", hm);
     }
+
+    // ── MinMaxNormalizer::range_normalized_value ──────────────────────────────
+
+    #[test]
+    fn test_minmax_range_normalized_value_none_for_empty() {
+        assert!(norm(4).range_normalized_value(dec!(5)).is_none());
+    }
+
+    #[test]
+    fn test_minmax_range_normalized_value_zero_for_min() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let r = n.range_normalized_value(dec!(1)).unwrap();
+        assert!((r - 0.0).abs() < 1e-9, "min value should normalize to 0, got {}", r);
+    }
+
+    #[test]
+    fn test_minmax_range_normalized_value_one_for_max() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let r = n.range_normalized_value(dec!(4)).unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "max value should normalize to 1, got {}", r);
+    }
+
+    // ── MinMaxNormalizer::distance_from_median ────────────────────────────────
+
+    #[test]
+    fn test_minmax_distance_from_median_none_for_empty() {
+        assert!(norm(4).distance_from_median(dec!(5)).is_none());
+    }
+
+    #[test]
+    fn test_minmax_distance_from_median_zero_at_median() {
+        let mut n = norm(5);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4), dec!(5)] { n.update(v); }
+        // median=3
+        let d = n.distance_from_median(dec!(3)).unwrap();
+        assert!((d - 0.0).abs() < 1e-9, "distance from median should be 0, got {}", d);
+    }
+
+    #[test]
+    fn test_minmax_distance_from_median_positive_above() {
+        let mut n = norm(5);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4), dec!(5)] { n.update(v); }
+        let d = n.distance_from_median(dec!(5)).unwrap();
+        assert!(d > 0.0, "value above median should give positive distance, got {}", d);
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -3536,6 +3606,29 @@ impl ZScoreNormalizer {
         }
         let n = reciprocals.len() as f64;
         Some(n / reciprocals.iter().sum::<f64>())
+    }
+
+    /// Normalise `value` to the window's observed `[min, max]` range.
+    ///
+    /// Returns `None` if the window is empty or the range is zero.
+    pub fn range_normalized_value(&self, value: Decimal) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let min = self.running_min()?;
+        let max = self.running_max()?;
+        let range = max - min;
+        if range.is_zero() {
+            return None;
+        }
+        ((value - min) / range).to_f64()
+    }
+
+    /// Signed distance of `value` from the window median.
+    ///
+    /// `value - median`. Returns `None` if the window is empty.
+    pub fn distance_from_median(&self, value: Decimal) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let med = self.median()?;
+        (value - med).to_f64()
     }
 
 }
@@ -5262,5 +5355,35 @@ mod zscore_stability_tests {
         for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
         let hm = n.harmonic_mean().unwrap();
         assert!(hm > 0.0 && hm < 4.0, "HM should be in (0, max), got {}", hm);
+    }
+
+    // ── ZScoreNormalizer::range_normalized_value ──────────────────────────────
+
+    #[test]
+    fn test_zscore_range_normalized_value_none_for_empty() {
+        assert!(znorm(4).range_normalized_value(dec!(5)).is_none());
+    }
+
+    #[test]
+    fn test_zscore_range_normalized_value_in_range() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let r = n.range_normalized_value(dec!(2)).unwrap();
+        assert!(r >= 0.0 && r <= 1.0, "expected [0,1], got {}", r);
+    }
+
+    // ── ZScoreNormalizer::distance_from_median ────────────────────────────────
+
+    #[test]
+    fn test_zscore_distance_from_median_none_for_empty() {
+        assert!(znorm(4).distance_from_median(dec!(5)).is_none());
+    }
+
+    #[test]
+    fn test_zscore_distance_from_median_zero_at_median() {
+        let mut n = znorm(5);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4), dec!(5)] { n.update(v); }
+        let d = n.distance_from_median(dec!(3)).unwrap();
+        assert!((d - 0.0).abs() < 1e-9, "distance from median=3 should be 0, got {}", d);
     }
 }

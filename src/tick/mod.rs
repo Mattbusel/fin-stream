@@ -1694,6 +1694,71 @@ impl NormalizedTick {
         total_qty.to_f64().map(|tq| weighted / tq)
     }
 
+    /// Gini-coefficient-style quantity concentration.
+    ///
+    /// `sum_i sum_j |q_i - q_j| / (2 * n^2 * mean_q)`. Returns `None` if
+    /// the slice is empty or the mean quantity is zero.
+    pub fn quantity_concentration(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let n = ticks.len();
+        if n == 0 {
+            return None;
+        }
+        let total: Decimal = ticks.iter().map(|t| t.quantity).sum();
+        if total.is_zero() {
+            return None;
+        }
+        let mean = total / Decimal::from(n as u32);
+        let mut sum = Decimal::ZERO;
+        for i in 0..n {
+            for j in 0..n {
+                sum += (ticks[i].quantity - ticks[j].quantity).abs();
+            }
+        }
+        let denom = mean * Decimal::from((2 * n * n) as u32);
+        if denom.is_zero() {
+            return None;
+        }
+        (sum / denom).to_f64()
+    }
+
+    /// Total volume traded at a specific price level.
+    pub fn price_level_volume(ticks: &[NormalizedTick], price: Decimal) -> Decimal {
+        ticks.iter().filter(|t| t.price == price).map(|t| t.quantity).sum()
+    }
+
+    /// Drift of the mid-price proxy across ticks.
+    ///
+    /// Defined as `(last_price - first_price) / time_span_ms`. Returns `None`
+    /// if fewer than 2 ticks or the time span is zero.
+    pub fn mid_price_drift(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let first = Self::first_price(ticks)?;
+        let last = Self::last_price(ticks)?;
+        let span = Self::time_span_ms(ticks)? as f64;
+        if span == 0.0 {
+            return None;
+        }
+        (last - first).to_f64().map(|d| d / span)
+    }
+
+    /// Tick direction bias: fraction of consecutive moves in the same direction.
+    ///
+    /// Counts windows where `price[i+1]` moved in the same direction as
+    /// `price[i]` vs `price[i-1]`. Returns `None` if fewer than 3 ticks.
+    pub fn tick_direction_bias(ticks: &[NormalizedTick]) -> Option<f64> {
+        if ticks.len() < 3 {
+            return None;
+        }
+        let total = ticks.len() - 2;
+        let same = ticks.windows(3).filter(|w| {
+            let d1 = w[1].price.cmp(&w[0].price);
+            let d2 = w[2].price.cmp(&w[1].price);
+            d1 == d2 && d1 != std::cmp::Ordering::Equal
+        }).count();
+        Some(same as f64 / total as f64)
+    }
+
 }
 
 impl std::fmt::Display for NormalizedTick {
@@ -5146,5 +5211,75 @@ mod tests {
         ];
         let r = NormalizedTick::volume_weighted_return(&ticks).unwrap();
         assert!((r - 0.0).abs() < 1e-9, "constant price should give 0 return, got {}", r);
+    }
+
+    // ── NormalizedTick::quantity_concentration ────────────────────────────────
+
+    #[test]
+    fn test_quantity_concentration_none_for_empty() {
+        assert!(NormalizedTick::quantity_concentration(&[]).is_none());
+    }
+
+    #[test]
+    fn test_quantity_concentration_zero_for_identical_quantities() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(5)),
+            make_tick_pq(dec!(101), dec!(5)),
+        ];
+        let c = NormalizedTick::quantity_concentration(&ticks).unwrap();
+        assert!((c - 0.0).abs() < 1e-9, "identical quantities should give 0 concentration, got {}", c);
+    }
+
+    // ── NormalizedTick::price_level_volume ────────────────────────────────────
+
+    #[test]
+    fn test_price_level_volume_zero_for_no_match() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![make_tick_pq(dec!(100), dec!(5))];
+        let v = NormalizedTick::price_level_volume(&ticks, dec!(200));
+        assert_eq!(v, dec!(0));
+    }
+
+    #[test]
+    fn test_price_level_volume_sums_matching_ticks() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(3)),
+            make_tick_pq(dec!(101), dec!(7)),
+            make_tick_pq(dec!(100), dec!(2)),
+        ];
+        assert_eq!(NormalizedTick::price_level_volume(&ticks, dec!(100)), dec!(5));
+    }
+
+    // ── NormalizedTick::mid_price_drift ───────────────────────────────────────
+
+    #[test]
+    fn test_mid_price_drift_none_for_single_tick() {
+        use rust_decimal_macros::dec;
+        let t = make_tick_pq(dec!(100), dec!(1));
+        assert!(NormalizedTick::mid_price_drift(&[t]).is_none());
+    }
+
+    // ── NormalizedTick::tick_direction_bias ───────────────────────────────────
+
+    #[test]
+    fn test_tick_direction_bias_none_for_fewer_than_3() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![make_tick_pq(dec!(100), dec!(1)), make_tick_pq(dec!(101), dec!(1))];
+        assert!(NormalizedTick::tick_direction_bias(&ticks).is_none());
+    }
+
+    #[test]
+    fn test_tick_direction_bias_one_for_monotone() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(101), dec!(1)),
+            make_tick_pq(dec!(102), dec!(1)),
+            make_tick_pq(dec!(103), dec!(1)),
+        ];
+        let bias = NormalizedTick::tick_direction_bias(&ticks).unwrap();
+        assert!((bias - 1.0).abs() < 1e-9, "monotone should give bias=1.0, got {}", bias);
     }
 }
