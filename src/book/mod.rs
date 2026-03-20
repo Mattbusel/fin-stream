@@ -282,7 +282,7 @@ impl OrderBook {
     /// Returns `None` if either side is empty.
     pub fn price_range(&self) -> Option<Decimal> {
         let worst_bid = *self.bids.iter().next()?.0; // lowest bid price
-        let best_ask = *self.asks.iter().next()?.0;  // lowest ask price
+        let best_ask = self.best_ask_price()?;
         Some(best_ask - worst_bid)
     }
 
@@ -936,8 +936,8 @@ impl OrderBook {
         if n == 0 {
             return None;
         }
-        let bid_vol: Decimal = self.bids.values().rev().take(n).copied().sum();
-        let ask_vol: Decimal = self.asks.values().take(n).copied().sum();
+        let bid_vol = self.cumulative_bid_volume(n);
+        let ask_vol = self.cumulative_ask_volume(n);
         let total = bid_vol + ask_vol;
         if total.is_zero() {
             return None;
@@ -988,18 +988,7 @@ impl OrderBook {
     /// book from a fresh exchange snapshot: call [`reset`](Self::reset) with
     /// the snapshot levels, then resume applying deltas from the new sequence.
     pub fn snapshot(&self) -> (Vec<PriceLevel>, Vec<PriceLevel>) {
-        let bids = self
-            .bids
-            .iter()
-            .rev()
-            .map(|(p, q)| PriceLevel::new(*p, *q))
-            .collect();
-        let asks = self
-            .asks
-            .iter()
-            .map(|(p, q)| PriceLevel::new(*p, *q))
-            .collect();
-        (bids, asks)
+        (self.all_bids(), self.all_asks())
     }
 
     /// Returns the best bid price, or `None` if the bid side is empty.
@@ -1017,20 +1006,17 @@ impl OrderBook {
     /// A crossed book indicates an invalid state (stale snapshot or missed
     /// delta). Under normal operation this should always be `false`.
     pub fn is_crossed(&self) -> bool {
-        match (self.best_bid(), self.best_ask()) {
-            (Some(bid), Some(ask)) => bid.price >= ask.price,
-            _ => false,
-        }
+        self.best_bid_price().zip(self.best_ask_price()).map_or(false, |(b, a)| b >= a)
     }
 
     /// Returns `true` if there is at least one bid level in the book.
     pub fn has_bids(&self) -> bool {
-        !self.bids.is_empty()
+        self.bid_depth() > 0
     }
 
     /// Returns `true` if there is at least one ask level in the book.
     pub fn has_asks(&self) -> bool {
-        !self.asks.is_empty()
+        self.ask_depth() > 0
     }
 
     /// Price distance from best ask to worst ask (highest ask price - lowest ask price).
