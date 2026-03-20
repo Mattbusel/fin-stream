@@ -1044,6 +1044,15 @@ impl OrderBook {
         Ok(())
     }
 
+    /// Spread expressed as number of ticks: `spread / tick_size`.
+    ///
+    /// Returns `None` if either side is empty or tick_size is zero.
+    pub fn spread_ticks(&self, tick_size: Decimal) -> Option<Decimal> {
+        if tick_size.is_zero() { return None; }
+        let spread = self.spread()?;
+        Some(spread / tick_size)
+    }
+
     /// Spread expressed in basis points relative to mid-price: `(ask - bid) / mid × 10_000`.
     ///
     /// Returns `None` when either side is empty or mid-price is zero.
@@ -1223,6 +1232,25 @@ impl OrderBook {
                 self.bids.range(floor..).map(|(_, &q)| q).sum()
             }
         }
+    }
+
+    /// Total ask quantity at price levels strictly above `price`.
+    pub fn ask_volume_above(&self, price: Decimal) -> Decimal {
+        use std::ops::Bound::Excluded;
+        self.asks
+            .range((Excluded(price), std::ops::Bound::Unbounded))
+            .map(|(_, &q)| q)
+            .sum()
+    }
+
+    /// Total bid quantity at price levels strictly below `price`.
+    pub fn bid_volume_below(&self, price: Decimal) -> Decimal {
+        use std::ops::Bound::Unbounded;
+        use std::ops::Bound::Excluded;
+        self.bids
+            .range((Unbounded, Excluded(price)))
+            .map(|(_, &q)| q)
+            .sum()
     }
 }
 

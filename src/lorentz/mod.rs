@@ -769,6 +769,15 @@ impl LorentzTransform {
     pub fn space_contraction(&self, proper_length: f64) -> f64 {
         proper_length / self.gamma
     }
+
+    /// Relativistic proper acceleration for a given coordinate force and rest mass.
+    ///
+    /// `a = F / (gamma^3 * m)` — coordinate acceleration decreases as gamma grows.
+    /// Returns `None` if `mass` is zero.
+    pub fn proper_acceleration(&self, force: f64, mass: f64) -> Option<f64> {
+        if mass == 0.0 { return None; }
+        Some(force / (self.gamma.powi(3) * mass))
+    }
 }
 
 #[cfg(test)]

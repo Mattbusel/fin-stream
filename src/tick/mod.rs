@@ -441,6 +441,16 @@ impl NormalizedTick {
         self.price - reference
     }
 
+    /// Returns `true` if this tick's price is strictly below `reference`.
+    pub fn is_below_price(&self, reference: Decimal) -> bool {
+        self.price < reference
+    }
+
+    /// Returns `true` if this tick's quantity is strictly above `threshold`.
+    pub fn quantity_above(&self, threshold: Decimal) -> bool {
+        self.quantity > threshold
+    }
+
     /// Returns `true` if this tick was received within `threshold_ms` of `now_ms`.
     pub fn is_recent(&self, threshold_ms: u64, now_ms: u64) -> bool {
         now_ms.saturating_sub(self.received_at_ms) <= threshold_ms
@@ -541,6 +551,11 @@ impl NormalizedTick {
     /// the best opposing quote.
     pub fn spread_crossed(bid_tick: &NormalizedTick, ask_tick: &NormalizedTick) -> bool {
         bid_tick.price >= ask_tick.price
+    }
+
+    /// Dollar (notional) value of this tick: `price * quantity`.
+    pub fn dollar_value(&self) -> Decimal {
+        self.price * self.quantity
     }
 
 }
