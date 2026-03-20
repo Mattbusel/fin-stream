@@ -256,6 +256,22 @@ impl StreamError {
         !self.is_fatal()
     }
 
+    /// Returns `true` for errors that originate from a network connection.
+    ///
+    /// Network errors include WebSocket protocol failures, connection drops, and
+    /// reconnect exhaustion. They are distinct from data errors (bad book state,
+    /// bad tick data) or config errors.
+    pub fn is_network_error(&self) -> bool {
+        matches!(
+            self,
+            StreamError::ConnectionFailed { .. }
+                | StreamError::Disconnected { .. }
+                | StreamError::ReconnectExhausted { .. }
+                | StreamError::WebSocket(_)
+                | StreamError::Io(_)
+        )
+    }
+
     /// Returns `true` for errors that originate in the order book subsystem.
     ///
     /// Book errors indicate structural problems with the market data feed
@@ -767,5 +783,85 @@ mod tests {
             url: "wss://x".into(),
             reason: "timeout".into()
         }.is_recoverable());
+    }
+
+    // ── StreamError::source_module ────────────────────────────────────────────
+
+    #[test]
+    fn test_source_module_ws_variants() {
+        assert_eq!(StreamError::WebSocket("err".into()).source_module(), "ws");
+        assert_eq!(
+            StreamError::ConnectionFailed { url: "u".into(), reason: "r".into() }.source_module(),
+            "ws"
+        );
+        assert_eq!(
+            StreamError::Disconnected { url: "u".into() }.source_module(),
+            "ws"
+        );
+    }
+
+    #[test]
+    fn test_source_module_book_variants() {
+        assert_eq!(
+            StreamError::BookCrossed {
+                symbol: "BTC-USD".into(),
+                bid: Decimal::from(100u32),
+                ask: Decimal::from(99u32),
+            }
+            .source_module(),
+            "book"
+        );
+        assert_eq!(
+            StreamError::SequenceGap { symbol: "X".into(), expected: 1, got: 3 }.source_module(),
+            "book"
+        );
+    }
+
+    #[test]
+    fn test_source_module_ring_variants() {
+        assert_eq!(StreamError::RingBufferFull { capacity: 8 }.source_module(), "ring");
+        assert_eq!(StreamError::RingBufferEmpty.source_module(), "ring");
+    }
+
+    #[test]
+    fn test_source_module_aggregator_variants() {
+        assert_eq!(
+            StreamError::AggregationError { reason: "bad".into() }.source_module(),
+            "aggregator"
+        );
+        assert_eq!(
+            StreamError::NormalizationError { reason: "bad".into() }.source_module(),
+            "aggregator"
+        );
+    }
+
+    #[test]
+    fn test_source_module_session_variants() {
+        assert_eq!(
+            StreamError::StaleFeed { feed_id: "X".into(), elapsed_ms: 1, threshold_ms: 1 }
+                .source_module(),
+            "session"
+        );
+        assert_eq!(
+            StreamError::UnknownFeed { feed_id: "X".into() }.source_module(),
+            "session"
+        );
+    }
+
+    #[test]
+    fn test_source_module_lorentz_variant() {
+        assert_eq!(
+            StreamError::LorentzConfigError { reason: "bad".into() }.source_module(),
+            "lorentz"
+        );
+    }
+
+    #[test]
+    fn test_source_module_other_fallback() {
+        assert_eq!(StreamError::UnknownExchange("X".into()).source_module(), "other");
+        assert_eq!(
+            StreamError::ConfigError { reason: "bad".into() }.source_module(),
+            "other"
+        );
     }
 }

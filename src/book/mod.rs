@@ -340,6 +340,22 @@ impl OrderBook {
         }
     }
 
+    /// Sum of the top `n` bid levels' quantities (best `n` bids).
+    ///
+    /// If fewer than `n` bid levels exist, sums all available levels. Returns
+    /// `Decimal::ZERO` when the bid side is empty.
+    pub fn cumulative_bid_volume(&self, n: usize) -> Decimal {
+        self.bids.values().rev().take(n).copied().sum()
+    }
+
+    /// Sum of the top `n` ask levels' quantities (best `n` asks).
+    ///
+    /// If fewer than `n` ask levels exist, sums all available levels. Returns
+    /// `Decimal::ZERO` when the ask side is empty.
+    pub fn cumulative_ask_volume(&self, n: usize) -> Decimal {
+        self.asks.values().take(n).copied().sum()
+    }
+
     /// Spread as a percentage of the mid-price: `spread / mid × 100`.
     ///
     /// Returns `None` if either best bid or best ask is absent, or if the
@@ -1305,5 +1321,32 @@ mod tests {
         // After clear, a new bid should work without sequence issues
         b.apply(delta("BTC-USD", BookSide::Bid, dec!(99), dec!(5))).unwrap();
         assert_eq!(b.bid_depth(), 1);
+    }
+
+    // ── OrderBook::total_notional ─────────────────────────────────────────────
+
+    #[test]
+    fn test_total_notional_bid_side() {
+        let mut b = book("BTC-USD");
+        b.apply(delta("BTC-USD", BookSide::Bid, dec!(50000), dec!(2))).unwrap();
+        b.apply(delta("BTC-USD", BookSide::Bid, dec!(49900), dec!(3))).unwrap();
+        // 50000*2 + 49900*3 = 100000 + 149700 = 249700
+        assert_eq!(b.total_notional(BookSide::Bid), dec!(249700));
+    }
+
+    #[test]
+    fn test_total_notional_ask_side() {
+        let mut b = book("BTC-USD");
+        b.apply(delta("BTC-USD", BookSide::Ask, dec!(50100), dec!(1))).unwrap();
+        b.apply(delta("BTC-USD", BookSide::Ask, dec!(50200), dec!(2))).unwrap();
+        // 50100*1 + 50200*2 = 50100 + 100400 = 150500
+        assert_eq!(b.total_notional(BookSide::Ask), dec!(150500));
+    }
+
+    #[test]
+    fn test_total_notional_empty_side_is_zero() {
+        let b = book("BTC-USD");
+        assert_eq!(b.total_notional(BookSide::Bid), dec!(0));
+        assert_eq!(b.total_notional(BookSide::Ask), dec!(0));
     }
 }

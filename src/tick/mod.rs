@@ -267,6 +267,11 @@ impl NormalizedTick {
         let exchange_ts = self.exchange_ts_ms? as i64;
         Some(self.received_at_ms as i64 - exchange_ts)
     }
+
+    /// Notional value of this trade: `price × quantity`.
+    pub fn volume_notional(&self) -> rust_decimal::Decimal {
+        self.price * self.quantity
+    }
 }
 
 impl std::fmt::Display for NormalizedTick {
@@ -987,5 +992,28 @@ mod tests {
     fn test_is_neutral_false_when_sell() {
         let tick = make_tick_at(1_000).with_side(TradeSide::Sell);
         assert!(!tick.is_neutral());
+    }
+
+    // ── NormalizedTick::is_large_trade ────────────────────────────────────────
+
+    #[test]
+    fn test_is_large_trade_above_threshold() {
+        let mut tick = make_tick_at(1_000);
+        tick.quantity = rust_decimal_macros::dec!(100);
+        assert!(tick.is_large_trade(rust_decimal_macros::dec!(50)));
+    }
+
+    #[test]
+    fn test_is_large_trade_at_threshold() {
+        let mut tick = make_tick_at(1_000);
+        tick.quantity = rust_decimal_macros::dec!(50);
+        assert!(tick.is_large_trade(rust_decimal_macros::dec!(50)));
+    }
+
+    #[test]
+    fn test_is_large_trade_below_threshold() {
+        let mut tick = make_tick_at(1_000);
+        tick.quantity = rust_decimal_macros::dec!(10);
+        assert!(!tick.is_large_trade(rust_decimal_macros::dec!(50)));
     }
 }

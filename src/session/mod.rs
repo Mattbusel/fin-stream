@@ -1403,4 +1403,24 @@ mod tests {
         let sa = sa(MarketSession::UsEquity);
         assert!(sa.remaining_session_ms(SAT_UTC_MS).is_none());
     }
+
+    // ── SessionAwareness::is_weekend ──────────────────────────────────────────
+
+    #[test]
+    fn test_is_weekend_saturday_is_weekend() {
+        // SAT_UTC_MS = 2024-01-13 12:00 UTC (Saturday)
+        assert!(SessionAwareness::is_weekend(SAT_UTC_MS));
+    }
+
+    #[test]
+    fn test_is_weekend_sunday_is_weekend() {
+        // SUN_BEFORE_UTC_MS = 2024-01-07 10:00 UTC (Sunday)
+        assert!(SessionAwareness::is_weekend(SUN_BEFORE_UTC_MS));
+    }
+
+    #[test]
+    fn test_is_weekend_monday_is_not_weekend() {
+        // MON_OPEN_UTC_MS = 2024-01-08 14:30 UTC (Monday)
+        assert!(!SessionAwareness::is_weekend(MON_OPEN_UTC_MS));
+    }
 }

@@ -164,6 +164,22 @@ impl OhlcvBar {
         (self.high + self.low + self.close) / Decimal::from(3)
     }
 
+    /// Close Location Value (CLV): where the close sits within the bar's range.
+    ///
+    /// Formula: `(close - low - (high - close)) / range`.
+    ///
+    /// Returns `None` if the range is zero (e.g. a single-price bar). Values
+    /// are in `[-1.0, 1.0]`: `+1.0` means the close is at the high, `-1.0` at
+    /// the low, and `0.0` means the close is exactly mid-range.
+    pub fn close_location_value(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let range = self.range();
+        if range.is_zero() {
+            return None;
+        }
+        ((self.close - self.low - (self.high - self.close)) / range).to_f64()
+    }
+
     /// Median price: `(high + low) / 2`.
     ///
     /// The midpoint of the bar's price range, independent of open and close.
@@ -1640,5 +1656,53 @@ mod tests {
         agg.feed(&make_tick("BTC-USD", dec!(101), dec!(1), 120_000)).unwrap();
         agg.reset();
         assert!(agg.min_volume().is_none());
+    }
+
+    // ── OhlcvBar::is_gap_up / is_gap_down ────────────────────────────────────
+
+    #[test]
+    fn test_is_gap_up_true() {
+        let prev = make_bar(dec!(5), dec!(10), dec!(4), dec!(8));
+        let curr = make_bar(dec!(9), dec!(12), dec!(8), dec!(11)); // open=9 > prev.close=8
+        assert!(curr.is_gap_up(&prev));
+    }
+
+    #[test]
+    fn test_is_gap_up_false_when_equal() {
+        let prev = make_bar(dec!(5), dec!(10), dec!(4), dec!(8));
+        let curr = make_bar(dec!(8), dec!(12), dec!(7), dec!(11)); // open=8 == prev.close=8
+        assert!(!curr.is_gap_up(&prev));
+    }
+
+    #[test]
+    fn test_is_gap_down_true() {
+        let prev = make_bar(dec!(5), dec!(10), dec!(4), dec!(8));
+        let curr = make_bar(dec!(7), dec!(8), dec!(6), dec!(7)); // open=7 < prev.close=8
+        assert!(curr.is_gap_down(&prev));
+    }
+
+    #[test]
+    fn test_is_gap_down_false_when_equal() {
+        let prev = make_bar(dec!(5), dec!(10), dec!(4), dec!(8));
+        let curr = make_bar(dec!(8), dec!(9), dec!(7), dec!(8)); // open=8 == prev.close=8
+        assert!(!curr.is_gap_down(&prev));
+    }
+
+    // ── OhlcvAggregator::volume_range ─────────────────────────────────────────
+
+    #[test]
+    fn test_volume_range_none_before_completion() {
+        let agg = agg("BTC-USD", Timeframe::Minutes(1));
+        assert!(agg.volume_range().is_none());
+    }
+
+    #[test]
+    fn test_volume_range_after_two_bars() {
+        let mut agg = agg("BTC-USD", Timeframe::Minutes(1));
+        agg.feed(&make_tick("BTC-USD", dec!(100), dec!(3), 60_000)).unwrap();
+        agg.feed(&make_tick("BTC-USD", dec!(101), dec!(10), 120_000)).unwrap();
+        agg.feed(&make_tick("BTC-USD", dec!(102), dec!(1), 180_000)).unwrap();
+        // bar1=3, bar2=10 → min=3, peak=10
+        assert_eq!(agg.volume_range(), Some((dec!(3), dec!(10))));
     }
 }

@@ -202,6 +202,13 @@ impl ReconnectPolicy {
         self.max_attempts
     }
 
+    /// Number of attempts remaining starting from `current_attempt` (0-indexed).
+    ///
+    /// Returns `0` if `current_attempt >= max_attempts`.
+    pub fn total_attempts_remaining(&self, current_attempt: u32) -> u32 {
+        self.max_attempts.saturating_sub(current_attempt)
+    }
+
     /// Backoff duration for attempt N (0-indexed).
     pub fn backoff_for_attempt(&self, attempt: u32) -> Duration {
         let factor = self.multiplier.powi(attempt as i32);
@@ -964,5 +971,33 @@ mod tests {
         )
         .unwrap();
         assert_eq!(p.max_attempts(), 7);
+    }
+
+    // ── WsStats::is_idle ──────────────────────────────────────────────────────
+
+    #[test]
+    fn test_is_idle_below_min_rate() {
+        let stats = WsStats {
+            total_messages_received: 1,
+            total_bytes_received: 0,
+        };
+        // 1 msg / 10s = 0.1 msg/s; min_rate = 1.0 → idle
+        assert!(stats.is_idle(10_000, 1.0));
+    }
+
+    #[test]
+    fn test_is_idle_above_min_rate() {
+        let stats = WsStats {
+            total_messages_received: 100,
+            total_bytes_received: 0,
+        };
+        // 100 msg / 1s = 100 msg/s; min_rate = 1.0 → not idle
+        assert!(!stats.is_idle(1_000, 1.0));
+    }
+
+    #[test]
+    fn test_is_idle_zero_messages_always_idle() {
+        let stats = WsStats::default();
+        assert!(stats.is_idle(1_000, 0.001));
     }
 }

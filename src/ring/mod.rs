@@ -255,6 +255,20 @@ impl<T, const N: usize> SpscRing<T, N> {
         out
     }
 
+    /// Drain all items from the ring into `buf` in FIFO order, appending to
+    /// any existing contents of `buf`.
+    ///
+    /// Only safe to call when no producer/consumer pair is active (i.e., before
+    /// calling `split()`). Useful for draining into a pre-allocated buffer to
+    /// avoid allocation.
+    ///
+    /// # Complexity: O(n).
+    pub fn drain_into(&self, buf: &mut Vec<T>) {
+        while let Ok(item) = self.pop() {
+            buf.push(item);
+        }
+    }
+
     /// Split the ring into a thread-safe producer/consumer pair.
     ///
     /// The original `SpscRing` is consumed. Both halves hold an `Arc` to the

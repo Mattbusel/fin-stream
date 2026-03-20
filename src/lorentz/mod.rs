@@ -1132,4 +1132,27 @@ mod tests {
         // v > c → |beta| > 1 → should fail
         assert!(LorentzTransform::from_velocity(1.5, 1.0).is_err());
     }
+
+    // ── LorentzTransform::relativistic_momentum ───────────────────────────────
+
+    #[test]
+    fn test_relativistic_momentum_zero_beta_is_zero() {
+        let lt = LorentzTransform::new(0.0).unwrap();
+        assert!(approx_eq(lt.relativistic_momentum(1.0), 0.0));
+    }
+
+    #[test]
+    fn test_relativistic_momentum_known_value() {
+        // beta=0.6, gamma=1.25 → p = mass * gamma * beta = 2.0 * 1.25 * 0.6 = 1.5
+        let lt = LorentzTransform::new(0.6).unwrap();
+        assert!((lt.relativistic_momentum(2.0) - 1.5).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_relativistic_momentum_scales_with_mass() {
+        let lt = LorentzTransform::new(0.6).unwrap();
+        let p1 = lt.relativistic_momentum(1.0);
+        let p2 = lt.relativistic_momentum(2.0);
+        assert!((p2 - 2.0 * p1).abs() < 1e-9);
+    }
 }

@@ -1031,4 +1031,29 @@ mod tests {
         assert_eq!(stale.len(), 1);
         assert_eq!(stale[0].feed_id, "A");
     }
+
+    // ── HealthMonitor::register_many ──────────────────────────────────────────
+
+    #[test]
+    fn test_register_many_creates_all_feeds() {
+        let m = monitor();
+        m.register_many(&["BTC-USD", "ETH-USD", "SOL-USD"], None);
+        assert_eq!(m.feed_count(), 3);
+    }
+
+    #[test]
+    fn test_register_many_custom_threshold_applies() {
+        let m = monitor();
+        m.register_many(&["A", "B"], Some(1_000));
+        m.heartbeat("A", 1_000_000).unwrap();
+        let errors = m.check_all(1_002_000); // 2s > 1s → A stale
+        assert!(!errors.is_empty());
+    }
+
+    #[test]
+    fn test_register_many_empty_slice_is_noop() {
+        let m = monitor();
+        m.register_many(&[], None);
+        assert_eq!(m.feed_count(), 0);
+    }
 }
