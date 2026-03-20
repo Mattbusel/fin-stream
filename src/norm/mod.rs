@@ -1704,6 +1704,32 @@ impl ZScoreNormalizer {
         Some(kurt)
     }
 
+    /// Fisher-Pearson skewness of the rolling window.
+    ///
+    /// Positive values indicate a right-tailed distribution; negative values
+    /// indicate a left-tailed distribution. Returns `None` for fewer than 3
+    /// observations or zero standard deviation.
+    pub fn skewness(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let n = self.window.len();
+        if n < 3 {
+            return None;
+        }
+        let n_f = n as f64;
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.len() < n {
+            return None;
+        }
+        let mean = vals.iter().sum::<f64>() / n_f;
+        let variance = vals.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / n_f;
+        let std_dev = variance.sqrt();
+        if std_dev == 0.0 {
+            return None;
+        }
+        let skew = vals.iter().map(|v| ((v - mean) / std_dev).powi(3)).sum::<f64>() / n_f;
+        Some(skew)
+    }
+
     /// Returns `true` if the z-score of `value` exceeds `sigma` in absolute terms.
     ///
     /// Convenience wrapper around [`normalize`](Self::normalize) for alert logic.
@@ -2899,5 +2925,30 @@ mod zscore_stability_tests {
         for v in [dec!(5), dec!(5), dec!(5)] { n.update(v); }
         assert_eq!(n.count_above(dec!(5)), 0);
         assert_eq!(n.count_below(dec!(5)), 0);
+    }
+
+    // ── ZScoreNormalizer::skewness ────────────────────────────────────────────
+
+    #[test]
+    fn test_zscore_skewness_none_for_fewer_than_3_obs() {
+        let mut n = znorm(5);
+        n.update(dec!(10));
+        n.update(dec!(20));
+        assert!(n.skewness().is_none());
+    }
+
+    #[test]
+    fn test_zscore_skewness_none_for_all_identical() {
+        let mut n = znorm(4);
+        for _ in 0..4 { n.update(dec!(5)); }
+        assert!(n.skewness().is_none());
+    }
+
+    #[test]
+    fn test_zscore_skewness_near_zero_for_symmetric_distribution() {
+        let mut n = znorm(5);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4), dec!(5)] { n.update(v); }
+        let skew = n.skewness().unwrap();
+        assert!(skew.abs() < 0.01, "symmetric distribution should have ~0 skewness, got {skew}");
     }
 }

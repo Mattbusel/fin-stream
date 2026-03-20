@@ -991,6 +991,33 @@ impl OhlcvBar {
         bars.iter().map(|b| b.close).reduce(Decimal::min)
     }
 
+    /// Close price range: `highest_close − lowest_close` across a slice.
+    ///
+    /// Returns `None` if the slice is empty.
+    pub fn close_range(bars: &[OhlcvBar]) -> Option<Decimal> {
+        let hi = Self::highest_close(bars)?;
+        let lo = Self::lowest_close(bars)?;
+        Some(hi - lo)
+    }
+
+    /// N-period price momentum: `(close[last] / close[last - n]) − 1`.
+    ///
+    /// Returns `None` if the slice has fewer than `n + 1` bars or if
+    /// `close[last - n]` is zero.
+    pub fn momentum(bars: &[OhlcvBar], n: usize) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let len = bars.len();
+        if len <= n {
+            return None;
+        }
+        let current = bars[len - 1].close;
+        let prior = bars[len - 1 - n].close;
+        if prior.is_zero() {
+            return None;
+        }
+        ((current - prior) / prior).to_f64()
+    }
+
     /// Total traded volume across a slice of bars.
     ///
     /// Returns `Decimal::ZERO` for an empty slice. Complements
@@ -4020,6 +4047,45 @@ mod tests {
         let b2 = make_ohlcv_bar(dec!(100), dec!(120), dec!(95), dec!(115));
         let b3 = make_ohlcv_bar(dec!(100), dec!(108), dec!(90), dec!(102));
         assert_eq!(OhlcvBar::lowest_close(&[b1, b2, b3]), Some(dec!(102)));
+    }
+
+    // ── close_range / momentum ────────────────────────────────────────────────
+
+    #[test]
+    fn test_close_range_none_for_empty_slice() {
+        assert!(OhlcvBar::close_range(&[]).is_none());
+    }
+
+    #[test]
+    fn test_close_range_correct() {
+        let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(102));
+        let b2 = make_ohlcv_bar(dec!(100), dec!(120), dec!(95), dec!(115));
+        // highest=115, lowest=102, range=13
+        assert_eq!(OhlcvBar::close_range(&[b1, b2]), Some(dec!(13)));
+    }
+
+    #[test]
+    fn test_momentum_none_for_insufficient_bars() {
+        let bar = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100));
+        assert!(OhlcvBar::momentum(&[bar], 1).is_none());
+    }
+
+    #[test]
+    fn test_momentum_positive_for_rising_close() {
+        let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100));
+        let b2 = make_ohlcv_bar(dec!(100), dec!(115), dec!(95), dec!(110));
+        // (110 - 100) / 100 = 0.10
+        let mom = OhlcvBar::momentum(&[b1, b2], 1).unwrap();
+        assert!((mom - 0.1).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_momentum_negative_for_falling_close() {
+        let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(110));
+        let b2 = make_ohlcv_bar(dec!(100), dec!(108), dec!(88), dec!(99));
+        // (99 - 110) / 110 ≈ -0.10
+        let mom = OhlcvBar::momentum(&[b1, b2], 1).unwrap();
+        assert!(mom < 0.0);
     }
 
     // ── mean_close ────────────────────────────────────────────────────────────

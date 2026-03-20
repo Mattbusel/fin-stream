@@ -69,10 +69,7 @@ impl WsStats {
     ///
     /// Returns `0.0` when `elapsed_ms` is zero (avoids division by zero).
     pub fn bandwidth_bps(&self, elapsed_ms: u64) -> f64 {
-        if elapsed_ms == 0 {
-            return 0.0;
-        }
-        self.total_bytes_received as f64 * 1_000.0 / elapsed_ms as f64
+        self.byte_rate(elapsed_ms)
     }
 
     /// Average number of messages per byte received.
@@ -145,7 +142,7 @@ impl WsStats {
 
     /// Returns `true` if at least `min_messages` have been received.
     pub fn is_active(&self, min_messages: u64) -> bool {
-        self.total_messages_received >= min_messages
+        self.is_high_volume(min_messages)
     }
 
     /// Returns `true` if any bytes have been received.

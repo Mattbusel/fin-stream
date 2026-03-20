@@ -251,14 +251,7 @@ impl<T, const N: usize> SpscRing<T, N> {
     where
         T: Copy,
     {
-        let head = self.head.load(Ordering::Acquire);
-        let tail = self.tail.load(Ordering::Acquire);
-        if tail == head {
-            return None;
-        }
-        let slot = tail.wrapping_sub(1) & (N - 1);
-        // SAFETY: slot is in [head, tail) so it holds an initialised item.
-        Some(unsafe { *(*self.buf[slot].get()).assume_init_ref() })
+        self.peek_back().copied()
     }
 
     /// Peek at the oldest item in the ring (the one that would be returned next by `pop`)
@@ -269,14 +262,7 @@ impl<T, const N: usize> SpscRing<T, N> {
     where
         T: Copy,
     {
-        let head = self.head.load(Ordering::Acquire);
-        let tail = self.tail.load(Ordering::Acquire);
-        if tail == head {
-            return None;
-        }
-        let slot = head & (N - 1);
-        // SAFETY: head < tail means this slot holds an initialised item.
-        Some(unsafe { *(*self.buf[slot].get()).assume_init_ref() })
+        self.first()
     }
 
     /// Current fill level as a fraction of capacity: `len / capacity`.
