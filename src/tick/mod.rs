@@ -1138,6 +1138,24 @@ impl NormalizedTick {
         Some(prices[idx])
     }
 
+    /// Number of distinct prices in the tick slice.
+    pub fn unique_price_count(ticks: &[NormalizedTick]) -> usize {
+        use std::collections::HashSet;
+        ticks.iter().map(|t| t.price.to_string()).collect::<HashSet<_>>().len()
+    }
+
+    /// Average absolute price difference between consecutive ticks.
+    ///
+    /// Returns `None` if fewer than 2 ticks.
+    pub fn avg_inter_tick_spread(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 2 {
+            return None;
+        }
+        let sum: Decimal = ticks.windows(2).map(|w| (w[1].price - w[0].price).abs()).sum();
+        (sum / Decimal::from((ticks.len() - 1) as u32)).to_f64()
+    }
+
 }
 
 impl std::fmt::Display for NormalizedTick {
@@ -3749,5 +3767,65 @@ mod tests {
         ];
         // 50th percentile → index 2 → price=30
         assert_eq!(NormalizedTick::price_at_percentile(&ticks, 0.5), Some(dec!(30)));
+    }
+
+    // ── NormalizedTick::unique_price_count ────────────────────────────────────
+
+    #[test]
+    fn test_unique_price_count_zero_for_empty() {
+        assert_eq!(NormalizedTick::unique_price_count(&[]), 0);
+    }
+
+    #[test]
+    fn test_unique_price_count_counts_distinct_prices() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(100), dec!(2)),
+            make_tick_pq(dec!(110), dec!(1)),
+            make_tick_pq(dec!(120), dec!(1)),
+        ];
+        assert_eq!(NormalizedTick::unique_price_count(&ticks), 3);
+    }
+
+    // ── NormalizedTick::sell_volume / buy_volume ──────────────────────────────
+
+    #[test]
+    fn test_sell_volume_zero_for_empty() {
+        assert_eq!(NormalizedTick::sell_volume(&[]), rust_decimal_macros::dec!(0));
+    }
+
+    #[test]
+    fn test_sell_volume_sums_sell_side_only() {
+        use rust_decimal_macros::dec;
+        let mut buy_tick = make_tick_pq(dec!(100), dec!(5));
+        buy_tick.side = Some(TradeSide::Buy);
+        let mut sell_tick = make_tick_pq(dec!(100), dec!(3));
+        sell_tick.side = Some(TradeSide::Sell);
+        let no_side_tick = make_tick_pq(dec!(100), dec!(10));
+        let ticks = [buy_tick, sell_tick, no_side_tick];
+        assert_eq!(NormalizedTick::sell_volume(&ticks), dec!(3));
+        assert_eq!(NormalizedTick::buy_volume(&ticks), dec!(5));
+    }
+
+    // ── NormalizedTick::avg_inter_tick_spread ─────────────────────────────────
+
+    #[test]
+    fn test_avg_inter_tick_spread_none_for_single_tick() {
+        use rust_decimal_macros::dec;
+        assert!(NormalizedTick::avg_inter_tick_spread(&[make_tick_pq(dec!(100), dec!(1))]).is_none());
+    }
+
+    #[test]
+    fn test_avg_inter_tick_spread_correct_for_uniform_moves() {
+        use rust_decimal_macros::dec;
+        // prices: 100, 102, 104 → diffs: 2, 2 → avg = 2.0
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(102), dec!(1)),
+            make_tick_pq(dec!(104), dec!(1)),
+        ];
+        let spread = NormalizedTick::avg_inter_tick_spread(&ticks).unwrap();
+        assert!((spread - 2.0).abs() < 1e-9);
     }
 }

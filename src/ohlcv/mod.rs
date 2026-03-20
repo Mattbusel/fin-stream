@@ -899,8 +899,11 @@ impl OhlcvBar {
     }
 
     /// Returns `true` if this bar is completely flat (open == close == high == low).
+    ///
+    /// For a valid OHLCV bar, `range() == 0` is sufficient: since `low ≤ open, close ≤ high`,
+    /// `high == low` forces all four prices equal.
     pub fn is_flat(&self) -> bool {
-        self.open == self.close && self.high == self.low && self.open == self.high
+        self.range().is_zero()
     }
 
     /// True range: `max(high - low, |high - prev_close|, |low - prev_close|)`.

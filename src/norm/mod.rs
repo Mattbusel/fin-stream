@@ -745,6 +745,18 @@ impl MinMaxNormalizer {
     pub fn count_equal(&self, value: Decimal) -> usize {
         self.window.iter().filter(|&&v| v == value).count()
     }
+
+    /// Range of the current window: `max - min`.
+    ///
+    /// Returns `None` if the window is empty.
+    pub fn rolling_range(&self) -> Option<Decimal> {
+        if self.window.is_empty() {
+            return None;
+        }
+        let lo = self.window.iter().copied().reduce(Decimal::min)?;
+        let hi = self.window.iter().copied().reduce(Decimal::max)?;
+        Some(hi - lo)
+    }
 }
 
 #[cfg(test)]
@@ -1781,6 +1793,20 @@ mod tests {
         for v in [dec!(5), dec!(5), dec!(3), dec!(5), dec!(2)] { n.update(v); }
         assert_eq!(n.count_equal(dec!(5)), 3);
     }
+
+    // ── MinMaxNormalizer::rolling_range ───────────────────────────────────────
+
+    #[test]
+    fn test_minmax_rolling_range_none_for_empty() {
+        assert!(norm(3).rolling_range().is_none());
+    }
+
+    #[test]
+    fn test_minmax_rolling_range_correct() {
+        let mut n = norm(5);
+        for v in [dec!(10), dec!(50), dec!(30), dec!(20), dec!(40)] { n.update(v); }
+        assert_eq!(n.rolling_range(), Some(dec!(40)));
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -2595,6 +2621,15 @@ impl ZScoreNormalizer {
     /// Count of window values equal to `value`.
     pub fn count_equal(&self, value: Decimal) -> usize {
         self.window.iter().filter(|&&v| v == value).count()
+    }
+
+    /// Range of the current window: `running_max - running_min`.
+    ///
+    /// Returns `None` if the window is empty.
+    pub fn rolling_range(&self) -> Option<Decimal> {
+        let lo = self.running_min()?;
+        let hi = self.running_max()?;
+        Some(hi - lo)
     }
 }
 
@@ -3939,5 +3974,34 @@ mod zscore_stability_tests {
         let mut n = znorm(5);
         for v in [dec!(5), dec!(5), dec!(3), dec!(5), dec!(2)] { n.update(v); }
         assert_eq!(n.count_equal(dec!(5)), 3);
+    }
+
+    // ── ZScoreNormalizer::median ──────────────────────────────────────────────
+
+    #[test]
+    fn test_zscore_median_none_for_empty_window() {
+        assert!(znorm(3).median().is_none());
+    }
+
+    #[test]
+    fn test_zscore_median_correct_for_odd_count() {
+        let mut n = znorm(5);
+        for v in [dec!(3), dec!(1), dec!(5), dec!(4), dec!(2)] { n.update(v); }
+        // sorted: 1,2,3,4,5 → middle (idx 2) = 3
+        assert_eq!(n.median(), Some(dec!(3)));
+    }
+
+    // ── ZScoreNormalizer::rolling_range ───────────────────────────────────────
+
+    #[test]
+    fn test_zscore_rolling_range_none_for_empty() {
+        assert!(znorm(3).rolling_range().is_none());
+    }
+
+    #[test]
+    fn test_zscore_rolling_range_correct() {
+        let mut n = znorm(5);
+        for v in [dec!(10), dec!(50), dec!(30), dec!(20), dec!(40)] { n.update(v); }
+        assert_eq!(n.rolling_range(), Some(dec!(40)));
     }
 }
