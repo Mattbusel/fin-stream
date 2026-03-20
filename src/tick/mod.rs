@@ -701,15 +701,11 @@ impl NormalizedTick {
     /// Computes `Σ(price × quantity) / Σ(quantity)`.
     /// Returns `None` if the slice is empty or total volume is zero.
     pub fn vwap(ticks: &[NormalizedTick]) -> Option<Decimal> {
-        if ticks.is_empty() {
-            return None;
-        }
-        let notional: Decimal = ticks.iter().map(|t| t.value()).sum();
         let volume: Decimal = ticks.iter().map(|t| t.quantity).sum();
         if volume.is_zero() {
             return None;
         }
-        Some(notional / volume)
+        Some(Self::total_notional(ticks) / volume)
     }
 
     /// Count of ticks whose price is strictly above `threshold`.
@@ -943,6 +939,63 @@ impl NormalizedTick {
         }
         let total: Decimal = ticks.iter().map(|t| t.value()).sum();
         Some(total / Decimal::from(ticks.len() as u64))
+    }
+
+    /// Count of ticks with no known side (neither buy nor sell).
+    pub fn count_neutral(ticks: &[NormalizedTick]) -> usize {
+        ticks.iter().filter(|t| t.is_neutral()).count()
+    }
+
+    /// Returns the last `n` ticks from the slice.
+    ///
+    /// If `n >= ticks.len()`, returns the full slice.
+    pub fn recent(ticks: &[NormalizedTick], n: usize) -> &[NormalizedTick] {
+        let len = ticks.len();
+        if n >= len { ticks } else { &ticks[len - n..] }
+    }
+
+    /// OLS linear regression slope of price over tick index.
+    ///
+    /// A positive slope indicates prices are rising across the slice.
+    /// Returns `None` if the slice has fewer than 2 ticks.
+    pub fn price_linear_slope(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let n = ticks.len();
+        if n < 2 {
+            return None;
+        }
+        let n_f = n as f64;
+        let xs: Vec<f64> = (0..n).map(|i| i as f64).collect();
+        let ys: Vec<f64> = ticks.iter().filter_map(|t| t.price.to_f64()).collect();
+        if ys.len() < 2 {
+            return None;
+        }
+        let x_mean = xs.iter().sum::<f64>() / n_f;
+        let y_mean = ys.iter().sum::<f64>() / ys.len() as f64;
+        let numerator: f64 = xs.iter().zip(ys.iter()).map(|(&x, &y)| (x - x_mean) * (y - y_mean)).sum();
+        let denominator: f64 = xs.iter().map(|&x| (x - x_mean).powi(2)).sum();
+        if denominator == 0.0 {
+            return None;
+        }
+        Some(numerator / denominator)
+    }
+
+    /// Standard deviation of per-trade notional values (price × quantity).
+    ///
+    /// Returns `None` if the slice has fewer than 2 elements.
+    pub fn notional_std_dev(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let n = ticks.len();
+        if n < 2 {
+            return None;
+        }
+        let notionals: Vec<f64> = ticks.iter().filter_map(|t| t.value().to_f64()).collect();
+        if notionals.len() < 2 {
+            return None;
+        }
+        let mean = notionals.iter().sum::<f64>() / notionals.len() as f64;
+        let variance = notionals.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / (notionals.len() - 1) as f64;
+        Some(variance.sqrt())
     }
 
 }

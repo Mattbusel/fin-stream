@@ -683,6 +683,19 @@ impl MinMaxNormalizer {
         use rust_decimal::prelude::ToPrimitive;
         self.sum()?.to_f64()
     }
+
+    /// All current window values as a `Vec<Decimal>`, in insertion order (oldest first).
+    pub fn values(&self) -> Vec<Decimal> {
+        self.window.iter().copied().collect()
+    }
+
+    /// Normalize the window midpoint ((min + max) / 2) and return it as a `f64`.
+    ///
+    /// Returns `None` if the window is empty or min == max.
+    pub fn normalized_midpoint(&mut self) -> Option<f64> {
+        let mid = self.midpoint()?;
+        self.normalize(mid).ok()
+    }
 }
 
 #[cfg(test)]
@@ -1555,6 +1568,36 @@ mod tests {
         let s = n.sum_f64().unwrap();
         assert!((s - 10.0).abs() < 1e-9);
     }
+
+    // ── MinMaxNormalizer::values ──────────────────────────────────────────────
+
+    #[test]
+    fn test_minmax_values_empty_for_empty_window() {
+        assert!(norm(3).values().is_empty());
+    }
+
+    #[test]
+    fn test_minmax_values_preserves_insertion_order() {
+        let mut n = norm(5);
+        for v in [dec!(3), dec!(1), dec!(4), dec!(1), dec!(5)] { n.update(v); }
+        assert_eq!(n.values(), vec![dec!(3), dec!(1), dec!(4), dec!(1), dec!(5)]);
+    }
+
+    // ── MinMaxNormalizer::normalized_midpoint ─────────────────────────────────
+
+    #[test]
+    fn test_minmax_normalized_midpoint_none_for_empty_window() {
+        assert!(norm(3).normalized_midpoint().is_none());
+    }
+
+    #[test]
+    fn test_minmax_normalized_midpoint_half_for_uniform_range() {
+        let mut n = norm(4);
+        for v in [dec!(0), dec!(10), dec!(20), dec!(30)] { n.update(v); }
+        // midpoint = (0+30)/2 = 15; normalize(15) with min=0, max=30 = 0.5
+        let mid = n.normalized_midpoint().unwrap();
+        assert!((mid - 0.5).abs() < 1e-9);
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -2305,6 +2348,22 @@ impl ZScoreNormalizer {
     /// Returns `None` if the window is empty.
     pub fn min_max(&self) -> Option<(Decimal, Decimal)> {
         Some((self.running_min()?, self.running_max()?))
+    }
+
+    /// All current window values as a `Vec<Decimal>`, in insertion order (oldest first).
+    pub fn values(&self) -> Vec<Decimal> {
+        self.window.iter().copied().collect()
+    }
+
+    /// Fraction of window values that are strictly positive (> 0).
+    ///
+    /// Returns `None` if the window is empty.
+    pub fn above_zero_fraction(&self) -> Option<f64> {
+        if self.window.is_empty() {
+            return None;
+        }
+        let above = self.window.iter().filter(|&&v| v > Decimal::ZERO).count();
+        Some(above as f64 / self.window.len() as f64)
     }
 }
 

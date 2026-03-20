@@ -614,8 +614,7 @@ impl OhlcvBar {
         if bars.is_empty() {
             return None;
         }
-        let sum: Decimal = bars.iter().map(|b| b.volume).sum();
-        Some(sum / Decimal::from(bars.len() as u64))
+        Some(Self::sum_volume(bars) / Decimal::from(bars.len() as u64))
     }
 
     /// Absolute deviation of close price from VWAP as a fraction of VWAP: `|close - vwap| / vwap`.
@@ -1247,10 +1246,7 @@ impl OhlcvBar {
     ///
     /// Returns `None` if the slice is empty or total volume is zero.
     pub fn volume_weighted_close(bars: &[OhlcvBar]) -> Option<Decimal> {
-        if bars.is_empty() {
-            return None;
-        }
-        let total_volume: Decimal = bars.iter().map(|b| b.volume).sum();
+        let total_volume = Self::sum_volume(bars);
         if total_volume.is_zero() {
             return None;
         }
@@ -1372,6 +1368,38 @@ impl OhlcvBar {
             return None;
         }
         Some(ratios.iter().sum::<f64>() / ratios.len() as f64)
+    }
+
+    /// Total volume of all bullish (close ≥ open) bars in the slice.
+    pub fn bullish_volume(bars: &[OhlcvBar]) -> Decimal {
+        bars.iter().filter(|b| b.is_bullish()).map(|b| b.volume).sum()
+    }
+
+    /// Total volume of all bearish (close < open) bars in the slice.
+    pub fn bearish_volume(bars: &[OhlcvBar]) -> Decimal {
+        bars.iter().filter(|b| b.is_bearish()).map(|b| b.volume).sum()
+    }
+
+    /// Count of bars where close is strictly above the bar midpoint ((high + low) / 2).
+    pub fn close_above_mid_count(bars: &[OhlcvBar]) -> usize {
+        bars.iter().filter(|b| b.close > b.high_low_midpoint()).count()
+    }
+
+    /// Exponential moving average of close prices over the slice.
+    ///
+    /// `alpha` is the smoothing factor in (0.0, 1.0]; higher values weight
+    /// recent bars more. Processes bars in order (oldest to newest).
+    /// Returns `None` if the slice is empty.
+    pub fn ema(bars: &[OhlcvBar], alpha: f64) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let alpha = alpha.clamp(1e-9, 1.0);
+        let mut iter = bars.iter();
+        let first = iter.next()?.close.to_f64()?;
+        let result = iter.fold(first, |acc, b| {
+            let c = b.close.to_f64().unwrap_or(acc);
+            alpha * c + (1.0 - alpha) * acc
+        });
+        Some(result)
     }
 }
 
