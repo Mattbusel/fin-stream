@@ -998,6 +998,32 @@ impl NormalizedTick {
         Some(variance.sqrt())
     }
 
+    /// Returns `true` if prices in the slice are non-decreasing (each ≥ previous).
+    ///
+    /// Returns `true` for slices with 0 or 1 ticks.
+    pub fn monotone_up(ticks: &[NormalizedTick]) -> bool {
+        ticks.windows(2).all(|w| w[1].price >= w[0].price)
+    }
+
+    /// Returns `true` if prices in the slice are non-increasing (each ≤ previous).
+    ///
+    /// Returns `true` for slices with 0 or 1 ticks.
+    pub fn monotone_down(ticks: &[NormalizedTick]) -> bool {
+        ticks.windows(2).all(|w| w[1].price <= w[0].price)
+    }
+
+    /// Total quantity traded at exactly `price`.
+    pub fn volume_at_price(ticks: &[NormalizedTick], price: Decimal) -> Decimal {
+        ticks.iter().filter(|t| t.price == price).map(|t| t.quantity).sum()
+    }
+
+    /// Price of the most recent tick in the slice.
+    ///
+    /// Returns `None` if the slice is empty.
+    pub fn last_price(ticks: &[NormalizedTick]) -> Option<Decimal> {
+        ticks.last().map(|t| t.price)
+    }
+
 }
 
 impl std::fmt::Display for NormalizedTick {

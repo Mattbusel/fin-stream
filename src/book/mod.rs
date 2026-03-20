@@ -1042,10 +1042,7 @@ impl OrderBook {
     ///
     /// Returns `None` if the ask side is empty.
     pub fn ask_price_range(&self) -> Option<Decimal> {
-        if self.asks.is_empty() {
-            return None;
-        }
-        let best = *self.asks.keys().next()?;
+        let best = self.best_ask_price()?;
         let worst = *self.asks.keys().next_back()?;
         Some(worst - best)
     }
@@ -1054,10 +1051,7 @@ impl OrderBook {
     ///
     /// Returns `None` if the bid side is empty.
     pub fn bid_price_range(&self) -> Option<Decimal> {
-        if self.bids.is_empty() {
-            return None;
-        }
-        let best = *self.bids.keys().next_back()?;
+        let best = self.best_bid_price()?;
         let worst = *self.bids.keys().next()?;
         Some(best - worst)
     }
@@ -1110,8 +1104,8 @@ impl OrderBook {
     pub fn fee_estimate(&self, side: BookSide, qty: Decimal, fee_bps: Decimal) -> Option<Decimal> {
         if qty <= Decimal::ZERO { return None; }
         let best_price = match side {
-            BookSide::Bid => self.bids.keys().next_back().copied()?,
-            BookSide::Ask => self.asks.keys().next().copied()?,
+            BookSide::Bid => self.best_bid_price()?,
+            BookSide::Ask => self.best_ask_price()?,
         };
         let impact = self.price_impact(side, qty).unwrap_or(Decimal::ZERO);
         let fill_price = best_price + impact;
@@ -1152,12 +1146,12 @@ impl OrderBook {
         let pct_dec = Decimal::from_f64(pct / 100.0)?;
         match side {
             BookSide::Bid => {
-                let best = *self.bids.keys().next_back()?;
+                let best = self.best_bid_price()?;
                 let threshold = best * (Decimal::ONE - pct_dec);
                 Some(self.bids.range(threshold..).map(|(_, q)| q).sum())
             }
             BookSide::Ask => {
-                let best = *self.asks.keys().next()?;
+                let best = self.best_ask_price()?;
                 let threshold = best * (Decimal::ONE + pct_dec);
                 Some(self.asks.range(..=threshold).map(|(_, q)| q).sum())
             }
@@ -1171,13 +1165,11 @@ impl OrderBook {
     /// More accurate than simple mid when the order book is imbalanced.
     /// Returns `None` if either side is empty or total quantity is zero.
     pub fn microprice(&self) -> Option<Decimal> {
-        let best_bid = *self.bids.keys().next_back()?;
-        let best_ask = *self.asks.keys().next()?;
-        let bid_qty = *self.bids.get(&best_bid)?;
-        let ask_qty = *self.asks.get(&best_ask)?;
-        let total_qty = bid_qty + ask_qty;
+        let bid = self.best_bid()?;
+        let ask = self.best_ask()?;
+        let total_qty = bid.quantity + ask.quantity;
         if total_qty.is_zero() { return None; }
-        Some((ask_qty * best_bid + bid_qty * best_ask) / total_qty)
+        Some((ask.quantity * bid.price + bid.quantity * ask.price) / total_qty)
     }
 
     /// Returns the top `n` price levels on a given side as `(price, quantity)` pairs.
@@ -1202,8 +1194,8 @@ impl OrderBook {
     pub fn price_impact(&self, side: BookSide, qty: Decimal) -> Option<Decimal> {
         if qty <= Decimal::ZERO { return None; }
         let best_price = match side {
-            BookSide::Bid => self.bids.keys().next_back().copied()?,
-            BookSide::Ask => self.asks.keys().next().copied()?,
+            BookSide::Bid => self.best_bid_price()?,
+            BookSide::Ask => self.best_ask_price()?,
         };
         let mut remaining = qty;
         let mut cost = Decimal::ZERO;
