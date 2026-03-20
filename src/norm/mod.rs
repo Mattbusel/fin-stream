@@ -928,4 +928,59 @@ mod zscore_tests {
         // Population std dev of [10,20,30,40]: mean=25, var=125, sd≈11.18
         assert!((sd - 11.18).abs() < 0.01);
     }
+
+    // ── ZScoreNormalizer::variance ────────────────────────────────────────────
+
+    #[test]
+    fn test_variance_none_when_fewer_than_two_observations() {
+        let mut n = znorm(5);
+        assert!(n.variance().is_none());
+        n.update(dec!(10));
+        assert!(n.variance().is_none());
+    }
+
+    #[test]
+    fn test_variance_zero_for_identical_values() {
+        let mut n = znorm(4);
+        for _ in 0..4 {
+            n.update(dec!(7));
+        }
+        assert_eq!(n.variance().unwrap(), dec!(0));
+    }
+
+    #[test]
+    fn test_variance_correct_for_known_values() {
+        let mut n = znorm(4);
+        for v in [dec!(10), dec!(20), dec!(30), dec!(40)] {
+            n.update(v);
+        }
+        // Population variance of [10,20,30,40]: mean=25, var=125
+        let var = n.variance().unwrap();
+        let var_f64 = f64::try_from(var).unwrap();
+        assert!((var_f64 - 125.0).abs() < 0.01, "expected 125 got {var_f64}");
+    }
+
+    // ── ZScoreNormalizer::normalize_batch ─────────────────────────────────────
+
+    #[test]
+    fn test_normalize_batch_same_length_as_input() {
+        let mut n = znorm(5);
+        let vals = [dec!(1), dec!(2), dec!(3), dec!(4), dec!(5)];
+        let out = n.normalize_batch(&vals).unwrap();
+        assert_eq!(out.len(), vals.len());
+    }
+
+    #[test]
+    fn test_normalize_batch_last_value_matches_single_normalize() {
+        let mut n1 = znorm(5);
+        let vals = [dec!(10), dec!(20), dec!(30), dec!(40), dec!(50)];
+        let batch = n1.normalize_batch(&vals).unwrap();
+
+        let mut n2 = znorm(5);
+        for &v in &vals {
+            n2.update(v);
+        }
+        let single = n2.normalize(dec!(50)).unwrap();
+        assert!((batch[4] - single).abs() < 1e-9);
+    }
 }
