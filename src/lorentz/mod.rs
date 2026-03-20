@@ -164,15 +164,6 @@ impl LorentzTransform {
         Ok(Self { beta, gamma })
     }
 
-    /// Compute beta from a known gamma value.
-    ///
-    /// Inverts `gamma = 1 / sqrt(1 - beta^2)` to recover `beta = sqrt(1 - 1/gamma^2)`.
-    /// Useful when a Lorentz factor is known from a source other than a velocity.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`StreamError::LorentzConfigError`] if `gamma < 1.0` or is `NaN`
-    /// (gamma must be ≥ 1 for a physically valid boost).
     /// Construct a Lorentz transform from rapidity `η = atanh(β)`.
     ///
     /// Rapidity is the additive parameter for successive boosts along the
@@ -293,8 +284,9 @@ impl LorentzTransform {
     ///
     /// Unlike coordinate velocity `β`, proper velocity is unbounded and
     /// equals the spatial displacement per unit proper time.
+    /// Alias for [`beta_times_gamma`](Self::beta_times_gamma).
     pub fn proper_velocity(&self) -> f64 {
-        self.beta * self.gamma
+        self.beta_times_gamma()
     }
 
     /// The configured velocity parameter `beta = v/c`.

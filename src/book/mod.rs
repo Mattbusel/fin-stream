@@ -361,12 +361,9 @@ impl OrderBook {
         has_bids != has_asks
     }
 
-    /// Bid-ask spread expressed in basis points: `(ask − bid) / mid × 10 000`.
-    ///
-    /// Returns `None` if either side is empty or the mid price is zero.
     /// Imbalance between number of bid and ask price levels.
     ///
-    /// Returns `(bid_levels - ask_levels) / (bid_levels + ask_levels)` as f64
+    /// Returns `(bid_levels - ask_levels) / (bid_levels + ask_levels)` as `f64`
     /// in the range `[-1.0, 1.0]`. Returns `None` when the book is empty.
     pub fn level_count_imbalance(&self) -> Option<f64> {
         let total = self.bids.len() + self.asks.len();
@@ -393,16 +390,18 @@ impl OrderBook {
         Some(spread_f / mid_f * 10_000.0)
     }
 
-    /// Sum of the top `n` bid levels' quantities (best `n` bids).
+    /// Total resting quantity across all bid levels.
     ///
-    /// Total quantity across all bid levels.
+    /// Alias for [`bid_volume_total`](Self::bid_volume_total).
     pub fn total_bid_volume(&self) -> Decimal {
-        self.bids.values().copied().sum()
+        self.bid_volume_total()
     }
 
-    /// Total quantity across all ask levels.
+    /// Total resting quantity across all ask levels.
+    ///
+    /// Alias for [`ask_volume_total`](Self::ask_volume_total).
     pub fn total_ask_volume(&self) -> Decimal {
-        self.asks.values().copied().sum()
+        self.ask_volume_total()
     }
 
     /// Sum of the top `n` bid levels' quantities (best `n` bids).
@@ -562,8 +561,10 @@ impl OrderBook {
     }
 
     /// Total volume across all bid and ask levels combined.
+    ///
+    /// Alias for [`total_volume`](Self::total_volume).
     pub fn total_book_volume(&self) -> Decimal {
-        self.total_bid_volume() + self.total_ask_volume()
+        self.total_volume()
     }
 
     /// Price distance from the best bid to the worst (lowest) bid.
@@ -673,8 +674,10 @@ impl OrderBook {
     }
 
     /// Total number of distinct price levels across both bid and ask sides.
+    ///
+    /// Alias for [`total_depth`](Self::total_depth).
     pub fn level_count_both_sides(&self) -> usize {
-        self.bids.len() + self.asks.len()
+        self.total_depth()
     }
 
     /// The `n`th-best ask price (0 = best/lowest ask).
@@ -712,39 +715,41 @@ impl OrderBook {
     ///
     /// Values > 1 indicate heavier buy-side resting volume; < 1 more sell-side.
     /// Returns `None` if the ask side has zero volume.
+    /// Alias for [`bid_ask_ratio`](Self::bid_ask_ratio).
     pub fn bid_ask_qty_ratio(&self) -> Option<f64> {
-        use rust_decimal::prelude::ToPrimitive;
-        let ask_vol = self.ask_volume_total();
-        if ask_vol.is_zero() { return None; }
-        (self.bid_volume_total() / ask_vol).to_f64()
+        self.bid_ask_ratio()
     }
 
     /// Quantity resting at the best bid price.
     ///
     /// Returns `None` if the bid side is empty.
+    /// Alias for [`best_bid_qty`](Self::best_bid_qty).
     pub fn top_bid_qty(&self) -> Option<Decimal> {
-        self.bids.iter().next_back().map(|(_, &q)| q)
+        self.best_bid_qty()
     }
 
     /// Quantity resting at the best ask price.
     ///
     /// Returns `None` if the ask side is empty.
+    /// Alias for [`best_ask_qty`](Self::best_ask_qty).
     pub fn top_ask_qty(&self) -> Option<Decimal> {
-        self.asks.iter().next().map(|(_, &q)| q)
+        self.best_ask_qty()
     }
 
     /// Sum of quantity across the best `n` bid levels.
     ///
     /// Returns total bid quantity if `n >= bid_count`.
+    /// Alias for [`cumulative_bid_volume`](Self::cumulative_bid_volume).
     pub fn cumulative_bid_qty(&self, n: usize) -> Decimal {
-        self.bids.iter().rev().take(n).map(|(_, &q)| q).sum()
+        self.cumulative_bid_volume(n)
     }
 
     /// Sum of quantity across the best `n` ask levels.
     ///
     /// Returns total ask quantity if `n >= ask_count`.
+    /// Alias for [`cumulative_ask_volume`](Self::cumulative_ask_volume).
     pub fn cumulative_ask_qty(&self, n: usize) -> Decimal {
-        self.asks.iter().take(n).map(|(_, &q)| q).sum()
+        self.cumulative_ask_volume(n)
     }
 
     /// Ratio of top-`n` bid quantity to top-`n` ask quantity.

@@ -9,6 +9,37 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.2.0] - 2026-03-20
+
+### Added
+
+**`norm` module — `MinMaxNormalizer` analytics (round 42)**
+- `MinMaxNormalizer::kurtosis() -> Option<f64>` — excess kurtosis of the rolling window; companion to the existing `skewness()`. Returns `None` for fewer than 4 observations or zero std-dev.
+
+**`ohlcv` module — `OhlcvBar` static analytics (round 42)**
+- `OhlcvBar::average_true_range(bars: &[OhlcvBar]) -> Option<Decimal>` — ATR: mean of `true_range` across consecutive bars. Returns `None` for fewer than 2 bars.
+- `OhlcvBar::average_body(bars: &[OhlcvBar]) -> Option<Decimal>` — mean `|close − open|` across a slice of bars. Companion to `mean_volume`.
+
+### Deprecated
+
+**`ohlcv` module — `OhlcvBar` alias cleanup (round 42)**
+
+The following methods are exact duplicates of existing methods and are deprecated with `#[deprecated(since = "2.2.0")]`. They continue to compile and delegate to their canonical counterpart; they will be removed in a future major release.
+
+| Deprecated | Use instead |
+|---|---|
+| `inside_bar(prev)` | `is_inside_bar(prev)` |
+| `is_outside_bar(prev)` | `outside_bar(prev)` |
+| `close_gap(prev)` | `gap_from(prev)` |
+| `bar_range()` | `range()` |
+| `true_range_with_prev(prev_close)` | `true_range(prev_close)` |
+| `close_to_high_ratio()` | `high_close_ratio()` |
+| `close_open_ratio()` | `open_close_ratio()` |
+| `price_change_abs()` | `body()` |
+| `body_size()` | `body()` |
+
+---
+
 ## [2.1.0] - 2026-03-20
 
 ### Added
