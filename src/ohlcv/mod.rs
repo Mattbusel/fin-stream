@@ -4569,4 +4569,73 @@ mod tests {
         let b2 = make_ohlcv_bar(dec!(100), dec!(130), dec!(60), dec!(105));
         assert_eq!(OhlcvBar::average_low(&[b1, b2]), Some(dec!(70)));
     }
+
+    // ── OhlcvBar::min_body / max_body ─────────────────────────────────────────
+
+    #[test]
+    fn test_min_body_none_for_empty_slice() {
+        assert!(OhlcvBar::min_body(&[]).is_none());
+    }
+
+    #[test]
+    fn test_min_body_returns_smallest_body() {
+        let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105)); // body=5
+        let b2 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(115)); // body=15
+        assert_eq!(OhlcvBar::min_body(&[b1, b2]), Some(dec!(5)));
+    }
+
+    #[test]
+    fn test_max_body_none_for_empty_slice() {
+        assert!(OhlcvBar::max_body(&[]).is_none());
+    }
+
+    #[test]
+    fn test_max_body_returns_largest_body() {
+        let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105)); // body=5
+        let b2 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(115)); // body=15
+        assert_eq!(OhlcvBar::max_body(&[b1, b2]), Some(dec!(15)));
+    }
+
+    // ── OhlcvBar::atr_pct ────────────────────────────────────────────────────
+
+    #[test]
+    fn test_atr_pct_none_for_single_bar() {
+        assert!(OhlcvBar::atr_pct(&[make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105))]).is_none());
+    }
+
+    #[test]
+    fn test_atr_pct_positive_for_normal_bars() {
+        let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100));
+        let b2 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100));
+        let pct = OhlcvBar::atr_pct(&[b1, b2]).unwrap();
+        assert!(pct > 0.0);
+    }
+
+    // ── OhlcvBar::breakout_count ──────────────────────────────────────────────
+
+    #[test]
+    fn test_breakout_count_zero_for_empty_slice() {
+        assert_eq!(OhlcvBar::breakout_count(&[]), 0);
+    }
+
+    #[test]
+    fn test_breakout_count_zero_for_single_bar() {
+        assert_eq!(OhlcvBar::breakout_count(&[make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105))]), 0);
+    }
+
+    #[test]
+    fn test_breakout_count_detects_close_above_prev_high() {
+        // b1: high=110; b2: close=115 > 110 → breakout
+        let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(108));
+        let b2 = make_ohlcv_bar(dec!(108), dec!(120), dec!(105), dec!(115));
+        assert_eq!(OhlcvBar::breakout_count(&[b1, b2]), 1);
+    }
+
+    #[test]
+    fn test_breakout_count_zero_when_close_at_prev_high() {
+        // close == prev high → not a strict breakout
+        let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(108));
+        let b2 = make_ohlcv_bar(dec!(108), dec!(115), dec!(105), dec!(110));
+        assert_eq!(OhlcvBar::breakout_count(&[b1, b2]), 0);
+    }
 }

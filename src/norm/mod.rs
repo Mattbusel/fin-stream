@@ -2108,10 +2108,7 @@ impl ZScoreNormalizer {
     ///
     /// Returns `false` if the window has fewer than 2 observations.
     pub fn is_mean_stable(&self, threshold: f64) -> bool {
-        match self.rolling_mean_change() {
-            Some(change) => change.abs() < threshold,
-            None => false,
-        }
+        self.rolling_mean_change().map_or(false, |c| c.abs() < threshold)
     }
 
     /// Count of window values whose absolute z-score exceeds `z_threshold`.
