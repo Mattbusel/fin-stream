@@ -1940,6 +1940,80 @@ impl OhlcvBar {
         Some(total / bars.len() as f64)
     }
 
+    /// Longest run of consecutive bars with strictly rising closes.
+    pub fn max_consecutive_gains(bars: &[OhlcvBar]) -> usize {
+        let mut max_run = 0usize;
+        let mut current = 0usize;
+        for w in bars.windows(2) {
+            if w[1].close > w[0].close {
+                current += 1;
+                if current > max_run {
+                    max_run = current;
+                }
+            } else {
+                current = 0;
+            }
+        }
+        max_run
+    }
+
+    /// Longest run of consecutive bars with strictly falling closes.
+    pub fn max_consecutive_losses(bars: &[OhlcvBar]) -> usize {
+        let mut max_run = 0usize;
+        let mut current = 0usize;
+        for w in bars.windows(2) {
+            if w[1].close < w[0].close {
+                current += 1;
+                if current > max_run {
+                    max_run = current;
+                }
+            } else {
+                current = 0;
+            }
+        }
+        max_run
+    }
+
+    /// Total path length of close prices: sum of absolute consecutive changes.
+    ///
+    /// Measures how much the close price "travels" over the window. A high
+    /// value relative to the net change indicates choppy price action.
+    /// Returns `None` if fewer than 2 bars.
+    pub fn price_path_length(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.len() < 2 {
+            return None;
+        }
+        let total: f64 = bars.windows(2)
+            .filter_map(|w| (w[1].close - w[0].close).abs().to_f64())
+            .sum();
+        Some(total)
+    }
+
+    /// Count of bars where the close reverts toward the window mean (i.e., the
+    /// bar's close is between the previous close and the window mean close).
+    ///
+    /// Returns 0 if fewer than 2 bars or no mean can be computed.
+    pub fn close_reversion_count(bars: &[OhlcvBar]) -> usize {
+        let mean = match Self::mean_close(bars) {
+            Some(m) => m,
+            None => return 0,
+        };
+        if bars.len() < 2 {
+            return 0;
+        }
+        bars.windows(2).filter(|w| {
+            let prev = w[0].close;
+            let curr = w[1].close;
+            // Reverts if the current close is between prev and mean
+            if prev < mean {
+                curr > prev && curr <= mean
+            } else {
+                curr < prev && curr >= mean
+            }
+        }).count()
+    }
+
 }
 
 impl std::fmt::Display for OhlcvBar {
@@ -6214,5 +6288,69 @@ mod tests {
         let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
         let b2 = make_ohlcv_bar(dec!(110), dec!(120), dec!(108), dec!(118));
         assert_eq!(OhlcvBar::close_above_high_ma(&[b1, b2], 2), 1);
+    }
+
+    // ── OhlcvBar::max_consecutive_gains / max_consecutive_losses ──────────────
+
+    #[test]
+    fn test_max_consecutive_gains_zero_for_single_bar() {
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        assert_eq!(OhlcvBar::max_consecutive_gains(&[b]), 0);
+    }
+
+    #[test]
+    fn test_max_consecutive_gains_correct() {
+        // closes: 100, 105, 110, 108, 115 → gains: 1,1,0,1 → max run=2
+        let b1 = make_ohlcv_bar(dec!(98), dec!(102), dec!(96), dec!(100));
+        let b2 = make_ohlcv_bar(dec!(100), dec!(108), dec!(99), dec!(105));
+        let b3 = make_ohlcv_bar(dec!(105), dec!(112), dec!(104), dec!(110));
+        let b4 = make_ohlcv_bar(dec!(110), dec!(111), dec!(105), dec!(108));
+        let b5 = make_ohlcv_bar(dec!(108), dec!(116), dec!(107), dec!(115));
+        assert_eq!(OhlcvBar::max_consecutive_gains(&[b1, b2, b3, b4, b5]), 2);
+    }
+
+    #[test]
+    fn test_max_consecutive_losses_correct() {
+        // closes: 110, 105, 100, 108 → losses: 1,1,0 → max run=2
+        let b1 = make_ohlcv_bar(dec!(112), dec!(115), dec!(108), dec!(110));
+        let b2 = make_ohlcv_bar(dec!(110), dec!(112), dec!(103), dec!(105));
+        let b3 = make_ohlcv_bar(dec!(105), dec!(108), dec!(98), dec!(100));
+        let b4 = make_ohlcv_bar(dec!(100), dec!(112), dec!(98), dec!(108));
+        assert_eq!(OhlcvBar::max_consecutive_losses(&[b1, b2, b3, b4]), 2);
+    }
+
+    // ── OhlcvBar::price_path_length ───────────────────────────────────────────
+
+    #[test]
+    fn test_price_path_length_none_for_single_bar() {
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        assert!(OhlcvBar::price_path_length(&[b]).is_none());
+    }
+
+    #[test]
+    fn test_price_path_length_correct() {
+        // closes: 100, 110, 105 → |10| + |5| = 15
+        let b1 = make_ohlcv_bar(dec!(98), dec!(102), dec!(96), dec!(100));
+        let b2 = make_ohlcv_bar(dec!(100), dec!(112), dec!(99), dec!(110));
+        let b3 = make_ohlcv_bar(dec!(110), dec!(112), dec!(103), dec!(105));
+        let len = OhlcvBar::price_path_length(&[b1, b2, b3]).unwrap();
+        assert!((len - 15.0).abs() < 1e-6, "expected 15.0, got {}", len);
+    }
+
+    // ── OhlcvBar::close_reversion_count ──────────────────────────────────────
+
+    #[test]
+    fn test_close_reversion_count_zero_for_single_bar() {
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        assert_eq!(OhlcvBar::close_reversion_count(&[b]), 0);
+    }
+
+    #[test]
+    fn test_close_reversion_count_returns_usize() {
+        let b1 = make_ohlcv_bar(dec!(98), dec!(102), dec!(96), dec!(100));
+        let b2 = make_ohlcv_bar(dec!(100), dec!(112), dec!(99), dec!(110));
+        let b3 = make_ohlcv_bar(dec!(110), dec!(112), dec!(103), dec!(105));
+        // Just test it runs without panic
+        let _ = OhlcvBar::close_reversion_count(&[b1, b2, b3]);
     }
 }

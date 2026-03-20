@@ -1493,6 +1493,66 @@ impl NormalizedTick {
         (buy / total).to_f64()
     }
 
+    /// Price range as a percentage of the minimum price.
+    ///
+    /// `(max_price - min_price) / min_price * 100`. Returns `None` if the
+    /// slice is empty or the minimum price is zero.
+    pub fn price_range_pct(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let min = Self::min_price(ticks)?;
+        let max = Self::max_price(ticks)?;
+        if min.is_zero() {
+            return None;
+        }
+        ((max - min) / min * Decimal::ONE_HUNDRED).to_f64()
+    }
+
+    /// Buy-side dominance: `buy_volume / (buy_volume + sell_volume)`.
+    ///
+    /// Returns a value in [0, 1]. Returns `None` if both sides are zero.
+    pub fn buy_side_dominance(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let buy = Self::buy_volume(ticks);
+        let sell = Self::sell_volume(ticks);
+        let total = buy + sell;
+        if total.is_zero() {
+            return None;
+        }
+        (buy / total).to_f64()
+    }
+
+    /// Standard deviation of price weighted by quantity.
+    ///
+    /// Uses VWAP as the mean. Returns `None` if empty or VWAP cannot be
+    /// computed.
+    pub fn volume_weighted_price_std(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let vwap = Self::vwap(ticks)?;
+        let total_qty: Decimal = ticks.iter().map(|t| t.quantity).sum();
+        if total_qty.is_zero() {
+            return None;
+        }
+        let variance: Decimal = ticks.iter()
+            .map(|t| {
+                let diff = t.price - vwap;
+                diff * diff * t.quantity
+            })
+            .sum::<Decimal>() / total_qty;
+        variance.to_f64().map(f64::sqrt)
+    }
+
+    /// VWAP computed over just the last `n` ticks.
+    ///
+    /// Returns `None` if `n` is 0 or the slice has no ticks, or if total
+    /// volume of the window is zero.
+    pub fn last_n_vwap(ticks: &[NormalizedTick], n: usize) -> Option<Decimal> {
+        if n == 0 || ticks.is_empty() {
+            return None;
+        }
+        let window = &ticks[ticks.len().saturating_sub(n)..];
+        Self::vwap(window)
+    }
+
 }
 
 impl std::fmt::Display for NormalizedTick {
@@ -4742,5 +4802,81 @@ mod tests {
         let mut sell = make_tick_pq(dec!(100), dec!(1)); sell.side = Some(TradeSide::Sell);
         let frac = NormalizedTick::buy_notional_fraction(&[buy, sell]).unwrap();
         assert!(frac > 0.0 && frac < 1.0, "mixed ticks should be in (0,1), got {}", frac);
+    }
+
+    // ── NormalizedTick::price_range_pct ───────────────────────────────────────
+
+    #[test]
+    fn test_price_range_pct_none_for_empty() {
+        assert!(NormalizedTick::price_range_pct(&[]).is_none());
+    }
+
+    #[test]
+    fn test_price_range_pct_correct() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(110), dec!(1)),
+        ];
+        // (110 - 100) / 100 * 100 = 10%
+        let pct = NormalizedTick::price_range_pct(&ticks).unwrap();
+        assert!((pct - 10.0).abs() < 1e-6, "expected 10.0%, got {}", pct);
+    }
+
+    // ── NormalizedTick::buy_side_dominance ────────────────────────────────────
+
+    #[test]
+    fn test_buy_side_dominance_none_when_no_sides() {
+        use rust_decimal_macros::dec;
+        let t = make_tick_pq(dec!(100), dec!(1)); // side=None
+        assert!(NormalizedTick::buy_side_dominance(&[t]).is_none());
+    }
+
+    #[test]
+    fn test_buy_side_dominance_one_when_all_buys() {
+        use rust_decimal_macros::dec;
+        let mut t = make_tick_pq(dec!(100), dec!(5)); t.side = Some(TradeSide::Buy);
+        let d = NormalizedTick::buy_side_dominance(&[t]).unwrap();
+        assert!((d - 1.0).abs() < 1e-9, "all buys should give 1.0, got {}", d);
+    }
+
+    // ── NormalizedTick::volume_weighted_price_std ─────────────────────────────
+
+    #[test]
+    fn test_volume_weighted_price_std_none_for_empty() {
+        assert!(NormalizedTick::volume_weighted_price_std(&[]).is_none());
+    }
+
+    #[test]
+    fn test_volume_weighted_price_std_zero_for_same_price() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(2)),
+            make_tick_pq(dec!(100), dec!(3)),
+        ];
+        let std = NormalizedTick::volume_weighted_price_std(&ticks).unwrap();
+        assert!((std - 0.0).abs() < 1e-9, "same price should give 0 std, got {}", std);
+    }
+
+    // ── NormalizedTick::last_n_vwap ───────────────────────────────────────────
+
+    #[test]
+    fn test_last_n_vwap_none_for_zero_n() {
+        use rust_decimal_macros::dec;
+        let t = make_tick_pq(dec!(100), dec!(1));
+        assert!(NormalizedTick::last_n_vwap(&[t], 0).is_none());
+    }
+
+    #[test]
+    fn test_last_n_vwap_uses_last_n_ticks() {
+        use rust_decimal_macros::dec;
+        // first tick at 50, last 2 at 100 equal qty → last_n_vwap(n=2) = 100
+        let ticks = vec![
+            make_tick_pq(dec!(50), dec!(10)),
+            make_tick_pq(dec!(100), dec!(5)),
+            make_tick_pq(dec!(100), dec!(5)),
+        ];
+        let v = NormalizedTick::last_n_vwap(&ticks, 2).unwrap();
+        assert_eq!(v, dec!(100));
     }
 }

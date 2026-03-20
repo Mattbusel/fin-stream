@@ -904,6 +904,28 @@ impl MinMaxNormalizer {
         Some(max_run)
     }
 
+    /// Fraction of window values above `threshold`.
+    ///
+    /// Returns `None` if the window is empty.
+    pub fn above_threshold_fraction(&self, threshold: Decimal) -> Option<f64> {
+        if self.window.is_empty() {
+            return None;
+        }
+        let count = self.window.iter().filter(|&&v| v > threshold).count();
+        Some(count as f64 / self.window.len() as f64)
+    }
+
+    /// Fraction of window values below `threshold`.
+    ///
+    /// Returns `None` if the window is empty.
+    pub fn below_threshold_fraction(&self, threshold: Decimal) -> Option<f64> {
+        if self.window.is_empty() {
+            return None;
+        }
+        let count = self.window.iter().filter(|&&v| v < threshold).count();
+        Some(count as f64 / self.window.len() as f64)
+    }
+
 }
 
 #[cfg(test)]
@@ -2215,6 +2237,36 @@ mod tests {
         for v in [dec!(1), dec!(5), dec!(6), dec!(7)] { n.update(v); }
         assert_eq!(n.consecutive_above_mean().unwrap(), 3);
     }
+
+    // ── MinMaxNormalizer::above_threshold_fraction / below_threshold_fraction ─
+
+    #[test]
+    fn test_minmax_above_threshold_fraction_none_for_empty() {
+        assert!(norm(4).above_threshold_fraction(dec!(5)).is_none());
+    }
+
+    #[test]
+    fn test_minmax_above_threshold_fraction_correct() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        // above 2: values 3,4 → fraction = 0.5
+        let f = n.above_threshold_fraction(dec!(2)).unwrap();
+        assert!((f - 0.5).abs() < 1e-9, "expected 0.5, got {}", f);
+    }
+
+    #[test]
+    fn test_minmax_below_threshold_fraction_none_for_empty() {
+        assert!(norm(4).below_threshold_fraction(dec!(5)).is_none());
+    }
+
+    #[test]
+    fn test_minmax_below_threshold_fraction_correct() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        // below 3: values 1,2 → fraction = 0.5
+        let f = n.below_threshold_fraction(dec!(3)).unwrap();
+        assert!((f - 0.5).abs() < 1e-9, "expected 0.5, got {}", f);
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -3183,6 +3235,28 @@ impl ZScoreNormalizer {
             }
         }
         Some(max_run)
+    }
+
+    /// Fraction of window values above `threshold`.
+    ///
+    /// Returns `None` if the window is empty.
+    pub fn above_threshold_fraction(&self, threshold: Decimal) -> Option<f64> {
+        if self.window.is_empty() {
+            return None;
+        }
+        let count = self.window.iter().filter(|&&v| v > threshold).count();
+        Some(count as f64 / self.window.len() as f64)
+    }
+
+    /// Fraction of window values below `threshold`.
+    ///
+    /// Returns `None` if the window is empty.
+    pub fn below_threshold_fraction(&self, threshold: Decimal) -> Option<f64> {
+        if self.window.is_empty() {
+            return None;
+        }
+        let count = self.window.iter().filter(|&&v| v < threshold).count();
+        Some(count as f64 / self.window.len() as f64)
     }
 
 }
@@ -4811,5 +4885,33 @@ mod zscore_stability_tests {
         for v in [dec!(1), dec!(5), dec!(6), dec!(7)] { n.update(v); }
         // mean=4.75, above: 5,6,7 → run=3
         assert_eq!(n.consecutive_above_mean().unwrap(), 3);
+    }
+
+    // ── ZScoreNormalizer::above_threshold_fraction / below_threshold_fraction ─
+
+    #[test]
+    fn test_zscore_above_threshold_fraction_none_for_empty() {
+        assert!(znorm(4).above_threshold_fraction(dec!(5)).is_none());
+    }
+
+    #[test]
+    fn test_zscore_above_threshold_fraction_correct() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let f = n.above_threshold_fraction(dec!(2)).unwrap();
+        assert!((f - 0.5).abs() < 1e-9, "expected 0.5, got {}", f);
+    }
+
+    #[test]
+    fn test_zscore_below_threshold_fraction_none_for_empty() {
+        assert!(znorm(4).below_threshold_fraction(dec!(5)).is_none());
+    }
+
+    #[test]
+    fn test_zscore_below_threshold_fraction_correct() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let f = n.below_threshold_fraction(dec!(3)).unwrap();
+        assert!((f - 0.5).abs() < 1e-9, "expected 0.5, got {}", f);
     }
 }
