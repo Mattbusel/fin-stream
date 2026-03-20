@@ -1553,6 +1553,63 @@ impl NormalizedTick {
         Self::vwap(window)
     }
 
+    /// Lag-1 autocorrelation of the price series across ticks.
+    ///
+    /// Uses the Pearson formula on consecutive price pairs. Returns `None` if
+    /// fewer than 3 ticks or if the variance is zero.
+    pub fn price_autocorrelation(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let n = ticks.len();
+        if n < 3 {
+            return None;
+        }
+        let prices: Vec<f64> = ticks.iter().filter_map(|t| t.price.to_f64()).collect();
+        if prices.len() != n {
+            return None;
+        }
+        let nf = (n - 1) as f64;
+        let mean = prices.iter().sum::<f64>() / n as f64;
+        let var = prices.iter().map(|p| (p - mean).powi(2)).sum::<f64>() / n as f64;
+        if var == 0.0 {
+            return None;
+        }
+        let cov: f64 = prices.windows(2).map(|w| (w[0] - mean) * (w[1] - mean)).sum::<f64>() / nf;
+        Some(cov / var)
+    }
+
+    /// Net trade direction score: `(buy_count - sell_count)` as a signed integer.
+    pub fn net_trade_direction(ticks: &[NormalizedTick]) -> i64 {
+        Self::buy_count(ticks) as i64 - Self::sell_count(ticks) as i64
+    }
+
+    /// Fraction of total notional volume that comes from sell-side trades.
+    ///
+    /// Returns `None` if total notional volume is zero or the slice is empty.
+    pub fn sell_side_notional_fraction(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let total = Self::total_notional(ticks);
+        if total.is_zero() {
+            return None;
+        }
+        let sell = Self::sell_notional(ticks);
+        (sell / total).to_f64()
+    }
+
+    /// Count of price direction reversals (sign changes in consecutive moves).
+    ///
+    /// Returns 0 if fewer than 3 ticks.
+    pub fn price_oscillation_count(ticks: &[NormalizedTick]) -> usize {
+        if ticks.len() < 3 {
+            return 0;
+        }
+        ticks.windows(3).filter(|w| {
+            let d1 = w[1].price.cmp(&w[0].price);
+            let d2 = w[2].price.cmp(&w[1].price);
+            use std::cmp::Ordering::*;
+            matches!((d1, d2), (Greater, Less) | (Less, Greater))
+        }).count()
+    }
+
 }
 
 impl std::fmt::Display for NormalizedTick {
@@ -4878,5 +4935,85 @@ mod tests {
         ];
         let v = NormalizedTick::last_n_vwap(&ticks, 2).unwrap();
         assert_eq!(v, dec!(100));
+    }
+
+    // ── NormalizedTick::price_autocorrelation ─────────────────────────────────
+
+    #[test]
+    fn test_price_autocorrelation_none_for_fewer_than_3() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![make_tick_pq(dec!(100), dec!(1)), make_tick_pq(dec!(101), dec!(1))];
+        assert!(NormalizedTick::price_autocorrelation(&ticks).is_none());
+    }
+
+    #[test]
+    fn test_price_autocorrelation_positive_for_trending_prices() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(102), dec!(1)),
+            make_tick_pq(dec!(104), dec!(1)),
+            make_tick_pq(dec!(106), dec!(1)),
+        ];
+        let ac = NormalizedTick::price_autocorrelation(&ticks).unwrap();
+        assert!(ac > 0.0, "trending prices should have positive AC, got {}", ac);
+    }
+
+    // ── NormalizedTick::net_trade_direction ───────────────────────────────────
+
+    #[test]
+    fn test_net_trade_direction_zero_for_empty() {
+        assert_eq!(NormalizedTick::net_trade_direction(&[]), 0);
+    }
+
+    #[test]
+    fn test_net_trade_direction_positive_for_more_buys() {
+        use rust_decimal_macros::dec;
+        let mut b1 = make_tick_pq(dec!(100), dec!(1)); b1.side = Some(TradeSide::Buy);
+        let mut b2 = make_tick_pq(dec!(100), dec!(1)); b2.side = Some(TradeSide::Buy);
+        let mut s1 = make_tick_pq(dec!(100), dec!(1)); s1.side = Some(TradeSide::Sell);
+        assert_eq!(NormalizedTick::net_trade_direction(&[b1, b2, s1]), 1);
+    }
+
+    // ── NormalizedTick::sell_side_notional_fraction ───────────────────────────
+
+    #[test]
+    fn test_sell_side_notional_fraction_none_for_empty() {
+        assert!(NormalizedTick::sell_side_notional_fraction(&[]).is_none());
+    }
+
+    #[test]
+    fn test_sell_side_notional_fraction_one_when_all_sells() {
+        use rust_decimal_macros::dec;
+        let mut t = make_tick_pq(dec!(100), dec!(5)); t.side = Some(TradeSide::Sell);
+        let f = NormalizedTick::sell_side_notional_fraction(&[t]).unwrap();
+        assert!((f - 1.0).abs() < 1e-9, "all sells should give 1.0, got {}", f);
+    }
+
+    // ── NormalizedTick::price_oscillation_count ───────────────────────────────
+
+    #[test]
+    fn test_price_oscillation_count_zero_for_monotone() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(101), dec!(1)),
+            make_tick_pq(dec!(102), dec!(1)),
+        ];
+        assert_eq!(NormalizedTick::price_oscillation_count(&ticks), 0);
+    }
+
+    #[test]
+    fn test_price_oscillation_count_detects_reversals() {
+        use rust_decimal_macros::dec;
+        // up-down-up: 100 → 105 → 102 → 107
+        // windows(3): [100,105,102] (up-down) + [105,102,107] (down-up) → 2 reversals
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(105), dec!(1)),
+            make_tick_pq(dec!(102), dec!(1)),
+            make_tick_pq(dec!(107), dec!(1)),
+        ];
+        assert_eq!(NormalizedTick::price_oscillation_count(&ticks), 2);
     }
 }

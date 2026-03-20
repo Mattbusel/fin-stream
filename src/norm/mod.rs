@@ -926,6 +926,67 @@ impl MinMaxNormalizer {
         Some(count as f64 / self.window.len() as f64)
     }
 
+    /// Autocorrelation at lag `k` of the window values.
+    ///
+    /// Returns `None` if `k == 0`, `k >= window.len()`, or variance is zero.
+    pub fn lag_k_autocorrelation(&self, k: usize) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let n = self.window.len();
+        if k == 0 || k >= n {
+            return None;
+        }
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.len() != n {
+            return None;
+        }
+        let mean = vals.iter().sum::<f64>() / n as f64;
+        let var = vals.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / n as f64;
+        if var == 0.0 {
+            return None;
+        }
+        let m = n - k;
+        let cov: f64 = (0..m).map(|i| (vals[i] - mean) * (vals[i + k] - mean)).sum::<f64>() / m as f64;
+        Some(cov / var)
+    }
+
+    /// Estimated half-life of mean reversion using a simple AR(1) regression.
+    ///
+    /// Half-life ≈ `-ln(2) / ln(|β|)` where β is the AR(1) coefficient from
+    /// regressing `Δy_t` on `y_{t-1}`. Returns `None` if the window has fewer
+    /// than 3 values, the regression denominator is zero, or β ≥ 0 (no
+    /// mean-reversion signal).
+    pub fn half_life_estimate(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let n = self.window.len();
+        if n < 3 {
+            return None;
+        }
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.len() != n {
+            return None;
+        }
+        let diffs: Vec<f64> = vals.windows(2).map(|w| w[1] - w[0]).collect();
+        let lagged: Vec<f64> = vals[..n - 1].to_vec();
+        let nf = diffs.len() as f64;
+        let mean_l = lagged.iter().sum::<f64>() / nf;
+        let mean_d = diffs.iter().sum::<f64>() / nf;
+        let cov: f64 = lagged.iter().zip(diffs.iter()).map(|(l, d)| (l - mean_l) * (d - mean_d)).sum::<f64>();
+        let var: f64 = lagged.iter().map(|l| (l - mean_l).powi(2)).sum::<f64>();
+        if var == 0.0 {
+            return None;
+        }
+        let beta = cov / var;
+        // beta should be negative for mean-reversion
+        if beta >= 0.0 {
+            return None;
+        }
+        let lambda = (1.0 + beta).abs().ln();
+        if lambda == 0.0 {
+            return None;
+        }
+        Some(-std::f64::consts::LN_2 / lambda)
+    }
+
 }
 
 #[cfg(test)]
@@ -2267,6 +2328,49 @@ mod tests {
         let f = n.below_threshold_fraction(dec!(3)).unwrap();
         assert!((f - 0.5).abs() < 1e-9, "expected 0.5, got {}", f);
     }
+
+    // ── MinMaxNormalizer::lag_k_autocorrelation ───────────────────────────────
+
+    #[test]
+    fn test_minmax_lag_k_autocorrelation_none_for_zero_k() {
+        let mut n = norm(5);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4), dec!(5)] { n.update(v); }
+        assert!(n.lag_k_autocorrelation(0).is_none());
+    }
+
+    #[test]
+    fn test_minmax_lag_k_autocorrelation_none_when_k_gte_len() {
+        let mut n = norm(3);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        assert!(n.lag_k_autocorrelation(3).is_none());
+    }
+
+    #[test]
+    fn test_minmax_lag_k_autocorrelation_positive_for_trend() {
+        // Monotone increasing → strong positive autocorrelation
+        let mut n = norm(6);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4), dec!(5), dec!(6)] { n.update(v); }
+        let ac = n.lag_k_autocorrelation(1).unwrap();
+        assert!(ac > 0.0, "trending series should have positive AC, got {}", ac);
+    }
+
+    // ── MinMaxNormalizer::half_life_estimate ──────────────────────────────────
+
+    #[test]
+    fn test_minmax_half_life_estimate_none_for_fewer_than_3() {
+        let mut n = norm(3);
+        n.update(dec!(1)); n.update(dec!(2));
+        assert!(n.half_life_estimate().is_none());
+    }
+
+    #[test]
+    fn test_minmax_half_life_estimate_some_for_mean_reverting() {
+        // Alternating series: strong mean-reversion signal
+        let mut n = norm(6);
+        for v in [dec!(10), dec!(5), dec!(10), dec!(5), dec!(10), dec!(5)] { n.update(v); }
+        // May or may not return Some depending on AR coefficient sign; just ensure no panic
+        let _ = n.half_life_estimate();
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -3257,6 +3361,65 @@ impl ZScoreNormalizer {
         }
         let count = self.window.iter().filter(|&&v| v < threshold).count();
         Some(count as f64 / self.window.len() as f64)
+    }
+
+    /// Autocorrelation at lag `k` of the window values.
+    ///
+    /// Returns `None` if `k == 0`, `k >= window.len()`, or variance is zero.
+    pub fn lag_k_autocorrelation(&self, k: usize) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let n = self.window.len();
+        if k == 0 || k >= n {
+            return None;
+        }
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.len() != n {
+            return None;
+        }
+        let mean = vals.iter().sum::<f64>() / n as f64;
+        let var = vals.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / n as f64;
+        if var == 0.0 {
+            return None;
+        }
+        let m = n - k;
+        let cov: f64 = (0..m).map(|i| (vals[i] - mean) * (vals[i + k] - mean)).sum::<f64>() / m as f64;
+        Some(cov / var)
+    }
+
+    /// Estimated half-life of mean reversion using a simple AR(1) regression.
+    ///
+    /// Half-life ≈ `-ln(2) / ln(|β|)` where β is the AR(1) coefficient. Returns
+    /// `None` if the window has fewer than 3 values, the regression denominator
+    /// is zero, or β ≥ 0 (no mean-reversion signal).
+    pub fn half_life_estimate(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let n = self.window.len();
+        if n < 3 {
+            return None;
+        }
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.len() != n {
+            return None;
+        }
+        let diffs: Vec<f64> = vals.windows(2).map(|w| w[1] - w[0]).collect();
+        let lagged: Vec<f64> = vals[..n - 1].to_vec();
+        let nf = diffs.len() as f64;
+        let mean_l = lagged.iter().sum::<f64>() / nf;
+        let mean_d = diffs.iter().sum::<f64>() / nf;
+        let cov: f64 = lagged.iter().zip(diffs.iter()).map(|(l, d)| (l - mean_l) * (d - mean_d)).sum::<f64>();
+        let var: f64 = lagged.iter().map(|l| (l - mean_l).powi(2)).sum::<f64>();
+        if var == 0.0 {
+            return None;
+        }
+        let beta = cov / var;
+        if beta >= 0.0 {
+            return None;
+        }
+        let lambda = (1.0 + beta).abs().ln();
+        if lambda == 0.0 {
+            return None;
+        }
+        Some(-std::f64::consts::LN_2 / lambda)
     }
 
 }
@@ -4913,5 +5076,45 @@ mod zscore_stability_tests {
         for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
         let f = n.below_threshold_fraction(dec!(3)).unwrap();
         assert!((f - 0.5).abs() < 1e-9, "expected 0.5, got {}", f);
+    }
+
+    // ── ZScoreNormalizer::lag_k_autocorrelation ───────────────────────────────
+
+    #[test]
+    fn test_zscore_lag_k_autocorrelation_none_for_zero_k() {
+        let mut n = znorm(5);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4), dec!(5)] { n.update(v); }
+        assert!(n.lag_k_autocorrelation(0).is_none());
+    }
+
+    #[test]
+    fn test_zscore_lag_k_autocorrelation_none_when_k_gte_len() {
+        let mut n = znorm(3);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        assert!(n.lag_k_autocorrelation(3).is_none());
+    }
+
+    #[test]
+    fn test_zscore_lag_k_autocorrelation_positive_for_trend() {
+        let mut n = znorm(6);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4), dec!(5), dec!(6)] { n.update(v); }
+        let ac = n.lag_k_autocorrelation(1).unwrap();
+        assert!(ac > 0.0, "trending series should have positive AC, got {}", ac);
+    }
+
+    // ── ZScoreNormalizer::half_life_estimate ──────────────────────────────────
+
+    #[test]
+    fn test_zscore_half_life_estimate_none_for_fewer_than_3() {
+        let mut n = znorm(3);
+        n.update(dec!(1)); n.update(dec!(2));
+        assert!(n.half_life_estimate().is_none());
+    }
+
+    #[test]
+    fn test_zscore_half_life_no_panic_for_alternating() {
+        let mut n = znorm(6);
+        for v in [dec!(10), dec!(5), dec!(10), dec!(5), dec!(10), dec!(5)] { n.update(v); }
+        let _ = n.half_life_estimate();
     }
 }

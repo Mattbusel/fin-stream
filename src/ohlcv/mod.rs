@@ -2014,6 +2014,74 @@ impl OhlcvBar {
         }).count()
     }
 
+    /// ATR as a fraction of the mean close price.
+    ///
+    /// `ATR / mean_close * 100`. A dimensionless volatility measure. Returns
+    /// `None` if fewer than 2 bars or if mean close is zero.
+    pub fn atr_ratio(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let atr = Self::average_true_range(bars)?;
+        let mean = Self::mean_close(bars)?;
+        if mean.is_zero() {
+            return None;
+        }
+        (atr / mean * Decimal::ONE_HUNDRED).to_f64()
+    }
+
+    /// Pearson correlation between bar index and volume — a measure of whether
+    /// volume is trending up or down over the window.
+    ///
+    /// Returns `None` if fewer than 2 bars or if either series has zero variance.
+    pub fn volume_trend_strength(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let n = bars.len();
+        if n < 2 {
+            return None;
+        }
+        let nf = n as f64;
+        let indices: Vec<f64> = (0..n).map(|i| i as f64).collect();
+        let vols: Vec<f64> = bars.iter().filter_map(|b| b.volume.to_f64()).collect();
+        if vols.len() != n {
+            return None;
+        }
+        let mean_i = indices.iter().sum::<f64>() / nf;
+        let mean_v = vols.iter().sum::<f64>() / nf;
+        let cov: f64 = indices.iter().zip(vols.iter()).map(|(i, v)| (i - mean_i) * (v - mean_v)).sum::<f64>() / nf;
+        let std_i = (indices.iter().map(|i| (i - mean_i).powi(2)).sum::<f64>() / nf).sqrt();
+        let std_v = (vols.iter().map(|v| (v - mean_v).powi(2)).sum::<f64>() / nf).sqrt();
+        if std_i == 0.0 || std_v == 0.0 {
+            return None;
+        }
+        Some(cov / (std_i * std_v))
+    }
+
+    /// Mean spread between high and close across all bars.
+    ///
+    /// `mean(high - close)`. Always ≥ 0 since high ≥ close by definition.
+    /// Returns `None` if the slice is empty.
+    pub fn high_close_spread(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() {
+            return None;
+        }
+        let total: f64 = bars.iter().filter_map(|b| (b.high - b.close).to_f64()).sum();
+        Some(total / bars.len() as f64)
+    }
+
+    /// Mean open-to-first-close range for the session opening bar.
+    ///
+    /// Defined as the absolute distance `|close - open|` averaged over all
+    /// bars. Equivalent to [`open_close_spread`] but named for discoverability.
+    /// Returns `None` if the slice is empty.
+    pub fn open_range(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() {
+            return None;
+        }
+        let total: f64 = bars.iter().filter_map(|b| (b.close - b.open).abs().to_f64()).sum();
+        Some(total / bars.len() as f64)
+    }
+
 }
 
 impl std::fmt::Display for OhlcvBar {
@@ -6352,5 +6420,81 @@ mod tests {
         let b3 = make_ohlcv_bar(dec!(110), dec!(112), dec!(103), dec!(105));
         // Just test it runs without panic
         let _ = OhlcvBar::close_reversion_count(&[b1, b2, b3]);
+    }
+
+    // ── OhlcvBar::atr_ratio ───────────────────────────────────────────────────
+
+    #[test]
+    fn test_atr_ratio_none_for_single_bar() {
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        assert!(OhlcvBar::atr_ratio(&[b]).is_none());
+    }
+
+    #[test]
+    fn test_atr_ratio_positive_for_valid_bars() {
+        let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let b2 = make_ohlcv_bar(dec!(105), dec!(115), dec!(103), dec!(110));
+        let r = OhlcvBar::atr_ratio(&[b1, b2]).unwrap();
+        assert!(r > 0.0, "expected positive ATR ratio, got {}", r);
+    }
+
+    // ── OhlcvBar::volume_trend_strength ───────────────────────────────────────
+
+    #[test]
+    fn test_volume_trend_strength_none_for_single_bar() {
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        assert!(OhlcvBar::volume_trend_strength(&[b]).is_none());
+    }
+
+    #[test]
+    fn test_volume_trend_strength_positive_for_rising_volume() {
+        let mut b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105)); b1.volume = dec!(100);
+        let mut b2 = make_ohlcv_bar(dec!(105), dec!(115), dec!(103), dec!(110)); b2.volume = dec!(200);
+        let mut b3 = make_ohlcv_bar(dec!(110), dec!(120), dec!(108), dec!(115)); b3.volume = dec!(300);
+        let s = OhlcvBar::volume_trend_strength(&[b1, b2, b3]).unwrap();
+        assert!(s > 0.0, "rising volume should give positive strength, got {}", s);
+    }
+
+    // ── OhlcvBar::high_close_spread ───────────────────────────────────────────
+
+    #[test]
+    fn test_high_close_spread_none_for_empty() {
+        assert!(OhlcvBar::high_close_spread(&[]).is_none());
+    }
+
+    #[test]
+    fn test_high_close_spread_zero_when_close_equals_high() {
+        // open=100, high=110, low=90, close=110 → upper wick=0
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(110));
+        let s = OhlcvBar::high_close_spread(&[b]).unwrap();
+        assert!((s - 0.0).abs() < 1e-9, "expected 0.0, got {}", s);
+    }
+
+    #[test]
+    fn test_high_close_spread_positive_for_wicked_bar() {
+        let b = make_ohlcv_bar(dec!(100), dec!(115), dec!(95), dec!(105));
+        let s = OhlcvBar::high_close_spread(&[b]).unwrap();
+        assert!(s > 0.0, "expected positive spread, got {}", s);
+    }
+
+    // ── OhlcvBar::open_range ──────────────────────────────────────────────────
+
+    #[test]
+    fn test_open_range_none_for_empty() {
+        assert!(OhlcvBar::open_range(&[]).is_none());
+    }
+
+    #[test]
+    fn test_open_range_zero_for_doji() {
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100));
+        let r = OhlcvBar::open_range(&[b]).unwrap();
+        assert!((r - 0.0).abs() < 1e-9, "doji should have open_range=0, got {}", r);
+    }
+
+    #[test]
+    fn test_open_range_positive_for_directional() {
+        let b = make_ohlcv_bar(dec!(100), dec!(115), dec!(98), dec!(110));
+        let r = OhlcvBar::open_range(&[b]).unwrap();
+        assert!(r > 0.0, "directional bar should have positive open_range, got {}", r);
     }
 }
