@@ -1982,6 +1982,76 @@ impl MinMaxNormalizer {
         Some(((max - min) / min).to_f64().unwrap_or(0.0))
     }
 
+    // ── round-97 ─────────────────────────────────────────────────────────────
+
+    /// Momentum of the rolling window: latest value minus the oldest value.
+    /// Returns `None` if the window has fewer than 2 values.
+    pub fn window_momentum(&self) -> Option<Decimal> {
+        if self.window.len() < 2 {
+            return None;
+        }
+        let oldest = *self.window.front()?;
+        let latest = *self.window.back()?;
+        Some(latest - oldest)
+    }
+
+    /// Fraction of window values that are strictly above the first (oldest) value.
+    /// Returns `None` if the window is empty.
+    pub fn above_first_fraction(&self) -> Option<f64> {
+        if self.window.is_empty() {
+            return None;
+        }
+        let first = *self.window.front()?;
+        let above = self.window.iter().filter(|&&v| v > first).count();
+        Some(above as f64 / self.window.len() as f64)
+    }
+
+    /// Z-score of the latest observation relative to the window mean and std-dev.
+    /// Returns `None` if the window is empty or std-dev is zero.
+    pub fn window_zscore_latest(&self) -> Option<f64> {
+        if self.window.is_empty() {
+            return None;
+        }
+        let n = Decimal::from(self.window.len());
+        let mean: Decimal = self.window.iter().copied().sum::<Decimal>() / n;
+        let variance = self.window.iter().map(|v| (*v - mean) * (*v - mean)).sum::<Decimal>() / n;
+        use rust_decimal::prelude::ToPrimitive;
+        let std_dev = variance.to_f64().unwrap_or(0.0).sqrt();
+        if std_dev == 0.0 {
+            return None;
+        }
+        let latest = self.window.back()?.to_f64().unwrap_or(0.0);
+        let mean_f = mean.to_f64().unwrap_or(0.0);
+        Some((latest - mean_f) / std_dev)
+    }
+
+    /// Exponentially-decayed weighted mean of the window (newest weight = alpha,
+    /// oldest = alpha*(1-alpha)^(n-1)).  Returns `None` for an empty window.
+    pub fn decay_weighted_mean(&self, alpha: f64) -> Option<f64> {
+        if self.window.is_empty() {
+            return None;
+        }
+        use rust_decimal::prelude::ToPrimitive;
+        let vals: Vec<f64> = self
+            .window
+            .iter()
+            .rev()
+            .map(|v| v.to_f64().unwrap_or(0.0))
+            .collect();
+        let n = vals.len();
+        let mut weighted_sum = 0.0f64;
+        let mut weight_sum = 0.0f64;
+        for (i, v) in vals.iter().enumerate() {
+            let w = alpha * (1.0 - alpha).powi(i as i32);
+            weighted_sum += v * w;
+            weight_sum += w;
+        }
+        if weight_sum == 0.0 || n == 0 {
+            return None;
+        }
+        Some(weighted_sum / weight_sum)
+    }
+
 }
 
 #[cfg(test)]
@@ -4378,6 +4448,48 @@ mod tests {
         let r = n.window_range_pct().unwrap();
         assert!(r.abs() < 1e-9, "constant → range_pct=0, got {}", r);
     }
+
+    // ── round-97 tests ────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_minmax_window_momentum_none_for_single() {
+        let mut n = norm(4);
+        n.update(dec!(5));
+        assert!(n.window_momentum().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_momentum_positive_for_rising() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(3)] { n.update(v); }
+        assert_eq!(n.window_momentum().unwrap(), dec!(2));
+    }
+
+    #[test]
+    fn test_minmax_above_first_fraction_none_for_empty() {
+        assert!(norm(4).above_first_fraction().is_none());
+    }
+
+    #[test]
+    fn test_minmax_above_first_fraction_all_above() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        // first=1, above: 2,3,4 → 3/4
+        let f = n.above_first_fraction().unwrap();
+        assert!((f - 0.75).abs() < 1e-9, "expected 0.75, got {}", f);
+    }
+
+    #[test]
+    fn test_minmax_window_zscore_latest_none_for_constant() {
+        let mut n = norm(4);
+        for _ in 0..4 { n.update(dec!(5)); }
+        assert!(n.window_zscore_latest().is_none());
+    }
+
+    #[test]
+    fn test_minmax_decay_weighted_mean_none_for_empty() {
+        assert!(norm(4).decay_weighted_mean(0.1).is_none());
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -6320,6 +6432,76 @@ impl ZScoreNormalizer {
             return None;
         }
         Some(((max - min) / min).to_f64().unwrap_or(0.0))
+    }
+
+    // ── round-97 ─────────────────────────────────────────────────────────────
+
+    /// Momentum of the rolling window: latest value minus the oldest value.
+    /// Returns `None` if the window has fewer than 2 values.
+    pub fn window_momentum(&self) -> Option<Decimal> {
+        if self.window.len() < 2 {
+            return None;
+        }
+        let oldest = *self.window.front()?;
+        let latest = *self.window.back()?;
+        Some(latest - oldest)
+    }
+
+    /// Fraction of window values that are strictly above the first (oldest) value.
+    /// Returns `None` if the window is empty.
+    pub fn above_first_fraction(&self) -> Option<f64> {
+        if self.window.is_empty() {
+            return None;
+        }
+        let first = *self.window.front()?;
+        let above = self.window.iter().filter(|&&v| v > first).count();
+        Some(above as f64 / self.window.len() as f64)
+    }
+
+    /// Z-score of the latest observation relative to the window mean and std-dev.
+    /// Returns `None` if the window is empty or std-dev is zero.
+    pub fn window_zscore_latest(&self) -> Option<f64> {
+        if self.window.is_empty() {
+            return None;
+        }
+        let n = Decimal::from(self.window.len());
+        let mean: Decimal = self.window.iter().copied().sum::<Decimal>() / n;
+        let variance = self.window.iter().map(|v| (*v - mean) * (*v - mean)).sum::<Decimal>() / n;
+        use rust_decimal::prelude::ToPrimitive;
+        let std_dev = variance.to_f64().unwrap_or(0.0).sqrt();
+        if std_dev == 0.0 {
+            return None;
+        }
+        let latest = self.window.back()?.to_f64().unwrap_or(0.0);
+        let mean_f = mean.to_f64().unwrap_or(0.0);
+        Some((latest - mean_f) / std_dev)
+    }
+
+    /// Exponentially-decayed weighted mean of the window (newest weight = alpha).
+    /// Returns `None` for an empty window.
+    pub fn decay_weighted_mean(&self, alpha: f64) -> Option<f64> {
+        if self.window.is_empty() {
+            return None;
+        }
+        use rust_decimal::prelude::ToPrimitive;
+        let vals: Vec<f64> = self
+            .window
+            .iter()
+            .rev()
+            .map(|v| v.to_f64().unwrap_or(0.0))
+            .collect();
+        let n = vals.len();
+        let mut weighted_sum = 0.0f64;
+        let mut weight_sum = 0.0f64;
+        for (i, v) in vals.iter().enumerate() {
+            let w = alpha * (1.0 - alpha).powi(i as i32);
+            weighted_sum += v * w;
+            weight_sum += w;
+        }
+        if weight_sum == 0.0 || n == 0 {
+            return None;
+        }
+        Some(weighted_sum / weight_sum)
     }
 
 }
@@ -8870,5 +9052,47 @@ mod zscore_stability_tests {
         for _ in 0..4 { n.update(dec!(5)); }
         let r = n.window_range_pct().unwrap();
         assert!(r.abs() < 1e-9, "constant → range_pct=0, got {}", r);
+    }
+
+    // ── round-97 tests ────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_zscore_window_momentum_none_for_single() {
+        let mut n = znorm(4);
+        n.update(dec!(5));
+        assert!(n.window_momentum().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_momentum_positive_for_rising() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(3)] { n.update(v); }
+        assert_eq!(n.window_momentum().unwrap(), dec!(2));
+    }
+
+    #[test]
+    fn test_zscore_above_first_fraction_none_for_empty() {
+        assert!(znorm(4).above_first_fraction().is_none());
+    }
+
+    #[test]
+    fn test_zscore_above_first_fraction_all_above() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        // first=1, above: 2,3,4 → 3/4
+        let f = n.above_first_fraction().unwrap();
+        assert!((f - 0.75).abs() < 1e-9, "expected 0.75, got {}", f);
+    }
+
+    #[test]
+    fn test_zscore_window_zscore_latest_none_for_constant() {
+        let mut n = znorm(4);
+        for _ in 0..4 { n.update(dec!(5)); }
+        assert!(n.window_zscore_latest().is_none());
+    }
+
+    #[test]
+    fn test_zscore_decay_weighted_mean_none_for_empty() {
+        assert!(znorm(4).decay_weighted_mean(0.1).is_none());
     }
 }

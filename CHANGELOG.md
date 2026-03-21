@@ -9,6 +9,31 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.4.8] - 2026-03-20
+
+### Added
+
+**`tick` module — `NormalizedTick` analytics (round 97)**
+- `NormalizedTick::price_gap_count(ticks)` — number of times consecutive tick prices cross the VWAP line.
+- `NormalizedTick::tick_density(ticks)` — ticks per millisecond of the total window span.
+- `NormalizedTick::buy_qty_mean(ticks)` — mean quantity of buy-side ticks.
+- `NormalizedTick::sell_qty_mean(ticks)` — mean quantity of sell-side ticks.
+- `NormalizedTick::price_range_asymmetry(ticks)` — signed asymmetry of the high−low range around its midpoint.
+
+**`ohlcv` module — `OhlcvBar` analytics (round 97)**
+- `OhlcvBar::close_to_open_gap(bars)` — mean close-to-open gap as a fraction of prior close.
+- `OhlcvBar::volume_weighted_open(bars)` — volume-weighted average open price.
+- `OhlcvBar::avg_upper_shadow(bars)` — mean upper shadow as a fraction of bar range.
+- `OhlcvBar::body_to_range_mean(bars)` — mean `|body| / range` per bar.
+
+**`norm` module — `MinMaxNormalizer` and `ZScoreNormalizer` analytics (round 97)**
+- `window_momentum() -> Option<Decimal>` — latest value minus the oldest value in the window.
+- `above_first_fraction() -> Option<f64>` — fraction of window values strictly above the oldest value.
+- `window_zscore_latest() -> Option<f64>` — z-score of the latest observation within the window.
+- `decay_weighted_mean(alpha) -> Option<f64>` — exponentially-decayed weighted mean (newest weight = alpha).
+
+---
+
 ## [2.4.7] - 2026-03-20
 
 ### Added

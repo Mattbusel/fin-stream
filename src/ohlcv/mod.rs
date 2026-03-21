@@ -3992,6 +3992,95 @@ impl OhlcvBar {
         Some(trs.iter().sum::<f64>() / trs.len() as f64)
     }
 
+    // ── round-97 ─────────────────────────────────────────────────────────────
+
+    /// Mean close-to-open gap as a fraction of prior close.
+    /// Returns `None` for fewer than 2 bars.
+    pub fn close_to_open_gap(bars: &[OhlcvBar]) -> Option<f64> {
+        if bars.len() < 2 {
+            return None;
+        }
+        use rust_decimal::prelude::ToPrimitive;
+        let gaps: Vec<f64> = bars
+            .windows(2)
+            .filter_map(|w| {
+                if w[0].close.is_zero() {
+                    None
+                } else {
+                    Some(((w[1].open - w[0].close) / w[0].close).to_f64().unwrap_or(0.0))
+                }
+            })
+            .collect();
+        if gaps.is_empty() {
+            return None;
+        }
+        Some(gaps.iter().sum::<f64>() / gaps.len() as f64)
+    }
+
+    /// Volume-weighted average open price across all bars.
+    /// Returns `None` for an empty slice or zero total volume.
+    pub fn volume_weighted_open(bars: &[OhlcvBar]) -> Option<f64> {
+        if bars.is_empty() {
+            return None;
+        }
+        use rust_decimal::prelude::ToPrimitive;
+        let total_vol: Decimal = bars.iter().map(|b| b.volume).sum();
+        if total_vol.is_zero() {
+            return None;
+        }
+        let vw_open = bars.iter().map(|b| b.open * b.volume).sum::<Decimal>() / total_vol;
+        Some(vw_open.to_f64().unwrap_or(0.0))
+    }
+
+    /// Mean upper shadow as a fraction of the bar range, excluding zero-range bars.
+    /// Returns `None` for an empty slice or all zero-range bars.
+    pub fn avg_upper_shadow(bars: &[OhlcvBar]) -> Option<f64> {
+        if bars.is_empty() {
+            return None;
+        }
+        use rust_decimal::prelude::ToPrimitive;
+        let values: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let range = b.high - b.low;
+                if range.is_zero() {
+                    return None;
+                }
+                let body_top = b.open.max(b.close);
+                let upper = b.high - body_top;
+                Some((upper / range).to_f64().unwrap_or(0.0))
+            })
+            .collect();
+        if values.is_empty() {
+            return None;
+        }
+        Some(values.iter().sum::<f64>() / values.len() as f64)
+    }
+
+    /// Mean `|body| / range` per bar, excluding zero-range bars.
+    /// Returns `None` for an empty slice or all zero-range bars.
+    pub fn body_to_range_mean(bars: &[OhlcvBar]) -> Option<f64> {
+        if bars.is_empty() {
+            return None;
+        }
+        use rust_decimal::prelude::ToPrimitive;
+        let values: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let range = b.high - b.low;
+                if range.is_zero() {
+                    return None;
+                }
+                let body = (b.close - b.open).abs();
+                Some((body / range).to_f64().unwrap_or(0.0))
+            })
+            .collect();
+        if values.is_empty() {
+            return None;
+        }
+        Some(values.iter().sum::<f64>() / values.len() as f64)
+    }
+
 }
 
 impl std::fmt::Display for OhlcvBar {
@@ -9989,5 +10078,64 @@ mod tests {
         let b2 = make_ohlcv_bar(dec!(100), dec!(115), dec!(100), dec!(112));
         let tr = OhlcvBar::true_range_mean(&[b1, b2]).unwrap();
         assert!((tr - 15.0).abs() < 1e-9, "expected 15.0, got {}", tr);
+    }
+
+    // ── round-97 tests ────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_close_to_open_gap_none_for_single_bar() {
+        let b = make_ohlcv_bar(dec!(90), dec!(110), dec!(85), dec!(100));
+        assert!(OhlcvBar::close_to_open_gap(&[b]).is_none());
+    }
+
+    #[test]
+    fn test_close_to_open_gap_zero_for_no_gap() {
+        // b1 closes at 100, b2 opens at 100 → gap = 0
+        let b1 = make_ohlcv_bar(dec!(90), dec!(110), dec!(85), dec!(100));
+        let b2 = make_ohlcv_bar(dec!(100), dec!(115), dec!(95), dec!(110));
+        let g = OhlcvBar::close_to_open_gap(&[b1, b2]).unwrap();
+        assert!(g.abs() < 1e-9, "no gap → 0.0, got {}", g);
+    }
+
+    #[test]
+    fn test_volume_weighted_open_none_for_empty() {
+        assert!(OhlcvBar::volume_weighted_open(&[]).is_none());
+    }
+
+    #[test]
+    fn test_volume_weighted_open_equal_weights() {
+        let mut b1 = make_ohlcv_bar(dec!(90), dec!(110), dec!(85), dec!(100));
+        let mut b2 = make_ohlcv_bar(dec!(100), dec!(115), dec!(95), dec!(110));
+        b1.volume = dec!(1);
+        b2.volume = dec!(1);
+        // equal volume → average of opens = (90+100)/2 = 95
+        let vwo = OhlcvBar::volume_weighted_open(&[b1, b2]).unwrap();
+        assert!((vwo - 95.0).abs() < 1e-9, "expected 95.0, got {}", vwo);
+    }
+
+    #[test]
+    fn test_avg_upper_shadow_none_for_empty() {
+        assert!(OhlcvBar::avg_upper_shadow(&[]).is_none());
+    }
+
+    #[test]
+    fn test_avg_upper_shadow_zero_for_full_body_up() {
+        // open=low, close=high → no upper shadow
+        let b = make_ohlcv_bar(dec!(90), dec!(110), dec!(90), dec!(110));
+        let s = OhlcvBar::avg_upper_shadow(&[b]).unwrap();
+        assert!(s.abs() < 1e-9, "full body → upper shadow=0, got {}", s);
+    }
+
+    #[test]
+    fn test_body_to_range_mean_none_for_empty() {
+        assert!(OhlcvBar::body_to_range_mean(&[]).is_none());
+    }
+
+    #[test]
+    fn test_body_to_range_mean_one_for_full_body() {
+        // open=low, close=high → body = range → ratio = 1
+        let b = make_ohlcv_bar(dec!(90), dec!(110), dec!(90), dec!(110));
+        let r = OhlcvBar::body_to_range_mean(&[b]).unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "full body → ratio=1.0, got {}", r);
     }
 }

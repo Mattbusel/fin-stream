@@ -4057,6 +4057,93 @@ impl NormalizedTick {
         Some(entropy)
     }
 
+    // ── round-97 ─────────────────────────────────────────────────────────────
+
+    /// Number of times consecutive tick prices cross the VWAP line.
+    /// Returns `None` for fewer than 2 ticks.
+    pub fn price_gap_count(ticks: &[NormalizedTick]) -> Option<usize> {
+        if ticks.len() < 2 {
+            return None;
+        }
+        let total_qty: Decimal = ticks.iter().map(|t| t.quantity).sum();
+        if total_qty.is_zero() {
+            return None;
+        }
+        let vwap = ticks.iter().map(|t| t.price * t.quantity).sum::<Decimal>() / total_qty;
+        let crossings = ticks
+            .windows(2)
+            .filter(|w| {
+                (w[0].price > vwap) != (w[1].price > vwap)
+            })
+            .count();
+        Some(crossings)
+    }
+
+    /// Number of ticks per millisecond of the total window span.
+    /// Returns `None` for fewer than 2 ticks or zero time span.
+    pub fn tick_density(ticks: &[NormalizedTick]) -> Option<f64> {
+        if ticks.len() < 2 {
+            return None;
+        }
+        let span = ticks
+            .last()?
+            .received_at_ms
+            .saturating_sub(ticks.first()?.received_at_ms);
+        if span == 0 {
+            return None;
+        }
+        Some(ticks.len() as f64 / span as f64)
+    }
+
+    /// Mean quantity of buy-side ticks. Returns `None` if no buy ticks present.
+    pub fn buy_qty_mean(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let buys: Vec<Decimal> = ticks
+            .iter()
+            .filter(|t| t.side == Some(TradeSide::Buy))
+            .map(|t| t.quantity)
+            .collect();
+        if buys.is_empty() {
+            return None;
+        }
+        let mean = buys.iter().copied().sum::<Decimal>() / Decimal::from(buys.len());
+        Some(mean.to_f64().unwrap_or(0.0))
+    }
+
+    /// Mean quantity of sell-side ticks. Returns `None` if no sell ticks present.
+    pub fn sell_qty_mean(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let sells: Vec<Decimal> = ticks
+            .iter()
+            .filter(|t| t.side == Some(TradeSide::Sell))
+            .map(|t| t.quantity)
+            .collect();
+        if sells.is_empty() {
+            return None;
+        }
+        let mean = sells.iter().copied().sum::<Decimal>() / Decimal::from(sells.len());
+        Some(mean.to_f64().unwrap_or(0.0))
+    }
+
+    /// Asymmetry of the price range: `(high − mid) − (mid − low)` normalised by
+    /// the total range, where `mid = (high + low) / 2`.
+    /// Returns `None` for fewer than 1 tick or when the price range is zero.
+    pub fn price_range_asymmetry(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() {
+            return None;
+        }
+        let high = ticks.iter().map(|t| t.price).max()?;
+        let low = ticks.iter().map(|t| t.price).min()?;
+        let range = high - low;
+        if range.is_zero() {
+            return None;
+        }
+        let mid = (high + low) / Decimal::TWO;
+        let asym = ((high - mid) - (mid - low)) / range;
+        Some(asym.to_f64().unwrap_or(0.0))
+    }
+
 }
 
 
@@ -9648,5 +9735,74 @@ mod tests {
         let ticks = vec![make_tick_at(0), make_tick_at(10), make_tick_at(20)];
         // all gaps equal → None
         assert!(NormalizedTick::tick_arrival_entropy(&ticks).is_none());
+    }
+
+    // ── round-97 tests ────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_price_gap_count_none_for_single_tick() {
+        use rust_decimal_macros::dec;
+        assert!(NormalizedTick::price_gap_count(&[make_tick_pq(dec!(100), dec!(1))]).is_none());
+    }
+
+    #[test]
+    fn test_price_gap_count_zero_for_uniform_price() {
+        use rust_decimal_macros::dec;
+        // all prices equal → VWAP = same → no crossings
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(100), dec!(1)),
+        ];
+        let c = NormalizedTick::price_gap_count(&ticks).unwrap();
+        assert_eq!(c, 0);
+    }
+
+    #[test]
+    fn test_tick_density_none_for_single_tick() {
+        let t = make_tick_at(0);
+        assert!(NormalizedTick::tick_density(&[t]).is_none());
+    }
+
+    #[test]
+    fn test_tick_density_basic() {
+        let t1 = make_tick_at(0);
+        let t2 = make_tick_at(1000);
+        // 2 ticks over 1000ms → 2/1000 = 0.002
+        let d = NormalizedTick::tick_density(&[t1, t2]).unwrap();
+        assert!((d - 0.002).abs() < 1e-9, "expected 0.002, got {}", d);
+    }
+
+    #[test]
+    fn test_buy_qty_mean_none_for_no_buys() {
+        use rust_decimal_macros::dec;
+        assert!(NormalizedTick::buy_qty_mean(&[make_tick_pq(dec!(100), dec!(1))]).is_none());
+    }
+
+    #[test]
+    fn test_sell_qty_mean_none_for_no_sells() {
+        use rust_decimal_macros::dec;
+        assert!(NormalizedTick::sell_qty_mean(&[make_tick_pq(dec!(100), dec!(1))]).is_none());
+    }
+
+    #[test]
+    fn test_price_range_asymmetry_none_for_uniform_price() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(100), dec!(1)),
+        ];
+        assert!(NormalizedTick::price_range_asymmetry(&ticks).is_none());
+    }
+
+    #[test]
+    fn test_price_range_asymmetry_zero_for_symmetric_range() {
+        use rust_decimal_macros::dec;
+        // high=110, low=90 → mid=100; (110-100)-(100-90)=0
+        let ticks = vec![
+            make_tick_pq(dec!(90), dec!(1)),
+            make_tick_pq(dec!(110), dec!(1)),
+        ];
+        let a = NormalizedTick::price_range_asymmetry(&ticks).unwrap();
+        assert!(a.abs() < 1e-9, "symmetric range → asymmetry=0, got {}", a);
     }
 }
