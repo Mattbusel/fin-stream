@@ -2968,6 +2968,58 @@ impl NormalizedTick {
         ((hi - lo) / first_price).to_f64()
     }
 
+    // ── round-86 ─────────────────────────────────────────────────────────────
+
+    /// Mean price of the ticks; equivalent to arithmetic average of all `price` values.
+    pub fn price_mean(ticks: &[NormalizedTick]) -> Option<Decimal> {
+        if ticks.is_empty() {
+            return None;
+        }
+        let sum: Decimal = ticks.iter().map(|t| t.price).sum();
+        Some(sum / Decimal::from(ticks.len() as i64))
+    }
+
+    /// Number of ticks where `price > previous_tick.price` (upticks).
+    pub fn uptick_count(ticks: &[NormalizedTick]) -> usize {
+        if ticks.len() < 2 {
+            return 0;
+        }
+        ticks.windows(2).filter(|w| w[1].price > w[0].price).count()
+    }
+
+    /// Number of ticks where `price < previous_tick.price` (downticks).
+    pub fn downtick_count(ticks: &[NormalizedTick]) -> usize {
+        if ticks.len() < 2 {
+            return 0;
+        }
+        ticks.windows(2).filter(|w| w[1].price < w[0].price).count()
+    }
+
+    /// Fraction of tick intervals that are upticks.
+    pub fn uptick_fraction(ticks: &[NormalizedTick]) -> Option<f64> {
+        if ticks.len() < 2 {
+            return None;
+        }
+        let intervals = (ticks.len() - 1) as f64;
+        Some(Self::uptick_count(ticks) as f64 / intervals)
+    }
+
+    /// Standard deviation of quantities across ticks; requires ≥ 2 ticks.
+    pub fn quantity_std(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 2 {
+            return None;
+        }
+        let vals: Vec<f64> = ticks.iter().filter_map(|t| t.quantity.to_f64()).collect();
+        let n = vals.len() as f64;
+        if n < 2.0 {
+            return None;
+        }
+        let mean = vals.iter().sum::<f64>() / n;
+        let var = vals.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / (n - 1.0);
+        Some(var.sqrt())
+    }
+
 }
 
 
@@ -7572,5 +7624,73 @@ mod tests {
         ];
         let p = NormalizedTick::price_range_pct_of_open(&ticks).unwrap();
         assert!(p.abs() < 1e-9, "constant → range_pct=0, got {}", p);
+    }
+
+    // ── round-86 tests ────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_price_mean_none_for_empty() {
+        assert!(NormalizedTick::price_mean(&[]).is_none());
+    }
+
+    #[test]
+    fn test_price_mean_correct() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![make_tick_pq(dec!(100), dec!(1)), make_tick_pq(dec!(200), dec!(1))];
+        assert_eq!(NormalizedTick::price_mean(&ticks).unwrap(), dec!(150));
+    }
+
+    #[test]
+    fn test_uptick_count_zero_for_single() {
+        use rust_decimal_macros::dec;
+        let t = make_tick_pq(dec!(100), dec!(1));
+        assert_eq!(NormalizedTick::uptick_count(&[t]), 0);
+    }
+
+    #[test]
+    fn test_uptick_count_correct() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(101), dec!(1)),
+            make_tick_pq(dec!(100), dec!(1)),
+        ];
+        assert_eq!(NormalizedTick::uptick_count(&ticks), 1);
+    }
+
+    #[test]
+    fn test_downtick_count_zero_for_all_up() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(101), dec!(1)),
+            make_tick_pq(dec!(102), dec!(1)),
+        ];
+        assert_eq!(NormalizedTick::downtick_count(&ticks), 0);
+    }
+
+    #[test]
+    fn test_uptick_fraction_none_for_single() {
+        use rust_decimal_macros::dec;
+        let t = make_tick_pq(dec!(100), dec!(1));
+        assert!(NormalizedTick::uptick_fraction(&[t]).is_none());
+    }
+
+    #[test]
+    fn test_quantity_std_none_for_single() {
+        use rust_decimal_macros::dec;
+        let t = make_tick_pq(dec!(100), dec!(1));
+        assert!(NormalizedTick::quantity_std(&[t]).is_none());
+    }
+
+    #[test]
+    fn test_quantity_std_zero_for_constant_qty() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(5)),
+            make_tick_pq(dec!(101), dec!(5)),
+        ];
+        let s = NormalizedTick::quantity_std(&ticks).unwrap();
+        assert!(s.abs() < 1e-9, "constant quantity → std=0, got {}", s);
     }
 }

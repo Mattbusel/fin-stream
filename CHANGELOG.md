@@ -9,6 +9,33 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.3.8] - 2026-03-21
+
+### Added
+
+**`tick` module — `NormalizedTick` analytics (round 86)**
+- `NormalizedTick::price_mean(ticks)` — arithmetic mean of prices across the slice.
+- `NormalizedTick::uptick_count(ticks)` — count of consecutive price increases.
+- `NormalizedTick::downtick_count(ticks)` — count of consecutive price decreases.
+- `NormalizedTick::uptick_fraction(ticks)` — fraction of tick intervals that are upticks.
+- `NormalizedTick::quantity_std(ticks)` — sample std dev of quantities; requires ≥ 2 ticks.
+
+**`ohlcv` module — `OhlcvBar` analytics (round 86)**
+- `OhlcvBar::mean_open(bars)` — arithmetic mean of open prices across bars.
+- `OhlcvBar::new_high_count(bars)` — count of bars that set a new cumulative high.
+- `OhlcvBar::new_low_count(bars)` — count of bars that set a new cumulative low.
+- `OhlcvBar::close_std(bars)` — sample std dev of close prices; requires ≥ 2 bars.
+- `OhlcvBar::zero_volume_fraction(bars)` — fraction of bars with zero volume.
+
+**`norm` module — `MinMaxNormalizer` and `ZScoreNormalizer` analytics (round 86)**
+- `distinct_count() -> usize` — number of distinct values in the window.
+- `max_fraction() -> Option<f64>` — fraction of values equal to the window maximum.
+- `min_fraction() -> Option<f64>` — fraction of values equal to the window minimum.
+- `latest_minus_mean() -> Option<f64>` — signed difference between the latest value and the mean.
+- `latest_to_mean_ratio() -> Option<f64>` — ratio of the latest value to the mean.
+
+---
+
 ## [2.3.7] - 2026-03-21
 
 ### Added

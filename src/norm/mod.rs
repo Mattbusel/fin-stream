@@ -1568,6 +1568,55 @@ impl MinMaxNormalizer {
         Some((sum_sq / self.window.len() as f64).sqrt())
     }
 
+    // ── round-86 ─────────────────────────────────────────────────────────────
+
+    /// Number of distinct values in the window.
+    pub fn distinct_count(&self) -> usize {
+        let mut sorted: Vec<Decimal> = self.window.iter().copied().collect();
+        sorted.sort();
+        sorted.dedup();
+        sorted.len()
+    }
+
+    /// Fraction of window values that equal the window maximum.
+    pub fn max_fraction(&self) -> Option<f64> {
+        if self.window.is_empty() {
+            return None;
+        }
+        let max = self.window.iter().copied().max()?;
+        let count = self.window.iter().filter(|&&v| v == max).count();
+        Some(count as f64 / self.window.len() as f64)
+    }
+
+    /// Fraction of window values that equal the window minimum.
+    pub fn min_fraction(&self) -> Option<f64> {
+        if self.window.is_empty() {
+            return None;
+        }
+        let min = self.window.iter().copied().min()?;
+        let count = self.window.iter().filter(|&&v| v == min).count();
+        Some(count as f64 / self.window.len() as f64)
+    }
+
+    /// Difference between the latest value and the window mean (signed).
+    pub fn latest_minus_mean(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let latest = self.latest()?;
+        let mean = self.mean()?;
+        (latest - mean).to_f64()
+    }
+
+    /// Ratio of the latest value to the window mean; `None` if mean is zero.
+    pub fn latest_to_mean_ratio(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let latest = self.latest()?;
+        let mean = self.mean()?;
+        if mean.is_zero() {
+            return None;
+        }
+        (latest / mean).to_f64()
+    }
+
 }
 
 #[cfg(test)]
@@ -3579,6 +3628,56 @@ mod tests {
         let r = n.rms().unwrap();
         assert!((r - 1.0).abs() < 1e-9, "RMS of all-ones = 1.0, got {}", r);
     }
+
+    // ── round-86 tests ─────────────────────────────────────────────────────
+
+    #[test]
+    fn test_minmax_distinct_count_zero_for_empty() {
+        let n = norm(4);
+        assert_eq!(n.distinct_count(), 0);
+    }
+
+    #[test]
+    fn test_minmax_distinct_count_correct() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        assert_eq!(n.distinct_count(), 3);
+    }
+
+    #[test]
+    fn test_minmax_max_fraction_none_for_empty() {
+        let n = norm(4);
+        assert!(n.max_fraction().is_none());
+    }
+
+    #[test]
+    fn test_minmax_max_fraction_correct() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(3)] { n.update(v); }
+        let f = n.max_fraction().unwrap();
+        // 2 out of 4 values are the max (3)
+        assert!((f - 0.5).abs() < 1e-9, "2/4 are max → 0.5, got {}", f);
+    }
+
+    #[test]
+    fn test_minmax_latest_minus_mean_none_for_empty() {
+        let n = norm(4);
+        assert!(n.latest_minus_mean().is_none());
+    }
+
+    #[test]
+    fn test_minmax_latest_to_mean_ratio_none_for_empty() {
+        let n = norm(4);
+        assert!(n.latest_to_mean_ratio().is_none());
+    }
+
+    #[test]
+    fn test_minmax_latest_to_mean_ratio_one_for_constant() {
+        let mut n = norm(4);
+        for _ in 0..4 { n.update(dec!(5)); }
+        let r = n.latest_to_mean_ratio().unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "latest=mean → ratio=1, got {}", r);
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -5111,6 +5210,55 @@ impl ZScoreNormalizer {
         }
         let sum_sq: f64 = self.window.iter().filter_map(|v| v.to_f64()).map(|v| v * v).sum();
         Some((sum_sq / self.window.len() as f64).sqrt())
+    }
+
+    // ── round-86 ─────────────────────────────────────────────────────────────
+
+    /// Number of distinct values in the window.
+    pub fn distinct_count(&self) -> usize {
+        let mut sorted: Vec<Decimal> = self.window.iter().copied().collect();
+        sorted.sort();
+        sorted.dedup();
+        sorted.len()
+    }
+
+    /// Fraction of window values that equal the window maximum.
+    pub fn max_fraction(&self) -> Option<f64> {
+        if self.window.is_empty() {
+            return None;
+        }
+        let max = self.window.iter().copied().max()?;
+        let count = self.window.iter().filter(|&&v| v == max).count();
+        Some(count as f64 / self.window.len() as f64)
+    }
+
+    /// Fraction of window values that equal the window minimum.
+    pub fn min_fraction(&self) -> Option<f64> {
+        if self.window.is_empty() {
+            return None;
+        }
+        let min = self.window.iter().copied().min()?;
+        let count = self.window.iter().filter(|&&v| v == min).count();
+        Some(count as f64 / self.window.len() as f64)
+    }
+
+    /// Difference between the latest value and the window mean (signed).
+    pub fn latest_minus_mean(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let latest = self.latest()?;
+        let mean = self.mean()?;
+        (latest - mean).to_f64()
+    }
+
+    /// Ratio of the latest value to the window mean; `None` if mean is zero.
+    pub fn latest_to_mean_ratio(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let latest = self.latest()?;
+        let mean = self.mean()?;
+        if mean.is_zero() {
+            return None;
+        }
+        (latest / mean).to_f64()
     }
 
 }
@@ -7266,5 +7414,54 @@ mod zscore_stability_tests {
         for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
         let r = n.rms().unwrap();
         assert!(r > 0.0, "RMS should be positive, got {}", r);
+    }
+
+    // ── round-86 tests ─────────────────────────────────────────────────────
+
+    #[test]
+    fn test_zscore_distinct_count_zero_for_empty() {
+        let n = znorm(4);
+        assert_eq!(n.distinct_count(), 0);
+    }
+
+    #[test]
+    fn test_zscore_distinct_count_correct() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        assert_eq!(n.distinct_count(), 3);
+    }
+
+    #[test]
+    fn test_zscore_max_fraction_none_for_empty() {
+        let n = znorm(4);
+        assert!(n.max_fraction().is_none());
+    }
+
+    #[test]
+    fn test_zscore_max_fraction_correct() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(3)] { n.update(v); }
+        let f = n.max_fraction().unwrap();
+        assert!((f - 0.5).abs() < 1e-9, "2/4 are max → 0.5, got {}", f);
+    }
+
+    #[test]
+    fn test_zscore_latest_minus_mean_none_for_empty() {
+        let n = znorm(4);
+        assert!(n.latest_minus_mean().is_none());
+    }
+
+    #[test]
+    fn test_zscore_latest_to_mean_ratio_none_for_empty() {
+        let n = znorm(4);
+        assert!(n.latest_to_mean_ratio().is_none());
+    }
+
+    #[test]
+    fn test_zscore_latest_to_mean_ratio_one_for_constant() {
+        let mut n = znorm(4);
+        for _ in 0..4 { n.update(dec!(5)); }
+        let r = n.latest_to_mean_ratio().unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "latest=mean → ratio=1, got {}", r);
     }
 }

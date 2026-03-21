@@ -3259,6 +3259,71 @@ impl OhlcvBar {
             .sum()
     }
 
+    // ── round-86 ─────────────────────────────────────────────────────────────
+
+    /// Mean open price across bars.
+    pub fn mean_open(bars: &[OhlcvBar]) -> Option<Decimal> {
+        if bars.is_empty() {
+            return None;
+        }
+        let sum: Decimal = bars.iter().map(|b| b.open).sum();
+        Some(sum / Decimal::from(bars.len() as i64))
+    }
+
+    /// Count of bars where `high` is strictly greater than all previous bar highs.
+    pub fn new_high_count(bars: &[OhlcvBar]) -> usize {
+        if bars.is_empty() {
+            return 0;
+        }
+        let mut running_max = bars[0].high;
+        let mut count = 0usize;
+        for b in bars.iter().skip(1) {
+            if b.high > running_max {
+                count += 1;
+                running_max = b.high;
+            }
+        }
+        count
+    }
+
+    /// Count of bars where `low` is strictly less than all previous bar lows.
+    pub fn new_low_count(bars: &[OhlcvBar]) -> usize {
+        if bars.is_empty() {
+            return 0;
+        }
+        let mut running_min = bars[0].low;
+        let mut count = 0usize;
+        for b in bars.iter().skip(1) {
+            if b.low < running_min {
+                count += 1;
+                running_min = b.low;
+            }
+        }
+        count
+    }
+
+    /// Standard deviation of close prices; requires ≥ 2 bars.
+    pub fn close_std(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.len() < 2 {
+            return None;
+        }
+        let vals: Vec<f64> = bars.iter().filter_map(|b| b.close.to_f64()).collect();
+        let n = vals.len() as f64;
+        let mean = vals.iter().sum::<f64>() / n;
+        let var = vals.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / (n - 1.0);
+        Some(var.sqrt())
+    }
+
+    /// Fraction of bars with zero volume.
+    pub fn zero_volume_fraction(bars: &[OhlcvBar]) -> Option<f64> {
+        if bars.is_empty() {
+            return None;
+        }
+        let count = bars.iter().filter(|b| b.volume.is_zero()).count();
+        Some(count as f64 / bars.len() as f64)
+    }
+
 }
 
 impl std::fmt::Display for OhlcvBar {
@@ -8651,5 +8716,65 @@ mod tests {
     fn test_up_close_volume_zero_for_all_down_close() {
         let b = make_ohlcv_bar(dec!(105), dec!(110), dec!(90), dec!(100)); // close < open
         assert_eq!(OhlcvBar::up_close_volume(&[b]), dec!(0));
+    }
+
+    // ── round-86 tests ────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_mean_open_none_for_empty() {
+        assert!(OhlcvBar::mean_open(&[]).is_none());
+    }
+
+    #[test]
+    fn test_mean_open_correct() {
+        let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let b2 = make_ohlcv_bar(dec!(200), dec!(210), dec!(190), dec!(205));
+        assert_eq!(OhlcvBar::mean_open(&[b1, b2]).unwrap(), dec!(150));
+    }
+
+    #[test]
+    fn test_new_high_count_zero_for_single() {
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        assert_eq!(OhlcvBar::new_high_count(&[b]), 0);
+    }
+
+    #[test]
+    fn test_new_high_count_correct() {
+        let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let b2 = make_ohlcv_bar(dec!(100), dec!(120), dec!(90), dec!(115));
+        let b3 = make_ohlcv_bar(dec!(100), dec!(115), dec!(90), dec!(110));
+        assert_eq!(OhlcvBar::new_high_count(&[b1, b2, b3]), 1);
+    }
+
+    #[test]
+    fn test_new_low_count_zero_for_single() {
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        assert_eq!(OhlcvBar::new_low_count(&[b]), 0);
+    }
+
+    #[test]
+    fn test_close_std_none_for_single() {
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        assert!(OhlcvBar::close_std(&[b]).is_none());
+    }
+
+    #[test]
+    fn test_close_std_zero_for_constant_close() {
+        let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let b2 = make_ohlcv_bar(dec!(101), dec!(111), dec!(91), dec!(105));
+        let s = OhlcvBar::close_std(&[b1, b2]).unwrap();
+        assert!(s.abs() < 1e-9, "constant close → std=0, got {}", s);
+    }
+
+    #[test]
+    fn test_zero_volume_fraction_none_for_empty() {
+        assert!(OhlcvBar::zero_volume_fraction(&[]).is_none());
+    }
+
+    #[test]
+    fn test_zero_volume_fraction_zero_when_no_zero_volume() {
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let f = OhlcvBar::zero_volume_fraction(&[b]).unwrap();
+        assert!(f.abs() < 1e-9, "bar has volume → zero_vol_fraction=0, got {}", f);
     }
 }
