@@ -4144,6 +4144,79 @@ impl NormalizedTick {
         Some(asym.to_f64().unwrap_or(0.0))
     }
 
+    // ── round-98 ─────────────────────────────────────────────────────────────
+
+    /// Fraction of consecutive tick pairs where the price direction reverses.
+    /// Returns `None` for fewer than 3 ticks or no directional changes.
+    pub fn tick_reversal_ratio(ticks: &[NormalizedTick]) -> Option<f64> {
+        if ticks.len() < 3 {
+            return None;
+        }
+        let dirs: Vec<i32> = ticks
+            .windows(2)
+            .map(|w| {
+                if w[1].price > w[0].price {
+                    1
+                } else if w[1].price < w[0].price {
+                    -1
+                } else {
+                    0
+                }
+            })
+            .collect();
+        let reversals = dirs.windows(2).filter(|d| d[0] != 0 && d[1] != 0 && d[0] != d[1]).count();
+        let valid_pairs = dirs.windows(2).filter(|d| d[0] != 0 && d[1] != 0).count();
+        if valid_pairs == 0 {
+            return None;
+        }
+        Some(reversals as f64 / valid_pairs as f64)
+    }
+
+    /// VWAP of the first half of the tick slice.
+    /// Returns `None` for fewer than 2 ticks or zero quantity in first half.
+    pub fn first_half_vwap(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 2 {
+            return None;
+        }
+        let half = ticks.len() / 2;
+        let first = &ticks[..half];
+        let total_qty: Decimal = first.iter().map(|t| t.quantity).sum();
+        if total_qty.is_zero() {
+            return None;
+        }
+        let vwap = first.iter().map(|t| t.price * t.quantity).sum::<Decimal>() / total_qty;
+        Some(vwap.to_f64().unwrap_or(0.0))
+    }
+
+    /// VWAP of the second half of the tick slice.
+    /// Returns `None` for fewer than 2 ticks or zero quantity in second half.
+    pub fn second_half_vwap(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 2 {
+            return None;
+        }
+        let half = ticks.len() / 2;
+        let second = &ticks[half..];
+        let total_qty: Decimal = second.iter().map(|t| t.quantity).sum();
+        if total_qty.is_zero() {
+            return None;
+        }
+        let vwap = second.iter().map(|t| t.price * t.quantity).sum::<Decimal>() / total_qty;
+        Some(vwap.to_f64().unwrap_or(0.0))
+    }
+
+    /// Momentum of cumulative traded quantity: last tick's quantity minus first tick's.
+    /// Returns `None` for fewer than 2 ticks.
+    pub fn qty_momentum(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 2 {
+            return None;
+        }
+        let diff = ticks.last()?.quantity - ticks.first()?.quantity;
+        Some(diff.to_f64().unwrap_or(0.0))
+    }
+
 }
 
 
@@ -9804,5 +9877,55 @@ mod tests {
         ];
         let a = NormalizedTick::price_range_asymmetry(&ticks).unwrap();
         assert!(a.abs() < 1e-9, "symmetric range → asymmetry=0, got {}", a);
+    }
+
+    // ── round-98 tests ────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_tick_reversal_ratio_none_for_two_ticks() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![make_tick_pq(dec!(100), dec!(1)), make_tick_pq(dec!(101), dec!(1))];
+        assert!(NormalizedTick::tick_reversal_ratio(&ticks).is_none());
+    }
+
+    #[test]
+    fn test_tick_reversal_ratio_zero_for_monotone() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(101), dec!(1)),
+            make_tick_pq(dec!(102), dec!(1)),
+        ];
+        let r = NormalizedTick::tick_reversal_ratio(&ticks).unwrap();
+        assert!(r.abs() < 1e-9, "monotone → no reversals, got {}", r);
+    }
+
+    #[test]
+    fn test_first_half_vwap_none_for_single_tick() {
+        use rust_decimal_macros::dec;
+        assert!(NormalizedTick::first_half_vwap(&[make_tick_pq(dec!(100), dec!(1))]).is_none());
+    }
+
+    #[test]
+    fn test_second_half_vwap_none_for_single_tick() {
+        use rust_decimal_macros::dec;
+        assert!(NormalizedTick::second_half_vwap(&[make_tick_pq(dec!(100), dec!(1))]).is_none());
+    }
+
+    #[test]
+    fn test_qty_momentum_none_for_single_tick() {
+        use rust_decimal_macros::dec;
+        assert!(NormalizedTick::qty_momentum(&[make_tick_pq(dec!(100), dec!(1))]).is_none());
+    }
+
+    #[test]
+    fn test_qty_momentum_positive_when_increasing() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(101), dec!(3)),
+        ];
+        let m = NormalizedTick::qty_momentum(&ticks).unwrap();
+        assert!((m - 2.0).abs() < 1e-9, "expected 2.0, got {}", m);
     }
 }

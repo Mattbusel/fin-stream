@@ -2052,6 +2052,88 @@ impl MinMaxNormalizer {
         Some(weighted_sum / weight_sum)
     }
 
+    // ── round-98 ─────────────────────────────────────────────────────────────
+
+    /// Excess kurtosis (fourth standardized moment minus 3) of the window.
+    /// Returns `None` for fewer than 4 values or zero variance.
+    pub fn window_kurtosis(&self) -> Option<f64> {
+        if self.window.len() < 4 {
+            return None;
+        }
+        use rust_decimal::prelude::ToPrimitive;
+        let n = self.window.len() as f64;
+        let vals: Vec<f64> = self
+            .window
+            .iter()
+            .map(|v| v.to_f64().unwrap_or(0.0))
+            .collect();
+        let mean = vals.iter().sum::<f64>() / n;
+        let variance = vals.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / n;
+        if variance == 0.0 {
+            return None;
+        }
+        let fourth = vals.iter().map(|v| (v - mean).powi(4)).sum::<f64>() / n;
+        Some(fourth / (variance * variance) - 3.0)
+    }
+
+    /// Fraction of window values above the 90th percentile value within the window.
+    /// Returns `None` if the window is empty.
+    pub fn above_percentile_90(&self) -> Option<f64> {
+        if self.window.is_empty() {
+            return None;
+        }
+        let mut sorted: Vec<Decimal> = self.window.iter().copied().collect();
+        sorted.sort();
+        let idx = (sorted.len() * 9) / 10;
+        let p90 = sorted[idx.min(sorted.len() - 1)];
+        let above = self.window.iter().filter(|&&v| v > p90).count();
+        Some(above as f64 / self.window.len() as f64)
+    }
+
+    /// Lag-1 autocorrelation of the rolling window values.
+    /// Returns `None` for fewer than 3 values or zero variance.
+    pub fn window_lag_autocorr(&self) -> Option<f64> {
+        if self.window.len() < 3 {
+            return None;
+        }
+        use rust_decimal::prelude::ToPrimitive;
+        let vals: Vec<f64> = self
+            .window
+            .iter()
+            .map(|v| v.to_f64().unwrap_or(0.0))
+            .collect();
+        let n = vals.len() as f64;
+        let mean = vals.iter().sum::<f64>() / n;
+        let variance = vals.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / n;
+        if variance == 0.0 {
+            return None;
+        }
+        let cov = vals
+            .windows(2)
+            .map(|w| (w[0] - mean) * (w[1] - mean))
+            .sum::<f64>()
+            / (n - 1.0);
+        Some(cov / variance)
+    }
+
+    /// Linear slope of the rolling window mean over halves: `(second_half_mean - first_half_mean) / half_size`.
+    /// Returns `None` for fewer than 4 values.
+    pub fn slope_of_mean(&self) -> Option<f64> {
+        if self.window.len() < 4 {
+            return None;
+        }
+        use rust_decimal::prelude::ToPrimitive;
+        let vals: Vec<f64> = self
+            .window
+            .iter()
+            .map(|v| v.to_f64().unwrap_or(0.0))
+            .collect();
+        let half = vals.len() / 2;
+        let first_mean = vals[..half].iter().sum::<f64>() / half as f64;
+        let second_mean = vals[half..].iter().sum::<f64>() / (vals.len() - half) as f64;
+        Some((second_mean - first_mean) / half as f64)
+    }
+
 }
 
 #[cfg(test)]
@@ -4490,6 +4572,50 @@ mod tests {
     fn test_minmax_decay_weighted_mean_none_for_empty() {
         assert!(norm(4).decay_weighted_mean(0.1).is_none());
     }
+
+    // ── round-98 tests ────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_minmax_window_kurtosis_none_for_constant() {
+        let mut n = norm(4);
+        for _ in 0..4 { n.update(dec!(5)); }
+        assert!(n.window_kurtosis().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_kurtosis_none_for_small_window() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        assert!(n.window_kurtosis().is_none());
+    }
+
+    #[test]
+    fn test_minmax_above_percentile_90_none_for_empty() {
+        assert!(norm(4).above_percentile_90().is_none());
+    }
+
+    #[test]
+    fn test_minmax_above_percentile_90_basic() {
+        let mut n = norm(10);
+        for v in 1i64..=10 { n.update(Decimal::from(v)); }
+        // p90 = value at index 9 = 10; none above 10 → 0.0
+        let f = n.above_percentile_90().unwrap();
+        assert!(f < 0.2, "expected small fraction, got {}", f);
+    }
+
+    #[test]
+    fn test_minmax_window_lag_autocorr_none_for_constant() {
+        let mut n = norm(4);
+        for _ in 0..4 { n.update(dec!(5)); }
+        assert!(n.window_lag_autocorr().is_none());
+    }
+
+    #[test]
+    fn test_minmax_slope_of_mean_none_for_small_window() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        assert!(n.slope_of_mean().is_none());
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -6502,6 +6628,87 @@ impl ZScoreNormalizer {
             return None;
         }
         Some(weighted_sum / weight_sum)
+    }
+
+    // ── round-98 ─────────────────────────────────────────────────────────────
+
+    /// Excess kurtosis of the window. Returns `None` for fewer than 4 values or zero variance.
+    pub fn window_kurtosis(&self) -> Option<f64> {
+        if self.window.len() < 4 {
+            return None;
+        }
+        use rust_decimal::prelude::ToPrimitive;
+        let n = self.window.len() as f64;
+        let vals: Vec<f64> = self
+            .window
+            .iter()
+            .map(|v| v.to_f64().unwrap_or(0.0))
+            .collect();
+        let mean = vals.iter().sum::<f64>() / n;
+        let variance = vals.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / n;
+        if variance == 0.0 {
+            return None;
+        }
+        let fourth = vals.iter().map(|v| (v - mean).powi(4)).sum::<f64>() / n;
+        Some(fourth / (variance * variance) - 3.0)
+    }
+
+    /// Fraction of window values above the 90th percentile value.
+    /// Returns `None` if the window is empty.
+    pub fn above_percentile_90(&self) -> Option<f64> {
+        if self.window.is_empty() {
+            return None;
+        }
+        let mut sorted: Vec<Decimal> = self.window.iter().copied().collect();
+        sorted.sort();
+        let idx = (sorted.len() * 9) / 10;
+        let p90 = sorted[idx.min(sorted.len() - 1)];
+        let above = self.window.iter().filter(|&&v| v > p90).count();
+        Some(above as f64 / self.window.len() as f64)
+    }
+
+    /// Lag-1 autocorrelation of the rolling window values.
+    /// Returns `None` for fewer than 3 values or zero variance.
+    pub fn window_lag_autocorr(&self) -> Option<f64> {
+        if self.window.len() < 3 {
+            return None;
+        }
+        use rust_decimal::prelude::ToPrimitive;
+        let vals: Vec<f64> = self
+            .window
+            .iter()
+            .map(|v| v.to_f64().unwrap_or(0.0))
+            .collect();
+        let n = vals.len() as f64;
+        let mean = vals.iter().sum::<f64>() / n;
+        let variance = vals.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / n;
+        if variance == 0.0 {
+            return None;
+        }
+        let cov = vals
+            .windows(2)
+            .map(|w| (w[0] - mean) * (w[1] - mean))
+            .sum::<f64>()
+            / (n - 1.0);
+        Some(cov / variance)
+    }
+
+    /// Linear slope of the rolling window mean over halves.
+    /// Returns `None` for fewer than 4 values.
+    pub fn slope_of_mean(&self) -> Option<f64> {
+        if self.window.len() < 4 {
+            return None;
+        }
+        use rust_decimal::prelude::ToPrimitive;
+        let vals: Vec<f64> = self
+            .window
+            .iter()
+            .map(|v| v.to_f64().unwrap_or(0.0))
+            .collect();
+        let half = vals.len() / 2;
+        let first_mean = vals[..half].iter().sum::<f64>() / half as f64;
+        let second_mean = vals[half..].iter().sum::<f64>() / (vals.len() - half) as f64;
+        Some((second_mean - first_mean) / half as f64)
     }
 
 }
@@ -9094,5 +9301,48 @@ mod zscore_stability_tests {
     #[test]
     fn test_zscore_decay_weighted_mean_none_for_empty() {
         assert!(znorm(4).decay_weighted_mean(0.1).is_none());
+    }
+
+    // ── round-98 tests ────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_zscore_window_kurtosis_none_for_constant() {
+        let mut n = znorm(4);
+        for _ in 0..4 { n.update(dec!(5)); }
+        assert!(n.window_kurtosis().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_kurtosis_none_for_small_window() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        assert!(n.window_kurtosis().is_none());
+    }
+
+    #[test]
+    fn test_zscore_above_percentile_90_none_for_empty() {
+        assert!(znorm(4).above_percentile_90().is_none());
+    }
+
+    #[test]
+    fn test_zscore_above_percentile_90_basic() {
+        let mut n = znorm(10);
+        for v in 1i64..=10 { n.update(Decimal::from(v)); }
+        let f = n.above_percentile_90().unwrap();
+        assert!(f < 0.2, "expected small fraction, got {}", f);
+    }
+
+    #[test]
+    fn test_zscore_window_lag_autocorr_none_for_constant() {
+        let mut n = znorm(4);
+        for _ in 0..4 { n.update(dec!(5)); }
+        assert!(n.window_lag_autocorr().is_none());
+    }
+
+    #[test]
+    fn test_zscore_slope_of_mean_none_for_small_window() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        assert!(n.slope_of_mean().is_none());
     }
 }

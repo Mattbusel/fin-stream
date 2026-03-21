@@ -9,6 +9,30 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.4.9] - 2026-03-20
+
+### Added
+
+**`tick` module — `NormalizedTick` analytics (round 98)**
+- `NormalizedTick::tick_reversal_ratio(ticks)` — fraction of consecutive direction pairs that reverse.
+- `NormalizedTick::first_half_vwap(ticks)` — VWAP of the first half of the tick slice.
+- `NormalizedTick::second_half_vwap(ticks)` — VWAP of the second half of the tick slice.
+- `NormalizedTick::qty_momentum(ticks)` — last tick quantity minus first tick quantity.
+
+**`ohlcv` module — `OhlcvBar` analytics (round 98)**
+- `OhlcvBar::narrow_body_count(bars)` — number of bars with body-to-range ratio below 10% (doji-like).
+- `OhlcvBar::bar_range_mean(bars)` — mean `high − low` across all bars.
+- `OhlcvBar::close_proximity(bars)` — mean `(close − low) / (high − low)` per bar.
+- `OhlcvBar::down_gap_count(bars)` — number of downward open-to-prev-close gaps.
+
+**`norm` module — `MinMaxNormalizer` and `ZScoreNormalizer` analytics (round 98)**
+- `window_kurtosis() -> Option<f64>` — excess kurtosis (fourth standardized moment − 3) of the window.
+- `above_percentile_90() -> Option<f64>` — fraction of window values above the 90th percentile.
+- `window_lag_autocorr() -> Option<f64>` — lag-1 autocorrelation of the rolling window.
+- `slope_of_mean() -> Option<f64>` — slope between first-half mean and second-half mean.
+
+---
+
 ## [2.4.8] - 2026-03-20
 
 ### Added

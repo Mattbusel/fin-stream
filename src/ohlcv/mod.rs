@@ -4081,6 +4081,82 @@ impl OhlcvBar {
         Some(values.iter().sum::<f64>() / values.len() as f64)
     }
 
+    // ── round-98 ─────────────────────────────────────────────────────────────
+
+    /// Number of bars where `|close − open| / (high − low) < 0.1` (doji-like).
+    /// Returns `None` for an empty slice.
+    pub fn narrow_body_count(bars: &[OhlcvBar]) -> Option<usize> {
+        if bars.is_empty() {
+            return None;
+        }
+        use rust_decimal::prelude::ToPrimitive;
+        let count = bars
+            .iter()
+            .filter(|b| {
+                let range = b.high - b.low;
+                if range.is_zero() {
+                    return true; // zero-range is doji by convention
+                }
+                let body_ratio = ((b.close - b.open).abs() / range)
+                    .to_f64()
+                    .unwrap_or(1.0);
+                body_ratio < 0.1
+            })
+            .count();
+        Some(count)
+    }
+
+    /// Mean price range `(high − low)` across all bars.
+    /// Returns `None` for an empty slice.
+    pub fn bar_range_mean(bars: &[OhlcvBar]) -> Option<f64> {
+        if bars.is_empty() {
+            return None;
+        }
+        use rust_decimal::prelude::ToPrimitive;
+        let sum: f64 = bars
+            .iter()
+            .map(|b| (b.high - b.low).to_f64().unwrap_or(0.0))
+            .sum();
+        Some(sum / bars.len() as f64)
+    }
+
+    /// Mean of `(close − low) / (high − low)` — how close to the high bars
+    /// typically close. Excludes zero-range bars.
+    /// Returns `None` for an empty slice or all zero-range bars.
+    pub fn close_proximity(bars: &[OhlcvBar]) -> Option<f64> {
+        if bars.is_empty() {
+            return None;
+        }
+        use rust_decimal::prelude::ToPrimitive;
+        let values: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let range = b.high - b.low;
+                if range.is_zero() {
+                    return None;
+                }
+                Some(((b.close - b.low) / range).to_f64().unwrap_or(0.0))
+            })
+            .collect();
+        if values.is_empty() {
+            return None;
+        }
+        Some(values.iter().sum::<f64>() / values.len() as f64)
+    }
+
+    /// Number of bars with a downward gap (`open < prev_close`).
+    /// Returns `None` for fewer than 2 bars.
+    pub fn down_gap_count(bars: &[OhlcvBar]) -> Option<usize> {
+        if bars.len() < 2 {
+            return None;
+        }
+        let count = bars
+            .windows(2)
+            .filter(|w| w[1].open < w[0].close)
+            .count();
+        Some(count)
+    }
+
 }
 
 impl std::fmt::Display for OhlcvBar {
@@ -10137,5 +10213,61 @@ mod tests {
         let b = make_ohlcv_bar(dec!(90), dec!(110), dec!(90), dec!(110));
         let r = OhlcvBar::body_to_range_mean(&[b]).unwrap();
         assert!((r - 1.0).abs() < 1e-9, "full body → ratio=1.0, got {}", r);
+    }
+
+    // ── round-98 tests ────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_narrow_body_count_none_for_empty() {
+        assert!(OhlcvBar::narrow_body_count(&[]).is_none());
+    }
+
+    #[test]
+    fn test_narrow_body_count_full_body_is_not_narrow() {
+        // open=low=90, close=high=110 → body/range = 1.0 → not narrow
+        let b = make_ohlcv_bar(dec!(90), dec!(110), dec!(90), dec!(110));
+        let c = OhlcvBar::narrow_body_count(&[b]).unwrap();
+        assert_eq!(c, 0);
+    }
+
+    #[test]
+    fn test_bar_range_mean_none_for_empty() {
+        assert!(OhlcvBar::bar_range_mean(&[]).is_none());
+    }
+
+    #[test]
+    fn test_bar_range_mean_basic() {
+        // high=110, low=90 → range=20
+        let b = make_ohlcv_bar(dec!(95), dec!(110), dec!(90), dec!(105));
+        let r = OhlcvBar::bar_range_mean(&[b]).unwrap();
+        assert!((r - 20.0).abs() < 1e-9, "expected 20.0, got {}", r);
+    }
+
+    #[test]
+    fn test_close_proximity_none_for_empty() {
+        assert!(OhlcvBar::close_proximity(&[]).is_none());
+    }
+
+    #[test]
+    fn test_close_proximity_one_for_close_at_high() {
+        // close=high → (high-low)/(high-low) = 1.0
+        let b = make_ohlcv_bar(dec!(90), dec!(110), dec!(90), dec!(110));
+        let p = OhlcvBar::close_proximity(&[b]).unwrap();
+        assert!((p - 1.0).abs() < 1e-9, "close at high → 1.0, got {}", p);
+    }
+
+    #[test]
+    fn test_down_gap_count_none_for_single_bar() {
+        let b = make_ohlcv_bar(dec!(90), dec!(110), dec!(85), dec!(100));
+        assert!(OhlcvBar::down_gap_count(&[b]).is_none());
+    }
+
+    #[test]
+    fn test_down_gap_count_detects_gap_down() {
+        // b1 closes at 100, b2 opens at 90 < 100 → 1 down gap
+        let b1 = make_ohlcv_bar(dec!(90), dec!(110), dec!(85), dec!(100));
+        let b2 = make_ohlcv_bar(dec!(90), dec!(95), dec!(85), dec!(93));
+        let c = OhlcvBar::down_gap_count(&[b1, b2]).unwrap();
+        assert_eq!(c, 1);
     }
 }
