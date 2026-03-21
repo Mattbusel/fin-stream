@@ -9,6 +9,30 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.10.34] - 2026-03-20
+
+### Added
+
+**`tick` module — `NormalizedTick` analytics (round 183)**
+- `NormalizedTick::tick_price_lag_autocorr(ticks)` — lag-1 autocorrelation of price differences.
+- `NormalizedTick::price_std_zscore(ticks)` — z-score of the last price relative to the series.
+- `NormalizedTick::tick_trade_density(ticks)` — ticks per millisecond over the received_at_ms span.
+- `NormalizedTick::tick_size_range(ticks)` — max(quantity) - min(quantity): range of trade sizes.
+
+**`ohlcv` module — `OhlcvBar` analytics (round 183)**
+- `OhlcvBar::bar_open_gap_pct(bars)` — mean |open[i] - close[i-1]| / close[i-1] gap percentage.
+- `OhlcvBar::bar_abs_close_momentum(bars)` — mean |close[i] - close[i-1]|: absolute close momentum.
+- `OhlcvBar::bar_volume_momentum(bars)` — mean volume[i] - volume[i-1]: volume momentum.
+- `OhlcvBar::bar_close_level_return(bars)` — mean (close - open) / open per bar.
+
+**`norm` module — `MinMaxNormalizer` + `ZScoreNormalizer` analytics (round 183)**
+- `window_abs_skew()` — absolute skewness: |mean - median| / std.
+- `window_weighted_std()` — weighted standard deviation with linearly increasing weights.
+- `window_iqr_mean_ratio()` — interquartile range divided by |mean|.
+- `window_within_1std_ratio()` — fraction of window values within one std deviation of the mean.
+
+---
+
 ## [2.10.33] - 2026-03-20
 
 ### Added

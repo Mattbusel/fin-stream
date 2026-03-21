@@ -9087,6 +9087,53 @@ impl NormalizedTick {
         Some(max_streak as f64)
     }
 
+    /// Lag-1 autocorrelation of price differences.
+    pub fn tick_price_lag_autocorr(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 3 { return None; }
+        let prices: Vec<f64> = ticks.iter().filter_map(|t| t.price.to_f64()).collect();
+        if prices.len() < 3 { return None; }
+        let diffs: Vec<f64> = prices.windows(2).map(|w| w[1] - w[0]).collect();
+        if diffs.len() < 2 { return None; }
+        let mean = diffs.iter().sum::<f64>() / diffs.len() as f64;
+        let var: f64 = diffs.iter().map(|d| (d - mean).powi(2)).sum::<f64>() / diffs.len() as f64;
+        if var == 0.0 { return None; }
+        let cov: f64 = diffs.windows(2).map(|w| (w[0] - mean) * (w[1] - mean)).sum::<f64>() / (diffs.len() - 1) as f64;
+        Some(cov / var)
+    }
+
+    /// Z-score of the last price relative to the rolling price series.
+    pub fn price_std_zscore(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 2 { return None; }
+        let prices: Vec<f64> = ticks.iter().filter_map(|t| t.price.to_f64()).collect();
+        if prices.len() < 2 { return None; }
+        let mean = prices.iter().sum::<f64>() / prices.len() as f64;
+        let std = (prices.iter().map(|p| (p - mean).powi(2)).sum::<f64>() / prices.len() as f64).sqrt();
+        if std == 0.0 { return None; }
+        Some((*prices.last()? - mean) / std)
+    }
+
+    /// Ticks per millisecond over the received_at_ms span.
+    pub fn tick_trade_density(ticks: &[NormalizedTick]) -> Option<f64> {
+        if ticks.len() < 2 { return None; }
+        let first = ticks.first()?.received_at_ms;
+        let last = ticks.last()?.received_at_ms;
+        if last <= first { return None; }
+        Some(ticks.len() as f64 / (last - first) as f64)
+    }
+
+    /// Max(quantity) - Min(quantity): range of trade sizes.
+    pub fn tick_size_range(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() { return None; }
+        let qtys: Vec<f64> = ticks.iter().filter_map(|t| t.quantity.to_f64()).collect();
+        if qtys.is_empty() { return None; }
+        let min = qtys.iter().cloned().fold(f64::INFINITY, f64::min);
+        let max = qtys.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        Some(max - min)
+    }
+
 }
 
 
@@ -20697,5 +20744,64 @@ mod tests {
         ];
         let r = NormalizedTick::tick_side_streak_length(&ticks).unwrap();
         assert!((r - 1.0).abs() < 1e-9, "expected 1.0, got {}", r);
+    }
+
+    #[test]
+    fn test_tick_price_lag_autocorr_empty_none() {
+        use rust_decimal_macros::dec;
+        assert!(NormalizedTick::tick_price_lag_autocorr(&[]).is_none());
+    }
+
+    #[test]
+    fn test_tick_price_lag_autocorr_constant_none() {
+        use rust_decimal_macros::dec;
+        // All same price → diffs all 0 → var=0 → None
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(100), dec!(1)),
+        ];
+        assert!(NormalizedTick::tick_price_lag_autocorr(&ticks).is_none());
+    }
+
+    #[test]
+    fn test_price_std_zscore_empty_none() {
+        use rust_decimal_macros::dec;
+        assert!(NormalizedTick::price_std_zscore(&[]).is_none());
+    }
+
+    #[test]
+    fn test_price_std_zscore_constant_none() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(100), dec!(1)),
+        ];
+        assert!(NormalizedTick::price_std_zscore(&ticks).is_none());
+    }
+
+    #[test]
+    fn test_tick_trade_density_empty_none() {
+        use rust_decimal_macros::dec;
+        assert!(NormalizedTick::tick_trade_density(&[]).is_none());
+    }
+
+    #[test]
+    fn test_tick_size_range_empty_none() {
+        use rust_decimal_macros::dec;
+        assert!(NormalizedTick::tick_size_range(&[]).is_none());
+    }
+
+    #[test]
+    fn test_tick_size_range_same_qty_zero() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(5)),
+            make_tick_pq(dec!(101), dec!(5)),
+            make_tick_pq(dec!(102), dec!(5)),
+        ];
+        let r = NormalizedTick::tick_size_range(&ticks).unwrap();
+        assert!(r.abs() < 1e-9, "expected 0.0, got {}", r);
     }
 }

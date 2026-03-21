@@ -6411,6 +6411,64 @@ impl MinMaxNormalizer {
         Some(entropy)
     }
 
+    /// Absolute skewness of window values: |mean - median| / std.
+    pub fn window_abs_skew(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 3 { return None; }
+        let mut vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let mean = vals.iter().sum::<f64>() / vals.len() as f64;
+        let std = (vals.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / vals.len() as f64).sqrt();
+        if std == 0.0 { return None; }
+        vals.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let median = if vals.len() % 2 == 0 {
+            (vals[vals.len() / 2 - 1] + vals[vals.len() / 2]) / 2.0
+        } else {
+            vals[vals.len() / 2]
+        };
+        Some((mean - median).abs() / std)
+    }
+
+    /// Weighted standard deviation where weights are positions 1..=n.
+    pub fn window_weighted_std(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let n = vals.len() as f64;
+        let weights: Vec<f64> = (1..=vals.len()).map(|i| i as f64).collect();
+        let w_sum: f64 = weights.iter().sum();
+        let w_mean: f64 = vals.iter().zip(weights.iter()).map(|(v, w)| v * w).sum::<f64>() / w_sum;
+        let w_var: f64 = vals.iter().zip(weights.iter()).map(|(v, w)| w * (v - w_mean).powi(2)).sum::<f64>() / w_sum;
+        let _ = n;
+        Some(w_var.sqrt())
+    }
+
+    /// IQR / mean ratio: interquartile range relative to mean.
+    pub fn window_iqr_mean_ratio(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 4 { return None; }
+        let mut vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        vals.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let n = vals.len();
+        let q1 = vals[n / 4];
+        let q3 = vals[3 * n / 4];
+        let iqr = q3 - q1;
+        let mean = vals.iter().sum::<f64>() / n as f64;
+        if mean == 0.0 { return None; }
+        Some(iqr / mean.abs())
+    }
+
+    /// Fraction of window values within one std deviation of the mean.
+    pub fn window_within_1std_ratio(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let mean = vals.iter().sum::<f64>() / vals.len() as f64;
+        let std = (vals.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / vals.len() as f64).sqrt();
+        if std == 0.0 { return Some(1.0); }
+        let count = vals.iter().filter(|&&v| (v - mean).abs() <= std).count();
+        Some(count as f64 / vals.len() as f64)
+    }
+
 }
 
 #[cfg(test)]
@@ -13943,6 +14001,59 @@ mod tests {
         let r = n.window_range_entropy().unwrap();
         assert!((r - 0.0).abs() < 1e-9, "expected 0.0, got {}", r);
     }
+
+    #[test]
+    fn test_minmax_window_abs_skew_none_for_constant() {
+        let mut n = norm(4);
+        for v in [dec!(5), dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        assert!(n.window_abs_skew().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_abs_skew_symmetric_zero() {
+        // Symmetric: 1,2,3,4 → mean=2.5, median=2.5 → skew=0
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let r = n.window_abs_skew().unwrap();
+        assert!(r.abs() < 1e-6, "expected ~0, got {}", r);
+    }
+
+    #[test]
+    fn test_minmax_window_weighted_std_none_for_single() {
+        let mut n = norm(4);
+        n.update(dec!(5));
+        assert!(n.window_weighted_std().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_weighted_std_constant_zero() {
+        let mut n = norm(4);
+        for v in [dec!(3), dec!(3), dec!(3), dec!(3)] { n.update(v); }
+        let r = n.window_weighted_std().unwrap();
+        assert!(r.abs() < 1e-9, "expected 0.0, got {}", r);
+    }
+
+    #[test]
+    fn test_minmax_window_iqr_mean_ratio_none_for_short() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        assert!(n.window_iqr_mean_ratio().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_iqr_mean_ratio_returns_some() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        assert!(n.window_iqr_mean_ratio().is_some());
+    }
+
+    #[test]
+    fn test_minmax_window_within_1std_ratio_constant_one() {
+        let mut n = norm(4);
+        for v in [dec!(5), dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        let r = n.window_within_1std_ratio().unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "expected 1.0, got {}", r);
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -20302,6 +20413,64 @@ impl ZScoreNormalizer {
             .map(|&c| { let p = c as f64 / n; -p * p.log2() })
             .sum();
         Some(entropy)
+    }
+
+    /// Absolute skewness of window values: |mean - median| / std.
+    pub fn window_abs_skew(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 3 { return None; }
+        let mut vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let mean = vals.iter().sum::<f64>() / vals.len() as f64;
+        let std = (vals.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / vals.len() as f64).sqrt();
+        if std == 0.0 { return None; }
+        vals.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let median = if vals.len() % 2 == 0 {
+            (vals[vals.len() / 2 - 1] + vals[vals.len() / 2]) / 2.0
+        } else {
+            vals[vals.len() / 2]
+        };
+        Some((mean - median).abs() / std)
+    }
+
+    /// Weighted standard deviation where weights are positions 1..=n.
+    pub fn window_weighted_std(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let n = vals.len() as f64;
+        let weights: Vec<f64> = (1..=vals.len()).map(|i| i as f64).collect();
+        let w_sum: f64 = weights.iter().sum();
+        let w_mean: f64 = vals.iter().zip(weights.iter()).map(|(v, w)| v * w).sum::<f64>() / w_sum;
+        let w_var: f64 = vals.iter().zip(weights.iter()).map(|(v, w)| w * (v - w_mean).powi(2)).sum::<f64>() / w_sum;
+        let _ = n;
+        Some(w_var.sqrt())
+    }
+
+    /// IQR / mean ratio: interquartile range relative to mean.
+    pub fn window_iqr_mean_ratio(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 4 { return None; }
+        let mut vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        vals.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let n = vals.len();
+        let q1 = vals[n / 4];
+        let q3 = vals[3 * n / 4];
+        let iqr = q3 - q1;
+        let mean = vals.iter().sum::<f64>() / n as f64;
+        if mean == 0.0 { return None; }
+        Some(iqr / mean.abs())
+    }
+
+    /// Fraction of window values within one std deviation of the mean.
+    pub fn window_within_1std_ratio(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let mean = vals.iter().sum::<f64>() / vals.len() as f64;
+        let std = (vals.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / vals.len() as f64).sqrt();
+        if std == 0.0 { return Some(1.0); }
+        let count = vals.iter().filter(|&&v| (v - mean).abs() <= std).count();
+        Some(count as f64 / vals.len() as f64)
     }
 
 }
@@ -27793,5 +27962,57 @@ mod zscore_stability_tests {
         for v in [dec!(5), dec!(5), dec!(5), dec!(5)] { n.update(v); }
         let r = n.window_range_entropy().unwrap();
         assert!((r - 0.0).abs() < 1e-9, "expected 0.0, got {}", r);
+    }
+
+    #[test]
+    fn test_zscore_window_abs_skew_none_for_constant() {
+        let mut n = znorm(4);
+        for v in [dec!(5), dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        assert!(n.window_abs_skew().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_abs_skew_symmetric_zero() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let r = n.window_abs_skew().unwrap();
+        assert!(r.abs() < 1e-6, "expected ~0, got {}", r);
+    }
+
+    #[test]
+    fn test_zscore_window_weighted_std_none_for_single() {
+        let mut n = znorm(4);
+        n.update(dec!(5));
+        assert!(n.window_weighted_std().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_weighted_std_constant_zero() {
+        let mut n = znorm(4);
+        for v in [dec!(3), dec!(3), dec!(3), dec!(3)] { n.update(v); }
+        let r = n.window_weighted_std().unwrap();
+        assert!(r.abs() < 1e-9, "expected 0.0, got {}", r);
+    }
+
+    #[test]
+    fn test_zscore_window_iqr_mean_ratio_none_for_short() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        assert!(n.window_iqr_mean_ratio().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_iqr_mean_ratio_returns_some() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        assert!(n.window_iqr_mean_ratio().is_some());
+    }
+
+    #[test]
+    fn test_zscore_window_within_1std_ratio_constant_one() {
+        let mut n = znorm(4);
+        for v in [dec!(5), dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        let r = n.window_within_1std_ratio().unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "expected 1.0, got {}", r);
     }
 }
