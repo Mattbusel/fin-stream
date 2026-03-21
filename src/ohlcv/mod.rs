@@ -9856,6 +9856,58 @@ impl OhlcvBar {
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
+    /// Mean gap between each bar's open and previous bar's close.
+    pub fn bar_prev_close_gap(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.len() < 2 { return None; }
+        let gaps: Vec<f64> = bars.windows(2).filter_map(|w| {
+            (w[1].open - w[0].close).to_f64()
+        }).collect();
+        if gaps.is_empty() { return None; }
+        Some(gaps.iter().sum::<f64>() / gaps.len() as f64)
+    }
+
+    /// Mean (open - low) / (high - low) — open lower efficiency.
+    pub fn bar_open_low_efficiency(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let vals: Vec<f64> = bars.iter().filter_map(|b| {
+            let hl = (b.high - b.low).to_f64()?;
+            if hl == 0.0 { return Some(0.0); }
+            let ol = (b.open - b.low).to_f64()?;
+            Some(ol / hl)
+        }).collect();
+        if vals.is_empty() { return None; }
+        Some(vals.iter().sum::<f64>() / vals.len() as f64)
+    }
+
+    /// Fraction of bars with volume in the top quartile of the window.
+    pub fn bar_extreme_vol_pct(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let mut vols: Vec<f64> = bars.iter().filter_map(|b| b.volume.to_f64()).collect();
+        if vols.is_empty() { return None; }
+        let mut sorted = vols.clone();
+        sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let threshold = sorted[sorted.len() * 3 / 4];
+        let _ = vols.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let count = vols.iter().filter(|&&v| v >= threshold).count();
+        Some(count as f64 / vols.len() as f64)
+    }
+
+    /// Volume oscillator: (short_vol_mean - long_vol_mean) / long_vol_mean.
+    pub fn bar_volume_oscillator(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.len() < 4 { return None; }
+        let half = bars.len() / 2;
+        let vols: Vec<f64> = bars.iter().filter_map(|b| b.volume.to_f64()).collect();
+        if vols.len() < 4 { return None; }
+        let short_mean = vols[vols.len()-half..].iter().sum::<f64>() / half as f64;
+        let long_mean = vols.iter().sum::<f64>() / vols.len() as f64;
+        if long_mean == 0.0 { return None; }
+        Some((short_mean - long_mean) / long_mean)
+    }
+
     /// Mean (open - low) / (high - low) — open strength (position of open in range).
     pub fn bar_open_strength(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
@@ -22600,5 +22652,60 @@ mod tests {
         let b2 = make_ohlcv_bar(dec!(100), dec!(115), dec!(85), dec!(110));
         let r = OhlcvBar::bar_close_vol_speed(&[b1, b2]).unwrap();
         assert!(r > 0.0);
+    }
+
+    #[test]
+    fn test_bar_prev_close_gap_too_few_none() {
+        assert!(OhlcvBar::bar_prev_close_gap(&[]).is_none());
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        assert!(OhlcvBar::bar_prev_close_gap(&[b]).is_none());
+    }
+
+    #[test]
+    fn test_bar_prev_close_gap_returns_value() {
+        let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let b2 = make_ohlcv_bar(dec!(107), dec!(115), dec!(95), dec!(112));
+        let r = OhlcvBar::bar_prev_close_gap(&[b1, b2]).unwrap();
+        assert!((r - 2.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_bar_open_low_efficiency_empty_none() {
+        assert!(OhlcvBar::bar_open_low_efficiency(&[]).is_none());
+    }
+
+    #[test]
+    fn test_bar_open_low_efficiency_returns_bounded() {
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let r = OhlcvBar::bar_open_low_efficiency(&[b]).unwrap();
+        assert!(r >= 0.0 && r <= 1.0);
+    }
+
+    #[test]
+    fn test_bar_extreme_vol_pct_empty_none() {
+        assert!(OhlcvBar::bar_extreme_vol_pct(&[]).is_none());
+    }
+
+    #[test]
+    fn test_bar_extreme_vol_pct_returns_bounded() {
+        let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let b2 = make_ohlcv_bar(dec!(100), dec!(115), dec!(85), dec!(110));
+        let r = OhlcvBar::bar_extreme_vol_pct(&[b1, b2]).unwrap();
+        assert!(r >= 0.0 && r <= 1.0);
+    }
+
+    #[test]
+    fn test_bar_volume_oscillator_too_few_none() {
+        assert!(OhlcvBar::bar_volume_oscillator(&[]).is_none());
+    }
+
+    #[test]
+    fn test_bar_volume_oscillator_returns_value() {
+        let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let b2 = make_ohlcv_bar(dec!(100), dec!(115), dec!(85), dec!(110));
+        let b3 = make_ohlcv_bar(dec!(100), dec!(112), dec!(88), dec!(108));
+        let b4 = make_ohlcv_bar(dec!(100), dec!(118), dec!(92), dec!(115));
+        let r = OhlcvBar::bar_volume_oscillator(&[b1, b2, b3, b4]);
+        assert!(r.is_some());
     }
 }

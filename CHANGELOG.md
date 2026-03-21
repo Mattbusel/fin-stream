@@ -9,6 +9,29 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.10.59] - 2026-03-20
+
+### Added
+
+**`tick` module — `NormalizedTick` analytics (round 208)**
+- `NormalizedTick::tick_order_size_ratio(ticks)` — ratio of largest to smallest trade quantity.
+- `NormalizedTick::tick_price_cross_zero(ticks)` — count of ticks where price crosses its mean.
+- `NormalizedTick::tick_buy_sell_flow_delta(ticks)` — difference in buy vs sell total volume.
+- `NormalizedTick::tick_ema_divergence(ticks)` — last price deviation from short EMA.
+
+**`ohlcv` module — `OhlcvBar` analytics (round 208)**
+- `OhlcvBar::bar_prev_close_gap(bars)` — mean gap between previous close and current open.
+- `OhlcvBar::bar_open_low_efficiency(bars)` — mean (open - low) / range ratio.
+- `OhlcvBar::bar_extreme_vol_pct(bars)` — fraction of bars in top quartile by volume.
+- `OhlcvBar::bar_volume_oscillator(bars)` — short vs long volume EMA oscillator.
+
+**`norm` module — `MinMaxNormalizer` + `ZScoreNormalizer` analytics (round 208)**
+- `window_variance_of_changes()` — variance of consecutive differences in the window.
+- `window_range_ratio_pct()` — range as fraction of mean absolute value.
+- `window_mean_abs_change_pct()` — mean absolute change as percentage of mean value.
+
+---
+
 ## [2.10.58] - 2026-03-20
 
 ### Added

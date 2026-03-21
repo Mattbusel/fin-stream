@@ -10099,6 +10099,62 @@ impl NormalizedTick {
         Some(num / (dp * dq))
     }
 
+    /// Ratio of largest single trade to mean trade size.
+    pub fn tick_order_size_ratio(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() { return None; }
+        let qtys: Vec<f64> = ticks.iter().filter_map(|t| t.quantity.to_f64()).collect();
+        if qtys.is_empty() { return None; }
+        let mean = qtys.iter().sum::<f64>() / qtys.len() as f64;
+        if mean == 0.0 { return None; }
+        let max = qtys.iter().cloned().fold(0.0f64, f64::max);
+        Some(max / mean)
+    }
+
+    /// Count of times price crosses zero (or mean) — uses mean as the crossing level.
+    pub fn tick_price_cross_zero(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 2 { return None; }
+        let prices: Vec<f64> = ticks.iter().filter_map(|t| t.price.to_f64()).collect();
+        if prices.len() < 2 { return None; }
+        let mean = prices.iter().sum::<f64>() / prices.len() as f64;
+        let crossings = prices.windows(2)
+            .filter(|w| (w[0] - mean) * (w[1] - mean) < 0.0)
+            .count();
+        Some(crossings as f64)
+    }
+
+    /// Net flow delta: (buy_qty - sell_qty) / total_qty.
+    pub fn tick_buy_sell_flow_delta(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() { return None; }
+        let total: f64 = ticks.iter().filter_map(|t| t.quantity.to_f64()).sum();
+        if total == 0.0 { return None; }
+        let buy: f64 = ticks.iter().filter_map(|t| {
+            if t.side == Some(TradeSide::Buy) { t.quantity.to_f64() } else { None }
+        }).sum();
+        let sell: f64 = ticks.iter().filter_map(|t| {
+            if t.side == Some(TradeSide::Sell) { t.quantity.to_f64() } else { None }
+        }).sum();
+        if buy == 0.0 && sell == 0.0 { return None; }
+        Some((buy - sell) / total)
+    }
+
+    /// Divergence of last price from EMA: (last_price - EMA) / EMA.
+    pub fn tick_ema_divergence(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() { return None; }
+        let prices: Vec<f64> = ticks.iter().filter_map(|t| t.price.to_f64()).collect();
+        if prices.is_empty() { return None; }
+        let alpha = 2.0 / (prices.len() as f64 + 1.0);
+        let mut ema = prices[0];
+        for &p in &prices[1..] {
+            ema = alpha * p + (1.0 - alpha) * ema;
+        }
+        if ema == 0.0 { return None; }
+        Some((*prices.last()? - ema) / ema)
+    }
+
     /// Asymmetry of price*vol: buy side minus sell side weighted price.
     pub fn tick_price_vol_asymmetry(ticks: &[NormalizedTick]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
@@ -23967,5 +24023,71 @@ mod tests {
         ];
         let r = NormalizedTick::tick_microstructure_noise(&ticks).unwrap();
         assert_eq!(r, 0.0);
+    }
+
+    #[test]
+    fn test_tick_order_size_ratio_empty_none() {
+        assert!(NormalizedTick::tick_order_size_ratio(&[]).is_none());
+    }
+
+    #[test]
+    fn test_tick_order_size_ratio_uniform_one() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(2)),
+            make_tick_pq(dec!(100), dec!(2)),
+        ];
+        let r = NormalizedTick::tick_order_size_ratio(&ticks).unwrap();
+        assert!((r - 1.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_tick_price_cross_zero_too_few_none() {
+        use rust_decimal_macros::dec;
+        let t = make_tick_pq(dec!(100), dec!(1));
+        assert!(NormalizedTick::tick_price_cross_zero(&[t]).is_none());
+    }
+
+    #[test]
+    fn test_tick_price_cross_zero_returns_nonneg() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(110), dec!(1)),
+            make_tick_pq(dec!(90), dec!(1)),
+        ];
+        let r = NormalizedTick::tick_price_cross_zero(&ticks).unwrap();
+        assert!(r >= 0.0);
+    }
+
+    #[test]
+    fn test_tick_buy_sell_flow_delta_empty_none() {
+        assert!(NormalizedTick::tick_buy_sell_flow_delta(&[]).is_none());
+    }
+
+    #[test]
+    fn test_tick_buy_sell_flow_delta_all_buys_positive() {
+        use rust_decimal_macros::dec;
+        let mut t = make_tick_pq(dec!(100), dec!(5));
+        t.side = Some(TradeSide::Buy);
+        let r = NormalizedTick::tick_buy_sell_flow_delta(&[t]).unwrap();
+        assert!(r > 0.0);
+    }
+
+    #[test]
+    fn test_tick_ema_divergence_empty_none() {
+        assert!(NormalizedTick::tick_ema_divergence(&[]).is_none());
+    }
+
+    #[test]
+    fn test_tick_ema_divergence_flat_near_zero() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(100), dec!(1)),
+        ];
+        let r = NormalizedTick::tick_ema_divergence(&ticks).unwrap();
+        assert!(r.abs() < 1e-6);
     }
 }

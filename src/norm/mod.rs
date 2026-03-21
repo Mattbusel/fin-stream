@@ -7683,6 +7683,47 @@ impl MinMaxNormalizer {
         Some(count as f64 / n)
     }
 
+    /// Variance of consecutive differences in the window.
+    pub fn window_variance_of_changes(&self) -> Option<f64> {
+        if self.window.len() < 3 { return None; }
+        use rust_decimal::prelude::ToPrimitive;
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.len() < 3 { return None; }
+        let diffs: Vec<f64> = vals.windows(2).map(|w| w[1] - w[0]).collect();
+        let mean = diffs.iter().sum::<f64>() / diffs.len() as f64;
+        let var = diffs.iter().map(|d| (d - mean).powi(2)).sum::<f64>() / (diffs.len() - 1) as f64;
+        Some(var)
+    }
+
+    /// Range as fraction of mean absolute value (range ratio).
+    pub fn window_range_ratio_pct(&self) -> Option<f64> {
+        if self.window.len() < 2 { return None; }
+        let mut vals: Vec<f64> = self.window.iter().filter_map(|v| {
+            use rust_decimal::prelude::ToPrimitive;
+            v.to_f64()
+        }).collect();
+        if vals.len() < 2 { return None; }
+        vals.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let min = vals[0];
+        let max = *vals.last()?;
+        let range = max - min;
+        let mean_abs = vals.iter().map(|v| v.abs()).sum::<f64>() / vals.len() as f64;
+        if mean_abs == 0.0 { return None; }
+        Some(range / mean_abs)
+    }
+
+    /// Mean absolute change as a percentage of the mean value.
+    pub fn window_mean_abs_change_pct(&self) -> Option<f64> {
+        if self.window.len() < 2 { return None; }
+        use rust_decimal::prelude::ToPrimitive;
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.len() < 2 { return None; }
+        let mean = vals.iter().sum::<f64>() / vals.len() as f64;
+        if mean == 0.0 { return None; }
+        let mac = vals.windows(2).map(|w| (w[1] - w[0]).abs()).sum::<f64>() / (vals.len() - 1) as f64;
+        Some(mac / mean.abs())
+    }
+
 }
 
 #[cfg(test)]
@@ -16585,6 +16626,75 @@ mod tests {
         let r = n.window_density_peak_score().unwrap();
         assert!(r >= 0.0 && r <= 1.0);
     }
+
+    #[test]
+    fn test_minmax_window_variance_of_changes_too_few_none() {
+        let mut n = norm(5);
+        for v in [dec!(1), dec!(2)] { n.update(v); }
+        assert!(n.window_variance_of_changes().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_variance_of_changes_constant_zero() {
+        let mut n = norm(5);
+        for v in [dec!(3), dec!(3), dec!(3), dec!(3)] { n.update(v); }
+        let r = n.window_variance_of_changes().unwrap();
+        assert!(r.abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_minmax_window_variance_of_changes_positive() {
+        let mut n = norm(5);
+        for v in [dec!(1), dec!(3), dec!(2), dec!(5)] { n.update(v); }
+        let r = n.window_variance_of_changes().unwrap();
+        assert!(r >= 0.0);
+    }
+
+    #[test]
+    fn test_minmax_window_range_ratio_pct_too_few_none() {
+        let mut n = norm(5);
+        n.update(dec!(5));
+        assert!(n.window_range_ratio_pct().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_range_ratio_pct_same_values() {
+        let mut n = norm(5);
+        for v in [dec!(4), dec!(4), dec!(4)] { n.update(v); }
+        let r = n.window_range_ratio_pct().unwrap();
+        assert!(r.abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_minmax_window_range_ratio_pct_nonneg() {
+        let mut n = norm(5);
+        for v in [dec!(2), dec!(4), dec!(6), dec!(8)] { n.update(v); }
+        let r = n.window_range_ratio_pct().unwrap();
+        assert!(r >= 0.0);
+    }
+
+    #[test]
+    fn test_minmax_window_mean_abs_change_pct_too_few_none() {
+        let mut n = norm(5);
+        n.update(dec!(10));
+        assert!(n.window_mean_abs_change_pct().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_mean_abs_change_pct_constant_zero() {
+        let mut n = norm(5);
+        for v in [dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        let r = n.window_mean_abs_change_pct().unwrap();
+        assert!(r.abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_minmax_window_mean_abs_change_pct_nonneg() {
+        let mut n = norm(5);
+        for v in [dec!(1), dec!(3), dec!(2), dec!(4)] { n.update(v); }
+        let r = n.window_mean_abs_change_pct().unwrap();
+        assert!(r >= 0.0);
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -24213,6 +24323,47 @@ impl ZScoreNormalizer {
         if std == 0.0 { return Some(1.0); }
         let count = vals.iter().filter(|&&v| (v - mean).abs() <= std).count();
         Some(count as f64 / n)
+    }
+
+    /// Variance of consecutive differences in the window.
+    pub fn window_variance_of_changes(&self) -> Option<f64> {
+        if self.window.len() < 3 { return None; }
+        use rust_decimal::prelude::ToPrimitive;
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.len() < 3 { return None; }
+        let diffs: Vec<f64> = vals.windows(2).map(|w| w[1] - w[0]).collect();
+        let mean = diffs.iter().sum::<f64>() / diffs.len() as f64;
+        let var = diffs.iter().map(|d| (d - mean).powi(2)).sum::<f64>() / (diffs.len() - 1) as f64;
+        Some(var)
+    }
+
+    /// Range as fraction of mean absolute value (range ratio).
+    pub fn window_range_ratio_pct(&self) -> Option<f64> {
+        if self.window.len() < 2 { return None; }
+        let mut vals: Vec<f64> = self.window.iter().filter_map(|v| {
+            use rust_decimal::prelude::ToPrimitive;
+            v.to_f64()
+        }).collect();
+        if vals.len() < 2 { return None; }
+        vals.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let min = vals[0];
+        let max = *vals.last()?;
+        let range = max - min;
+        let mean_abs = vals.iter().map(|v| v.abs()).sum::<f64>() / vals.len() as f64;
+        if mean_abs == 0.0 { return None; }
+        Some(range / mean_abs)
+    }
+
+    /// Mean absolute change as a percentage of the mean value.
+    pub fn window_mean_abs_change_pct(&self) -> Option<f64> {
+        if self.window.len() < 2 { return None; }
+        use rust_decimal::prelude::ToPrimitive;
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.len() < 2 { return None; }
+        let mean = vals.iter().sum::<f64>() / vals.len() as f64;
+        if mean == 0.0 { return None; }
+        let mac = vals.windows(2).map(|w| (w[1] - w[0]).abs()).sum::<f64>() / (vals.len() - 1) as f64;
+        Some(mac / mean.abs())
     }
 
 }
@@ -33065,5 +33216,74 @@ mod zscore_stability_tests {
         for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
         let r = n.window_density_peak_score().unwrap();
         assert!(r >= 0.0 && r <= 1.0);
+    }
+
+    #[test]
+    fn test_zscore_window_variance_of_changes_too_few_none() {
+        let mut n = znorm(5);
+        for v in [dec!(1), dec!(2)] { n.update(v); }
+        assert!(n.window_variance_of_changes().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_variance_of_changes_constant_zero() {
+        let mut n = znorm(5);
+        for v in [dec!(7), dec!(7), dec!(7), dec!(7)] { n.update(v); }
+        let r = n.window_variance_of_changes().unwrap();
+        assert!(r.abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_zscore_window_variance_of_changes_positive() {
+        let mut n = znorm(5);
+        for v in [dec!(1), dec!(4), dec!(2), dec!(6)] { n.update(v); }
+        let r = n.window_variance_of_changes().unwrap();
+        assert!(r >= 0.0);
+    }
+
+    #[test]
+    fn test_zscore_window_range_ratio_pct_too_few_none() {
+        let mut n = znorm(5);
+        n.update(dec!(5));
+        assert!(n.window_range_ratio_pct().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_range_ratio_pct_same_values() {
+        let mut n = znorm(5);
+        for v in [dec!(3), dec!(3), dec!(3)] { n.update(v); }
+        let r = n.window_range_ratio_pct().unwrap();
+        assert!(r.abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_zscore_window_range_ratio_pct_nonneg() {
+        let mut n = znorm(5);
+        for v in [dec!(1), dec!(3), dec!(5), dec!(7)] { n.update(v); }
+        let r = n.window_range_ratio_pct().unwrap();
+        assert!(r >= 0.0);
+    }
+
+    #[test]
+    fn test_zscore_window_mean_abs_change_pct_too_few_none() {
+        let mut n = znorm(5);
+        n.update(dec!(10));
+        assert!(n.window_mean_abs_change_pct().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_mean_abs_change_pct_constant_zero() {
+        let mut n = znorm(5);
+        for v in [dec!(6), dec!(6), dec!(6)] { n.update(v); }
+        let r = n.window_mean_abs_change_pct().unwrap();
+        assert!(r.abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_zscore_window_mean_abs_change_pct_nonneg() {
+        let mut n = znorm(5);
+        for v in [dec!(2), dec!(5), dec!(3), dec!(6)] { n.update(v); }
+        let r = n.window_mean_abs_change_pct().unwrap();
+        assert!(r >= 0.0);
     }
 }
