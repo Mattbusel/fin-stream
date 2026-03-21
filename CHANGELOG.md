@@ -9,6 +9,29 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.10.65] - 2026-03-20
+
+### Added
+
+**`tick` module — `NormalizedTick` analytics (round 214)**
+- `NormalizedTick::tick_buy_count(ticks)` — fraction of ticks that are buy trades.
+- `NormalizedTick::tick_spread_std(ticks)` — std dev of absolute price gaps between ticks.
+- `NormalizedTick::tick_vwap_premium(ticks)` — VWAP minus simple mean price.
+- `NormalizedTick::tick_price_gap_sum(ticks)` — total price travel (sum of absolute gaps).
+
+**`ohlcv` module — `OhlcvBar` analytics (round 214)**
+- `OhlcvBar::bar_open_reversion(bars)` — mean gap from previous close to open normalized by range.
+- `OhlcvBar::bar_directional_efficiency(bars)` — mean body / range (directional price efficiency).
+- `OhlcvBar::bar_mean_range(bars)` — mean (high - low) across all bars.
+- `OhlcvBar::bar_vol_skew(bars)` — skewness of bar volume distribution.
+
+**`norm` module — `MinMaxNormalizer` + `ZScoreNormalizer` analytics (round 214)**
+- `window_var_over_mean()` — variance divided by mean (Fano factor).
+- `window_min_pct_of_mean()` — minimum value as fraction of window mean.
+- `window_last_change()` — last-to-previous value ratio (most recent change factor).
+
+---
+
 ## [2.10.64] - 2026-03-20
 
 ### Added

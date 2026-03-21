@@ -10345,6 +10345,48 @@ impl NormalizedTick {
         Some(accs.iter().sum::<f64>() / accs.len() as f64)
     }
 
+    /// Fraction of ticks that are buy trades.
+    pub fn tick_buy_count(ticks: &[NormalizedTick]) -> Option<f64> {
+        if ticks.is_empty() { return None; }
+        let buys = ticks.iter().filter(|t| t.side == Some(TradeSide::Buy)).count();
+        Some(buys as f64 / ticks.len() as f64)
+    }
+
+    /// Std dev of price gaps between consecutive ticks (spread variability).
+    pub fn tick_spread_std(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 3 { return None; }
+        let prices: Vec<f64> = ticks.iter().filter_map(|t| t.price.to_f64()).collect();
+        if prices.len() < 3 { return None; }
+        let gaps: Vec<f64> = prices.windows(2).map(|w| (w[1] - w[0]).abs()).collect();
+        let mean = gaps.iter().sum::<f64>() / gaps.len() as f64;
+        let var = gaps.iter().map(|g| (g - mean).powi(2)).sum::<f64>() / (gaps.len() - 1) as f64;
+        Some(var.sqrt())
+    }
+
+    /// VWAP premium: VWAP minus simple mean price (positive = large trades at high prices).
+    pub fn tick_vwap_premium(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() { return None; }
+        let total_qty: f64 = ticks.iter().filter_map(|t| t.quantity.to_f64()).sum();
+        if total_qty == 0.0 { return None; }
+        let vwap: f64 = ticks.iter().filter_map(|t| {
+            Some(t.price.to_f64()? * t.quantity.to_f64()?)
+        }).sum::<f64>() / total_qty;
+        let mean: f64 = ticks.iter().filter_map(|t| t.price.to_f64()).sum::<f64>() / ticks.len() as f64;
+        Some(vwap - mean)
+    }
+
+    /// Sum of absolute price gaps between consecutive ticks (total price travel).
+    pub fn tick_price_gap_sum(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 2 { return None; }
+        let prices: Vec<f64> = ticks.iter().filter_map(|t| t.price.to_f64()).collect();
+        if prices.len() < 2 { return None; }
+        let total: f64 = prices.windows(2).map(|w| (w[1] - w[0]).abs()).sum();
+        Some(total)
+    }
+
     /// Ratio of largest single trade to mean trade size.
     pub fn tick_order_size_ratio(ticks: &[NormalizedTick]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
@@ -24700,5 +24742,80 @@ mod tests {
         ];
         let r = NormalizedTick::tick_price_acceleration(&ticks).unwrap();
         assert!(r.abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_tick_buy_count_empty_none() {
+        assert!(NormalizedTick::tick_buy_count(&[]).is_none());
+    }
+
+    #[test]
+    fn test_tick_buy_count_all_buys_one() {
+        use rust_decimal_macros::dec;
+        use crate::tick::TradeSide;
+        let mut t1 = make_tick_pq(dec!(100), dec!(1));
+        t1.side = Some(TradeSide::Buy);
+        let mut t2 = make_tick_pq(dec!(101), dec!(1));
+        t2.side = Some(TradeSide::Buy);
+        let r = NormalizedTick::tick_buy_count(&[t1, t2]).unwrap();
+        assert_eq!(r, 1.0);
+    }
+
+    #[test]
+    fn test_tick_spread_std_too_few_none() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(101), dec!(1)),
+        ];
+        assert!(NormalizedTick::tick_spread_std(&ticks).is_none());
+    }
+
+    #[test]
+    fn test_tick_spread_std_nonneg() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(102), dec!(1)),
+            make_tick_pq(dec!(101), dec!(1)),
+            make_tick_pq(dec!(103), dec!(1)),
+        ];
+        let r = NormalizedTick::tick_spread_std(&ticks).unwrap();
+        assert!(r >= 0.0);
+    }
+
+    #[test]
+    fn test_tick_vwap_premium_empty_none() {
+        assert!(NormalizedTick::tick_vwap_premium(&[]).is_none());
+    }
+
+    #[test]
+    fn test_tick_vwap_premium_uniform_zero() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(100), dec!(1)),
+        ];
+        let r = NormalizedTick::tick_vwap_premium(&ticks).unwrap();
+        assert!(r.abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_tick_price_gap_sum_too_few_none() {
+        use rust_decimal_macros::dec;
+        let t = make_tick_pq(dec!(100), dec!(1));
+        assert!(NormalizedTick::tick_price_gap_sum(&[t]).is_none());
+    }
+
+    #[test]
+    fn test_tick_price_gap_sum_nonneg() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(103), dec!(1)),
+            make_tick_pq(dec!(101), dec!(1)),
+        ];
+        let r = NormalizedTick::tick_price_gap_sum(&ticks).unwrap();
+        assert!((r - 5.0).abs() < 1e-6);
     }
 }

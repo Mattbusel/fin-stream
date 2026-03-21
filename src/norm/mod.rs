@@ -7912,6 +7912,41 @@ impl MinMaxNormalizer {
         Some(num / den)
     }
 
+    /// Variance divided by mean (Fano factor / index of dispersion).
+    pub fn window_var_over_mean(&self) -> Option<f64> {
+        if self.window.len() < 2 { return None; }
+        use rust_decimal::prelude::ToPrimitive;
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.len() < 2 { return None; }
+        let mean = vals.iter().sum::<f64>() / vals.len() as f64;
+        if mean == 0.0 { return None; }
+        let var = vals.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / (vals.len() - 1) as f64;
+        Some(var / mean)
+    }
+
+    /// Min value as fraction of mean: min / mean.
+    pub fn window_min_pct_of_mean(&self) -> Option<f64> {
+        if self.window.is_empty() { return None; }
+        use rust_decimal::prelude::ToPrimitive;
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.is_empty() { return None; }
+        let mean = vals.iter().sum::<f64>() / vals.len() as f64;
+        if mean == 0.0 { return None; }
+        let min = vals.iter().cloned().fold(f64::INFINITY, f64::min);
+        Some(min / mean)
+    }
+
+    /// Last-to-previous ratio: vals[-1] / vals[-2] (most recent change factor).
+    pub fn window_last_change(&self) -> Option<f64> {
+        if self.window.len() < 2 { return None; }
+        use rust_decimal::prelude::ToPrimitive;
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.len() < 2 { return None; }
+        let prev = vals[vals.len() - 2];
+        if prev == 0.0 { return None; }
+        Some(*vals.last()? / prev)
+    }
+
 }
 
 #[cfg(test)]
@@ -17120,6 +17155,50 @@ mod tests {
         let r = n.window_lag1_corr().unwrap();
         assert!(r >= -1.0 && r <= 1.0);
     }
+
+    #[test]
+    fn test_minmax_window_var_over_mean_too_few_none() {
+        let mut n = norm(5);
+        n.update(dec!(3));
+        assert!(n.window_var_over_mean().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_var_over_mean_nonneg() {
+        let mut n = norm(5);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let r = n.window_var_over_mean().unwrap();
+        assert!(r >= 0.0);
+    }
+
+    #[test]
+    fn test_minmax_window_min_pct_of_mean_empty_none() {
+        let n = norm(5);
+        assert!(n.window_min_pct_of_mean().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_min_pct_of_mean_positive() {
+        let mut n = norm(5);
+        for v in [dec!(2), dec!(4), dec!(6), dec!(8)] { n.update(v); }
+        let r = n.window_min_pct_of_mean().unwrap();
+        assert!(r > 0.0);
+    }
+
+    #[test]
+    fn test_minmax_window_last_change_too_few_none() {
+        let mut n = norm(5);
+        n.update(dec!(5));
+        assert!(n.window_last_change().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_last_change_returns_value() {
+        let mut n = norm(5);
+        for v in [dec!(2), dec!(4)] { n.update(v); }
+        let r = n.window_last_change().unwrap();
+        assert!((r - 2.0).abs() < 1e-6);
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -24977,6 +25056,41 @@ impl ZScoreNormalizer {
         let den: f64 = vals.iter().map(|v| (v - mean).powi(2)).sum();
         if den == 0.0 { return None; }
         Some(num / den)
+    }
+
+    /// Variance divided by mean (Fano factor / index of dispersion).
+    pub fn window_var_over_mean(&self) -> Option<f64> {
+        if self.window.len() < 2 { return None; }
+        use rust_decimal::prelude::ToPrimitive;
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.len() < 2 { return None; }
+        let mean = vals.iter().sum::<f64>() / vals.len() as f64;
+        if mean == 0.0 { return None; }
+        let var = vals.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / (vals.len() - 1) as f64;
+        Some(var / mean)
+    }
+
+    /// Min value as fraction of mean: min / mean.
+    pub fn window_min_pct_of_mean(&self) -> Option<f64> {
+        if self.window.is_empty() { return None; }
+        use rust_decimal::prelude::ToPrimitive;
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.is_empty() { return None; }
+        let mean = vals.iter().sum::<f64>() / vals.len() as f64;
+        if mean == 0.0 { return None; }
+        let min = vals.iter().cloned().fold(f64::INFINITY, f64::min);
+        Some(min / mean)
+    }
+
+    /// Last-to-previous ratio: vals[-1] / vals[-2] (most recent change factor).
+    pub fn window_last_change(&self) -> Option<f64> {
+        if self.window.len() < 2 { return None; }
+        use rust_decimal::prelude::ToPrimitive;
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.len() < 2 { return None; }
+        let prev = vals[vals.len() - 2];
+        if prev == 0.0 { return None; }
+        Some(*vals.last()? / prev)
     }
 
 }
@@ -34135,5 +34249,49 @@ mod zscore_stability_tests {
         for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
         let r = n.window_lag1_corr().unwrap();
         assert!(r >= -1.0 && r <= 1.0);
+    }
+
+    #[test]
+    fn test_zscore_window_var_over_mean_too_few_none() {
+        let mut n = znorm(5);
+        n.update(dec!(3));
+        assert!(n.window_var_over_mean().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_var_over_mean_nonneg() {
+        let mut n = znorm(5);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let r = n.window_var_over_mean().unwrap();
+        assert!(r >= 0.0);
+    }
+
+    #[test]
+    fn test_zscore_window_min_pct_of_mean_empty_none() {
+        let n = znorm(5);
+        assert!(n.window_min_pct_of_mean().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_min_pct_of_mean_positive() {
+        let mut n = znorm(5);
+        for v in [dec!(2), dec!(4), dec!(6), dec!(8)] { n.update(v); }
+        let r = n.window_min_pct_of_mean().unwrap();
+        assert!(r > 0.0);
+    }
+
+    #[test]
+    fn test_zscore_window_last_change_too_few_none() {
+        let mut n = znorm(5);
+        n.update(dec!(5));
+        assert!(n.window_last_change().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_last_change_returns_value() {
+        let mut n = znorm(5);
+        for v in [dec!(2), dec!(4)] { n.update(v); }
+        let r = n.window_last_change().unwrap();
+        assert!((r - 2.0).abs() < 1e-6);
     }
 }
