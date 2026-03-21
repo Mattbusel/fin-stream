@@ -5552,6 +5552,54 @@ impl MinMaxNormalizer {
         Some(kurt)
     }
 
+    // ── round-165 ────────────────────────────────────────────────────────────
+
+    /// Index of mean reversion strength: fraction of steps returning toward the mean.
+    pub fn window_mean_reversion_index(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 3 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let mean = vals.iter().sum::<f64>() / vals.len() as f64;
+        let reverts = vals.windows(2).filter(|w| {
+            let d = w[1] - w[0];
+            (w[0] > mean && d < 0.0) || (w[0] < mean && d > 0.0)
+        }).count();
+        Some(reverts as f64 / (vals.len() - 1) as f64)
+    }
+
+    /// Ratio of the 90th to 10th percentile of window values.
+    pub fn window_tail_ratio(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let mut sorted: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let n = sorted.len();
+        let p10 = sorted[((n as f64 - 1.0) * 0.1).round() as usize];
+        let p90 = sorted[((n as f64 - 1.0) * 0.9).round() as usize];
+        if p10 == 0.0 { return None; }
+        Some(p90 / p10)
+    }
+
+    /// Slope of cumulative sum of window values (total drift / n).
+    pub fn window_cumsum_trend(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let cumsum: f64 = vals.iter().sum();
+        Some(cumsum / vals.len() as f64)
+    }
+
+    /// Count of times window values cross the window mean.
+    pub fn window_mean_crossing_count(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let mean = vals.iter().sum::<f64>() / vals.len() as f64;
+        let above: Vec<bool> = vals.iter().map(|&v| v > mean).collect();
+        let crosses = above.windows(2).filter(|w| w[0] != w[1]).count();
+        Some(crosses as f64)
+    }
+
 }
 
 #[cfg(test)]
@@ -11991,6 +12039,70 @@ mod tests {
         // var=0 → None
         assert!(n.window_kurtosis_proxy().is_none());
     }
+
+    // ── round-165 ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_minmax_window_mean_reversion_index_none_for_two() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2)] { n.update(v); }
+        assert!(n.window_mean_reversion_index().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_mean_reversion_index_constant_zero() {
+        let mut n = norm(3);
+        for v in [dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        // constant → all at mean → no reversion → 0.0
+        let r = n.window_mean_reversion_index().unwrap();
+        assert!((r - 0.0).abs() < 1e-9, "expected 0.0, got {}", r);
+    }
+
+    #[test]
+    fn test_minmax_window_tail_ratio_none_for_single() {
+        let mut n = norm(4);
+        n.update(dec!(5));
+        assert!(n.window_tail_ratio().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_tail_ratio_equal_one() {
+        let mut n = norm(3);
+        for v in [dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        // p10=p90=5 → ratio=1.0
+        let r = n.window_tail_ratio().unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "expected 1.0, got {}", r);
+    }
+
+    #[test]
+    fn test_minmax_window_cumsum_trend_none_for_empty() {
+        let n = norm(4);
+        assert!(n.window_cumsum_trend().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_cumsum_trend_constant() {
+        let mut n = norm(3);
+        for v in [dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        let t = n.window_cumsum_trend().unwrap();
+        assert!((t - 5.0).abs() < 1e-9, "expected 5.0, got {}", t);
+    }
+
+    #[test]
+    fn test_minmax_window_mean_crossing_count_none_for_single() {
+        let mut n = norm(4);
+        n.update(dec!(5));
+        assert!(n.window_mean_crossing_count().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_mean_crossing_count_constant_zero() {
+        let mut n = norm(3);
+        for v in [dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        // all at mean → no crossings
+        let c = n.window_mean_crossing_count().unwrap();
+        assert!((c - 0.0).abs() < 1e-9, "expected 0.0, got {}", c);
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -17491,6 +17603,54 @@ impl ZScoreNormalizer {
         if var == 0.0 { return None; }
         let kurt = vals.iter().map(|&v| (v - mean).powi(4)).sum::<f64>() / (vals.len() as f64 * var.powi(2));
         Some(kurt)
+    }
+
+    // ── round-165 ────────────────────────────────────────────────────────────
+
+    /// Index of mean reversion strength: fraction of steps returning toward the mean.
+    pub fn window_mean_reversion_index(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 3 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let mean = vals.iter().sum::<f64>() / vals.len() as f64;
+        let reverts = vals.windows(2).filter(|w| {
+            let d = w[1] - w[0];
+            (w[0] > mean && d < 0.0) || (w[0] < mean && d > 0.0)
+        }).count();
+        Some(reverts as f64 / (vals.len() - 1) as f64)
+    }
+
+    /// Ratio of the 90th to 10th percentile of window values.
+    pub fn window_tail_ratio(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let mut sorted: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let n = sorted.len();
+        let p10 = sorted[((n as f64 - 1.0) * 0.1).round() as usize];
+        let p90 = sorted[((n as f64 - 1.0) * 0.9).round() as usize];
+        if p10 == 0.0 { return None; }
+        Some(p90 / p10)
+    }
+
+    /// Slope of cumulative sum of window values (total drift / n).
+    pub fn window_cumsum_trend(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let cumsum: f64 = vals.iter().sum();
+        Some(cumsum / vals.len() as f64)
+    }
+
+    /// Count of times window values cross the window mean.
+    pub fn window_mean_crossing_count(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let mean = vals.iter().sum::<f64>() / vals.len() as f64;
+        let above: Vec<bool> = vals.iter().map(|&v| v > mean).collect();
+        let crosses = above.windows(2).filter(|w| w[0] != w[1]).count();
+        Some(crosses as f64)
     }
 
 }
@@ -23909,5 +24069,66 @@ mod zscore_stability_tests {
         let mut n = znorm(4);
         for v in [dec!(5), dec!(5), dec!(5), dec!(5)] { n.update(v); }
         assert!(n.window_kurtosis_proxy().is_none());
+    }
+
+    // ── round-165 ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_zscore_window_mean_reversion_index_none_for_two() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2)] { n.update(v); }
+        assert!(n.window_mean_reversion_index().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_mean_reversion_index_constant_zero() {
+        let mut n = znorm(3);
+        for v in [dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        let r = n.window_mean_reversion_index().unwrap();
+        assert!((r - 0.0).abs() < 1e-9, "expected 0.0, got {}", r);
+    }
+
+    #[test]
+    fn test_zscore_window_tail_ratio_none_for_single() {
+        let mut n = znorm(4);
+        n.update(dec!(5));
+        assert!(n.window_tail_ratio().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_tail_ratio_equal_one() {
+        let mut n = znorm(3);
+        for v in [dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        let r = n.window_tail_ratio().unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "expected 1.0, got {}", r);
+    }
+
+    #[test]
+    fn test_zscore_window_cumsum_trend_none_for_empty() {
+        let n = znorm(4);
+        assert!(n.window_cumsum_trend().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_cumsum_trend_constant() {
+        let mut n = znorm(3);
+        for v in [dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        let t = n.window_cumsum_trend().unwrap();
+        assert!((t - 5.0).abs() < 1e-9, "expected 5.0, got {}", t);
+    }
+
+    #[test]
+    fn test_zscore_window_mean_crossing_count_none_for_single() {
+        let mut n = znorm(4);
+        n.update(dec!(5));
+        assert!(n.window_mean_crossing_count().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_mean_crossing_count_constant_zero() {
+        let mut n = znorm(3);
+        for v in [dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        let c = n.window_mean_crossing_count().unwrap();
+        assert!((c - 0.0).abs() < 1e-9, "expected 0.0, got {}", c);
     }
 }

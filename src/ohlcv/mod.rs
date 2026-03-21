@@ -7687,6 +7687,57 @@ impl OhlcvBar {
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
+    // ── round-165 ────────────────────────────────────────────────────────────
+
+    /// Mean of (range[i] - range[i-1]) across consecutive bars (range expansion).
+    pub fn bar_range_expansion(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.len() < 2 { return None; }
+        let ranges: Vec<f64> = bars.iter()
+            .filter_map(|b| Some(b.high.to_f64()? - b.low.to_f64()?))
+            .collect();
+        if ranges.len() < 2 { return None; }
+        let diffs: Vec<f64> = ranges.windows(2).map(|w| w[1] - w[0]).collect();
+        Some(diffs.iter().sum::<f64>() / diffs.len() as f64)
+    }
+
+    /// Longest consecutive streak of bars with close > open (bullish run).
+    pub fn bar_up_streak(bars: &[OhlcvBar]) -> Option<f64> {
+        if bars.is_empty() { return None; }
+        let mut max_streak = 0usize;
+        let mut cur = 0usize;
+        for b in bars {
+            if b.close > b.open { cur += 1; if cur > max_streak { max_streak = cur; } }
+            else { cur = 0; }
+        }
+        Some(max_streak as f64)
+    }
+
+    /// Longest consecutive streak of bars with close < open (bearish run).
+    pub fn bar_down_streak(bars: &[OhlcvBar]) -> Option<f64> {
+        if bars.is_empty() { return None; }
+        let mut max_streak = 0usize;
+        let mut cur = 0usize;
+        for b in bars {
+            if b.close < b.open { cur += 1; if cur > max_streak { max_streak = cur; } }
+            else { cur = 0; }
+        }
+        Some(max_streak as f64)
+    }
+
+    /// ATR normalized by close price: mean(|close[i] - close[i-1]|) / mean_close.
+    pub fn bar_atr_normalized(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.len() < 2 { return None; }
+        let closes: Vec<f64> = bars.iter().filter_map(|b| b.close.to_f64()).collect();
+        if closes.len() < 2 { return None; }
+        let mean_close = closes.iter().sum::<f64>() / closes.len() as f64;
+        if mean_close == 0.0 { return None; }
+        let atr: f64 = closes.windows(2).map(|w| (w[1] - w[0]).abs()).sum::<f64>()
+            / (closes.len() - 1) as f64;
+        Some(atr / mean_close)
+    }
+
 }
 
 impl std::fmt::Display for OhlcvBar {
@@ -17624,5 +17675,70 @@ mod tests {
         let bars = vec![make_ohlcv_bar(dec!(90), dec!(110), dec!(90), dec!(110))];
         let p = OhlcvBar::bar_body_pct(&bars).unwrap();
         assert!((p - 1.0).abs() < 1e-9, "expected 1.0, got {}", p);
+    }
+
+    // ── round-165 ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_bar_range_expansion_none_for_single() {
+        let bars = vec![make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105))];
+        assert!(OhlcvBar::bar_range_expansion(&bars).is_none());
+    }
+
+    #[test]
+    fn test_bar_range_expansion_constant_zero() {
+        let bars = vec![
+            make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105)),
+            make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105)),
+        ];
+        let e = OhlcvBar::bar_range_expansion(&bars).unwrap();
+        assert!((e - 0.0).abs() < 1e-9, "expected 0.0, got {}", e);
+    }
+
+    #[test]
+    fn test_bar_up_streak_none_for_empty() {
+        assert!(OhlcvBar::bar_up_streak(&[]).is_none());
+    }
+
+    #[test]
+    fn test_bar_up_streak_all_bullish() {
+        let bars = vec![
+            make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105)),  // bullish: close>open
+            make_ohlcv_bar(dec!(100), dec!(115), dec!(88), dec!(108)),  // bullish
+        ];
+        let s = OhlcvBar::bar_up_streak(&bars).unwrap();
+        assert!((s - 2.0).abs() < 1e-9, "expected 2.0, got {}", s);
+    }
+
+    #[test]
+    fn test_bar_down_streak_none_for_empty() {
+        assert!(OhlcvBar::bar_down_streak(&[]).is_none());
+    }
+
+    #[test]
+    fn test_bar_down_streak_all_bearish() {
+        let bars = vec![
+            make_ohlcv_bar(dec!(110), dec!(115), dec!(90), dec!(100)),  // bearish: close<open
+            make_ohlcv_bar(dec!(108), dec!(112), dec!(88), dec!(98)),   // bearish
+        ];
+        let s = OhlcvBar::bar_down_streak(&bars).unwrap();
+        assert!((s - 2.0).abs() < 1e-9, "expected 2.0, got {}", s);
+    }
+
+    #[test]
+    fn test_bar_atr_normalized_none_for_single() {
+        let bars = vec![make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105))];
+        assert!(OhlcvBar::bar_atr_normalized(&bars).is_none());
+    }
+
+    #[test]
+    fn test_bar_atr_normalized_constant_zero() {
+        // same close → no ATR → 0
+        let bars = vec![
+            make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105)),
+            make_ohlcv_bar(dec!(100), dec!(112), dec!(88), dec!(105)),
+        ];
+        let r = OhlcvBar::bar_atr_normalized(&bars).unwrap();
+        assert!((r - 0.0).abs() < 1e-9, "expected 0.0, got {}", r);
     }
 }

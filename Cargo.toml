@@ -1,6 +1,6 @@
 [package]
 name = "fin-stream"
-version = "2.10.15"
+version = "2.10.16"
 edition = "2021"
 rust-version = "1.75"
 license = "MIT"

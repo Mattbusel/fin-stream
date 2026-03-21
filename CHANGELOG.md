@@ -9,6 +9,30 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.10.16] - 2026-03-20
+
+### Added
+
+**`tick` module — `NormalizedTick` analytics (round 165)**
+- `NormalizedTick::price_up_streak(ticks)` — longest consecutive upward price run.
+- `NormalizedTick::price_down_streak(ticks)` — longest consecutive downward price run.
+- `NormalizedTick::qty_price_covariance(ticks)` — covariance between quantity and price.
+- `NormalizedTick::tick_flow_imbalance(ticks)` — (buy_qty - sell_qty) / total_sided_qty.
+
+**`ohlcv` module — `OhlcvBar` analytics (round 165)**
+- `OhlcvBar::bar_range_expansion(bars)` — mean of (range[i] - range[i-1]) across consecutive bars.
+- `OhlcvBar::bar_up_streak(bars)` — longest consecutive bullish bar run.
+- `OhlcvBar::bar_down_streak(bars)` — longest consecutive bearish bar run.
+- `OhlcvBar::bar_atr_normalized(bars)` — mean |close[i]-close[i-1]| / mean_close.
+
+**`norm` module — `MinMaxNormalizer` + `ZScoreNormalizer` analytics (round 165)**
+- `window_mean_reversion_index()` — fraction of steps returning toward the mean.
+- `window_tail_ratio()` — ratio of 90th to 10th percentile.
+- `window_cumsum_trend()` — cumulative sum / n (drift per step).
+- `window_mean_crossing_count()` — count of times window values cross the mean.
+
+---
+
 ## [2.10.15] - 2026-03-20
 
 ### Added

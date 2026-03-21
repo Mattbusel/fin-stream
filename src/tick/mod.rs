@@ -7950,6 +7950,73 @@ impl NormalizedTick {
         Some(crosses as f64)
     }
 
+    // ── round-165 ────────────────────────────────────────────────────────────
+
+    /// Length of the longest consecutive upward price streak.
+    pub fn price_up_streak(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 2 { return None; }
+        let prices: Vec<f64> = ticks.iter().filter_map(|t| t.price.to_f64()).collect();
+        if prices.len() < 2 { return None; }
+        let mut max_streak = 0usize;
+        let mut cur = 0usize;
+        for w in prices.windows(2) {
+            if w[1] > w[0] { cur += 1; if cur > max_streak { max_streak = cur; } }
+            else { cur = 0; }
+        }
+        Some(max_streak as f64)
+    }
+
+    /// Length of the longest consecutive downward price streak.
+    pub fn price_down_streak(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 2 { return None; }
+        let prices: Vec<f64> = ticks.iter().filter_map(|t| t.price.to_f64()).collect();
+        if prices.len() < 2 { return None; }
+        let mut max_streak = 0usize;
+        let mut cur = 0usize;
+        for w in prices.windows(2) {
+            if w[1] < w[0] { cur += 1; if cur > max_streak { max_streak = cur; } }
+            else { cur = 0; }
+        }
+        Some(max_streak as f64)
+    }
+
+    /// Covariance between quantity and price across ticks.
+    pub fn qty_price_covariance(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 2 { return None; }
+        let pairs: Vec<(f64, f64)> = ticks.iter()
+            .filter_map(|t| Some((t.price.to_f64()?, t.quantity.to_f64()?)))
+            .collect();
+        if pairs.len() < 2 { return None; }
+        let price_mean = pairs.iter().map(|p| p.0).sum::<f64>() / pairs.len() as f64;
+        let qty_mean = pairs.iter().map(|p| p.1).sum::<f64>() / pairs.len() as f64;
+        let cov = pairs.iter().map(|(p, q)| (p - price_mean) * (q - qty_mean)).sum::<f64>()
+            / pairs.len() as f64;
+        Some(cov)
+    }
+
+    /// Order flow imbalance: (buy_qty - sell_qty) / total_sided_qty; None if no sided ticks.
+    pub fn tick_flow_imbalance(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() { return None; }
+        let mut buy_qty = 0.0_f64;
+        let mut sell_qty = 0.0_f64;
+        for t in ticks {
+            if let Some(qty) = t.quantity.to_f64() {
+                match t.side {
+                    Some(TradeSide::Buy) => buy_qty += qty,
+                    Some(TradeSide::Sell) => sell_qty += qty,
+                    None => {}
+                }
+            }
+        }
+        let total = buy_qty + sell_qty;
+        if total == 0.0 { return None; }
+        Some((buy_qty - sell_qty) / total)
+    }
+
 }
 
 
@@ -18164,5 +18231,81 @@ mod tests {
         ];
         let c = NormalizedTick::price_cross_zero_count(&ticks).unwrap();
         assert!((c - 0.0).abs() < 1e-9, "expected 0.0, got {}", c);
+    }
+
+    // ── round-165 ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_price_up_streak_none_for_single() {
+        use rust_decimal_macros::dec;
+        assert!(NormalizedTick::price_up_streak(&[make_tick_pq(dec!(100), dec!(1))]).is_none());
+    }
+
+    #[test]
+    fn test_price_up_streak_ascending_all() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(101), dec!(1)),
+            make_tick_pq(dec!(102), dec!(1)),
+        ];
+        let s = NormalizedTick::price_up_streak(&ticks).unwrap();
+        assert!((s - 2.0).abs() < 1e-9, "expected 2.0, got {}", s);
+    }
+
+    #[test]
+    fn test_price_down_streak_none_for_single() {
+        use rust_decimal_macros::dec;
+        assert!(NormalizedTick::price_down_streak(&[make_tick_pq(dec!(100), dec!(1))]).is_none());
+    }
+
+    #[test]
+    fn test_price_down_streak_descending_all() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(103), dec!(1)),
+            make_tick_pq(dec!(102), dec!(1)),
+            make_tick_pq(dec!(101), dec!(1)),
+        ];
+        let s = NormalizedTick::price_down_streak(&ticks).unwrap();
+        assert!((s - 2.0).abs() < 1e-9, "expected 2.0, got {}", s);
+    }
+
+    #[test]
+    fn test_qty_price_covariance_none_for_single() {
+        use rust_decimal_macros::dec;
+        assert!(NormalizedTick::qty_price_covariance(&[make_tick_pq(dec!(100), dec!(1))]).is_none());
+    }
+
+    #[test]
+    fn test_qty_price_covariance_constant_zero() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(5)),
+            make_tick_pq(dec!(100), dec!(5)),
+        ];
+        let c = NormalizedTick::qty_price_covariance(&ticks).unwrap();
+        assert!((c - 0.0).abs() < 1e-9, "expected 0.0, got {}", c);
+    }
+
+    #[test]
+    fn test_tick_flow_imbalance_none_for_empty() {
+        assert!(NormalizedTick::tick_flow_imbalance(&[]).is_none());
+    }
+
+    #[test]
+    fn test_tick_flow_imbalance_none_for_no_sides() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![make_tick_pq(dec!(100), dec!(1))];
+        assert!(NormalizedTick::tick_flow_imbalance(&ticks).is_none());
+    }
+
+    #[test]
+    fn test_tick_flow_imbalance_all_buy_one() {
+        use rust_decimal_macros::dec;
+        let mut t = make_tick_pq(dec!(100), dec!(5));
+        t.side = Some(crate::tick::TradeSide::Buy);
+        let f = NormalizedTick::tick_flow_imbalance(&[t]).unwrap();
+        assert!((f - 1.0).abs() < 1e-9, "expected 1.0, got {}", f);
     }
 }
