@@ -10099,6 +10099,59 @@ impl NormalizedTick {
         Some(num / (dp * dq))
     }
 
+    /// Fraction of consecutive tick pairs where price persists (no change) or increases.
+    pub fn tick_price_persistence(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 2 { return None; }
+        let prices: Vec<f64> = ticks.iter().filter_map(|t| t.price.to_f64()).collect();
+        if prices.len() < 2 { return None; }
+        let persist = prices.windows(2).filter(|w| w[1] >= w[0]).count();
+        Some(persist as f64 / (prices.len() - 1) as f64)
+    }
+
+    /// Ratio of price range to mean quantity (price intensity per unit volume).
+    pub fn tick_price_consistency_ratio(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() { return None; }
+        let prices: Vec<f64> = ticks.iter().filter_map(|t| t.price.to_f64()).collect();
+        let qtys: Vec<f64> = ticks.iter().filter_map(|t| t.quantity.to_f64()).collect();
+        if prices.is_empty() || qtys.is_empty() { return None; }
+        let min_p = prices.iter().cloned().fold(f64::INFINITY, f64::min);
+        let max_p = prices.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        let mean_q = qtys.iter().sum::<f64>() / qtys.len() as f64;
+        if mean_q == 0.0 { return None; }
+        Some((max_p - min_p) / mean_q)
+    }
+
+    /// EMA slope of price: (EMA of last third - EMA of first third) / EMA of first third.
+    pub fn tick_price_ema_slope(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 3 { return None; }
+        let third = ticks.len() / 3;
+        let first_prices: Vec<f64> = ticks[..third].iter().filter_map(|t| t.price.to_f64()).collect();
+        let last_prices: Vec<f64> = ticks[ticks.len()-third..].iter().filter_map(|t| t.price.to_f64()).collect();
+        if first_prices.is_empty() || last_prices.is_empty() { return None; }
+        let ema_first = first_prices.iter().sum::<f64>() / first_prices.len() as f64;
+        let ema_last = last_prices.iter().sum::<f64>() / last_prices.len() as f64;
+        if ema_first == 0.0 { return None; }
+        Some((ema_last - ema_first) / ema_first)
+    }
+
+    /// Fraction of buy-side ticks that arrive above the mean price (aggressive buys).
+    pub fn tick_aggressive_ratio(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() { return None; }
+        let prices: Vec<f64> = ticks.iter().filter_map(|t| t.price.to_f64()).collect();
+        if prices.is_empty() { return None; }
+        let mean = prices.iter().sum::<f64>() / prices.len() as f64;
+        let buy_ticks: Vec<_> = ticks.iter().zip(prices.iter())
+            .filter(|(t, _)| t.side == Some(TradeSide::Buy))
+            .collect();
+        if buy_ticks.is_empty() { return None; }
+        let aggressive = buy_ticks.iter().filter(|(_, p)| **p > mean).count();
+        Some(aggressive as f64 / buy_ticks.len() as f64)
+    }
+
     /// First-lag autocorrelation of tick quantities.
     pub fn tick_qty_autocorr(ticks: &[NormalizedTick]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
@@ -23340,5 +23393,78 @@ mod tests {
         ];
         let r = NormalizedTick::tick_avg_trade_interval(&ticks).unwrap();
         assert!((r - 3.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_tick_price_persistence_too_few_none() {
+        use rust_decimal_macros::dec;
+        let t = make_tick_pq(dec!(100), dec!(1));
+        assert!(NormalizedTick::tick_price_persistence(&[t]).is_none());
+    }
+
+    #[test]
+    fn test_tick_price_persistence_all_up_one() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(110), dec!(1)),
+            make_tick_pq(dec!(120), dec!(1)),
+        ];
+        let r = NormalizedTick::tick_price_persistence(&ticks).unwrap();
+        assert_eq!(r, 1.0);
+    }
+
+    #[test]
+    fn test_tick_price_consistency_ratio_empty_none() {
+        assert!(NormalizedTick::tick_price_consistency_ratio(&[]).is_none());
+    }
+
+    #[test]
+    fn test_tick_price_consistency_ratio_returns_value() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(2)),
+            make_tick_pq(dec!(110), dec!(2)),
+        ];
+        let r = NormalizedTick::tick_price_consistency_ratio(&ticks).unwrap();
+        assert!(r >= 0.0);
+    }
+
+    #[test]
+    fn test_tick_price_ema_slope_too_few_none() {
+        use rust_decimal_macros::dec;
+        let t = make_tick_pq(dec!(100), dec!(1));
+        assert!(NormalizedTick::tick_price_ema_slope(&[t]).is_none());
+    }
+
+    #[test]
+    fn test_tick_price_ema_slope_rising_positive() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(200), dec!(1)),
+            make_tick_pq(dec!(200), dec!(1)),
+            make_tick_pq(dec!(200), dec!(1)),
+        ];
+        let r = NormalizedTick::tick_price_ema_slope(&ticks).unwrap();
+        assert!(r > 0.0);
+    }
+
+    #[test]
+    fn test_tick_aggressive_ratio_empty_none() {
+        assert!(NormalizedTick::tick_aggressive_ratio(&[]).is_none());
+    }
+
+    #[test]
+    fn test_tick_aggressive_ratio_no_buys_none() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(110), dec!(1)),
+        ];
+        // no side info → none
+        assert!(NormalizedTick::tick_aggressive_ratio(&ticks).is_none());
     }
 }

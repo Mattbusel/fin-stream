@@ -7434,6 +7434,69 @@ impl MinMaxNormalizer {
         if sum > 1e-12 { Some(1.0) } else if sum < -1e-12 { Some(-1.0) } else { Some(0.0) }
     }
 
+    /// Max drawdown as a fraction of the window max (peak-to-trough).
+    pub fn window_max_drawdown_pct(&self) -> Option<f64> {
+        if self.window.len() < 2 { return None; }
+        use rust_decimal::prelude::ToPrimitive;
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.len() < 2 { return None; }
+        let mut peak = vals[0];
+        let mut max_dd = 0.0f64;
+        for &v in &vals {
+            if v > peak { peak = v; }
+            let dd = if peak > 0.0 { (peak - v) / peak } else { 0.0 };
+            if dd > max_dd { max_dd = dd; }
+        }
+        Some(max_dd)
+    }
+
+    /// Ratio of window std dev to window mean (coefficient of variation).
+    pub fn window_vol_ratio(&self) -> Option<f64> {
+        if self.window.len() < 2 { return None; }
+        use rust_decimal::prelude::ToPrimitive;
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.len() < 2 { return None; }
+        let mean = vals.iter().sum::<f64>() / vals.len() as f64;
+        if mean == 0.0 { return None; }
+        let var = vals.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / (vals.len() - 1) as f64;
+        Some(var.sqrt() / mean.abs())
+    }
+
+    /// Trimmed mean (middle 50% of sorted values) ratio to full mean.
+    pub fn window_trimmed_mean_ratio(&self) -> Option<f64> {
+        if self.window.len() < 4 { return None; }
+        let mut vals: Vec<f64> = self.window.iter().filter_map(|v| {
+            use rust_decimal::prelude::ToPrimitive;
+            v.to_f64()
+        }).collect();
+        if vals.len() < 4 { return None; }
+        let full_mean = vals.iter().sum::<f64>() / vals.len() as f64;
+        if full_mean == 0.0 { return None; }
+        vals.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let n = vals.len();
+        let lo = n / 4;
+        let hi = n - n / 4;
+        let trimmed = &vals[lo..hi];
+        if trimmed.is_empty() { return None; }
+        let trimmed_mean = trimmed.iter().sum::<f64>() / trimmed.len() as f64;
+        Some(trimmed_mean / full_mean)
+    }
+
+    /// Length of longest run of values strictly above zero.
+    pub fn window_above_zero_run(&self) -> Option<f64> {
+        if self.window.is_empty() { return None; }
+        use rust_decimal::prelude::ToPrimitive;
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.is_empty() { return None; }
+        let mut max_run = 0usize;
+        let mut cur_run = 0usize;
+        for v in &vals {
+            if *v > 0.0 { cur_run += 1; max_run = max_run.max(cur_run); }
+            else { cur_run = 0; }
+        }
+        Some(max_run as f64)
+    }
+
 }
 
 #[cfg(test)]
@@ -16094,6 +16157,64 @@ mod tests {
         let r = n.window_cumsum_sign().unwrap();
         assert_eq!(r, 1.0);
     }
+
+    #[test]
+    fn test_minmax_window_max_drawdown_pct_too_few_none() {
+        let mut n = norm(4);
+        n.update(dec!(1));
+        assert!(n.window_max_drawdown_pct().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_max_drawdown_pct_monotone_up_zero() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let r = n.window_max_drawdown_pct().unwrap();
+        assert_eq!(r, 0.0);
+    }
+
+    #[test]
+    fn test_minmax_window_vol_ratio_too_few_none() {
+        let mut n = norm(4);
+        n.update(dec!(1));
+        assert!(n.window_vol_ratio().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_vol_ratio_returns_nonneg() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let r = n.window_vol_ratio().unwrap();
+        assert!(r >= 0.0);
+    }
+
+    #[test]
+    fn test_minmax_window_trimmed_mean_ratio_too_few_none() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        assert!(n.window_trimmed_mean_ratio().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_trimmed_mean_ratio_returns_value() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let r = n.window_trimmed_mean_ratio().unwrap();
+        assert!(r > 0.0);
+    }
+
+    #[test]
+    fn test_minmax_window_above_zero_run_empty_none() {
+        assert!(norm(4).window_above_zero_run().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_above_zero_run_all_positive() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        let r = n.window_above_zero_run().unwrap();
+        assert_eq!(r, 3.0);
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -23473,6 +23594,69 @@ impl ZScoreNormalizer {
         use rust_decimal::prelude::ToPrimitive;
         let sum: f64 = self.window.iter().filter_map(|v| v.to_f64()).sum();
         if sum > 1e-12 { Some(1.0) } else if sum < -1e-12 { Some(-1.0) } else { Some(0.0) }
+    }
+
+    /// Max drawdown as a fraction of the window max (peak-to-trough).
+    pub fn window_max_drawdown_pct(&self) -> Option<f64> {
+        if self.window.len() < 2 { return None; }
+        use rust_decimal::prelude::ToPrimitive;
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.len() < 2 { return None; }
+        let mut peak = vals[0];
+        let mut max_dd = 0.0f64;
+        for &v in &vals {
+            if v > peak { peak = v; }
+            let dd = if peak > 0.0 { (peak - v) / peak } else { 0.0 };
+            if dd > max_dd { max_dd = dd; }
+        }
+        Some(max_dd)
+    }
+
+    /// Ratio of window std dev to window mean (coefficient of variation).
+    pub fn window_vol_ratio(&self) -> Option<f64> {
+        if self.window.len() < 2 { return None; }
+        use rust_decimal::prelude::ToPrimitive;
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.len() < 2 { return None; }
+        let mean = vals.iter().sum::<f64>() / vals.len() as f64;
+        if mean == 0.0 { return None; }
+        let var = vals.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / (vals.len() - 1) as f64;
+        Some(var.sqrt() / mean.abs())
+    }
+
+    /// Trimmed mean (middle 50% of sorted values) ratio to full mean.
+    pub fn window_trimmed_mean_ratio(&self) -> Option<f64> {
+        if self.window.len() < 4 { return None; }
+        let mut vals: Vec<f64> = self.window.iter().filter_map(|v| {
+            use rust_decimal::prelude::ToPrimitive;
+            v.to_f64()
+        }).collect();
+        if vals.len() < 4 { return None; }
+        let full_mean = vals.iter().sum::<f64>() / vals.len() as f64;
+        if full_mean == 0.0 { return None; }
+        vals.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let n = vals.len();
+        let lo = n / 4;
+        let hi = n - n / 4;
+        let trimmed = &vals[lo..hi];
+        if trimmed.is_empty() { return None; }
+        let trimmed_mean = trimmed.iter().sum::<f64>() / trimmed.len() as f64;
+        Some(trimmed_mean / full_mean)
+    }
+
+    /// Length of longest run of values strictly above zero.
+    pub fn window_above_zero_run(&self) -> Option<f64> {
+        if self.window.is_empty() { return None; }
+        use rust_decimal::prelude::ToPrimitive;
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.is_empty() { return None; }
+        let mut max_run = 0usize;
+        let mut cur_run = 0usize;
+        for v in &vals {
+            if *v > 0.0 { cur_run += 1; max_run = max_run.max(cur_run); }
+            else { cur_run = 0; }
+        }
+        Some(max_run as f64)
     }
 
 }
@@ -32083,5 +32267,63 @@ mod zscore_stability_tests {
         for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
         let r = n.window_cumsum_sign().unwrap();
         assert_eq!(r, 1.0);
+    }
+
+    #[test]
+    fn test_zscore_window_max_drawdown_pct_too_few_none() {
+        let mut n = znorm(4);
+        n.update(dec!(1));
+        assert!(n.window_max_drawdown_pct().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_max_drawdown_pct_monotone_up_zero() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let r = n.window_max_drawdown_pct().unwrap();
+        assert_eq!(r, 0.0);
+    }
+
+    #[test]
+    fn test_zscore_window_vol_ratio_too_few_none() {
+        let mut n = znorm(4);
+        n.update(dec!(1));
+        assert!(n.window_vol_ratio().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_vol_ratio_returns_nonneg() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let r = n.window_vol_ratio().unwrap();
+        assert!(r >= 0.0);
+    }
+
+    #[test]
+    fn test_zscore_window_trimmed_mean_ratio_too_few_none() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        assert!(n.window_trimmed_mean_ratio().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_trimmed_mean_ratio_returns_value() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let r = n.window_trimmed_mean_ratio().unwrap();
+        assert!(r > 0.0);
+    }
+
+    #[test]
+    fn test_zscore_window_above_zero_run_empty_none() {
+        assert!(znorm(4).window_above_zero_run().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_above_zero_run_all_positive() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        let r = n.window_above_zero_run().unwrap();
+        assert_eq!(r, 3.0);
     }
 }

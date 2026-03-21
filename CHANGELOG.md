@@ -9,6 +9,30 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.10.54] - 2026-03-20
+
+### Added
+
+**`tick` module — `NormalizedTick` analytics (round 203)**
+- `NormalizedTick::tick_price_persistence(ticks)` — fraction of consecutive pairs where price rises or holds.
+- `NormalizedTick::tick_price_consistency_ratio(ticks)` — price range per unit of mean quantity.
+- `NormalizedTick::tick_price_ema_slope(ticks)` — relative change from first-third EMA to last-third EMA.
+- `NormalizedTick::tick_aggressive_ratio(ticks)` — fraction of buy ticks arriving above mean price.
+
+**`ohlcv` module — `OhlcvBar` analytics (round 203)**
+- `OhlcvBar::bar_oc_mean_abs(bars)` — mean absolute (open - close) across bars.
+- `OhlcvBar::bar_range_efficiency(bars)` — mean (close - open) / (high - low) directional efficiency.
+- `OhlcvBar::bar_vol_zscore(bars)` — z-score of the last bar's volume relative to window.
+- `OhlcvBar::bar_close_skew(bars)` — skewness (third standardized moment) of close prices.
+
+**`norm` module — `MinMaxNormalizer` + `ZScoreNormalizer` analytics (round 203)**
+- `window_max_drawdown_pct()` — max peak-to-trough drawdown as a fraction of peak.
+- `window_vol_ratio()` — coefficient of variation (std dev / |mean|).
+- `window_trimmed_mean_ratio()` — trimmed mean (middle 50%) to full mean ratio.
+- `window_above_zero_run()` — length of the longest run of values strictly above zero.
+
+---
+
 ## [2.10.53] - 2026-03-20
 
 ### Added
