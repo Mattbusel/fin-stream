@@ -9,6 +9,30 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.3.9] - 2026-03-21
+
+### Added
+
+**`tick` module — `NormalizedTick` analytics (round 87)**
+- `NormalizedTick::vwap_deviation_std(ticks)` — std dev of how dispersed individual trade prices are around VWAP.
+- `NormalizedTick::max_consecutive_side_run(ticks)` — length of the longest run of same-side trades.
+- `NormalizedTick::inter_arrival_cv(ticks)` — coefficient of variation of inter-arrival times; measures trade burstiness.
+- `NormalizedTick::volume_per_ms(ticks)` — total traded quantity per millisecond of time span.
+- `NormalizedTick::notional_per_second(ticks)` — total notional (`price × quantity`) per second.
+
+**`ohlcv` module — `OhlcvBar` analytics (round 87)**
+- `OhlcvBar::avg_open_to_close(bars)` — mean of `close − open` across bars; positive = net bullish drift.
+- `OhlcvBar::max_bar_volume(bars)` — maximum volume across bars.
+- `OhlcvBar::min_bar_volume(bars)` — minimum volume across bars.
+- `OhlcvBar::body_to_range_std(bars)` — std dev of body-to-range ratios; measures consistency of body size.
+- `OhlcvBar::avg_wick_symmetry(bars)` — mean ratio of smaller to larger wick; near 1 = balanced wicks.
+
+**`norm` module — `MinMaxNormalizer` and `ZScoreNormalizer` analytics (round 87)**
+- `below_mean_fraction() -> Option<f64>` — fraction of window values strictly below the mean.
+- `tail_variance() -> Option<f64>` — variance of values outside the interquartile range.
+
+---
+
 ## [2.3.8] - 2026-03-21
 
 ### Added
