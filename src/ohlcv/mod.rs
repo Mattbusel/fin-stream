@@ -8610,4 +8610,46 @@ mod tests {
         let f = OhlcvBar::close_at_high_fraction(&[b]).unwrap();
         assert!((f - 1.0).abs() < 1e-9, "close=high → fraction=1, got {}", f);
     }
+
+    #[test]
+    fn test_close_at_low_fraction_none_for_empty() {
+        assert!(OhlcvBar::close_at_low_fraction(&[]).is_none());
+    }
+
+    #[test]
+    fn test_close_at_low_fraction_one_when_all_close_at_low() {
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(90));
+        let f = OhlcvBar::close_at_low_fraction(&[b]).unwrap();
+        assert!((f - 1.0).abs() < 1e-9, "close=low → fraction=1, got {}", f);
+    }
+
+    #[test]
+    fn test_avg_high_above_open_ratio_none_for_empty() {
+        assert!(OhlcvBar::avg_high_above_open_ratio(&[]).is_none());
+    }
+
+    #[test]
+    fn test_avg_high_above_open_ratio_in_range() {
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let r = OhlcvBar::avg_high_above_open_ratio(&[b]).unwrap();
+        assert!(r >= 0.0 && r <= 1.0, "ratio in [0,1], got {}", r);
+    }
+
+    #[test]
+    fn test_continuation_bar_count_zero_for_single() {
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        assert_eq!(OhlcvBar::continuation_bar_count(&[b]), 0);
+    }
+
+    #[test]
+    fn test_down_close_volume_zero_for_all_up_close() {
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105)); // close > open
+        assert_eq!(OhlcvBar::down_close_volume(&[b]), dec!(0));
+    }
+
+    #[test]
+    fn test_up_close_volume_zero_for_all_down_close() {
+        let b = make_ohlcv_bar(dec!(105), dec!(110), dec!(90), dec!(100)); // close < open
+        assert_eq!(OhlcvBar::up_close_volume(&[b]), dec!(0));
+    }
 }

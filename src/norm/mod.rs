@@ -3550,6 +3550,35 @@ mod tests {
         let f = n.outlier_fraction(1.0).unwrap();
         assert!(f.abs() < 1e-9, "constant window → no outliers, got {}", f);
     }
+
+    #[test]
+    fn test_minmax_sign_flip_count_none_for_single() {
+        let mut n = norm(4);
+        n.update(dec!(1));
+        assert!(n.sign_flip_count().is_none());
+    }
+
+    #[test]
+    fn test_minmax_sign_flip_count_correct() {
+        let mut n = norm(6);
+        for v in [dec!(1), dec!(-1), dec!(1), dec!(-1)] { n.update(v); }
+        let c = n.sign_flip_count().unwrap();
+        assert_eq!(c, 3, "3 sign flips expected, got {}", c);
+    }
+
+    #[test]
+    fn test_minmax_rms_none_for_empty() {
+        let n = norm(4);
+        assert!(n.rms().is_none());
+    }
+
+    #[test]
+    fn test_minmax_rms_correct_for_unit_value() {
+        let mut n = norm(4);
+        for _ in 0..4 { n.update(dec!(1)); }
+        let r = n.rms().unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "RMS of all-ones = 1.0, got {}", r);
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -7208,5 +7237,34 @@ mod zscore_stability_tests {
         for _ in 0..4 { n.update(dec!(5)); }
         let f = n.outlier_fraction(1.0).unwrap();
         assert!(f.abs() < 1e-9, "constant window → no outliers, got {}", f);
+    }
+
+    #[test]
+    fn test_zscore_sign_flip_count_none_for_single() {
+        let mut n = znorm(4);
+        n.update(dec!(1));
+        assert!(n.sign_flip_count().is_none());
+    }
+
+    #[test]
+    fn test_zscore_sign_flip_count_correct() {
+        let mut n = znorm(6);
+        for v in [dec!(1), dec!(-1), dec!(1), dec!(-1)] { n.update(v); }
+        let c = n.sign_flip_count().unwrap();
+        assert_eq!(c, 3, "3 sign flips expected, got {}", c);
+    }
+
+    #[test]
+    fn test_zscore_rms_none_for_empty() {
+        let n = znorm(4);
+        assert!(n.rms().is_none());
+    }
+
+    #[test]
+    fn test_zscore_rms_positive_for_nonzero_values() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let r = n.rms().unwrap();
+        assert!(r > 0.0, "RMS should be positive, got {}", r);
     }
 }

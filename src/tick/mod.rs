@@ -2929,16 +2929,6 @@ impl NormalizedTick {
         Some(var.sqrt())
     }
 
-    /// Total number of buy-side ticks.
-    pub fn buy_count(ticks: &[NormalizedTick]) -> usize {
-        ticks.iter().filter(|t| t.side == Some(crate::tick::TradeSide::Buy)).count()
-    }
-
-    /// Total number of sell-side ticks.
-    pub fn sell_count(ticks: &[NormalizedTick]) -> usize {
-        ticks.iter().filter(|t| t.side == Some(crate::tick::TradeSide::Sell)).count()
-    }
-
     /// Ratio of buy count to sell count; `None` if there are no sell ticks.
     pub fn buy_sell_count_ratio(ticks: &[NormalizedTick]) -> Option<f64> {
         let sells = Self::sell_count(ticks);
@@ -7531,5 +7521,56 @@ mod tests {
         use rust_decimal_macros::dec;
         let t = make_tick_pq(dec!(100), dec!(1));
         assert!(NormalizedTick::trade_notional_std(&[t]).is_none());
+    }
+
+    #[test]
+    fn test_buy_sell_count_ratio_none_for_no_sells() {
+        use rust_decimal_macros::dec;
+        let mut t = make_tick_pq(dec!(100), dec!(1));
+        t.side = Some(crate::tick::TradeSide::Buy);
+        assert!(NormalizedTick::buy_sell_count_ratio(&[t]).is_none());
+    }
+
+    #[test]
+    fn test_buy_sell_count_ratio_correct() {
+        use rust_decimal_macros::dec;
+        let mut t1 = make_tick_pq(dec!(100), dec!(1));
+        t1.side = Some(crate::tick::TradeSide::Buy);
+        let mut t2 = make_tick_pq(dec!(100), dec!(1));
+        t2.side = Some(crate::tick::TradeSide::Sell);
+        let r = NormalizedTick::buy_sell_count_ratio(&[t1, t2]).unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "1 buy / 1 sell = 1.0, got {}", r);
+    }
+
+    #[test]
+    fn test_price_mad_none_for_empty() {
+        assert!(NormalizedTick::price_mad(&[]).is_none());
+    }
+
+    #[test]
+    fn test_price_mad_zero_for_constant_price() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(100), dec!(2)),
+        ];
+        let m = NormalizedTick::price_mad(&ticks).unwrap();
+        assert!(m.abs() < 1e-9, "constant price → MAD=0, got {}", m);
+    }
+
+    #[test]
+    fn test_price_range_pct_of_open_none_for_empty() {
+        assert!(NormalizedTick::price_range_pct_of_open(&[]).is_none());
+    }
+
+    #[test]
+    fn test_price_range_pct_of_open_zero_for_constant() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(100), dec!(1)),
+        ];
+        let p = NormalizedTick::price_range_pct_of_open(&ticks).unwrap();
+        assert!(p.abs() < 1e-9, "constant → range_pct=0, got {}", p);
     }
 }
