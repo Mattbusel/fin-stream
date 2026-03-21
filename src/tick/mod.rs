@@ -10387,6 +10387,54 @@ impl NormalizedTick {
         Some(total)
     }
 
+    /// Standard deviation of tick prices (price volatility in absolute terms).
+    pub fn tick_price_std_dev(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 2 { return None; }
+        let prices: Vec<f64> = ticks.iter().filter_map(|t| t.price.to_f64()).collect();
+        if prices.len() < 2 { return None; }
+        let mean = prices.iter().sum::<f64>() / prices.len() as f64;
+        let var = prices.iter().map(|p| (p - mean).powi(2)).sum::<f64>() / (prices.len() - 1) as f64;
+        Some(var.sqrt())
+    }
+
+    /// Buy price mean minus sell price mean (buy/sell price divergence).
+    pub fn tick_buy_sell_price_diff(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() { return None; }
+        let buy_prices: Vec<f64> = ticks.iter().filter_map(|t| {
+            if t.side == Some(TradeSide::Buy) { t.price.to_f64() } else { None }
+        }).collect();
+        let sell_prices: Vec<f64> = ticks.iter().filter_map(|t| {
+            if t.side == Some(TradeSide::Sell) { t.price.to_f64() } else { None }
+        }).collect();
+        if buy_prices.is_empty() || sell_prices.is_empty() { return None; }
+        let buy_mean = buy_prices.iter().sum::<f64>() / buy_prices.len() as f64;
+        let sell_mean = sell_prices.iter().sum::<f64>() / sell_prices.len() as f64;
+        Some(buy_mean - sell_mean)
+    }
+
+    /// Maximum single price gap between consecutive ticks.
+    pub fn tick_max_price_gap(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 2 { return None; }
+        let prices: Vec<f64> = ticks.iter().filter_map(|t| t.price.to_f64()).collect();
+        if prices.len() < 2 { return None; }
+        let max_gap = prices.windows(2).map(|w| (w[1] - w[0]).abs()).fold(0.0f64, f64::max);
+        Some(max_gap)
+    }
+
+    /// Mean absolute deviation of tick prices from the mean (MAD).
+    pub fn tick_price_mean_deviation(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() { return None; }
+        let prices: Vec<f64> = ticks.iter().filter_map(|t| t.price.to_f64()).collect();
+        if prices.is_empty() { return None; }
+        let mean = prices.iter().sum::<f64>() / prices.len() as f64;
+        let mad = prices.iter().map(|p| (p - mean).abs()).sum::<f64>() / prices.len() as f64;
+        Some(mad)
+    }
+
     /// Ratio of largest single trade to mean trade size.
     pub fn tick_order_size_ratio(ticks: &[NormalizedTick]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
@@ -24817,5 +24865,79 @@ mod tests {
         ];
         let r = NormalizedTick::tick_price_gap_sum(&ticks).unwrap();
         assert!((r - 5.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_tick_price_std_dev_too_few_none() {
+        use rust_decimal_macros::dec;
+        let t = make_tick_pq(dec!(100), dec!(1));
+        assert!(NormalizedTick::tick_price_std_dev(&[t]).is_none());
+    }
+
+    #[test]
+    fn test_tick_price_std_dev_returns_nonneg() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(102), dec!(1)),
+            make_tick_pq(dec!(104), dec!(1)),
+        ];
+        let r = NormalizedTick::tick_price_std_dev(&ticks).unwrap();
+        assert!(r >= 0.0);
+    }
+
+    #[test]
+    fn test_tick_buy_sell_price_diff_empty_none() {
+        assert!(NormalizedTick::tick_buy_sell_price_diff(&[]).is_none());
+    }
+
+    #[test]
+    fn test_tick_buy_sell_price_diff_returns_value() {
+        use rust_decimal_macros::dec;
+        use crate::tick::TradeSide;
+        let mut b = make_tick_pq(dec!(105), dec!(1));
+        b.side = Some(TradeSide::Buy);
+        let mut s = make_tick_pq(dec!(100), dec!(1));
+        s.side = Some(TradeSide::Sell);
+        let ticks = vec![b, s];
+        let r = NormalizedTick::tick_buy_sell_price_diff(&ticks).unwrap();
+        assert!((r - 5.0).abs() < 1e-6, "expected 5.0 got {}", r);
+    }
+
+    #[test]
+    fn test_tick_max_price_gap_too_few_none() {
+        use rust_decimal_macros::dec;
+        let t = make_tick_pq(dec!(100), dec!(1));
+        assert!(NormalizedTick::tick_max_price_gap(&[t]).is_none());
+    }
+
+    #[test]
+    fn test_tick_max_price_gap_returns_value() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(110), dec!(1)),
+            make_tick_pq(dec!(112), dec!(1)),
+        ];
+        let r = NormalizedTick::tick_max_price_gap(&ticks).unwrap();
+        assert!((r - 10.0).abs() < 1e-6, "expected 10.0 got {}", r);
+    }
+
+    #[test]
+    fn test_tick_price_mean_deviation_empty_none() {
+        assert!(NormalizedTick::tick_price_mean_deviation(&[]).is_none());
+    }
+
+    #[test]
+    fn test_tick_price_mean_deviation_returns_nonneg() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(102), dec!(1)),
+            make_tick_pq(dec!(104), dec!(1)),
+        ];
+        // mean=102, |100-102|+|102-102|+|104-102| = 2+0+2 = 4 → mad=4/3
+        let r = NormalizedTick::tick_price_mean_deviation(&ticks).unwrap();
+        assert!((r - 4.0 / 3.0).abs() < 1e-6, "expected 4/3 got {}", r);
     }
 }

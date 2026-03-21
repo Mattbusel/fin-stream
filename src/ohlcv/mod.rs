@@ -9856,6 +9856,58 @@ impl OhlcvBar {
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
+    /// Mean body center offset: (open + close) / 2 - (high + low) / 2 (body center vs range center).
+    pub fn bar_body_center_offset(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let vals: Vec<f64> = bars.iter().filter_map(|b| {
+            let body_center = (b.open + b.close).to_f64()? / 2.0;
+            let range_center = (b.high + b.low).to_f64()? / 2.0;
+            Some(body_center - range_center)
+        }).collect();
+        if vals.is_empty() { return None; }
+        Some(vals.iter().sum::<f64>() / vals.len() as f64)
+    }
+
+    /// Fraction of bars where close direction reverses vs prior bar (momentum reversal rate).
+    pub fn bar_momentum_reversal(bars: &[OhlcvBar]) -> Option<f64> {
+        if bars.len() < 2 { return None; }
+        let n = bars.len() - 1;
+        if n == 0 { return None; }
+        let reversals = bars.windows(2).filter(|w| {
+            let prev_dir = w[0].close > w[0].open;
+            let curr_dir = w[1].close > w[1].open;
+            prev_dir != curr_dir
+        }).count();
+        Some(reversals as f64 / n as f64)
+    }
+
+    /// Difference between upper and lower shadow (wick asymmetry).
+    pub fn bar_shadow_body_diff(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let vals: Vec<f64> = bars.iter().filter_map(|b| {
+            let top = b.open.max(b.close);
+            let bottom = b.open.min(b.close);
+            let upper = (b.high - top).to_f64()?;
+            let lower = (bottom - b.low).to_f64()?;
+            Some(upper - lower)
+        }).collect();
+        if vals.is_empty() { return None; }
+        Some(vals.iter().sum::<f64>() / vals.len() as f64)
+    }
+
+    /// Fraction of bars in a winning trend run (consecutive same-direction closes).
+    pub fn bar_trend_run_pct(bars: &[OhlcvBar]) -> Option<f64> {
+        if bars.len() < 2 { return None; }
+        let n = bars.len() - 1;
+        if n == 0 { return None; }
+        let continues = bars.windows(2).filter(|w| {
+            (w[0].close > w[0].open) == (w[1].close > w[1].open)
+        }).count();
+        Some(continues as f64 / n as f64)
+    }
+
     /// Mean (open - previous_close) reversion: how much open reverts toward prior close.
     pub fn bar_open_reversion(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
@@ -23349,5 +23401,64 @@ mod tests {
         b3.volume = dec!(10);
         let r = OhlcvBar::bar_vol_skew(&[b1, b2, b3]);
         assert!(r.is_some());
+    }
+
+    #[test]
+    fn test_bar_body_center_offset_empty_none() {
+        assert!(OhlcvBar::bar_body_center_offset(&[]).is_none());
+    }
+
+    #[test]
+    fn test_bar_body_center_offset_returns_value() {
+        // open=100, close=102, high=110, low=90
+        // body_center=(100+102)/2=101, range_center=(110+90)/2=100 → 1.0
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(102));
+        let r = OhlcvBar::bar_body_center_offset(&[b]).unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "expected 1.0 got {}", r);
+    }
+
+    #[test]
+    fn test_bar_momentum_reversal_too_few_none() {
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        assert!(OhlcvBar::bar_momentum_reversal(&[b]).is_none());
+    }
+
+    #[test]
+    fn test_bar_momentum_reversal_all_reverse() {
+        // alternating bull/bear/bull → 2 reversals out of 2 pairs = 1.0
+        let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105)); // bull
+        let b2 = make_ohlcv_bar(dec!(105), dec!(115), dec!(95), dec!(100)); // bear
+        let b3 = make_ohlcv_bar(dec!(100), dec!(112), dec!(88), dec!(108)); // bull
+        let r = OhlcvBar::bar_momentum_reversal(&[b1, b2, b3]).unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "expected 1.0 got {}", r);
+    }
+
+    #[test]
+    fn test_bar_shadow_body_diff_empty_none() {
+        assert!(OhlcvBar::bar_shadow_body_diff(&[]).is_none());
+    }
+
+    #[test]
+    fn test_bar_shadow_body_diff_symmetric_zero() {
+        // open=95, close=105, high=110, low=90 → upper=5, lower=5 → diff=0
+        let b = make_ohlcv_bar(dec!(95), dec!(110), dec!(90), dec!(105));
+        let r = OhlcvBar::bar_shadow_body_diff(&[b]).unwrap();
+        assert!(r.abs() < 1e-9, "expected 0 got {}", r);
+    }
+
+    #[test]
+    fn test_bar_trend_run_pct_too_few_none() {
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        assert!(OhlcvBar::bar_trend_run_pct(&[b]).is_none());
+    }
+
+    #[test]
+    fn test_bar_trend_run_pct_all_continue() {
+        // all bullish → continues=2 out of 2 pairs = 1.0
+        let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let b2 = make_ohlcv_bar(dec!(105), dec!(115), dec!(95), dec!(110));
+        let b3 = make_ohlcv_bar(dec!(110), dec!(120), dec!(100), dec!(115));
+        let r = OhlcvBar::bar_trend_run_pct(&[b1, b2, b3]).unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "expected 1.0 got {}", r);
     }
 }

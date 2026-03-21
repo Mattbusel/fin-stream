@@ -9,6 +9,28 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.10.66] - 2026-03-20
+
+### Added
+
+**`tick` module — `NormalizedTick` analytics (round 215)**
+- `NormalizedTick::tick_price_std_dev(ticks)` — sample standard deviation of tick prices.
+- `NormalizedTick::tick_buy_sell_price_diff(ticks)` — buy mean price minus sell mean price.
+- `NormalizedTick::tick_max_price_gap(ticks)` — maximum absolute gap between consecutive tick prices.
+- `NormalizedTick::tick_price_mean_deviation(ticks)` — mean absolute deviation of tick prices.
+
+**`ohlcv` module — `OhlcvBar` analytics (round 215)**
+- `OhlcvBar::bar_body_center_offset(bars)` — mean offset of body center from range center.
+- `OhlcvBar::bar_momentum_reversal(bars)` — fraction of bars where close direction reverses vs prior.
+- `OhlcvBar::bar_shadow_body_diff(bars)` — mean difference of upper minus lower shadow.
+- `OhlcvBar::bar_trend_run_pct(bars)` — fraction of consecutive same-direction bar pairs.
+
+**`norm` module — `MinMaxNormalizer` + `ZScoreNormalizer` analytics (round 215)**
+- `window_recent_bias()` — fraction of values in the top half of the window's range.
+- `window_max_pct_of_mean()` — maximum value as fraction of window mean.
+
+---
+
 ## [2.10.65] - 2026-03-20
 
 ### Added
