@@ -9,6 +9,36 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.10.5] - 2026-03-20
+
+### Added
+
+**`tick` module — `NormalizedTick` analytics (round 154)**
+- `NormalizedTick::tick_price_convexity(ticks)` — mean of second-order price differences.
+- `NormalizedTick::side_latency_bias(ticks)` — Buy mean timestamp minus Sell mean timestamp.
+- `NormalizedTick::price_direction_ratio(ticks)` — fraction of consecutive up-price moves.
+- `NormalizedTick::tick_mid_price_mean(ticks)` — mean of consecutive mid prices.
+
+**`ohlcv` module — `OhlcvBar` analytics (round 154)**
+- `OhlcvBar::bar_range_skew(bars)` — skewness of bar (high - low) ranges.
+- `OhlcvBar::bar_open_mid_fraction(bars)` — mean fraction of bar range from low to open.
+- `OhlcvBar::bar_high_close_gap(bars)` — mean gap between high and close.
+- `OhlcvBar::bar_open_trend(bars)` — linear trend slope of open prices across bars.
+
+**`norm` module — `MinMaxNormalizer` analytics (round 154)**
+- `MinMaxNormalizer::window_value_at_peak()` — index of the maximum window value.
+- `MinMaxNormalizer::window_head_tail_diff()` — first minus last window value.
+- `MinMaxNormalizer::window_midpoint()` — midpoint of window range (max + min) / 2.
+- `MinMaxNormalizer::window_concavity()` — curvature of the window series (mid vs ends).
+
+**`norm` module — `ZScoreNormalizer` analytics (round 154)**
+- `ZScoreNormalizer::window_value_at_peak()` — index of the maximum window value.
+- `ZScoreNormalizer::window_head_tail_diff()` — first minus last window value.
+- `ZScoreNormalizer::window_midpoint()` — midpoint of window range (max + min) / 2.
+- `ZScoreNormalizer::window_concavity()` — curvature of the window series (mid vs ends).
+
+---
+
 ## [2.10.4] - 2026-03-20
 
 ### Added

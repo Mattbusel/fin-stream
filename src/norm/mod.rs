@@ -5010,6 +5010,49 @@ impl MinMaxNormalizer {
         Some((last - first) / (self.window.len() - 1) as f64)
     }
 
+    // ── round-154 ────────────────────────────────────────────────────────────
+
+    /// Index position of the maximum window value (0 = oldest).
+    pub fn window_value_at_peak(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let peak_idx = vals.iter().enumerate()
+            .max_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(std::cmp::Ordering::Equal))?.0;
+        Some(peak_idx as f64)
+    }
+
+    /// Difference between the first and last window values (head - tail).
+    pub fn window_head_tail_diff(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let first = self.window.front()?.to_f64()?;
+        let last = self.window.back()?.to_f64()?;
+        Some(first - last)
+    }
+
+    /// Midpoint of the window range: (max + min) / 2.
+    pub fn window_midpoint(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let min = vals.iter().cloned().fold(f64::INFINITY, f64::min);
+        let max = vals.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        Some((min + max) / 2.0)
+    }
+
+    /// Second derivative of window mean: curvature of the smoothed series.
+    pub fn window_concavity(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 3 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let n = vals.len();
+        let first_third = vals[..n/3].iter().sum::<f64>() / (n/3) as f64;
+        let last_third = vals[n - n/3..].iter().sum::<f64>() / (n/3) as f64;
+        let mid = vals[n/3..n - n/3].iter().sum::<f64>() / (n - 2*n/3) as f64;
+        Some(mid - (first_third + last_third) / 2.0)
+    }
+
 }
 
 #[cfg(test)]
@@ -10769,6 +10812,69 @@ mod tests {
         let c = n.window_mean_change().unwrap();
         assert!((c - 2.0).abs() < 1e-9, "expected 2.0, got {}", c);
     }
+
+    // ── round-154 ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_minmax_window_value_at_peak_none_for_empty() {
+        let n = norm(4);
+        assert!(n.window_value_at_peak().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_value_at_peak_single() {
+        let mut n = norm(4);
+        n.update(dec!(5));
+        // only one value → peak at index 0
+        let p = n.window_value_at_peak().unwrap();
+        assert!((p - 0.0).abs() < 1e-9, "expected 0.0, got {}", p);
+    }
+
+    #[test]
+    fn test_minmax_window_head_tail_diff_none_for_single() {
+        let mut n = norm(4);
+        n.update(dec!(5));
+        assert!(n.window_head_tail_diff().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_head_tail_diff_basic() {
+        let mut n = norm(2);
+        for v in [dec!(10), dec!(3)] { n.update(v); }
+        // head=10, tail=3 → diff=7
+        let d = n.window_head_tail_diff().unwrap();
+        assert!((d - 7.0).abs() < 1e-9, "expected 7.0, got {}", d);
+    }
+
+    #[test]
+    fn test_minmax_window_midpoint_none_for_empty() {
+        let n = norm(4);
+        assert!(n.window_midpoint().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_midpoint_basic() {
+        let mut n = norm(2);
+        for v in [dec!(2), dec!(8)] { n.update(v); }
+        // min=2, max=8 → midpoint=5
+        let m = n.window_midpoint().unwrap();
+        assert!((m - 5.0).abs() < 1e-9, "expected 5.0, got {}", m);
+    }
+
+    #[test]
+    fn test_minmax_window_concavity_none_for_two() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2)] { n.update(v); }
+        assert!(n.window_concavity().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_concavity_flat() {
+        let mut n = norm(6);
+        for v in [dec!(5), dec!(5), dec!(5), dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        let c = n.window_concavity().unwrap();
+        assert!((c - 0.0).abs() < 1e-9, "expected 0.0, got {}", c);
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -15723,6 +15829,49 @@ impl ZScoreNormalizer {
         let first = self.window.front()?.to_f64()?;
         let last = self.window.back()?.to_f64()?;
         Some((last - first) / (self.window.len() - 1) as f64)
+    }
+
+    // ── round-154 ────────────────────────────────────────────────────────────
+
+    /// Index position of the maximum window value (0 = oldest).
+    pub fn window_value_at_peak(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let peak_idx = vals.iter().enumerate()
+            .max_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(std::cmp::Ordering::Equal))?.0;
+        Some(peak_idx as f64)
+    }
+
+    /// Difference between the first and last window values (head - tail).
+    pub fn window_head_tail_diff(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let first = self.window.front()?.to_f64()?;
+        let last = self.window.back()?.to_f64()?;
+        Some(first - last)
+    }
+
+    /// Midpoint of the window range: (max + min) / 2.
+    pub fn window_midpoint(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let min = vals.iter().cloned().fold(f64::INFINITY, f64::min);
+        let max = vals.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        Some((min + max) / 2.0)
+    }
+
+    /// Second derivative of window mean: curvature of the smoothed series.
+    pub fn window_concavity(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 3 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let n = vals.len();
+        let first_third = vals[..n/3].iter().sum::<f64>() / (n/3) as f64;
+        let last_third = vals[n - n/3..].iter().sum::<f64>() / (n/3) as f64;
+        let mid = vals[n/3..n - n/3].iter().sum::<f64>() / (n - 2*n/3) as f64;
+        Some(mid - (first_third + last_third) / 2.0)
     }
 
 }
@@ -21491,5 +21640,65 @@ mod zscore_stability_tests {
         for v in [dec!(1), dec!(3), dec!(5)] { n.update(v); }
         let c = n.window_mean_change().unwrap();
         assert!((c - 2.0).abs() < 1e-9, "expected 2.0, got {}", c);
+    }
+
+    // ── round-154 ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_zscore_window_value_at_peak_none_for_empty() {
+        let n = znorm(4);
+        assert!(n.window_value_at_peak().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_value_at_peak_single() {
+        let mut n = znorm(4);
+        n.update(dec!(5));
+        let p = n.window_value_at_peak().unwrap();
+        assert!((p - 0.0).abs() < 1e-9, "expected 0.0, got {}", p);
+    }
+
+    #[test]
+    fn test_zscore_window_head_tail_diff_none_for_single() {
+        let mut n = znorm(4);
+        n.update(dec!(5));
+        assert!(n.window_head_tail_diff().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_head_tail_diff_basic() {
+        let mut n = znorm(2);
+        for v in [dec!(10), dec!(3)] { n.update(v); }
+        let d = n.window_head_tail_diff().unwrap();
+        assert!((d - 7.0).abs() < 1e-9, "expected 7.0, got {}", d);
+    }
+
+    #[test]
+    fn test_zscore_window_midpoint_none_for_empty() {
+        let n = znorm(4);
+        assert!(n.window_midpoint().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_midpoint_basic() {
+        let mut n = znorm(2);
+        for v in [dec!(2), dec!(8)] { n.update(v); }
+        let m = n.window_midpoint().unwrap();
+        assert!((m - 5.0).abs() < 1e-9, "expected 5.0, got {}", m);
+    }
+
+    #[test]
+    fn test_zscore_window_concavity_none_for_two() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2)] { n.update(v); }
+        assert!(n.window_concavity().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_concavity_flat() {
+        let mut n = znorm(6);
+        for v in [dec!(5), dec!(5), dec!(5), dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        let c = n.window_concavity().unwrap();
+        assert!((c - 0.0).abs() < 1e-9, "expected 0.0, got {}", c);
     }
 }

@@ -7096,6 +7096,60 @@ impl OhlcvBar {
         Some(count as f64 / bars.len() as f64)
     }
 
+    // ── round-154 ────────────────────────────────────────────────────────────
+
+    /// Skewness of (high - low) ranges across bars.
+    pub fn bar_range_skew(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.len() < 3 { return None; }
+        let ranges: Vec<f64> = bars.iter().filter_map(|b| (b.high - b.low).to_f64()).collect();
+        if ranges.len() < 3 { return None; }
+        let n = ranges.len() as f64;
+        let mean = ranges.iter().sum::<f64>() / n;
+        let var = ranges.iter().map(|r| (r - mean).powi(2)).sum::<f64>() / n;
+        let std = var.sqrt();
+        if std == 0.0 { return None; }
+        Some(ranges.iter().map(|r| ((r - mean) / std).powi(3)).sum::<f64>() / n)
+    }
+
+    /// Mean fraction of bar range from low to open (where open sits in the range).
+    pub fn bar_open_mid_fraction(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let vals: Vec<f64> = bars.iter().filter_map(|b| {
+            let range = (b.high - b.low).to_f64()?;
+            if range == 0.0 { return None; }
+            let open_pos = (b.open - b.low).to_f64()?;
+            Some(open_pos / range)
+        }).collect();
+        if vals.is_empty() { return None; }
+        Some(vals.iter().sum::<f64>() / vals.len() as f64)
+    }
+
+    /// Mean of (high - close) gaps across bars.
+    pub fn bar_high_close_gap(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let gaps: Vec<f64> = bars.iter().filter_map(|b| (b.high - b.close).to_f64()).collect();
+        if gaps.is_empty() { return None; }
+        Some(gaps.iter().sum::<f64>() / gaps.len() as f64)
+    }
+
+    /// Linear trend slope of open prices across bars.
+    pub fn bar_open_trend(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.len() < 2 { return None; }
+        let opens: Vec<f64> = bars.iter().filter_map(|b| b.open.to_f64()).collect();
+        if opens.len() < 2 { return None; }
+        let n = opens.len() as f64;
+        let x_mean = (n - 1.0) / 2.0;
+        let y_mean = opens.iter().sum::<f64>() / n;
+        let num: f64 = opens.iter().enumerate().map(|(i, &y)| (i as f64 - x_mean) * (y - y_mean)).sum();
+        let den: f64 = opens.iter().enumerate().map(|(i, _)| (i as f64 - x_mean).powi(2)).sum();
+        if den == 0.0 { return Some(0.0); }
+        Some(num / den)
+    }
+
 }
 
 impl std::fmt::Display for OhlcvBar {
@@ -16392,5 +16446,70 @@ mod tests {
         let bars = vec![make_ohlcv_bar(dec!(90), dec!(110), dec!(90), dec!(110))];
         let e = OhlcvBar::bar_close_extremity(&bars).unwrap();
         assert!((e - 1.0).abs() < 1e-9, "expected 1.0, got {}", e);
+    }
+
+    // ── round-154 ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_bar_range_skew_none_for_two() {
+        let bars = vec![
+            make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105)),
+            make_ohlcv_bar(dec!(105), dec!(115), dec!(95), dec!(110)),
+        ];
+        assert!(OhlcvBar::bar_range_skew(&bars).is_none());
+    }
+
+    #[test]
+    fn test_bar_range_skew_symmetric_zero() {
+        // identical ranges → skew = None (std=0)
+        let bars = vec![
+            make_ohlcv_bar(dec!(100), dec!(120), dec!(100), dec!(110)),
+            make_ohlcv_bar(dec!(110), dec!(130), dec!(110), dec!(120)),
+            make_ohlcv_bar(dec!(120), dec!(140), dec!(120), dec!(130)),
+        ];
+        assert!(OhlcvBar::bar_range_skew(&bars).is_none());
+    }
+
+    #[test]
+    fn test_bar_open_mid_fraction_none_for_empty() {
+        assert!(OhlcvBar::bar_open_mid_fraction(&[]).is_none());
+    }
+
+    #[test]
+    fn test_bar_open_mid_fraction_open_at_low() {
+        // open=low=90 → fraction=0
+        let bars = vec![make_ohlcv_bar(dec!(90), dec!(110), dec!(90), dec!(100))];
+        let f = OhlcvBar::bar_open_mid_fraction(&bars).unwrap();
+        assert!((f - 0.0).abs() < 1e-9, "expected 0.0, got {}", f);
+    }
+
+    #[test]
+    fn test_bar_high_close_gap_none_for_empty() {
+        assert!(OhlcvBar::bar_high_close_gap(&[]).is_none());
+    }
+
+    #[test]
+    fn test_bar_high_close_gap_close_at_high() {
+        // close=high=110 → gap=0
+        let bars = vec![make_ohlcv_bar(dec!(90), dec!(110), dec!(90), dec!(110))];
+        let g = OhlcvBar::bar_high_close_gap(&bars).unwrap();
+        assert!((g - 0.0).abs() < 1e-9, "expected 0.0, got {}", g);
+    }
+
+    #[test]
+    fn test_bar_open_trend_none_for_single() {
+        let bars = vec![make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105))];
+        assert!(OhlcvBar::bar_open_trend(&bars).is_none());
+    }
+
+    #[test]
+    fn test_bar_open_trend_flat() {
+        // same open → slope = 0
+        let bars = vec![
+            make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105)),
+            make_ohlcv_bar(dec!(100), dec!(115), dec!(95), dec!(110)),
+        ];
+        let t = OhlcvBar::bar_open_trend(&bars).unwrap();
+        assert!((t - 0.0).abs() < 1e-9, "expected 0.0, got {}", t);
     }
 }

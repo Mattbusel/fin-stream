@@ -7343,6 +7343,52 @@ impl NormalizedTick {
         Some(var.sqrt() / mean)
     }
 
+    // ── round-154 ────────────────────────────────────────────────────────────
+
+    /// Price convexity: mean of second-order price differences (acceleration mean).
+    pub fn tick_price_convexity(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 3 { return None; }
+        let prices: Vec<f64> = ticks.iter().filter_map(|t| t.price.to_f64()).collect();
+        if prices.len() < 3 { return None; }
+        let accels: Vec<f64> = prices.windows(3).map(|w| w[2] - 2.0 * w[1] + w[0]).collect();
+        Some(accels.iter().sum::<f64>() / accels.len() as f64)
+    }
+
+    /// Mean latency difference: buy mean timestamp minus sell mean timestamp.
+    pub fn side_latency_bias(ticks: &[NormalizedTick]) -> Option<f64> {
+        let buy_ts: Vec<f64> = ticks.iter()
+            .filter(|t| matches!(t.side, Some(TradeSide::Buy)))
+            .map(|t| t.received_at_ms as f64).collect();
+        let sell_ts: Vec<f64> = ticks.iter()
+            .filter(|t| matches!(t.side, Some(TradeSide::Sell)))
+            .map(|t| t.received_at_ms as f64).collect();
+        if buy_ts.is_empty() || sell_ts.is_empty() { return None; }
+        let buy_mean = buy_ts.iter().sum::<f64>() / buy_ts.len() as f64;
+        let sell_mean = sell_ts.iter().sum::<f64>() / sell_ts.len() as f64;
+        Some(buy_mean - sell_mean)
+    }
+
+    /// Fraction of consecutive up-price moves (price[i+1] > price[i]).
+    pub fn price_direction_ratio(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 2 { return None; }
+        let prices: Vec<f64> = ticks.iter().filter_map(|t| t.price.to_f64()).collect();
+        if prices.len() < 2 { return None; }
+        let ups = prices.windows(2).filter(|w| w[1] > w[0]).count();
+        Some(ups as f64 / (prices.len() - 1) as f64)
+    }
+
+    /// Mean of mid prices ((price[i] + price[i+1]) / 2) across consecutive pairs.
+    pub fn tick_mid_price_mean(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 2 { return None; }
+        let prices: Vec<f64> = ticks.iter().filter_map(|t| t.price.to_f64()).collect();
+        if prices.len() < 2 { return None; }
+        let mids: Vec<f64> = prices.windows(2).map(|w| (w[0] + w[1]) / 2.0).collect();
+        Some(mids.iter().sum::<f64>() / mids.len() as f64)
+    }
+
 }
 
 
@@ -16785,5 +16831,81 @@ mod tests {
         let mut t3 = make_tick_pq(dec!(102), dec!(1)); t3.received_at_ms = 20;
         let cv = NormalizedTick::tick_duration_cv(&[t1, t2, t3]).unwrap();
         assert!((cv - 0.0).abs() < 1e-9, "expected 0.0, got {}", cv);
+    }
+
+    // ── round-154 ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_tick_price_convexity_none_for_two() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![make_tick_pq(dec!(100), dec!(1)), make_tick_pq(dec!(101), dec!(1))];
+        assert!(NormalizedTick::tick_price_convexity(&ticks).is_none());
+    }
+
+    #[test]
+    fn test_tick_price_convexity_linear_zero() {
+        use rust_decimal_macros::dec;
+        // linear prices → second diff = 0 → convexity = 0
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(101), dec!(1)),
+            make_tick_pq(dec!(102), dec!(1)),
+        ];
+        let c = NormalizedTick::tick_price_convexity(&ticks).unwrap();
+        assert!((c - 0.0).abs() < 1e-9, "expected 0.0, got {}", c);
+    }
+
+    #[test]
+    fn test_side_latency_bias_none_for_no_sides() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![make_tick_pq(dec!(100), dec!(1))];
+        assert!(NormalizedTick::side_latency_bias(&ticks).is_none());
+    }
+
+    #[test]
+    fn test_side_latency_bias_equal_timestamps() {
+        use rust_decimal_macros::dec;
+        let mut t_buy = make_tick_pq(dec!(100), dec!(1));
+        t_buy.side = Some(crate::tick::TradeSide::Buy);
+        t_buy.received_at_ms = 100;
+        let mut t_sell = make_tick_pq(dec!(100), dec!(1));
+        t_sell.side = Some(crate::tick::TradeSide::Sell);
+        t_sell.received_at_ms = 100;
+        let b = NormalizedTick::side_latency_bias(&[t_buy, t_sell]).unwrap();
+        assert!((b - 0.0).abs() < 1e-9, "expected 0.0, got {}", b);
+    }
+
+    #[test]
+    fn test_price_direction_ratio_none_for_single() {
+        use rust_decimal_macros::dec;
+        assert!(NormalizedTick::price_direction_ratio(&[make_tick_pq(dec!(100), dec!(1))]).is_none());
+    }
+
+    #[test]
+    fn test_price_direction_ratio_all_up() {
+        use rust_decimal_macros::dec;
+        // ascending prices → all up → ratio = 1.0
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(101), dec!(1)),
+            make_tick_pq(dec!(102), dec!(1)),
+        ];
+        let r = NormalizedTick::price_direction_ratio(&ticks).unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "expected 1.0, got {}", r);
+    }
+
+    #[test]
+    fn test_tick_mid_price_mean_none_for_single() {
+        use rust_decimal_macros::dec;
+        assert!(NormalizedTick::tick_mid_price_mean(&[make_tick_pq(dec!(100), dec!(1))]).is_none());
+    }
+
+    #[test]
+    fn test_tick_mid_price_mean_basic() {
+        use rust_decimal_macros::dec;
+        // prices: 100, 102 → mid = 101
+        let ticks = vec![make_tick_pq(dec!(100), dec!(1)), make_tick_pq(dec!(102), dec!(1))];
+        let m = NormalizedTick::tick_mid_price_mean(&ticks).unwrap();
+        assert!((m - 101.0).abs() < 1e-9, "expected 101.0, got {}", m);
     }
 }
