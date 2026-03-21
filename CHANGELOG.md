@@ -9,6 +9,36 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.7.6] - 2026-03-20
+
+### Added
+
+**`tick` module — `NormalizedTick` analytics (round 125)**
+- `NormalizedTick::price_hurst_estimate(ticks)` — simple Hurst exponent estimate via log-range scaling.
+- `NormalizedTick::qty_mean_reversion(ticks)` — mean absolute deviation of quantity divided by std.
+- `NormalizedTick::avg_trade_impact(ticks)` — mean relative price change between consecutive ticks.
+- `NormalizedTick::price_range_iqr(ticks)` — interquartile range of price values.
+
+**`ohlcv` module — `OhlcvBar` analytics (round 125)**
+- `OhlcvBar::close_lag1_autocorr(bars)` — lag-1 autocorrelation of close prices.
+- `OhlcvBar::volume_skewness(bars)` — skewness of volume distribution across bars.
+- `OhlcvBar::bar_height_rank(bars)` — rank of last bar's range among all ranges.
+- `OhlcvBar::high_persistence(bars)` — fraction of bars where high exceeds prior bar's high.
+
+**`norm` module — `MinMaxNormalizer` analytics (round 125)**
+- `MinMaxNormalizer::window_exp_smoothed()` — exponentially smoothed last value (α=0.2).
+- `MinMaxNormalizer::window_drawdown()` — maximum peak-to-trough decline in the window.
+- `MinMaxNormalizer::window_drawup()` — maximum trough-to-peak gain in the window.
+- `MinMaxNormalizer::window_trend_strength()` — ratio of net signed movement to total movement.
+
+**`norm` module — `ZScoreNormalizer` analytics (round 125)**
+- `ZScoreNormalizer::window_exp_smoothed()` — exponentially smoothed last value (α=0.2).
+- `ZScoreNormalizer::window_drawdown()` — maximum peak-to-trough decline in the window.
+- `ZScoreNormalizer::window_drawup()` — maximum trough-to-peak gain in the window.
+- `ZScoreNormalizer::window_trend_strength()` — ratio of net signed movement to total movement.
+
+---
+
 ## [2.7.5] - 2026-03-20
 
 ### Added

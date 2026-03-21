@@ -5660,6 +5660,54 @@ impl OhlcvBar {
         Some(sum / (bars.len() - 1) as f64)
     }
 
+    // ── round-125 ────────────────────────────────────────────────────────────
+
+    /// Lag-1 autocorrelation of close prices.
+    pub fn close_lag1_autocorr(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.len() < 3 { return None; }
+        let closes: Vec<f64> = bars.iter().map(|b| b.close.to_f64().unwrap_or(0.0)).collect();
+        let n = closes.len() as f64;
+        let mean = closes.iter().sum::<f64>() / n;
+        let var = closes.iter().map(|&c| (c - mean).powi(2)).sum::<f64>() / n;
+        if var == 0.0 { return None; }
+        let cov: f64 = closes.windows(2).map(|w| (w[0] - mean) * (w[1] - mean)).sum::<f64>() / (n - 1.0);
+        Some(cov / var)
+    }
+
+    /// Skewness of volume distribution across bars.
+    pub fn volume_skewness(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.len() < 3 { return None; }
+        let vols: Vec<f64> = bars.iter().map(|b| b.volume.to_f64().unwrap_or(0.0)).collect();
+        let n = vols.len() as f64;
+        let mean = vols.iter().sum::<f64>() / n;
+        let var = vols.iter().map(|&v| (v - mean).powi(2)).sum::<f64>() / n;
+        let std = var.sqrt();
+        if std == 0.0 { return None; }
+        Some(vols.iter().map(|&v| ((v - mean) / std).powi(3)).sum::<f64>() / n)
+    }
+
+    /// Rank of last bar's range (high-low) among all bar ranges (0.0=min, 1.0=max).
+    pub fn bar_height_rank(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let last_range = (bars.last()?.high - bars.last()?.low).to_f64()?;
+        let mut ranges: Vec<f64> = bars.iter()
+            .map(|b| (b.high - b.low).to_f64().unwrap_or(0.0))
+            .collect();
+        ranges.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let pos = ranges.iter().position(|&r| (r - last_range).abs() < 1e-12).unwrap_or(0);
+        Some(pos as f64 / (ranges.len() - 1).max(1) as f64)
+    }
+
+    /// Fraction of bars where high[i] > high[i-1].
+    pub fn high_persistence(bars: &[OhlcvBar]) -> Option<f64> {
+        if bars.len() < 2 { return None; }
+        let count = bars.windows(2).filter(|w| w[1].high > w[0].high).count();
+        Some(count as f64 / (bars.len() - 1) as f64)
+    }
+
 }
 
 impl std::fmt::Display for OhlcvBar {
@@ -13264,5 +13312,67 @@ mod tests {
         // volume is always dec!(1) from make_ohlcv_bar → no change
         let v = OhlcvBar::avg_volume_change(&bars).unwrap();
         assert!(v.abs() < 1e-9, "expected 0.0, got {}", v);
+    }
+
+    // ── round-125 ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_close_lag1_autocorr_none_for_two() {
+        let bars = [
+            make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105)),
+            make_ohlcv_bar(dec!(105), dec!(115), dec!(100), dec!(110)),
+        ];
+        assert!(OhlcvBar::close_lag1_autocorr(&bars).is_none());
+    }
+
+    #[test]
+    fn test_close_lag1_autocorr_uniform_none() {
+        // uniform close → var=0 → None
+        let bars: Vec<_> = (0..4).map(|_| make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105))).collect();
+        assert!(OhlcvBar::close_lag1_autocorr(&bars).is_none());
+    }
+
+    #[test]
+    fn test_volume_skewness_none_for_two() {
+        let bars = [
+            make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105)),
+            make_ohlcv_bar(dec!(105), dec!(115), dec!(100), dec!(110)),
+        ];
+        assert!(OhlcvBar::volume_skewness(&bars).is_none());
+    }
+
+    #[test]
+    fn test_volume_skewness_uniform_none() {
+        let bars: Vec<_> = (0..4).map(|_| make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105))).collect();
+        // all vol=1 → std=0 → None
+        assert!(OhlcvBar::volume_skewness(&bars).is_none());
+    }
+
+    #[test]
+    fn test_bar_height_rank_none_for_empty() {
+        assert!(OhlcvBar::bar_height_rank(&[]).is_none());
+    }
+
+    #[test]
+    fn test_bar_height_rank_largest() {
+        // last bar has largest range
+        let b1 = make_ohlcv_bar(dec!(100), dec!(105), dec!(98), dec!(103)); // range=7
+        let b2 = make_ohlcv_bar(dec!(100), dec!(106), dec!(97), dec!(103)); // range=9
+        let b3 = make_ohlcv_bar(dec!(100), dec!(115), dec!(90), dec!(110)); // range=25
+        let r = OhlcvBar::bar_height_rank(&[b1, b2, b3]).unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "expected 1.0 (max rank), got {}", r);
+    }
+
+    #[test]
+    fn test_high_persistence_none_for_single() {
+        assert!(OhlcvBar::high_persistence(&[make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105))]).is_none());
+    }
+
+    #[test]
+    fn test_high_persistence_always_rising() {
+        let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let b2 = make_ohlcv_bar(dec!(105), dec!(120), dec!(102), dec!(115));
+        let p = OhlcvBar::high_persistence(&[b1, b2]).unwrap();
+        assert!((p - 1.0).abs() < 1e-9, "expected 1.0, got {}", p);
     }
 }

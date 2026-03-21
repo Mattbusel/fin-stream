@@ -5727,6 +5727,61 @@ impl NormalizedTick {
         Some(sided.iter().sum::<f64>() / sided.len() as f64)
     }
 
+    // ── round-125 ────────────────────────────────────────────────────────────
+
+    /// Simple Hurst exponent estimate using log-range scaling (2 halves).
+    /// H≈0.5 random, H>0.5 trending, H<0.5 mean-reverting.
+    pub fn price_hurst_estimate(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 4 { return None; }
+        let prices: Vec<f64> = ticks.iter().map(|t| t.price.to_f64().unwrap_or(0.0)).collect();
+        let range = |s: &[f64]| -> f64 {
+            let max = s.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+            let min = s.iter().cloned().fold(f64::INFINITY, f64::min);
+            max - min
+        };
+        let full_range = range(&prices);
+        let mid = prices.len() / 2;
+        let half_range = (range(&prices[..mid]) + range(&prices[mid..])) / 2.0;
+        if half_range == 0.0 || full_range == 0.0 { return None; }
+        Some((full_range / half_range).ln() / 2f64.ln())
+    }
+
+    /// Mean reversion tendency of quantity: mean of |qty - mean_qty| / std_qty.
+    pub fn qty_mean_reversion(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 2 { return None; }
+        let vals: Vec<f64> = ticks.iter().map(|t| t.quantity.to_f64().unwrap_or(0.0)).collect();
+        let n = vals.len() as f64;
+        let mean = vals.iter().sum::<f64>() / n;
+        let std = (vals.iter().map(|&x| (x - mean).powi(2)).sum::<f64>() / n).sqrt();
+        if std == 0.0 { return None; }
+        Some(vals.iter().map(|&x| (x - mean).abs() / std).sum::<f64>() / n)
+    }
+
+    /// Average trade price impact: mean of |price[i] - price[i-1]| / price[i-1].
+    pub fn avg_trade_impact(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 2 { return None; }
+        let sum: f64 = ticks.windows(2).map(|w| {
+            let p0 = w[0].price.to_f64().unwrap_or(0.0);
+            if p0 == 0.0 { 0.0 } else { (w[1].price - w[0].price).abs().to_f64().unwrap_or(0.0) / p0 }
+        }).sum();
+        Some(sum / (ticks.len() - 1) as f64)
+    }
+
+    /// Interquartile range of price values.
+    pub fn price_range_iqr(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 4 { return None; }
+        let mut prices: Vec<f64> = ticks.iter().map(|t| t.price.to_f64().unwrap_or(0.0)).collect();
+        prices.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let n = prices.len();
+        let q1 = prices[n / 4];
+        let q3 = prices[(3 * n) / 4];
+        Some(q3 - q1)
+    }
+
 }
 
 
@@ -13090,5 +13145,65 @@ mod tests {
         t2.side = Some(TradeSide::Sell);
         let a = NormalizedTick::avg_qty_per_side(&[t1, t2]).unwrap();
         assert!((a - 5.0).abs() < 1e-9, "expected 5.0, got {}", a);
+    }
+
+    // ── round-125 ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_price_hurst_estimate_none_for_three() {
+        use rust_decimal_macros::dec;
+        let ticks: Vec<_> = (0..3).map(|i| make_tick_pq(dec!(100) + rust_decimal::Decimal::from(i), dec!(1))).collect();
+        assert!(NormalizedTick::price_hurst_estimate(&ticks).is_none());
+    }
+
+    #[test]
+    fn test_price_hurst_estimate_basic() {
+        use rust_decimal_macros::dec;
+        let ticks: Vec<_> = (0..8).map(|i| make_tick_pq(dec!(100) + rust_decimal::Decimal::from(i), dec!(1))).collect();
+        let h = NormalizedTick::price_hurst_estimate(&ticks).unwrap();
+        assert!(h > 0.0, "expected positive hurst, got {}", h);
+    }
+
+    #[test]
+    fn test_qty_mean_reversion_none_for_single() {
+        use rust_decimal_macros::dec;
+        assert!(NormalizedTick::qty_mean_reversion(&[make_tick_pq(dec!(100), dec!(1))]).is_none());
+    }
+
+    #[test]
+    fn test_qty_mean_reversion_uniform_none() {
+        use rust_decimal_macros::dec;
+        // uniform → std=0 → None
+        let ticks: Vec<_> = (0..4).map(|_| make_tick_pq(dec!(100), dec!(3))).collect();
+        assert!(NormalizedTick::qty_mean_reversion(&ticks).is_none());
+    }
+
+    #[test]
+    fn test_avg_trade_impact_none_for_single() {
+        use rust_decimal_macros::dec;
+        assert!(NormalizedTick::avg_trade_impact(&[make_tick_pq(dec!(100), dec!(1))]).is_none());
+    }
+
+    #[test]
+    fn test_avg_trade_impact_zero_for_constant_price() {
+        use rust_decimal_macros::dec;
+        let ticks: Vec<_> = (0..3).map(|_| make_tick_pq(dec!(100), dec!(1))).collect();
+        let i = NormalizedTick::avg_trade_impact(&ticks).unwrap();
+        assert!(i.abs() < 1e-9, "expected 0.0, got {}", i);
+    }
+
+    #[test]
+    fn test_price_range_iqr_none_for_three() {
+        use rust_decimal_macros::dec;
+        let ticks: Vec<_> = (0..3).map(|i| make_tick_pq(dec!(100) + rust_decimal::Decimal::from(i), dec!(1))).collect();
+        assert!(NormalizedTick::price_range_iqr(&ticks).is_none());
+    }
+
+    #[test]
+    fn test_price_range_iqr_basic() {
+        use rust_decimal_macros::dec;
+        let ticks: Vec<_> = (0..8).map(|i| make_tick_pq(dec!(100) + rust_decimal::Decimal::from(i), dec!(1))).collect();
+        let iqr = NormalizedTick::price_range_iqr(&ticks).unwrap();
+        assert!(iqr >= 0.0, "expected non-negative iqr, got {}", iqr);
     }
 }

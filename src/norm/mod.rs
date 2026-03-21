@@ -3598,6 +3598,61 @@ impl MinMaxNormalizer {
         Some(1.0 - std)
     }
 
+    // ── round-125 ────────────────────────────────────────────────────────────
+
+    /// Exponentially smoothed last value (α=0.2).
+    pub fn window_exp_smoothed(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let alpha = 0.2f64;
+        let mut ema = self.window.front()?.to_f64()?;
+        for v in self.window.iter().skip(1) {
+            ema = alpha * v.to_f64().unwrap_or(0.0) + (1.0 - alpha) * ema;
+        }
+        Some(ema)
+    }
+
+    /// Maximum drawdown: largest peak-to-trough decline in the window.
+    pub fn window_drawdown(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let mut max_dd = 0f64;
+        let mut peak = vals[0];
+        for &v in &vals[1..] {
+            if v > peak { peak = v; }
+            let dd = peak - v;
+            if dd > max_dd { max_dd = dd; }
+        }
+        Some(max_dd)
+    }
+
+    /// Maximum drawup: largest trough-to-peak gain in the window.
+    pub fn window_drawup(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let mut max_du = 0f64;
+        let mut trough = vals[0];
+        for &v in &vals[1..] {
+            if v < trough { trough = v; }
+            let du = v - trough;
+            if du > max_du { max_du = du; }
+        }
+        Some(max_du)
+    }
+
+    /// Trend strength: |sum of signed differences| / sum of absolute differences.
+    pub fn window_trend_strength(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let signed: f64 = vals.windows(2).map(|w| w[1] - w[0]).sum();
+        let abs_sum: f64 = vals.windows(2).map(|w| (w[1] - w[0]).abs()).sum();
+        if abs_sum == 0.0 { return None; }
+        Some(signed.abs() / abs_sum)
+    }
+
 }
 
 #[cfg(test)]
@@ -7562,6 +7617,66 @@ mod tests {
         let s = n.window_range_stability().unwrap();
         assert!((s - 1.0).abs() < 1e-9, "expected 1.0, got {}", s);
     }
+
+    // ── round-125 ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_minmax_window_exp_smoothed_none_for_empty() {
+        let n = norm(3);
+        assert!(n.window_exp_smoothed().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_exp_smoothed_single() {
+        let mut n = norm(3);
+        n.update(dec!(7));
+        let e = n.window_exp_smoothed().unwrap();
+        assert!((e - 7.0).abs() < 1e-9, "expected 7.0, got {}", e);
+    }
+
+    #[test]
+    fn test_minmax_window_drawdown_none_for_empty() {
+        let n = norm(3);
+        assert!(n.window_drawdown().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_drawdown_monotone_up() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let dd = n.window_drawdown().unwrap();
+        assert!(dd.abs() < 1e-9, "expected 0.0, got {}", dd);
+    }
+
+    #[test]
+    fn test_minmax_window_drawup_none_for_empty() {
+        let n = norm(3);
+        assert!(n.window_drawup().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_drawup_monotone_down() {
+        let mut n = norm(4);
+        for v in [dec!(4), dec!(3), dec!(2), dec!(1)] { n.update(v); }
+        let du = n.window_drawup().unwrap();
+        assert!(du.abs() < 1e-9, "expected 0.0, got {}", du);
+    }
+
+    #[test]
+    fn test_minmax_window_trend_strength_none_for_single() {
+        let mut n = norm(3);
+        n.update(dec!(5));
+        assert!(n.window_trend_strength().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_trend_strength_pure_trend() {
+        let mut n = norm(3);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        // all diffs = +1 → signed=2, abs=2 → strength=1.0
+        let s = n.window_trend_strength().unwrap();
+        assert!((s - 1.0).abs() < 1e-9, "expected 1.0, got {}", s);
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -11105,6 +11220,61 @@ impl ZScoreNormalizer {
         let mean = pcts.iter().sum::<f64>() / n;
         let std = (pcts.iter().map(|&x| (x - mean).powi(2)).sum::<f64>() / n).sqrt();
         Some(1.0 - std)
+    }
+
+    // ── round-125 ────────────────────────────────────────────────────────────
+
+    /// Exponentially smoothed last value (α=0.2).
+    pub fn window_exp_smoothed(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let alpha = 0.2f64;
+        let mut ema = self.window.front()?.to_f64()?;
+        for v in self.window.iter().skip(1) {
+            ema = alpha * v.to_f64().unwrap_or(0.0) + (1.0 - alpha) * ema;
+        }
+        Some(ema)
+    }
+
+    /// Maximum drawdown in the window.
+    pub fn window_drawdown(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let mut max_dd = 0f64;
+        let mut peak = vals[0];
+        for &v in &vals[1..] {
+            if v > peak { peak = v; }
+            let dd = peak - v;
+            if dd > max_dd { max_dd = dd; }
+        }
+        Some(max_dd)
+    }
+
+    /// Maximum drawup in the window.
+    pub fn window_drawup(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let mut max_du = 0f64;
+        let mut trough = vals[0];
+        for &v in &vals[1..] {
+            if v < trough { trough = v; }
+            let du = v - trough;
+            if du > max_du { max_du = du; }
+        }
+        Some(max_du)
+    }
+
+    /// Trend strength: |signed net| / total absolute movement.
+    pub fn window_trend_strength(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let signed: f64 = vals.windows(2).map(|w| w[1] - w[0]).sum();
+        let abs_sum: f64 = vals.windows(2).map(|w| (w[1] - w[0]).abs()).sum();
+        if abs_sum == 0.0 { return None; }
+        Some(signed.abs() / abs_sum)
     }
 
 }
@@ -15140,6 +15310,65 @@ mod zscore_stability_tests {
         let mut n = znorm(3);
         for v in [dec!(5), dec!(5), dec!(5)] { n.update(v); }
         let s = n.window_range_stability().unwrap();
+        assert!((s - 1.0).abs() < 1e-9, "expected 1.0, got {}", s);
+    }
+
+    // ── round-125 ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_zscore_window_exp_smoothed_none_for_empty() {
+        let n = znorm(3);
+        assert!(n.window_exp_smoothed().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_exp_smoothed_single() {
+        let mut n = znorm(3);
+        n.update(dec!(7));
+        let e = n.window_exp_smoothed().unwrap();
+        assert!((e - 7.0).abs() < 1e-9, "expected 7.0, got {}", e);
+    }
+
+    #[test]
+    fn test_zscore_window_drawdown_none_for_empty() {
+        let n = znorm(3);
+        assert!(n.window_drawdown().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_drawdown_monotone_up() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let dd = n.window_drawdown().unwrap();
+        assert!(dd.abs() < 1e-9, "expected 0.0, got {}", dd);
+    }
+
+    #[test]
+    fn test_zscore_window_drawup_none_for_empty() {
+        let n = znorm(3);
+        assert!(n.window_drawup().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_drawup_monotone_down() {
+        let mut n = znorm(4);
+        for v in [dec!(4), dec!(3), dec!(2), dec!(1)] { n.update(v); }
+        let du = n.window_drawup().unwrap();
+        assert!(du.abs() < 1e-9, "expected 0.0, got {}", du);
+    }
+
+    #[test]
+    fn test_zscore_window_trend_strength_none_for_single() {
+        let mut n = znorm(3);
+        n.update(dec!(5));
+        assert!(n.window_trend_strength().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_trend_strength_pure_trend() {
+        let mut n = znorm(3);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        let s = n.window_trend_strength().unwrap();
         assert!((s - 1.0).abs() < 1e-9, "expected 1.0, got {}", s);
     }
 }
