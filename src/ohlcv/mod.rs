@@ -2518,6 +2518,119 @@ impl OhlcvBar {
         Some(variance.sqrt())
     }
 
+    // ── round-80 ─────────────────────────────────────────────────────────────
+
+    /// Mean of `(close − low) / range` across bars.
+    ///
+    /// Indicates where each close lands within its bar's high-low range.
+    /// Near 1.0 means closes consistently hug the high (bullish);
+    /// near 0.0 means closes hug the low (bearish). Bars with zero range
+    /// are excluded. Returns `None` if no bars have non-zero range.
+    pub fn close_recovery_ratio(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let r = b.range();
+                if r.is_zero() {
+                    return None;
+                }
+                ((b.close - b.low) / r).to_f64()
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
+        Some(vals.iter().sum::<f64>() / vals.len() as f64)
+    }
+
+    /// Median bar range `(high − low)` across the slice.
+    ///
+    /// Robust to outlier bars with unusually wide or narrow ranges.
+    /// Returns `None` for an empty slice.
+    pub fn median_range(bars: &[OhlcvBar]) -> Option<Decimal> {
+        if bars.is_empty() {
+            return None;
+        }
+        let mut ranges: Vec<Decimal> = bars.iter().map(|b| b.range()).collect();
+        ranges.sort();
+        let n = ranges.len();
+        if n % 2 == 1 {
+            Some(ranges[n / 2])
+        } else {
+            Some((ranges[n / 2 - 1] + ranges[n / 2]) / Decimal::from(2u64))
+        }
+    }
+
+    /// Mean typical price `(high + low + close) / 3` across the slice.
+    ///
+    /// The typical price is a common single-value summary of a bar used
+    /// in pivot-point and money-flow calculations. Returns `None` if empty.
+    pub fn mean_typical_price(bars: &[OhlcvBar]) -> Option<Decimal> {
+        if bars.is_empty() {
+            return None;
+        }
+        let sum: Decimal = bars.iter().map(|b| b.typical_price()).sum();
+        Some(sum / Decimal::from(bars.len() as u64))
+    }
+
+    /// Ratio of bullish-bar volume to the sum of bullish and bearish volumes.
+    ///
+    /// A value near 1.0 means almost all volume is in up-bars; near 0.0
+    /// means down-bars dominate. Returns `None` when both are zero (e.g.,
+    /// all flat/neutral bars).
+    pub fn directional_volume_ratio(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let bull = Self::bullish_volume(bars);
+        let bear = Self::bearish_volume(bars);
+        let total = bull + bear;
+        if total.is_zero() {
+            return None;
+        }
+        (bull / total).to_f64()
+    }
+
+    /// Fraction of bars (from the second onward) that are inside bars.
+    ///
+    /// An inside bar has a high ≤ previous high and low ≥ previous low.
+    /// Returns `None` if the slice has fewer than 2 bars.
+    pub fn inside_bar_fraction(bars: &[OhlcvBar]) -> Option<f64> {
+        if bars.len() < 2 {
+            return None;
+        }
+        let inside = bars.windows(2).filter(|w| w[1].is_inside_bar(&w[0])).count();
+        Some(inside as f64 / (bars.len() - 1) as f64)
+    }
+
+    /// Net body momentum: sum of signed body sizes across all bars.
+    ///
+    /// Bullish bars contribute `+(close − open)`; bearish bars contribute
+    /// `−(open − close)`; flat bars contribute `0`. A positive total
+    /// indicates the bars collectively closed higher than they opened.
+    pub fn body_momentum(bars: &[OhlcvBar]) -> Decimal {
+        bars.iter()
+            .map(|b| b.close - b.open)
+            .sum()
+    }
+
+    /// Mean `trade_count` (ticks per bar) across the slice.
+    ///
+    /// Returns `None` if the slice is empty.
+    pub fn avg_trade_count(bars: &[OhlcvBar]) -> Option<f64> {
+        if bars.is_empty() {
+            return None;
+        }
+        let total: u64 = bars.iter().map(|b| b.trade_count).sum();
+        Some(total as f64 / bars.len() as f64)
+    }
+
+    /// Maximum `trade_count` seen across the slice.
+    ///
+    /// Returns `None` if the slice is empty.
+    pub fn max_trade_count(bars: &[OhlcvBar]) -> Option<u64> {
+        bars.iter().map(|b| b.trade_count).max()
+    }
+
 }
 
 impl std::fmt::Display for OhlcvBar {

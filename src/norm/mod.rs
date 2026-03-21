@@ -1243,6 +1243,59 @@ impl MinMaxNormalizer {
         Some(below as f64 / (self.window.len() - 1) as f64)
     }
 
+    // ── round-80 ─────────────────────────────────────────────────────────────
+
+    /// Trimmed mean: arithmetic mean after discarding the bottom and top
+    /// `p` fraction of window values.
+    ///
+    /// `p` is clamped to `[0.0, 0.499]`. Returns `None` if the window is
+    /// empty or trimming removes all observations.
+    pub fn trimmed_mean(&self, p: f64) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() {
+            return None;
+        }
+        let p = p.clamp(0.0, 0.499);
+        let mut sorted: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let n = sorted.len();
+        let trim = (n as f64 * p).floor() as usize;
+        let trimmed = &sorted[trim..n - trim];
+        if trimmed.is_empty() {
+            return None;
+        }
+        Some(trimmed.iter().sum::<f64>() / trimmed.len() as f64)
+    }
+
+    /// OLS linear trend slope of window values over their insertion index.
+    ///
+    /// A positive slope indicates an upward trend; negative indicates downward.
+    /// Returns `None` if the window has fewer than 2 observations.
+    pub fn linear_trend_slope(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let n = self.window.len();
+        if n < 2 {
+            return None;
+        }
+        let n_f = n as f64;
+        let x_mean = (n_f - 1.0) / 2.0;
+        let y_vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if y_vals.len() < 2 {
+            return None;
+        }
+        let y_mean = y_vals.iter().sum::<f64>() / y_vals.len() as f64;
+        let numerator: f64 = y_vals
+            .iter()
+            .enumerate()
+            .map(|(i, &y)| (i as f64 - x_mean) * (y - y_mean))
+            .sum();
+        let denominator: f64 = (0..n).map(|i| (i as f64 - x_mean).powi(2)).sum();
+        if denominator == 0.0 {
+            return None;
+        }
+        Some(numerator / denominator)
+    }
+
 }
 
 #[cfg(test)]
@@ -4174,6 +4227,59 @@ impl ZScoreNormalizer {
             .filter(|w| w[0] != 0 && w[1] != 0 && w[0] != w[1])
             .count();
         Some(changes as f64 / total_pairs)
+    }
+
+    // ── round-80 ─────────────────────────────────────────────────────────────
+
+    /// Trimmed mean: arithmetic mean after discarding the bottom and top
+    /// `p` fraction of window values.
+    ///
+    /// `p` is clamped to `[0.0, 0.499]`. Returns `None` if the window is
+    /// empty or trimming removes all observations.
+    pub fn trimmed_mean(&self, p: f64) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() {
+            return None;
+        }
+        let p = p.clamp(0.0, 0.499);
+        let mut sorted: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let n = sorted.len();
+        let trim = (n as f64 * p).floor() as usize;
+        let trimmed = &sorted[trim..n - trim];
+        if trimmed.is_empty() {
+            return None;
+        }
+        Some(trimmed.iter().sum::<f64>() / trimmed.len() as f64)
+    }
+
+    /// OLS linear trend slope of window values over their insertion index.
+    ///
+    /// A positive slope indicates an upward trend; negative indicates downward.
+    /// Returns `None` if the window has fewer than 2 observations.
+    pub fn linear_trend_slope(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let n = self.window.len();
+        if n < 2 {
+            return None;
+        }
+        let n_f = n as f64;
+        let x_mean = (n_f - 1.0) / 2.0;
+        let y_vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if y_vals.len() < 2 {
+            return None;
+        }
+        let y_mean = y_vals.iter().sum::<f64>() / y_vals.len() as f64;
+        let numerator: f64 = y_vals
+            .iter()
+            .enumerate()
+            .map(|(i, &y)| (i as f64 - x_mean) * (y - y_mean))
+            .sum();
+        let denominator: f64 = (0..n).map(|i| (i as f64 - x_mean).powi(2)).sum();
+        if denominator == 0.0 {
+            return None;
+        }
+        Some(numerator / denominator)
     }
 
 }

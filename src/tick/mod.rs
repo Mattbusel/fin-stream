@@ -2050,6 +2050,149 @@ impl NormalizedTick {
         (first_p / min_p).to_f64()
     }
 
+    // ── round-80 ─────────────────────────────────────────────────────────────
+
+    /// Net notional: `buy_notional − sell_notional` across the slice.
+    ///
+    /// Positive means net buying pressure in dollar terms; negative means
+    /// net selling pressure. Returns `Decimal::ZERO` for empty slices or
+    /// slices with no sided ticks.
+    pub fn net_notional(ticks: &[NormalizedTick]) -> Decimal {
+        Self::buy_notional(ticks) - Self::sell_notional(ticks)
+    }
+
+    /// Count of price direction reversals across the slice.
+    ///
+    /// A reversal occurs when consecutive price moves change sign (up→down or
+    /// down→up), ignoring flat moves. Returns 0 for fewer than 3 ticks.
+    pub fn price_reversal_count(ticks: &[NormalizedTick]) -> usize {
+        if ticks.len() < 3 {
+            return 0;
+        }
+        let mut count = 0usize;
+        for w in ticks.windows(3) {
+            let d1 = w[1].price - w[0].price;
+            let d2 = w[2].price - w[1].price;
+            if (d1 > Decimal::ZERO && d2 < Decimal::ZERO)
+                || (d1 < Decimal::ZERO && d2 > Decimal::ZERO)
+            {
+                count += 1;
+            }
+        }
+        count
+    }
+
+    /// Excess kurtosis of trade quantities across the slice.
+    ///
+    /// `kurtosis = (Σ((q − mean)⁴ / n) / std_dev⁴) − 3`
+    ///
+    /// Returns `None` if the slice has fewer than 4 ticks or std dev is zero.
+    pub fn quantity_kurtosis(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 4 {
+            return None;
+        }
+        let vals: Vec<f64> = ticks.iter().filter_map(|t| t.quantity.to_f64()).collect();
+        if vals.len() < 4 {
+            return None;
+        }
+        let n_f = vals.len() as f64;
+        let mean = vals.iter().sum::<f64>() / n_f;
+        let variance = vals.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / n_f;
+        let std_dev = variance.sqrt();
+        if std_dev == 0.0 {
+            return None;
+        }
+        Some(vals.iter().map(|v| ((v - mean) / std_dev).powi(4)).sum::<f64>() / n_f - 3.0)
+    }
+
+    /// Reference to the tick with the highest notional value (`price × quantity`).
+    ///
+    /// Unlike [`largest_trade`](Self::largest_trade) which ranks by raw quantity,
+    /// this method ranks by dollar value, making it suitable for comparing
+    /// trades across different price levels.
+    ///
+    /// Returns `None` if the slice is empty.
+    pub fn largest_notional_trade(ticks: &[NormalizedTick]) -> Option<&NormalizedTick> {
+        ticks.iter().max_by(|a, b| a.value().cmp(&b.value()))
+    }
+
+    /// Time-weighted average price (TWAP) using `received_at_ms` timestamps.
+    ///
+    /// Each price is weighted by the time interval to the next tick. The last
+    /// tick carries zero weight (no interval after it). Returns `None` if
+    /// fewer than 2 ticks are provided or the total time span is zero.
+    pub fn twap(ticks: &[NormalizedTick]) -> Option<Decimal> {
+        if ticks.len() < 2 {
+            return None;
+        }
+        let mut weighted_sum = Decimal::ZERO;
+        let mut total_time = 0u64;
+        for w in ticks.windows(2) {
+            let dt = w[1].received_at_ms.saturating_sub(w[0].received_at_ms);
+            weighted_sum += w[0].price * Decimal::from(dt);
+            total_time += dt;
+        }
+        if total_time == 0 {
+            return None;
+        }
+        Some(weighted_sum / Decimal::from(total_time))
+    }
+
+    /// Fraction of ticks whose side is `None` (no aggressor information).
+    ///
+    /// Returns `None` for an empty slice.
+    /// Complement of [`aggressor_fraction`](Self::aggressor_fraction).
+    pub fn neutral_fraction(ticks: &[NormalizedTick]) -> Option<f64> {
+        if ticks.is_empty() {
+            return None;
+        }
+        Some(Self::count_neutral(ticks) as f64 / ticks.len() as f64)
+    }
+
+    /// Variance of tick-to-tick log returns: `var(ln(p_i / p_{i-1}))`.
+    ///
+    /// Returns `None` if fewer than 3 ticks or any price is non-positive.
+    pub fn log_return_variance(ticks: &[NormalizedTick]) -> Option<f64> {
+        if ticks.len() < 3 {
+            return None;
+        }
+        let returns: Vec<f64> = ticks
+            .windows(2)
+            .filter_map(|w| {
+                use rust_decimal::prelude::ToPrimitive;
+                let prev = w[0].price.to_f64()?;
+                let curr = w[1].price.to_f64()?;
+                if prev <= 0.0 || curr <= 0.0 {
+                    return None;
+                }
+                Some((curr / prev).ln())
+            })
+            .collect();
+        if returns.len() < 2 {
+            return None;
+        }
+        let n = returns.len() as f64;
+        let mean = returns.iter().sum::<f64>() / n;
+        Some(returns.iter().map(|r| (r - mean).powi(2)).sum::<f64>() / (n - 1.0))
+    }
+
+    /// Total quantity traded at prices within `tolerance` of the VWAP.
+    ///
+    /// Returns `Decimal::ZERO` if the slice is empty, VWAP cannot be computed,
+    /// or no ticks fall within the tolerance band.
+    pub fn volume_at_vwap(ticks: &[NormalizedTick], tolerance: Decimal) -> Decimal {
+        let vwap = match Self::vwap(ticks) {
+            Some(v) => v,
+            None => return Decimal::ZERO,
+        };
+        ticks
+            .iter()
+            .filter(|t| (t.price - vwap).abs() <= tolerance)
+            .map(|t| t.quantity)
+            .sum()
+    }
+
 }
 
 
