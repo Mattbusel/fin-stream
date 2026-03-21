@@ -9746,6 +9746,59 @@ impl OhlcvBar {
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
+    /// Fraction of bars with directional reversal (close direction flips).
+    pub fn bar_trend_reversal_pct(bars: &[OhlcvBar]) -> Option<f64> {
+        if bars.len() < 3 { return None; }
+        let dirs: Vec<i8> = bars.iter().map(|b| {
+            if b.close > b.open { 1 } else if b.close < b.open { -1 } else { 0 }
+        }).collect();
+        let reversals = dirs.windows(2).filter(|w| w[0] != 0 && w[1] != 0 && w[0] != w[1]).count();
+        Some(reversals as f64 / (dirs.len() - 1) as f64)
+    }
+
+    /// Mean total shadow (upper + lower wick) as a fraction of range across bars.
+    pub fn bar_shadow_range_ratio(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let vals: Vec<f64> = bars.iter().filter_map(|b| {
+            let hl = (b.high - b.low).to_f64()?;
+            if hl == 0.0 { return Some(0.0); }
+            let body = (b.close - b.open).abs().to_f64()?;
+            let wicks = hl - body;
+            Some(wicks / hl)
+        }).collect();
+        if vals.is_empty() { return None; }
+        Some(vals.iter().sum::<f64>() / vals.len() as f64)
+    }
+
+    /// Mean volume * (close - open) / range — volume-weighted directional intensity.
+    pub fn bar_vol_intensity(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let vals: Vec<f64> = bars.iter().filter_map(|b| {
+            let hl = (b.high - b.low).to_f64()?;
+            if hl == 0.0 { return Some(0.0); }
+            let body = (b.close - b.open).to_f64()?;
+            let vol = b.volume.to_f64()?;
+            Some(vol * body / hl)
+        }).collect();
+        if vals.is_empty() { return None; }
+        Some(vals.iter().sum::<f64>() / vals.len() as f64)
+    }
+
+    /// Mean volume * |open - prev_close| — gap volume across consecutive bars.
+    pub fn bar_gap_direction(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.len() < 2 { return None; }
+        let vals: Vec<f64> = bars.windows(2).filter_map(|w| {
+            let gap = (w[1].open - w[0].close).to_f64()?;
+            let vol = w[1].volume.to_f64()?;
+            Some(gap * vol)
+        }).collect();
+        if vals.is_empty() { return None; }
+        Some(vals.iter().sum::<f64>() / vals.len() as f64)
+    }
+
     /// Mean (open - low) / (high - low) — open strength (position of open in range).
     pub fn bar_open_strength(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
@@ -22381,5 +22434,58 @@ mod tests {
         let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
         let r = OhlcvBar::bar_vol_per_point(&[b]).unwrap();
         assert!(r > 0.0);
+    }
+
+    #[test]
+    fn test_bar_trend_reversal_pct_too_few_none() {
+        assert!(OhlcvBar::bar_trend_reversal_pct(&[]).is_none());
+    }
+
+    #[test]
+    fn test_bar_trend_reversal_pct_returns_bounded() {
+        let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(109));
+        let b2 = make_ohlcv_bar(dec!(109), dec!(115), dec!(95), dec!(96));
+        let b3 = make_ohlcv_bar(dec!(96), dec!(112), dec!(88), dec!(111));
+        let r = OhlcvBar::bar_trend_reversal_pct(&[b1, b2, b3]).unwrap();
+        assert!(r >= 0.0 && r <= 1.0);
+    }
+
+    #[test]
+    fn test_bar_shadow_range_ratio_empty_none() {
+        assert!(OhlcvBar::bar_shadow_range_ratio(&[]).is_none());
+    }
+
+    #[test]
+    fn test_bar_shadow_range_ratio_returns_bounded() {
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let r = OhlcvBar::bar_shadow_range_ratio(&[b]).unwrap();
+        assert!(r >= 0.0 && r <= 1.0);
+    }
+
+    #[test]
+    fn test_bar_vol_intensity_empty_none() {
+        assert!(OhlcvBar::bar_vol_intensity(&[]).is_none());
+    }
+
+    #[test]
+    fn test_bar_vol_intensity_returns_value() {
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let r = OhlcvBar::bar_vol_intensity(&[b]);
+        assert!(r.is_some());
+    }
+
+    #[test]
+    fn test_bar_gap_direction_too_few_none() {
+        assert!(OhlcvBar::bar_gap_direction(&[]).is_none());
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        assert!(OhlcvBar::bar_gap_direction(&[b]).is_none());
+    }
+
+    #[test]
+    fn test_bar_gap_direction_returns_value() {
+        let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let b2 = make_ohlcv_bar(dec!(107), dec!(115), dec!(95), dec!(112));
+        let r = OhlcvBar::bar_gap_direction(&[b1, b2]);
+        assert!(r.is_some());
     }
 }

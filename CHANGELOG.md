@@ -9,6 +9,30 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.10.57] - 2026-03-20
+
+### Added
+
+**`tick` module — `NormalizedTick` analytics (round 206)**
+- `NormalizedTick::tick_price_dispersion(ticks)` — std dev of tick prices (absolute price spread).
+- `NormalizedTick::tick_mid_range_vol(ticks)` — volume at ticks within ±1% of the mid-price range.
+- `NormalizedTick::tick_recent_price_bias(ticks)` — fraction of second-half ticks above first-half mean.
+- `NormalizedTick::tick_qty_entropy_approx(ticks)` — approximate quantity entropy via 8-bucket histogram.
+
+**`ohlcv` module — `OhlcvBar` analytics (round 206)**
+- `OhlcvBar::bar_trend_reversal_pct(bars)` — fraction of consecutive bars with directional reversal.
+- `OhlcvBar::bar_shadow_range_ratio(bars)` — mean total wick / range across bars.
+- `OhlcvBar::bar_vol_intensity(bars)` — mean volume * (close-open) / range across bars.
+- `OhlcvBar::bar_gap_direction(bars)` — mean gap * volume across consecutive bar pairs.
+
+**`norm` module — `MinMaxNormalizer` + `ZScoreNormalizer` analytics (round 206)**
+- `window_last_vs_q1()` — last window value relative to Q1.
+- `window_nonneg_fraction()` — fraction of values >= 0 in the window.
+- `window_top_minus_bottom()` — inter-decile range (90th - 10th percentile).
+- `window_median_shift()` — difference between last value and rolling median.
+
+---
+
 ## [2.10.56] - 2026-03-20
 
 ### Added

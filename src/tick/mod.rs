@@ -10099,6 +10099,67 @@ impl NormalizedTick {
         Some(num / (dp * dq))
     }
 
+    /// Dispersion of prices: std dev of prices (absolute spread).
+    pub fn tick_price_dispersion(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 2 { return None; }
+        let prices: Vec<f64> = ticks.iter().filter_map(|t| t.price.to_f64()).collect();
+        if prices.len() < 2 { return None; }
+        let mean = prices.iter().sum::<f64>() / prices.len() as f64;
+        let var = prices.iter().map(|p| (p - mean).powi(2)).sum::<f64>() / (prices.len() - 1) as f64;
+        Some(var.sqrt())
+    }
+
+    /// Volume at ticks within ±1% of the mid-price range.
+    pub fn tick_mid_range_vol(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() { return None; }
+        let prices: Vec<f64> = ticks.iter().filter_map(|t| t.price.to_f64()).collect();
+        if prices.is_empty() { return None; }
+        let min_p = prices.iter().cloned().fold(f64::INFINITY, f64::min);
+        let max_p = prices.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        let mid = (min_p + max_p) / 2.0;
+        let threshold = mid * 0.01;
+        let vol: f64 = ticks.iter().zip(prices.iter()).filter_map(|(t, &p)| {
+            if (p - mid).abs() <= threshold { t.quantity.to_f64() } else { None }
+        }).sum();
+        Some(vol)
+    }
+
+    /// Fraction of ticks in the second half where price > first-half mean.
+    pub fn tick_recent_price_bias(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 4 { return None; }
+        let half = ticks.len() / 2;
+        let first_prices: Vec<f64> = ticks[..half].iter().filter_map(|t| t.price.to_f64()).collect();
+        let second_prices: Vec<f64> = ticks[half..].iter().filter_map(|t| t.price.to_f64()).collect();
+        if first_prices.is_empty() || second_prices.is_empty() { return None; }
+        let first_mean = first_prices.iter().sum::<f64>() / first_prices.len() as f64;
+        let above = second_prices.iter().filter(|&&p| p > first_mean).count();
+        Some(above as f64 / second_prices.len() as f64)
+    }
+
+    /// Approximate quantity entropy via 8 equal buckets.
+    pub fn tick_qty_entropy_approx(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() { return None; }
+        let qtys: Vec<f64> = ticks.iter().filter_map(|t| t.quantity.to_f64()).collect();
+        if qtys.is_empty() { return None; }
+        let min_q = qtys.iter().cloned().fold(f64::INFINITY, f64::min);
+        let max_q = qtys.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        if (max_q - min_q) < 1e-12 { return Some(0.0); }
+        let mut buckets = [0usize; 8];
+        for &q in &qtys {
+            let idx = (((q - min_q) / (max_q - min_q)) * 7.999) as usize;
+            buckets[idx] += 1;
+        }
+        let n = qtys.len() as f64;
+        let ent = buckets.iter().map(|&c| {
+            if c == 0 { 0.0 } else { let p = c as f64 / n; -p * p.ln() }
+        }).sum();
+        Some(ent)
+    }
+
     /// Rate of change: (last_price - first_price) / first_price.
     pub fn tick_price_roc(ticks: &[NormalizedTick]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
@@ -23711,5 +23772,76 @@ mod tests {
         t.side = Some(TradeSide::Buy);
         let r = NormalizedTick::tick_net_flow(&[t]).unwrap();
         assert!(r > 0.0);
+    }
+
+    #[test]
+    fn test_tick_price_dispersion_too_few_none() {
+        use rust_decimal_macros::dec;
+        let t = make_tick_pq(dec!(100), dec!(1));
+        assert!(NormalizedTick::tick_price_dispersion(&[t]).is_none());
+    }
+
+    #[test]
+    fn test_tick_price_dispersion_same_price_zero() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(100), dec!(1)),
+        ];
+        let r = NormalizedTick::tick_price_dispersion(&ticks).unwrap();
+        assert_eq!(r, 0.0);
+    }
+
+    #[test]
+    fn test_tick_mid_range_vol_empty_none() {
+        assert!(NormalizedTick::tick_mid_range_vol(&[]).is_none());
+    }
+
+    #[test]
+    fn test_tick_mid_range_vol_returns_nonneg() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(200), dec!(1)),
+        ];
+        let r = NormalizedTick::tick_mid_range_vol(&ticks).unwrap();
+        assert!(r >= 0.0);
+    }
+
+    #[test]
+    fn test_tick_recent_price_bias_too_few_none() {
+        use rust_decimal_macros::dec;
+        let t = make_tick_pq(dec!(100), dec!(1));
+        assert!(NormalizedTick::tick_recent_price_bias(&[t]).is_none());
+    }
+
+    #[test]
+    fn test_tick_recent_price_bias_returns_bounded() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(110), dec!(1)),
+            make_tick_pq(dec!(120), dec!(1)),
+        ];
+        let r = NormalizedTick::tick_recent_price_bias(&ticks).unwrap();
+        assert!(r >= 0.0 && r <= 1.0);
+    }
+
+    #[test]
+    fn test_tick_qty_entropy_approx_empty_none() {
+        assert!(NormalizedTick::tick_qty_entropy_approx(&[]).is_none());
+    }
+
+    #[test]
+    fn test_tick_qty_entropy_approx_returns_nonneg() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(100), dec!(2)),
+            make_tick_pq(dec!(100), dec!(3)),
+        ];
+        let r = NormalizedTick::tick_qty_entropy_approx(&ticks).unwrap();
+        assert!(r >= 0.0);
     }
 }

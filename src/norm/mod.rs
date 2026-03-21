@@ -7590,6 +7590,62 @@ impl MinMaxNormalizer {
         Some(last / q3)
     }
 
+    /// Last value relative to Q1 (last / Q1).
+    pub fn window_last_vs_q1(&self) -> Option<f64> {
+        if self.window.len() < 4 { return None; }
+        let mut vals: Vec<f64> = self.window.iter().filter_map(|v| {
+            use rust_decimal::prelude::ToPrimitive;
+            v.to_f64()
+        }).collect();
+        if vals.len() < 4 { return None; }
+        let last = *vals.last()?;
+        vals.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let n = vals.len();
+        let q1 = vals[n / 4];
+        if q1 == 0.0 { return None; }
+        Some(last / q1)
+    }
+
+    /// Fraction of values >= 0 in the window.
+    pub fn window_nonneg_fraction(&self) -> Option<f64> {
+        if self.window.is_empty() { return None; }
+        use rust_decimal::prelude::ToPrimitive;
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.is_empty() { return None; }
+        let count = vals.iter().filter(|&&v| v >= 0.0).count();
+        Some(count as f64 / vals.len() as f64)
+    }
+
+    /// Difference between 90th and 10th percentile (inter-decile range).
+    pub fn window_top_minus_bottom(&self) -> Option<f64> {
+        if self.window.len() < 4 { return None; }
+        let mut vals: Vec<f64> = self.window.iter().filter_map(|v| {
+            use rust_decimal::prelude::ToPrimitive;
+            v.to_f64()
+        }).collect();
+        if vals.len() < 4 { return None; }
+        vals.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let n = vals.len();
+        let p10 = vals[n / 10];
+        let p90 = vals[n * 9 / 10];
+        Some(p90 - p10)
+    }
+
+    /// Difference between the last value and the rolling median.
+    pub fn window_median_shift(&self) -> Option<f64> {
+        if self.window.is_empty() { return None; }
+        let mut vals: Vec<f64> = self.window.iter().filter_map(|v| {
+            use rust_decimal::prelude::ToPrimitive;
+            v.to_f64()
+        }).collect();
+        if vals.is_empty() { return None; }
+        let last = *vals.last()?;
+        vals.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let n = vals.len();
+        let median = if n % 2 == 0 { (vals[n/2-1] + vals[n/2]) / 2.0 } else { vals[n/2] };
+        Some(last - median)
+    }
+
 }
 
 #[cfg(test)]
@@ -16390,6 +16446,62 @@ mod tests {
         let r = n.window_last_vs_q3().unwrap();
         assert!(r.is_finite());
     }
+
+    #[test]
+    fn test_minmax_window_last_vs_q1_too_few_none() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        assert!(n.window_last_vs_q1().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_last_vs_q1_returns_value() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let r = n.window_last_vs_q1().unwrap();
+        assert!(r.is_finite());
+    }
+
+    #[test]
+    fn test_minmax_window_nonneg_fraction_empty_none() {
+        assert!(norm(4).window_nonneg_fraction().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_nonneg_fraction_all_positive_one() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        let r = n.window_nonneg_fraction().unwrap();
+        assert_eq!(r, 1.0);
+    }
+
+    #[test]
+    fn test_minmax_window_top_minus_bottom_too_few_none() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        assert!(n.window_top_minus_bottom().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_top_minus_bottom_returns_nonneg() {
+        let mut n = norm(10);
+        for v in 1..=10i64 { n.update(rust_decimal::Decimal::new(v, 0)); }
+        let r = n.window_top_minus_bottom().unwrap();
+        assert!(r >= 0.0);
+    }
+
+    #[test]
+    fn test_minmax_window_median_shift_empty_none() {
+        assert!(norm(4).window_median_shift().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_median_shift_returns_value() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let r = n.window_median_shift().unwrap();
+        assert!(r.is_finite());
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -23925,6 +24037,62 @@ impl ZScoreNormalizer {
         let q3 = vals[(3 * n) / 4];
         if q3 == 0.0 { return None; }
         Some(last / q3)
+    }
+
+    /// Last value relative to Q1 (last / Q1).
+    pub fn window_last_vs_q1(&self) -> Option<f64> {
+        if self.window.len() < 4 { return None; }
+        let mut vals: Vec<f64> = self.window.iter().filter_map(|v| {
+            use rust_decimal::prelude::ToPrimitive;
+            v.to_f64()
+        }).collect();
+        if vals.len() < 4 { return None; }
+        let last = *vals.last()?;
+        vals.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let n = vals.len();
+        let q1 = vals[n / 4];
+        if q1 == 0.0 { return None; }
+        Some(last / q1)
+    }
+
+    /// Fraction of values >= 0 in the window.
+    pub fn window_nonneg_fraction(&self) -> Option<f64> {
+        if self.window.is_empty() { return None; }
+        use rust_decimal::prelude::ToPrimitive;
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.is_empty() { return None; }
+        let count = vals.iter().filter(|&&v| v >= 0.0).count();
+        Some(count as f64 / vals.len() as f64)
+    }
+
+    /// Difference between 90th and 10th percentile (inter-decile range).
+    pub fn window_top_minus_bottom(&self) -> Option<f64> {
+        if self.window.len() < 4 { return None; }
+        let mut vals: Vec<f64> = self.window.iter().filter_map(|v| {
+            use rust_decimal::prelude::ToPrimitive;
+            v.to_f64()
+        }).collect();
+        if vals.len() < 4 { return None; }
+        vals.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let n = vals.len();
+        let p10 = vals[n / 10];
+        let p90 = vals[n * 9 / 10];
+        Some(p90 - p10)
+    }
+
+    /// Difference between the last value and the rolling median.
+    pub fn window_median_shift(&self) -> Option<f64> {
+        if self.window.is_empty() { return None; }
+        let mut vals: Vec<f64> = self.window.iter().filter_map(|v| {
+            use rust_decimal::prelude::ToPrimitive;
+            v.to_f64()
+        }).collect();
+        if vals.is_empty() { return None; }
+        let last = *vals.last()?;
+        vals.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let n = vals.len();
+        let median = if n % 2 == 0 { (vals[n/2-1] + vals[n/2]) / 2.0 } else { vals[n/2] };
+        Some(last - median)
     }
 
 }
@@ -32674,6 +32842,62 @@ mod zscore_stability_tests {
         let mut n = znorm(4);
         for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
         let r = n.window_last_vs_q3().unwrap();
+        assert!(r.is_finite());
+    }
+
+    #[test]
+    fn test_zscore_window_last_vs_q1_too_few_none() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        assert!(n.window_last_vs_q1().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_last_vs_q1_returns_value() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let r = n.window_last_vs_q1().unwrap();
+        assert!(r.is_finite());
+    }
+
+    #[test]
+    fn test_zscore_window_nonneg_fraction_empty_none() {
+        assert!(znorm(4).window_nonneg_fraction().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_nonneg_fraction_all_positive_one() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        let r = n.window_nonneg_fraction().unwrap();
+        assert_eq!(r, 1.0);
+    }
+
+    #[test]
+    fn test_zscore_window_top_minus_bottom_too_few_none() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        assert!(n.window_top_minus_bottom().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_top_minus_bottom_returns_nonneg() {
+        let mut n = znorm(10);
+        for v in 1..=10i64 { n.update(rust_decimal::Decimal::new(v, 0)); }
+        let r = n.window_top_minus_bottom().unwrap();
+        assert!(r >= 0.0);
+    }
+
+    #[test]
+    fn test_zscore_window_median_shift_empty_none() {
+        assert!(znorm(4).window_median_shift().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_median_shift_returns_value() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let r = n.window_median_shift().unwrap();
         assert!(r.is_finite());
     }
 }
