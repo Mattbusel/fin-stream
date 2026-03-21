@@ -2208,6 +2208,74 @@ impl MinMaxNormalizer {
         Some(count)
     }
 
+    // ── round-100 ────────────────────────────────────────────────────────────
+
+    /// Number of local troughs (values less than both neighbours) in the window.
+    /// Returns `None` for fewer than 3 values.
+    pub fn window_trough_count(&self) -> Option<usize> {
+        if self.window.len() < 3 {
+            return None;
+        }
+        let vals: Vec<Decimal> = self.window.iter().copied().collect();
+        let count = vals
+            .windows(3)
+            .filter(|w| w[1] < w[0] && w[1] < w[2])
+            .count();
+        Some(count)
+    }
+
+    /// Fraction of consecutive value pairs where the second is strictly greater.
+    /// Returns `None` for fewer than 2 values.
+    pub fn positive_momentum_fraction(&self) -> Option<f64> {
+        if self.window.len() < 2 {
+            return None;
+        }
+        let vals: Vec<Decimal> = self.window.iter().copied().collect();
+        let total = vals.len() - 1;
+        let positive = vals.windows(2).filter(|w| w[1] > w[0]).count();
+        Some(positive as f64 / total as f64)
+    }
+
+    /// 10th percentile of the rolling window.
+    /// Returns `None` for an empty window.
+    pub fn below_percentile_10(&self) -> Option<Decimal> {
+        if self.window.is_empty() {
+            return None;
+        }
+        let mut sorted: Vec<Decimal> = self.window.iter().copied().collect();
+        sorted.sort();
+        let idx = sorted.len() / 10;
+        Some(sorted[idx.min(sorted.len() - 1)])
+    }
+
+    /// Rate of direction alternation: fraction of consecutive pairs where the
+    /// direction flips (up→down or down→up), ignoring flat transitions.
+    /// Returns `None` for fewer than 3 values or no directional pairs.
+    pub fn alternation_rate(&self) -> Option<f64> {
+        if self.window.len() < 3 {
+            return None;
+        }
+        let vals: Vec<Decimal> = self.window.iter().copied().collect();
+        let dirs: Vec<i32> = vals
+            .windows(2)
+            .map(|w| {
+                if w[1] > w[0] {
+                    1
+                } else if w[1] < w[0] {
+                    -1
+                } else {
+                    0
+                }
+            })
+            .collect();
+        let valid_pairs: Vec<_> = dirs.windows(2).filter(|d| d[0] != 0 && d[1] != 0).collect();
+        if valid_pairs.is_empty() {
+            return None;
+        }
+        let alternations = valid_pairs.iter().filter(|d| d[0] != d[1]).count();
+        Some(alternations as f64 / valid_pairs.len() as f64)
+    }
+
 }
 
 #[cfg(test)]
@@ -4734,6 +4802,51 @@ mod tests {
         let p = n.window_peak_count().unwrap();
         assert_eq!(p, 1);
     }
+
+    // ── round-100 tests ───────────────────────────────────────────────────────
+
+    #[test]
+    fn test_minmax_window_trough_count_none_for_small_window() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2)] { n.update(v); }
+        assert!(n.window_trough_count().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_trough_count_basic() {
+        let mut n = norm(4);
+        // 3, 1, 4, 2 → trough at 1: 1<3 and 1<4
+        for v in [dec!(3), dec!(1), dec!(4), dec!(2)] { n.update(v); }
+        let t = n.window_trough_count().unwrap();
+        assert_eq!(t, 1);
+    }
+
+    #[test]
+    fn test_minmax_positive_momentum_fraction_none_for_single() {
+        let mut n = norm(4);
+        n.update(dec!(5));
+        assert!(n.positive_momentum_fraction().is_none());
+    }
+
+    #[test]
+    fn test_minmax_positive_momentum_fraction_all_rising() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let f = n.positive_momentum_fraction().unwrap();
+        assert!((f - 1.0).abs() < 1e-9, "all rising → 1.0, got {}", f);
+    }
+
+    #[test]
+    fn test_minmax_below_percentile_10_none_for_empty() {
+        assert!(norm(4).below_percentile_10().is_none());
+    }
+
+    #[test]
+    fn test_minmax_alternation_rate_none_for_constant() {
+        let mut n = norm(4);
+        for _ in 0..4 { n.update(dec!(5)); }
+        assert!(n.alternation_rate().is_none());
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -6899,6 +7012,73 @@ impl ZScoreNormalizer {
             .filter(|w| w[1] > w[0] && w[1] > w[2])
             .count();
         Some(count)
+    }
+
+    // ── round-100 ────────────────────────────────────────────────────────────
+
+    /// Number of local troughs (values less than both neighbours) in the window.
+    /// Returns `None` for fewer than 3 values.
+    pub fn window_trough_count(&self) -> Option<usize> {
+        if self.window.len() < 3 {
+            return None;
+        }
+        let vals: Vec<Decimal> = self.window.iter().copied().collect();
+        let count = vals
+            .windows(3)
+            .filter(|w| w[1] < w[0] && w[1] < w[2])
+            .count();
+        Some(count)
+    }
+
+    /// Fraction of consecutive value pairs where the second is strictly greater.
+    /// Returns `None` for fewer than 2 values.
+    pub fn positive_momentum_fraction(&self) -> Option<f64> {
+        if self.window.len() < 2 {
+            return None;
+        }
+        let vals: Vec<Decimal> = self.window.iter().copied().collect();
+        let total = vals.len() - 1;
+        let positive = vals.windows(2).filter(|w| w[1] > w[0]).count();
+        Some(positive as f64 / total as f64)
+    }
+
+    /// 10th percentile of the rolling window.
+    /// Returns `None` for an empty window.
+    pub fn below_percentile_10(&self) -> Option<Decimal> {
+        if self.window.is_empty() {
+            return None;
+        }
+        let mut sorted: Vec<Decimal> = self.window.iter().copied().collect();
+        sorted.sort();
+        let idx = sorted.len() / 10;
+        Some(sorted[idx.min(sorted.len() - 1)])
+    }
+
+    /// Rate of direction alternation in the window.
+    /// Returns `None` for fewer than 3 values or no directional pairs.
+    pub fn alternation_rate(&self) -> Option<f64> {
+        if self.window.len() < 3 {
+            return None;
+        }
+        let vals: Vec<Decimal> = self.window.iter().copied().collect();
+        let dirs: Vec<i32> = vals
+            .windows(2)
+            .map(|w| {
+                if w[1] > w[0] {
+                    1
+                } else if w[1] < w[0] {
+                    -1
+                } else {
+                    0
+                }
+            })
+            .collect();
+        let valid_pairs: Vec<_> = dirs.windows(2).filter(|d| d[0] != 0 && d[1] != 0).collect();
+        if valid_pairs.is_empty() {
+            return None;
+        }
+        let alternations = valid_pairs.iter().filter(|d| d[0] != d[1]).count();
+        Some(alternations as f64 / valid_pairs.len() as f64)
     }
 
 }
@@ -9577,5 +9757,50 @@ mod zscore_stability_tests {
         for v in [dec!(1), dec!(3), dec!(2), dec!(4)] { n.update(v); }
         let p = n.window_peak_count().unwrap();
         assert_eq!(p, 1);
+    }
+
+    // ── round-100 tests ───────────────────────────────────────────────────────
+
+    #[test]
+    fn test_zscore_window_trough_count_none_for_small_window() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2)] { n.update(v); }
+        assert!(n.window_trough_count().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_trough_count_basic() {
+        let mut n = znorm(4);
+        for v in [dec!(3), dec!(1), dec!(4), dec!(2)] { n.update(v); }
+        let t = n.window_trough_count().unwrap();
+        assert_eq!(t, 1);
+    }
+
+    #[test]
+    fn test_zscore_positive_momentum_fraction_all_rising() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let f = n.positive_momentum_fraction().unwrap();
+        assert!((f - 1.0).abs() < 1e-9, "all rising → 1.0, got {}", f);
+    }
+
+    #[test]
+    fn test_zscore_below_percentile_10_none_for_empty() {
+        assert!(znorm(4).below_percentile_10().is_none());
+    }
+
+    #[test]
+    fn test_zscore_alternation_rate_none_for_constant() {
+        let mut n = znorm(4);
+        for _ in 0..4 { n.update(dec!(5)); }
+        assert!(n.alternation_rate().is_none());
+    }
+
+    #[test]
+    fn test_zscore_alternation_rate_full_for_perfect_alternation() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(3), dec!(1), dec!(3)] { n.update(v); }
+        let r = n.alternation_rate().unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "perfect alternation → 1.0, got {}", r);
     }
 }

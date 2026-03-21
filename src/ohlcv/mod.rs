@@ -4228,6 +4228,84 @@ impl OhlcvBar {
         Some(((second_mean - first_mean) / first_mean).to_f64().unwrap_or(0.0))
     }
 
+    // ── round-100 ────────────────────────────────────────────────────────────
+
+    /// Median volume across all bars.
+    /// Returns `None` for an empty slice.
+    pub fn median_volume(bars: &[OhlcvBar]) -> Option<f64> {
+        if bars.is_empty() {
+            return None;
+        }
+        use rust_decimal::prelude::ToPrimitive;
+        let mut vols: Vec<Decimal> = bars.iter().map(|b| b.volume).collect();
+        vols.sort();
+        let mid = vols.len() / 2;
+        let median = if vols.len() % 2 == 0 {
+            (vols[mid - 1] + vols[mid]) / Decimal::TWO
+        } else {
+            vols[mid]
+        };
+        Some(median.to_f64().unwrap_or(0.0))
+    }
+
+    /// Number of bars with a price range above the mean range.
+    /// Returns `None` for an empty slice.
+    pub fn bar_count_above_avg_range(bars: &[OhlcvBar]) -> Option<usize> {
+        if bars.is_empty() {
+            return None;
+        }
+        let ranges: Vec<Decimal> = bars.iter().map(|b| b.high - b.low).collect();
+        let n = Decimal::from(ranges.len());
+        let mean: Decimal = ranges.iter().copied().sum::<Decimal>() / n;
+        let count = ranges.iter().filter(|&&r| r > mean).count();
+        Some(count)
+    }
+
+    /// Number of times the closing price direction reverses across consecutive bars.
+    /// Returns `None` for fewer than 3 bars or no directional changes.
+    pub fn price_oscillation_count(bars: &[OhlcvBar]) -> Option<usize> {
+        if bars.len() < 3 {
+            return None;
+        }
+        let dirs: Vec<i32> = bars
+            .windows(2)
+            .map(|w| {
+                if w[1].close > w[0].close {
+                    1
+                } else if w[1].close < w[0].close {
+                    -1
+                } else {
+                    0
+                }
+            })
+            .collect();
+        let reversals = dirs
+            .windows(2)
+            .filter(|d| d[0] != 0 && d[1] != 0 && d[0] != d[1])
+            .count();
+        Some(reversals)
+    }
+
+    /// Mean absolute deviation of close prices from the VWAP across all bars.
+    /// Returns `None` for an empty slice or zero total volume.
+    pub fn vwap_deviation_mean(bars: &[OhlcvBar]) -> Option<f64> {
+        if bars.is_empty() {
+            return None;
+        }
+        use rust_decimal::prelude::ToPrimitive;
+        let total_vol: Decimal = bars.iter().map(|b| b.volume).sum();
+        if total_vol.is_zero() {
+            return None;
+        }
+        let vwap = bars.iter().map(|b| b.close * b.volume).sum::<Decimal>() / total_vol;
+        let mean_dev = bars
+            .iter()
+            .map(|b| (b.close - vwap).abs())
+            .sum::<Decimal>()
+            / Decimal::from(bars.len());
+        Some(mean_dev.to_f64().unwrap_or(0.0))
+    }
+
 }
 
 impl std::fmt::Display for OhlcvBar {
@@ -10401,5 +10479,66 @@ mod tests {
         }
         let a = OhlcvBar::volume_trend_acceleration(&bars).unwrap();
         assert!(a.abs() < 1e-9, "constant volume → acceleration=0, got {}", a);
+    }
+
+    // ── round-100 tests ───────────────────────────────────────────────────────
+
+    #[test]
+    fn test_median_volume_none_for_empty() {
+        assert!(OhlcvBar::median_volume(&[]).is_none());
+    }
+
+    #[test]
+    fn test_median_volume_single_bar() {
+        let mut b = make_ohlcv_bar(dec!(90), dec!(110), dec!(85), dec!(100));
+        b.volume = dec!(50);
+        let m = OhlcvBar::median_volume(&[b]).unwrap();
+        assert!((m - 50.0).abs() < 1e-9, "expected 50.0, got {}", m);
+    }
+
+    #[test]
+    fn test_bar_count_above_avg_range_none_for_empty() {
+        assert!(OhlcvBar::bar_count_above_avg_range(&[]).is_none());
+    }
+
+    #[test]
+    fn test_bar_count_above_avg_range_basic() {
+        // range 20, 40 → mean=30 → only 40 > 30 → count=1
+        let b1 = make_ohlcv_bar(dec!(90), dec!(110), dec!(90), dec!(100)); // range=20
+        let b2 = make_ohlcv_bar(dec!(90), dec!(130), dec!(90), dec!(120)); // range=40
+        let c = OhlcvBar::bar_count_above_avg_range(&[b1, b2]).unwrap();
+        assert_eq!(c, 1);
+    }
+
+    #[test]
+    fn test_price_oscillation_count_none_for_two_bars() {
+        let b1 = make_ohlcv_bar(dec!(90), dec!(110), dec!(85), dec!(100));
+        let b2 = make_ohlcv_bar(dec!(100), dec!(115), dec!(95), dec!(110));
+        assert!(OhlcvBar::price_oscillation_count(&[b1, b2]).is_none());
+    }
+
+    #[test]
+    fn test_price_oscillation_count_basic() {
+        let up = make_ohlcv_bar(dec!(90), dec!(110), dec!(85), dec!(105));
+        let dn = make_ohlcv_bar(dec!(105), dec!(110), dec!(85), dec!(90));
+        // up, dn, up → 1 reversal (dn→up)
+        let c = OhlcvBar::price_oscillation_count(&[up.clone(), dn.clone(), up.clone()]).unwrap();
+        assert_eq!(c, 1);
+    }
+
+    #[test]
+    fn test_vwap_deviation_mean_none_for_empty() {
+        assert!(OhlcvBar::vwap_deviation_mean(&[]).is_none());
+    }
+
+    #[test]
+    fn test_vwap_deviation_mean_zero_for_constant_close() {
+        // all same close → VWAP = close → deviation = 0
+        let mut b1 = make_ohlcv_bar(dec!(90), dec!(110), dec!(85), dec!(100));
+        let mut b2 = make_ohlcv_bar(dec!(100), dec!(115), dec!(95), dec!(100));
+        b1.volume = dec!(100);
+        b2.volume = dec!(100);
+        let d = OhlcvBar::vwap_deviation_mean(&[b1, b2]).unwrap();
+        assert!(d.abs() < 1e-9, "constant close → deviation=0, got {}", d);
     }
 }

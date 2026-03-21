@@ -4312,6 +4312,81 @@ impl NormalizedTick {
         Some(q3.saturating_sub(q1))
     }
 
+    // ── round-100 ────────────────────────────────────────────────────────────
+
+    /// Length of the longest consecutive run of buy-side ticks.
+    /// Returns `None` for an empty slice or no sided ticks.
+    pub fn consecutive_buy_streak(ticks: &[NormalizedTick]) -> Option<usize> {
+        if ticks.is_empty() {
+            return None;
+        }
+        let mut max_run = 0usize;
+        let mut cur = 0usize;
+        let mut any_sided = false;
+        for t in ticks {
+            if t.side == Some(TradeSide::Buy) {
+                any_sided = true;
+                cur += 1;
+                if cur > max_run {
+                    max_run = cur;
+                }
+            } else if t.side.is_some() {
+                any_sided = true;
+                cur = 0;
+            }
+        }
+        if !any_sided {
+            return None;
+        }
+        Some(max_run)
+    }
+
+    /// Herfindahl-like quantity concentration: sum of squared quantity shares.
+    /// Returns `None` for an empty slice or zero total quantity.
+    pub fn qty_concentration_ratio(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() {
+            return None;
+        }
+        let total: Decimal = ticks.iter().map(|t| t.quantity).sum();
+        if total.is_zero() {
+            return None;
+        }
+        let hhi: f64 = ticks
+            .iter()
+            .map(|t| {
+                let share = (t.quantity / total).to_f64().unwrap_or(0.0);
+                share * share
+            })
+            .sum();
+        Some(hhi)
+    }
+
+    /// Number of distinct price levels (unique prices) in the tick slice.
+    /// Returns `None` for an empty slice.
+    pub fn price_level_count(ticks: &[NormalizedTick]) -> Option<usize> {
+        if ticks.is_empty() {
+            return None;
+        }
+        let mut prices: Vec<Decimal> = ticks.iter().map(|t| t.price).collect();
+        prices.sort();
+        prices.dedup();
+        Some(prices.len())
+    }
+
+    /// Mean number of ticks per distinct price level.
+    /// Returns `None` for an empty slice or zero distinct levels.
+    pub fn tick_count_per_price_level(ticks: &[NormalizedTick]) -> Option<f64> {
+        if ticks.is_empty() {
+            return None;
+        }
+        let levels = NormalizedTick::price_level_count(ticks)?;
+        if levels == 0 {
+            return None;
+        }
+        Some(ticks.len() as f64 / levels as f64)
+    }
+
 }
 
 
@@ -10073,5 +10148,77 @@ mod tests {
         let ticks = vec![make_tick_at(0), make_tick_at(10), make_tick_at(20), make_tick_at(30)];
         let iqr = NormalizedTick::inter_tick_gap_iqr(&ticks).unwrap();
         assert_eq!(iqr, 0, "uniform gaps → IQR=0");
+    }
+
+    // ── round-100 tests ───────────────────────────────────────────────────────
+
+    #[test]
+    fn test_consecutive_buy_streak_none_for_no_sides() {
+        use rust_decimal_macros::dec;
+        assert!(NormalizedTick::consecutive_buy_streak(&[make_tick_pq(dec!(100), dec!(1))]).is_none());
+    }
+
+    #[test]
+    fn test_consecutive_buy_streak_basic() {
+        let buys: Vec<_> = (0..3).map(|i| NormalizedTick {
+            exchange: crate::Exchange::Binance,
+            symbol: "BTCUSDT".into(),
+            price: rust_decimal_macros::dec!(100),
+            quantity: rust_decimal_macros::dec!(1),
+            side: Some(TradeSide::Buy),
+            trade_id: None,
+            exchange_ts_ms: None,
+            received_at_ms: i,
+        }).collect();
+        let streak = NormalizedTick::consecutive_buy_streak(&buys).unwrap();
+        assert_eq!(streak, 3);
+    }
+
+    #[test]
+    fn test_qty_concentration_ratio_none_for_empty() {
+        assert!(NormalizedTick::qty_concentration_ratio(&[]).is_none());
+    }
+
+    #[test]
+    fn test_qty_concentration_ratio_one_for_single_tick() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![make_tick_pq(dec!(100), dec!(5))];
+        let r = NormalizedTick::qty_concentration_ratio(&ticks).unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "single tick → HHI=1.0, got {}", r);
+    }
+
+    #[test]
+    fn test_price_level_count_none_for_empty() {
+        assert!(NormalizedTick::price_level_count(&[]).is_none());
+    }
+
+    #[test]
+    fn test_price_level_count_basic() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(100), dec!(2)),
+            make_tick_pq(dec!(101), dec!(1)),
+        ];
+        let c = NormalizedTick::price_level_count(&ticks).unwrap();
+        assert_eq!(c, 2);
+    }
+
+    #[test]
+    fn test_tick_count_per_price_level_none_for_empty() {
+        assert!(NormalizedTick::tick_count_per_price_level(&[]).is_none());
+    }
+
+    #[test]
+    fn test_tick_count_per_price_level_basic() {
+        use rust_decimal_macros::dec;
+        // 3 ticks, 2 levels → 1.5
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(100), dec!(2)),
+            make_tick_pq(dec!(101), dec!(1)),
+        ];
+        let r = NormalizedTick::tick_count_per_price_level(&ticks).unwrap();
+        assert!((r - 1.5).abs() < 1e-9, "expected 1.5, got {}", r);
     }
 }

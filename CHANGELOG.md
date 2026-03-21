@@ -9,6 +9,30 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.5.1] - 2026-03-20
+
+### Added
+
+**`tick` module — `NormalizedTick` analytics (round 100)**
+- `NormalizedTick::consecutive_buy_streak(ticks)` — longest consecutive run of buy-side ticks.
+- `NormalizedTick::qty_concentration_ratio(ticks)` — Herfindahl-like concentration of quantity shares.
+- `NormalizedTick::price_level_count(ticks)` — number of distinct price levels in the slice.
+- `NormalizedTick::tick_count_per_price_level(ticks)` — mean ticks per distinct price level.
+
+**`ohlcv` module — `OhlcvBar` analytics (round 100)**
+- `OhlcvBar::median_volume(bars)` — median volume across all bars.
+- `OhlcvBar::bar_count_above_avg_range(bars)` — number of bars with range above the mean range.
+- `OhlcvBar::price_oscillation_count(bars)` — number of close-price direction reversals.
+- `OhlcvBar::vwap_deviation_mean(bars)` — mean absolute deviation of closes from the volume-weighted close.
+
+**`norm` module — `MinMaxNormalizer` and `ZScoreNormalizer` analytics (round 100)**
+- `window_trough_count() -> Option<usize>` — number of local troughs in the rolling window.
+- `positive_momentum_fraction() -> Option<f64>` — fraction of consecutive pairs where second > first.
+- `below_percentile_10() -> Option<Decimal>` — 10th percentile of the rolling window.
+- `alternation_rate() -> Option<f64>` — fraction of directional pairs that reverse direction.
+
+---
+
 ## [2.5.0] - 2026-03-20
 
 ### Added
