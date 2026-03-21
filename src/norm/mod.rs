@@ -4557,6 +4557,61 @@ impl MinMaxNormalizer {
         Some(vals.iter().filter(|&&v| v > mid).count() as f64 / vals.len() as f64)
     }
 
+    // ── round-145 ────────────────────────────────────────────────────────────
+
+    /// Median absolute deviation of the window values.
+    pub fn window_median_abs_dev(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let mut vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        vals.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let n = vals.len();
+        let median = if n % 2 == 0 { (vals[n / 2 - 1] + vals[n / 2]) / 2.0 } else { vals[n / 2] };
+        let mut devs: Vec<f64> = vals.iter().map(|&v| (v - median).abs()).collect();
+        devs.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let m = devs.len();
+        Some(if m % 2 == 0 { (devs[m / 2 - 1] + devs[m / 2]) / 2.0 } else { devs[m / 2] })
+    }
+
+    /// Cubic mean (cube root of mean of cubes) of window values.
+    pub fn window_cubic_mean(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let sum_cubes: f64 = self.window.iter()
+            .map(|v| { let x = v.to_f64().unwrap_or(0.0); x * x * x })
+            .sum();
+        Some((sum_cubes / self.window.len() as f64).cbrt())
+    }
+
+    /// Length of the longest run of consecutive same-valued window entries.
+    pub fn window_max_run_length(&self) -> Option<usize> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let mut max_run = 1usize;
+        let mut run = 1usize;
+        for i in 1..vals.len() {
+            if (vals[i] - vals[i - 1]).abs() < 1e-12 {
+                run += 1;
+                if run > max_run { max_run = run; }
+            } else {
+                run = 1;
+            }
+        }
+        Some(max_run)
+    }
+
+    /// Position (0..1) of the most recent value within the sorted window.
+    pub fn window_sorted_position(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let last = self.window.back()?.to_f64()?;
+        let mut vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        vals.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let pos = vals.partition_point(|&v| v < last);
+        Some(pos as f64 / vals.len() as f64)
+    }
+
 }
 
 #[cfg(test)]
@@ -9753,6 +9808,67 @@ mod tests {
         let f = n.window_above_mid_fraction().unwrap();
         assert!((f - 0.5).abs() < 1e-9, "expected 0.5, got {}", f);
     }
+
+    // ── round-145 ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_minmax_window_median_abs_dev_none_for_empty() {
+        let n = norm(4);
+        assert!(n.window_median_abs_dev().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_median_abs_dev_basic() {
+        let mut n = norm(5);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4), dec!(5)] { n.update(v); }
+        // median=3; devs=[2,1,0,1,2] → sorted → median dev=1
+        let mad = n.window_median_abs_dev().unwrap();
+        assert!((mad - 1.0).abs() < 1e-9, "expected 1.0, got {}", mad);
+    }
+
+    #[test]
+    fn test_minmax_window_cubic_mean_none_for_empty() {
+        let n = norm(4);
+        assert!(n.window_cubic_mean().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_cubic_mean_basic() {
+        let mut n = norm(2);
+        for v in [dec!(2), dec!(4)] { n.update(v); }
+        // mean of cubes = (8+64)/2 = 36; cbrt(36) ≈ 3.302
+        let cm = n.window_cubic_mean().unwrap();
+        assert!((cm - 36.0f64.cbrt()).abs() < 1e-9, "expected cbrt(36), got {}", cm);
+    }
+
+    #[test]
+    fn test_minmax_window_max_run_length_none_for_empty() {
+        let n = norm(4);
+        assert!(n.window_max_run_length().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_max_run_length_all_same() {
+        let mut n = norm(3);
+        for v in [dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        let r = n.window_max_run_length().unwrap();
+        assert_eq!(r, 3);
+    }
+
+    #[test]
+    fn test_minmax_window_sorted_position_none_for_empty() {
+        let n = norm(4);
+        assert!(n.window_sorted_position().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_sorted_position_max() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(10)] { n.update(v); }
+        // last=10, all others < 10 → pos=3/4=0.75
+        let p = n.window_sorted_position().unwrap();
+        assert!((p - 0.75).abs() < 1e-9, "expected 0.75, got {}", p);
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -14254,6 +14370,61 @@ impl ZScoreNormalizer {
         let min = vals.iter().cloned().fold(f64::INFINITY, f64::min);
         let mid = (max + min) / 2.0;
         Some(vals.iter().filter(|&&v| v > mid).count() as f64 / vals.len() as f64)
+    }
+
+    // ── round-145 ────────────────────────────────────────────────────────────
+
+    /// Median absolute deviation of the window values.
+    pub fn window_median_abs_dev(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let mut vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        vals.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let n = vals.len();
+        let median = if n % 2 == 0 { (vals[n / 2 - 1] + vals[n / 2]) / 2.0 } else { vals[n / 2] };
+        let mut devs: Vec<f64> = vals.iter().map(|&v| (v - median).abs()).collect();
+        devs.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let m = devs.len();
+        Some(if m % 2 == 0 { (devs[m / 2 - 1] + devs[m / 2]) / 2.0 } else { devs[m / 2] })
+    }
+
+    /// Cubic mean (cube root of mean of cubes) of window values.
+    pub fn window_cubic_mean(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let sum_cubes: f64 = self.window.iter()
+            .map(|v| { let x = v.to_f64().unwrap_or(0.0); x * x * x })
+            .sum();
+        Some((sum_cubes / self.window.len() as f64).cbrt())
+    }
+
+    /// Length of the longest run of consecutive same-valued window entries.
+    pub fn window_max_run_length(&self) -> Option<usize> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let mut max_run = 1usize;
+        let mut run = 1usize;
+        for i in 1..vals.len() {
+            if (vals[i] - vals[i - 1]).abs() < 1e-12 {
+                run += 1;
+                if run > max_run { max_run = run; }
+            } else {
+                run = 1;
+            }
+        }
+        Some(max_run)
+    }
+
+    /// Position (0..1) of the most recent value within the sorted window.
+    pub fn window_sorted_position(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let last = self.window.back()?.to_f64()?;
+        let mut vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        vals.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let pos = vals.partition_point(|&v| v < last);
+        Some(pos as f64 / vals.len() as f64)
     }
 
 }
@@ -19483,5 +19654,63 @@ mod zscore_stability_tests {
         for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
         let f = n.window_above_mid_fraction().unwrap();
         assert!((f - 0.5).abs() < 1e-9, "expected 0.5, got {}", f);
+    }
+
+    // ── round-145 ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_zscore_window_median_abs_dev_none_for_empty() {
+        let n = znorm(4);
+        assert!(n.window_median_abs_dev().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_median_abs_dev_basic() {
+        let mut n = znorm(5);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4), dec!(5)] { n.update(v); }
+        let mad = n.window_median_abs_dev().unwrap();
+        assert!((mad - 1.0).abs() < 1e-9, "expected 1.0, got {}", mad);
+    }
+
+    #[test]
+    fn test_zscore_window_cubic_mean_none_for_empty() {
+        let n = znorm(4);
+        assert!(n.window_cubic_mean().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_cubic_mean_basic() {
+        let mut n = znorm(2);
+        for v in [dec!(2), dec!(4)] { n.update(v); }
+        let cm = n.window_cubic_mean().unwrap();
+        assert!((cm - 36.0f64.cbrt()).abs() < 1e-9, "expected cbrt(36), got {}", cm);
+    }
+
+    #[test]
+    fn test_zscore_window_max_run_length_none_for_empty() {
+        let n = znorm(4);
+        assert!(n.window_max_run_length().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_max_run_length_all_same() {
+        let mut n = znorm(3);
+        for v in [dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        let r = n.window_max_run_length().unwrap();
+        assert_eq!(r, 3);
+    }
+
+    #[test]
+    fn test_zscore_window_sorted_position_none_for_empty() {
+        let n = znorm(4);
+        assert!(n.window_sorted_position().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_sorted_position_max() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(10)] { n.update(v); }
+        let p = n.window_sorted_position().unwrap();
+        assert!((p - 0.75).abs() < 1e-9, "expected 0.75, got {}", p);
     }
 }

@@ -9,6 +9,36 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.9.6] - 2026-03-20
+
+### Added
+
+**`tick` module — `NormalizedTick` analytics (round 145)**
+- `NormalizedTick::price_run_length(ticks)` — length of the longest consecutive monotone price run.
+- `NormalizedTick::side_qty_dispersion(ticks)` — absolute difference between mean Buy qty and mean Sell qty.
+- `NormalizedTick::price_above_open_fraction(ticks)` — fraction of ticks whose price exceeds the first tick price.
+- `NormalizedTick::tick_price_skew(ticks)` — skewness of the tick price distribution.
+
+**`ohlcv` module — `OhlcvBar` analytics (round 145)**
+- `OhlcvBar::bar_wick_ratio(bars)` — mean ratio of total wick length to bar range.
+- `OhlcvBar::open_to_close_direction(bars)` — mean direction of open-to-close moves (+1/-1/0).
+- `OhlcvBar::high_low_midpoint_trend(bars)` — mean change in (high+low)/2 midpoint across consecutive bars.
+- `OhlcvBar::close_minus_low_mean(bars)` — mean of (close - low) across bars.
+
+**`norm` module — `MinMaxNormalizer` analytics (round 145)**
+- `MinMaxNormalizer::window_median_abs_dev()` — median absolute deviation of window values.
+- `MinMaxNormalizer::window_cubic_mean()` — cubic mean (cbrt of mean of cubes) of window values.
+- `MinMaxNormalizer::window_max_run_length()` — longest run of consecutive equal-valued window entries.
+- `MinMaxNormalizer::window_sorted_position()` — position (0..1) of the most recent value within the sorted window.
+
+**`norm` module — `ZScoreNormalizer` analytics (round 145)**
+- `ZScoreNormalizer::window_median_abs_dev()` — median absolute deviation of window values.
+- `ZScoreNormalizer::window_cubic_mean()` — cubic mean (cbrt of mean of cubes) of window values.
+- `ZScoreNormalizer::window_max_run_length()` — longest run of consecutive equal-valued window entries.
+- `ZScoreNormalizer::window_sorted_position()` — position (0..1) of the most recent value within the sorted window.
+
+---
+
 ## [2.9.5] - 2026-03-20
 
 ### Added

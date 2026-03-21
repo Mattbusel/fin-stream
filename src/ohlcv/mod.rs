@@ -6649,6 +6649,57 @@ impl OhlcvBar {
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
+    // ── round-145 ────────────────────────────────────────────────────────────
+
+    /// Mean ratio of total wick length to bar range (upper_wick + lower_wick) / range.
+    pub fn bar_wick_ratio(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let vals: Vec<f64> = bars.iter().filter_map(|b| {
+            let range = (b.high - b.low).to_f64()?;
+            if range == 0.0 { return None; }
+            let body_top = b.close.max(b.open);
+            let body_bot = b.close.min(b.open);
+            let upper_wick = (b.high - body_top).to_f64()?;
+            let lower_wick = (body_bot - b.low).to_f64()?;
+            Some((upper_wick + lower_wick) / range)
+        }).collect();
+        if vals.is_empty() { return None; }
+        Some(vals.iter().sum::<f64>() / vals.len() as f64)
+    }
+
+    /// Mean direction of open-to-close moves: +1 for bullish, -1 for bearish, 0 for doji.
+    pub fn open_to_close_direction(bars: &[OhlcvBar]) -> Option<f64> {
+        if bars.is_empty() { return None; }
+        let sum: f64 = bars.iter().map(|b| {
+            if b.close > b.open { 1.0 }
+            else if b.close < b.open { -1.0 }
+            else { 0.0 }
+        }).sum();
+        Some(sum / bars.len() as f64)
+    }
+
+    /// Mean change in the (high + low) / 2 midpoint across consecutive bars.
+    pub fn high_low_midpoint_trend(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.len() < 2 { return None; }
+        let mids: Vec<f64> = bars.iter().filter_map(|b| {
+            Some(((b.high + b.low) / rust_decimal::Decimal::TWO).to_f64()?)
+        }).collect();
+        if mids.len() < 2 { return None; }
+        let diffs: Vec<f64> = mids.windows(2).map(|w| w[1] - w[0]).collect();
+        Some(diffs.iter().sum::<f64>() / diffs.len() as f64)
+    }
+
+    /// Mean of (close - low) across bars.
+    pub fn close_minus_low_mean(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let vals: Vec<f64> = bars.iter().filter_map(|b| (b.close - b.low).to_f64()).collect();
+        if vals.is_empty() { return None; }
+        Some(vals.iter().sum::<f64>() / vals.len() as f64)
+    }
+
 }
 
 impl std::fmt::Display for OhlcvBar {
@@ -15380,5 +15431,64 @@ mod tests {
         let bars = vec![make_ohlcv_bar(dec!(100), dec!(115), dec!(95), dec!(110))];
         let r = OhlcvBar::close_over_open(&bars).unwrap();
         assert!((r - 1.1).abs() < 1e-9, "expected 1.1, got {}", r);
+    }
+
+    // ── round-145 ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_bar_wick_ratio_none_for_empty() {
+        assert!(OhlcvBar::bar_wick_ratio(&[]).is_none());
+    }
+
+    #[test]
+    fn test_bar_wick_ratio_basic() {
+        // high=120, low=80, open=100, close=100 → wicks=40, range=40, ratio=1.0
+        let bars = vec![make_ohlcv_bar(dec!(100), dec!(120), dec!(80), dec!(100))];
+        let r = OhlcvBar::bar_wick_ratio(&bars).unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "expected 1.0, got {}", r);
+    }
+
+    #[test]
+    fn test_open_to_close_direction_none_for_empty() {
+        assert!(OhlcvBar::open_to_close_direction(&[]).is_none());
+    }
+
+    #[test]
+    fn test_open_to_close_direction_all_up() {
+        let bars = vec![
+            make_ohlcv_bar(dec!(90), dec!(110), dec!(85), dec!(105)),
+            make_ohlcv_bar(dec!(100), dec!(120), dec!(95), dec!(115)),
+        ];
+        let d = OhlcvBar::open_to_close_direction(&bars).unwrap();
+        assert!((d - 1.0).abs() < 1e-9, "expected 1.0, got {}", d);
+    }
+
+    #[test]
+    fn test_high_low_midpoint_trend_none_for_one() {
+        let bars = vec![make_ohlcv_bar(dec!(90), dec!(110), dec!(85), dec!(100))];
+        assert!(OhlcvBar::high_low_midpoint_trend(&bars).is_none());
+    }
+
+    #[test]
+    fn test_high_low_midpoint_trend_rising() {
+        let bars = vec![
+            make_ohlcv_bar(dec!(90), dec!(100), dec!(80), dec!(95)),  // mid=90
+            make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105)), // mid=100
+        ];
+        let t = OhlcvBar::high_low_midpoint_trend(&bars).unwrap();
+        assert!(t > 0.0, "expected positive trend, got {}", t);
+    }
+
+    #[test]
+    fn test_close_minus_low_mean_none_for_empty() {
+        assert!(OhlcvBar::close_minus_low_mean(&[]).is_none());
+    }
+
+    #[test]
+    fn test_close_minus_low_mean_basic() {
+        // close=105, low=85 → spread=20
+        let bars = vec![make_ohlcv_bar(dec!(90), dec!(110), dec!(85), dec!(105))];
+        let s = OhlcvBar::close_minus_low_mean(&bars).unwrap();
+        assert!((s - 20.0).abs() < 1e-9, "expected 20.0, got {}", s);
     }
 }
