@@ -4967,6 +4967,49 @@ impl MinMaxNormalizer {
         Some(vals.iter().filter(|&&v| v > mean).count() as f64 / vals.len() as f64)
     }
 
+    // ── round-153 ────────────────────────────────────────────────────────────
+
+    /// Mean of absolute differences between consecutive window values.
+    pub fn window_abs_change_mean(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let changes: Vec<f64> = vals.windows(2).map(|w| (w[1] - w[0]).abs()).collect();
+        Some(changes.iter().sum::<f64>() / changes.len() as f64)
+    }
+
+    /// Percentile rank of the last window value within the window (0.0–1.0).
+    pub fn window_last_percentile(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let last = self.window.back()?.to_f64()?;
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let below = vals.iter().filter(|&&v| v < last).count();
+        Some(below as f64 / vals.len() as f64)
+    }
+
+    /// Std dev of the trailing half of the window.
+    pub fn window_trailing_std(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let half = vals.len() / 2;
+        let trailing = &vals[half..];
+        if trailing.len() < 2 { return None; }
+        let mean = trailing.iter().sum::<f64>() / trailing.len() as f64;
+        let var = trailing.iter().map(|x| (x - mean).powi(2)).sum::<f64>() / trailing.len() as f64;
+        Some(var.sqrt())
+    }
+
+    /// Mean of consecutive differences (last - first) divided by window length.
+    pub fn window_mean_change(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let first = self.window.front()?.to_f64()?;
+        let last = self.window.back()?.to_f64()?;
+        Some((last - first) / (self.window.len() - 1) as f64)
+    }
+
 }
 
 #[cfg(test)]
@@ -10663,6 +10706,69 @@ mod tests {
         let f = n.window_upper_fraction().unwrap();
         assert!((f - 0.5).abs() < 1e-9, "expected 0.5, got {}", f);
     }
+
+    // ── round-153 ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_minmax_window_abs_change_mean_none_for_single() {
+        let mut n = norm(4);
+        n.update(dec!(5));
+        assert!(n.window_abs_change_mean().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_abs_change_mean_constant() {
+        let mut n = norm(3);
+        for v in [dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        let m = n.window_abs_change_mean().unwrap();
+        assert!((m - 0.0).abs() < 1e-9, "expected 0.0, got {}", m);
+    }
+
+    #[test]
+    fn test_minmax_window_last_percentile_none_for_empty() {
+        let n = norm(4);
+        assert!(n.window_last_percentile().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_last_percentile_at_max() {
+        let mut n = norm(3);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        // last=3; values below 3 are 1,2 → 2/3
+        let p = n.window_last_percentile().unwrap();
+        assert!((p - 2.0 / 3.0).abs() < 1e-9, "expected 0.667, got {}", p);
+    }
+
+    #[test]
+    fn test_minmax_window_trailing_std_none_for_single() {
+        let mut n = norm(4);
+        n.update(dec!(5));
+        assert!(n.window_trailing_std().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_trailing_std_uniform() {
+        let mut n = norm(4);
+        for v in [dec!(5), dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        let s = n.window_trailing_std().unwrap();
+        assert!((s - 0.0).abs() < 1e-9, "expected 0.0, got {}", s);
+    }
+
+    #[test]
+    fn test_minmax_window_mean_change_none_for_single() {
+        let mut n = norm(4);
+        n.update(dec!(5));
+        assert!(n.window_mean_change().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_mean_change_ascending() {
+        let mut n = norm(3);
+        for v in [dec!(1), dec!(3), dec!(5)] { n.update(v); }
+        // (5-1)/(3-1) = 2.0
+        let c = n.window_mean_change().unwrap();
+        assert!((c - 2.0).abs() < 1e-9, "expected 2.0, got {}", c);
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -15574,6 +15680,49 @@ impl ZScoreNormalizer {
         let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
         let mean = vals.iter().sum::<f64>() / vals.len() as f64;
         Some(vals.iter().filter(|&&v| v > mean).count() as f64 / vals.len() as f64)
+    }
+
+    // ── round-153 ────────────────────────────────────────────────────────────
+
+    /// Mean of absolute differences between consecutive window values.
+    pub fn window_abs_change_mean(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let changes: Vec<f64> = vals.windows(2).map(|w| (w[1] - w[0]).abs()).collect();
+        Some(changes.iter().sum::<f64>() / changes.len() as f64)
+    }
+
+    /// Percentile rank of the last window value within the window (0.0–1.0).
+    pub fn window_last_percentile(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let last = self.window.back()?.to_f64()?;
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let below = vals.iter().filter(|&&v| v < last).count();
+        Some(below as f64 / vals.len() as f64)
+    }
+
+    /// Std dev of the trailing half of the window.
+    pub fn window_trailing_std(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let half = vals.len() / 2;
+        let trailing = &vals[half..];
+        if trailing.len() < 2 { return None; }
+        let mean = trailing.iter().sum::<f64>() / trailing.len() as f64;
+        let var = trailing.iter().map(|x| (x - mean).powi(2)).sum::<f64>() / trailing.len() as f64;
+        Some(var.sqrt())
+    }
+
+    /// Mean of consecutive differences (last - first) divided by window length.
+    pub fn window_mean_change(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let first = self.window.front()?.to_f64()?;
+        let last = self.window.back()?.to_f64()?;
+        Some((last - first) / (self.window.len() - 1) as f64)
     }
 
 }
@@ -21281,5 +21430,66 @@ mod zscore_stability_tests {
         for v in [dec!(1), dec!(3)] { n.update(v); }
         let f = n.window_upper_fraction().unwrap();
         assert!((f - 0.5).abs() < 1e-9, "expected 0.5, got {}", f);
+    }
+
+    // ── round-153 ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_zscore_window_abs_change_mean_none_for_single() {
+        let mut n = znorm(4);
+        n.update(dec!(5));
+        assert!(n.window_abs_change_mean().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_abs_change_mean_constant() {
+        let mut n = znorm(3);
+        for v in [dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        let m = n.window_abs_change_mean().unwrap();
+        assert!((m - 0.0).abs() < 1e-9, "expected 0.0, got {}", m);
+    }
+
+    #[test]
+    fn test_zscore_window_last_percentile_none_for_empty() {
+        let n = znorm(4);
+        assert!(n.window_last_percentile().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_last_percentile_at_max() {
+        let mut n = znorm(3);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        let p = n.window_last_percentile().unwrap();
+        assert!((p - 2.0 / 3.0).abs() < 1e-9, "expected 0.667, got {}", p);
+    }
+
+    #[test]
+    fn test_zscore_window_trailing_std_none_for_single() {
+        let mut n = znorm(4);
+        n.update(dec!(5));
+        assert!(n.window_trailing_std().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_trailing_std_uniform() {
+        let mut n = znorm(4);
+        for v in [dec!(5), dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        let s = n.window_trailing_std().unwrap();
+        assert!((s - 0.0).abs() < 1e-9, "expected 0.0, got {}", s);
+    }
+
+    #[test]
+    fn test_zscore_window_mean_change_none_for_single() {
+        let mut n = znorm(4);
+        n.update(dec!(5));
+        assert!(n.window_mean_change().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_mean_change_ascending() {
+        let mut n = znorm(3);
+        for v in [dec!(1), dec!(3), dec!(5)] { n.update(v); }
+        let c = n.window_mean_change().unwrap();
+        assert!((c - 2.0).abs() < 1e-9, "expected 2.0, got {}", c);
     }
 }

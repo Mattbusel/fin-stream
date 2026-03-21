@@ -7279,6 +7279,70 @@ impl NormalizedTick {
         Some(var.sqrt() / mean)
     }
 
+    // ── round-153 ────────────────────────────────────────────────────────────
+
+    /// Shannon entropy of tick quantity bins (8 buckets).
+    pub fn tick_size_entropy(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() { return None; }
+        let qtys: Vec<f64> = ticks.iter().filter_map(|t| t.quantity.to_f64()).collect();
+        if qtys.is_empty() { return None; }
+        let min = qtys.iter().cloned().fold(f64::INFINITY, f64::min);
+        let max = qtys.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        if (max - min).abs() < 1e-12 { return Some(0.0); }
+        let bins = 8usize;
+        let mut counts = vec![0usize; bins];
+        for &q in &qtys {
+            let idx = ((q - min) / (max - min) * bins as f64).min(bins as f64 - 1.0) as usize;
+            counts[idx] += 1;
+        }
+        let n = qtys.len() as f64;
+        Some(counts.iter().filter(|&&c| c > 0)
+            .map(|&c| { let p = c as f64 / n; -p * p.ln() }).sum())
+    }
+
+    /// Ratio of Buy tick count to Sell tick count (returns None if no sells).
+    pub fn side_count_ratio(ticks: &[NormalizedTick]) -> Option<f64> {
+        let buys = ticks.iter().filter(|t| matches!(t.side, Some(TradeSide::Buy))).count() as f64;
+        let sells = ticks.iter().filter(|t| matches!(t.side, Some(TradeSide::Sell))).count() as f64;
+        if sells == 0.0 { return None; }
+        Some(buys / sells)
+    }
+
+    /// Shannon entropy of tick volume (price × qty) bins (8 buckets).
+    pub fn tick_vol_entropy(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() { return None; }
+        let vols: Vec<f64> = ticks.iter()
+            .filter_map(|t| (t.price * t.quantity).to_f64()).collect();
+        if vols.is_empty() { return None; }
+        let min = vols.iter().cloned().fold(f64::INFINITY, f64::min);
+        let max = vols.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        if (max - min).abs() < 1e-12 { return Some(0.0); }
+        let bins = 8usize;
+        let mut counts = vec![0usize; bins];
+        for &v in &vols {
+            let idx = ((v - min) / (max - min) * bins as f64).min(bins as f64 - 1.0) as usize;
+            counts[idx] += 1;
+        }
+        let n = vols.len() as f64;
+        Some(counts.iter().filter(|&&c| c > 0)
+            .map(|&c| { let p = c as f64 / n; -p * p.ln() }).sum())
+    }
+
+    /// Coefficient of variation of inter-arrival time durations.
+    pub fn tick_duration_cv(ticks: &[NormalizedTick]) -> Option<f64> {
+        if ticks.len() < 3 { return None; }
+        let gaps: Vec<f64> = ticks.windows(2)
+            .map(|w| (w[1].received_at_ms as f64) - (w[0].received_at_ms as f64))
+            .filter(|&g| g >= 0.0).collect();
+        if gaps.len() < 2 { return None; }
+        let mean = gaps.iter().sum::<f64>() / gaps.len() as f64;
+        if mean == 0.0 { return None; }
+        let var = gaps.iter().map(|g| (g - mean).powi(2)).sum::<f64>() / gaps.len() as f64;
+        Some(var.sqrt() / mean)
+    }
+
 }
 
 
@@ -16655,5 +16719,71 @@ mod tests {
         let mut t3 = make_tick_pq(dec!(102), dec!(1)); t3.received_at_ms = 20;
         let r = NormalizedTick::tick_arrival_regularity(&[t1, t2, t3]).unwrap();
         assert!((r - 0.0).abs() < 1e-9, "expected 0.0, got {}", r);
+    }
+
+    // ── round-153 ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_tick_size_entropy_none_for_empty() {
+        assert!(NormalizedTick::tick_size_entropy(&[]).is_none());
+    }
+
+    #[test]
+    fn test_tick_size_entropy_uniform_zero() {
+        use rust_decimal_macros::dec;
+        // same qty → entropy=0
+        let ticks = vec![make_tick_pq(dec!(100), dec!(5)), make_tick_pq(dec!(101), dec!(5))];
+        let e = NormalizedTick::tick_size_entropy(&ticks).unwrap();
+        assert!((e - 0.0).abs() < 1e-9, "expected 0.0, got {}", e);
+    }
+
+    #[test]
+    fn test_side_count_ratio_none_for_no_sells() {
+        use rust_decimal_macros::dec;
+        // no sell ticks → None
+        let ticks = vec![make_tick_pq(dec!(100), dec!(1))];
+        assert!(NormalizedTick::side_count_ratio(&ticks).is_none());
+    }
+
+    #[test]
+    fn test_side_count_ratio_equal_sides() {
+        use rust_decimal_macros::dec;
+        let mut t_buy = make_tick_pq(dec!(100), dec!(1));
+        t_buy.side = Some(crate::tick::TradeSide::Buy);
+        let mut t_sell = make_tick_pq(dec!(100), dec!(1));
+        t_sell.side = Some(crate::tick::TradeSide::Sell);
+        let r = NormalizedTick::side_count_ratio(&[t_buy, t_sell]).unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "expected 1.0, got {}", r);
+    }
+
+    #[test]
+    fn test_tick_vol_entropy_none_for_empty() {
+        assert!(NormalizedTick::tick_vol_entropy(&[]).is_none());
+    }
+
+    #[test]
+    fn test_tick_vol_entropy_uniform_zero() {
+        use rust_decimal_macros::dec;
+        // same vol → entropy=0
+        let ticks = vec![make_tick_pq(dec!(100), dec!(2)), make_tick_pq(dec!(100), dec!(2))];
+        let e = NormalizedTick::tick_vol_entropy(&ticks).unwrap();
+        assert!((e - 0.0).abs() < 1e-9, "expected 0.0, got {}", e);
+    }
+
+    #[test]
+    fn test_tick_duration_cv_none_for_two() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![make_tick_pq(dec!(100), dec!(1)), make_tick_pq(dec!(101), dec!(1))];
+        assert!(NormalizedTick::tick_duration_cv(&ticks).is_none());
+    }
+
+    #[test]
+    fn test_tick_duration_cv_equal_gaps() {
+        use rust_decimal_macros::dec;
+        let mut t1 = make_tick_pq(dec!(100), dec!(1)); t1.received_at_ms = 0;
+        let mut t2 = make_tick_pq(dec!(101), dec!(1)); t2.received_at_ms = 10;
+        let mut t3 = make_tick_pq(dec!(102), dec!(1)); t3.received_at_ms = 20;
+        let cv = NormalizedTick::tick_duration_cv(&[t1, t2, t3]).unwrap();
+        assert!((cv - 0.0).abs() < 1e-9, "expected 0.0, got {}", cv);
     }
 }

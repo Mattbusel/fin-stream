@@ -7048,6 +7048,54 @@ impl OhlcvBar {
         Some(var.sqrt())
     }
 
+    // ── round-153 ────────────────────────────────────────────────────────────
+
+    /// Linear trend of (high - low) ranges across bars (positive = expanding range).
+    pub fn high_low_range_trend(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.len() < 2 { return None; }
+        let ranges: Vec<f64> = bars.iter().filter_map(|b| (b.high - b.low).to_f64()).collect();
+        if ranges.len() < 2 { return None; }
+        let n = ranges.len() as f64;
+        let x_mean = (n - 1.0) / 2.0;
+        let y_mean = ranges.iter().sum::<f64>() / n;
+        let num: f64 = ranges.iter().enumerate().map(|(i, &y)| (i as f64 - x_mean) * (y - y_mean)).sum();
+        let den: f64 = ranges.iter().enumerate().map(|(i, _)| (i as f64 - x_mean).powi(2)).sum();
+        if den == 0.0 { return Some(0.0); }
+        Some(num / den)
+    }
+
+    /// Mean of open-to-prior-close gaps (open[i] - close[i-1]).
+    pub fn bar_open_gap_mean(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.len() < 2 { return None; }
+        let gaps: Vec<f64> = bars.windows(2)
+            .filter_map(|w| (w[1].open - w[0].close).to_f64()).collect();
+        if gaps.is_empty() { return None; }
+        Some(gaps.iter().sum::<f64>() / gaps.len() as f64)
+    }
+
+    /// Mean of (high - low) range across all bars.
+    pub fn bar_avg_range(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let ranges: Vec<f64> = bars.iter().filter_map(|b| (b.high - b.low).to_f64()).collect();
+        if ranges.is_empty() { return None; }
+        Some(ranges.iter().sum::<f64>() / ranges.len() as f64)
+    }
+
+    /// Fraction of bars where close is within top 25% of bar range (close extremity).
+    pub fn bar_close_extremity(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let count = bars.iter().filter(|b| {
+            let range = (b.high - b.low).to_f64().unwrap_or(0.0);
+            let close_pos = (b.close - b.low).to_f64().unwrap_or(0.0);
+            range > 0.0 && close_pos / range >= 0.75
+        }).count();
+        Some(count as f64 / bars.len() as f64)
+    }
+
 }
 
 impl std::fmt::Display for OhlcvBar {
@@ -16282,5 +16330,67 @@ mod tests {
         ];
         let s = OhlcvBar::bar_range_std(&bars).unwrap();
         assert!((s - 0.0).abs() < 1e-9, "expected 0.0, got {}", s);
+    }
+
+    // ── round-153 ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_high_low_range_trend_none_for_single() {
+        let bars = vec![make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105))];
+        assert!(OhlcvBar::high_low_range_trend(&bars).is_none());
+    }
+
+    #[test]
+    fn test_high_low_range_trend_flat() {
+        // same range each bar → slope = 0
+        let bars = vec![
+            make_ohlcv_bar(dec!(100), dec!(120), dec!(100), dec!(110)),
+            make_ohlcv_bar(dec!(110), dec!(130), dec!(110), dec!(120)),
+        ];
+        let t = OhlcvBar::high_low_range_trend(&bars).unwrap();
+        assert!((t - 0.0).abs() < 1e-9, "expected 0.0, got {}", t);
+    }
+
+    #[test]
+    fn test_bar_open_gap_mean_none_for_single() {
+        let bars = vec![make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105))];
+        assert!(OhlcvBar::bar_open_gap_mean(&bars).is_none());
+    }
+
+    #[test]
+    fn test_bar_open_gap_mean_no_gap() {
+        // open[1] = close[0] → gap = 0
+        let bars = vec![
+            make_ohlcv_bar(dec!(90), dec!(110), dec!(85), dec!(100)),
+            make_ohlcv_bar(dec!(100), dec!(120), dec!(95), dec!(110)),
+        ];
+        let g = OhlcvBar::bar_open_gap_mean(&bars).unwrap();
+        assert!((g - 0.0).abs() < 1e-9, "expected 0.0, got {}", g);
+    }
+
+    #[test]
+    fn test_bar_avg_range_none_for_empty() {
+        assert!(OhlcvBar::bar_avg_range(&[]).is_none());
+    }
+
+    #[test]
+    fn test_bar_avg_range_basic() {
+        // high=110, low=90 → range=20
+        let bars = vec![make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105))];
+        let r = OhlcvBar::bar_avg_range(&bars).unwrap();
+        assert!((r - 20.0).abs() < 1e-9, "expected 20.0, got {}", r);
+    }
+
+    #[test]
+    fn test_bar_close_extremity_none_for_empty() {
+        assert!(OhlcvBar::bar_close_extremity(&[]).is_none());
+    }
+
+    #[test]
+    fn test_bar_close_extremity_close_at_high() {
+        // close=high → close_pos/range=1.0 ≥ 0.75 → fraction=1.0
+        let bars = vec![make_ohlcv_bar(dec!(90), dec!(110), dec!(90), dec!(110))];
+        let e = OhlcvBar::bar_close_extremity(&bars).unwrap();
+        assert!((e - 1.0).abs() < 1e-9, "expected 1.0, got {}", e);
     }
 }

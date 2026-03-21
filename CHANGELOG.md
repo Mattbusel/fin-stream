@@ -9,6 +9,36 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.10.4] - 2026-03-20
+
+### Added
+
+**`tick` module — `NormalizedTick` analytics (round 153)**
+- `NormalizedTick::tick_size_entropy(ticks)` — Shannon entropy of tick quantity bins.
+- `NormalizedTick::side_count_ratio(ticks)` — ratio of Buy tick count to Sell tick count.
+- `NormalizedTick::tick_vol_entropy(ticks)` — Shannon entropy of tick volume (price × qty) bins.
+- `NormalizedTick::tick_duration_cv(ticks)` — coefficient of variation of inter-arrival durations.
+
+**`ohlcv` module — `OhlcvBar` analytics (round 153)**
+- `OhlcvBar::high_low_range_trend(bars)` — linear trend slope of bar ranges (expanding/contracting).
+- `OhlcvBar::bar_open_gap_mean(bars)` — mean open-to-prior-close gap across bars.
+- `OhlcvBar::bar_avg_range(bars)` — mean (high - low) range across all bars.
+- `OhlcvBar::bar_close_extremity(bars)` — fraction of bars where close is in the top 25% of range.
+
+**`norm` module — `MinMaxNormalizer` analytics (round 153)**
+- `MinMaxNormalizer::window_abs_change_mean()` — mean absolute consecutive difference.
+- `MinMaxNormalizer::window_last_percentile()` — percentile rank of the last window value.
+- `MinMaxNormalizer::window_trailing_std()` — std dev of the trailing half of the window.
+- `MinMaxNormalizer::window_mean_change()` — mean per-step change (last - first) / (n - 1).
+
+**`norm` module — `ZScoreNormalizer` analytics (round 153)**
+- `ZScoreNormalizer::window_abs_change_mean()` — mean absolute consecutive difference.
+- `ZScoreNormalizer::window_last_percentile()` — percentile rank of the last window value.
+- `ZScoreNormalizer::window_trailing_std()` — std dev of the trailing half of the window.
+- `ZScoreNormalizer::window_mean_change()` — mean per-step change (last - first) / (n - 1).
+
+---
+
 ## [2.10.3] - 2026-03-20
 
 ### Added
