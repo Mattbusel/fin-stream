@@ -9,6 +9,36 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.10.9] - 2026-03-20
+
+### Added
+
+**`tick` module — `NormalizedTick` analytics (round 158)**
+- `NormalizedTick::side_sell_size_mean(ticks)` — mean quantity of Sell-side ticks.
+- `NormalizedTick::tick_autocorrelation(ticks)` — lag-1 Pearson autocorrelation of prices.
+- `NormalizedTick::price_ema_ratio(ticks)` — ratio of last price to EMA(alpha=0.1).
+- `NormalizedTick::tick_qty_zscore_last(ticks)` — z-score of the last tick quantity.
+
+**`ohlcv` module — `OhlcvBar` analytics (round 158)**
+- `OhlcvBar::bar_doji_ratio(bars)` — fraction of bars with body < 10% of range (doji pattern).
+- `OhlcvBar::bar_wick_upper_mean(bars)` — mean upper wick length across bars.
+- `OhlcvBar::bar_wick_lower_mean(bars)` — mean lower wick length across bars.
+- `OhlcvBar::bar_close_mean(bars)` — mean close price across all bars.
+
+**`norm` module — `MinMaxNormalizer` analytics (round 158)**
+- `MinMaxNormalizer::window_exponential_decay_sum()` — exponentially weighted sum (alpha=0.1).
+- `MinMaxNormalizer::window_lagged_diff()` — mean of lag-1 consecutive differences.
+- `MinMaxNormalizer::window_mean_to_max()` — ratio of window mean to window maximum.
+- `MinMaxNormalizer::window_mode_fraction()` — fraction of values in the modal bin (8 buckets).
+
+**`norm` module — `ZScoreNormalizer` analytics (round 158)**
+- `ZScoreNormalizer::window_exponential_decay_sum()` — exponentially weighted sum (alpha=0.1).
+- `ZScoreNormalizer::window_lagged_diff()` — mean of lag-1 consecutive differences.
+- `ZScoreNormalizer::window_mean_to_max()` — ratio of window mean to window maximum.
+- `ZScoreNormalizer::window_mode_fraction()` — fraction of values in the modal bin (8 buckets).
+
+---
+
 ## [2.10.8] - 2026-03-20
 
 ### Added

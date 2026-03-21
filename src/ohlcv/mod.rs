@@ -7306,6 +7306,49 @@ impl OhlcvBar {
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
+    // ── round-158 ────────────────────────────────────────────────────────────
+
+    /// Fraction of bars that are doji (body < 10% of range).
+    pub fn bar_doji_ratio(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let doji_count = bars.iter().filter(|b| {
+            let range = (b.high - b.low).to_f64().unwrap_or(0.0);
+            let body = (b.close - b.open).abs().to_f64().unwrap_or(0.0);
+            range > 0.0 && body / range < 0.1
+        }).count();
+        Some(doji_count as f64 / bars.len() as f64)
+    }
+
+    /// Mean upper wick length (high - max(open, close)) across bars.
+    pub fn bar_wick_upper_mean(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let wicks: Vec<f64> = bars.iter()
+            .filter_map(|b| (b.high - b.close.max(b.open)).to_f64()).collect();
+        if wicks.is_empty() { return None; }
+        Some(wicks.iter().sum::<f64>() / wicks.len() as f64)
+    }
+
+    /// Mean lower wick length (min(open, close) - low) across bars.
+    pub fn bar_wick_lower_mean(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let wicks: Vec<f64> = bars.iter()
+            .filter_map(|b| (b.close.min(b.open) - b.low).to_f64()).collect();
+        if wicks.is_empty() { return None; }
+        Some(wicks.iter().sum::<f64>() / wicks.len() as f64)
+    }
+
+    /// Mean close price across all bars.
+    pub fn bar_close_mean(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let closes: Vec<f64> = bars.iter().filter_map(|b| b.close.to_f64()).collect();
+        if closes.is_empty() { return None; }
+        Some(closes.iter().sum::<f64>() / closes.len() as f64)
+    }
+
 }
 
 impl std::fmt::Display for OhlcvBar {
@@ -16846,5 +16889,59 @@ mod tests {
         let bars = vec![make_ohlcv_bar(dec!(100), dec!(115), dec!(100), dec!(110))];
         let r = OhlcvBar::bar_low_vs_open_ratio(&bars).unwrap();
         assert!((r - 1.0).abs() < 1e-9, "expected 1.0, got {}", r);
+    }
+
+    // ── round-158 ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_bar_doji_ratio_none_for_empty() {
+        assert!(OhlcvBar::bar_doji_ratio(&[]).is_none());
+    }
+
+    #[test]
+    fn test_bar_doji_ratio_full_body_zero() {
+        // full body bar → not doji → ratio=0
+        let bars = vec![make_ohlcv_bar(dec!(90), dec!(110), dec!(90), dec!(110))];
+        let r = OhlcvBar::bar_doji_ratio(&bars).unwrap();
+        assert!((r - 0.0).abs() < 1e-9, "expected 0.0, got {}", r);
+    }
+
+    #[test]
+    fn test_bar_wick_upper_mean_none_for_empty() {
+        assert!(OhlcvBar::bar_wick_upper_mean(&[]).is_none());
+    }
+
+    #[test]
+    fn test_bar_wick_upper_mean_no_upper_wick() {
+        // close=high → upper wick=0
+        let bars = vec![make_ohlcv_bar(dec!(90), dec!(110), dec!(90), dec!(110))];
+        let w = OhlcvBar::bar_wick_upper_mean(&bars).unwrap();
+        assert!((w - 0.0).abs() < 1e-9, "expected 0.0, got {}", w);
+    }
+
+    #[test]
+    fn test_bar_wick_lower_mean_none_for_empty() {
+        assert!(OhlcvBar::bar_wick_lower_mean(&[]).is_none());
+    }
+
+    #[test]
+    fn test_bar_wick_lower_mean_no_lower_wick() {
+        // open=low → lower wick=0
+        let bars = vec![make_ohlcv_bar(dec!(90), dec!(110), dec!(90), dec!(110))];
+        let w = OhlcvBar::bar_wick_lower_mean(&bars).unwrap();
+        assert!((w - 0.0).abs() < 1e-9, "expected 0.0, got {}", w);
+    }
+
+    #[test]
+    fn test_bar_close_mean_none_for_empty() {
+        assert!(OhlcvBar::bar_close_mean(&[]).is_none());
+    }
+
+    #[test]
+    fn test_bar_close_mean_basic() {
+        // close=105
+        let bars = vec![make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105))];
+        let m = OhlcvBar::bar_close_mean(&bars).unwrap();
+        assert!((m - 105.0).abs() < 1e-9, "expected 105.0, got {}", m);
     }
 }

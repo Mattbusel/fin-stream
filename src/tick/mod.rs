@@ -7549,6 +7549,64 @@ impl NormalizedTick {
         Some(large as f64 / ticks.len() as f64)
     }
 
+    // ── round-158 ────────────────────────────────────────────────────────────
+
+    /// Mean quantity of Sell-side ticks.
+    pub fn side_sell_size_mean(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let sell_qtys: Vec<f64> = ticks.iter()
+            .filter(|t| matches!(t.side, Some(TradeSide::Sell)))
+            .filter_map(|t| t.quantity.to_f64()).collect();
+        if sell_qtys.is_empty() { return None; }
+        Some(sell_qtys.iter().sum::<f64>() / sell_qtys.len() as f64)
+    }
+
+    /// Lag-1 autocorrelation of prices (Pearson correlation between p[i] and p[i+1]).
+    pub fn tick_autocorrelation(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 3 { return None; }
+        let prices: Vec<f64> = ticks.iter().filter_map(|t| t.price.to_f64()).collect();
+        if prices.len() < 3 { return None; }
+        let x: Vec<f64> = prices[..prices.len()-1].to_vec();
+        let y: Vec<f64> = prices[1..].to_vec();
+        let n = x.len() as f64;
+        let mx = x.iter().sum::<f64>() / n;
+        let my = y.iter().sum::<f64>() / n;
+        let num: f64 = x.iter().zip(y.iter()).map(|(xi, yi)| (xi - mx) * (yi - my)).sum();
+        let dx: f64 = x.iter().map(|xi| (xi - mx).powi(2)).sum::<f64>().sqrt();
+        let dy: f64 = y.iter().map(|yi| (yi - my).powi(2)).sum::<f64>().sqrt();
+        if dx == 0.0 || dy == 0.0 { return None; }
+        Some(num / (dx * dy))
+    }
+
+    /// Ratio of last price to EMA of all prices (alpha=0.1).
+    pub fn price_ema_ratio(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() { return None; }
+        let prices: Vec<f64> = ticks.iter().filter_map(|t| t.price.to_f64()).collect();
+        if prices.is_empty() { return None; }
+        let alpha = 0.1_f64;
+        let mut ema = prices[0];
+        for &p in &prices[1..] {
+            ema = alpha * p + (1.0 - alpha) * ema;
+        }
+        if ema == 0.0 { return None; }
+        Some(prices.last()? / ema)
+    }
+
+    /// Z-score of the last tick quantity relative to all tick quantities.
+    pub fn tick_qty_zscore_last(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 2 { return None; }
+        let qtys: Vec<f64> = ticks.iter().filter_map(|t| t.quantity.to_f64()).collect();
+        if qtys.len() < 2 { return None; }
+        let mean = qtys.iter().sum::<f64>() / qtys.len() as f64;
+        let var = qtys.iter().map(|q| (q - mean).powi(2)).sum::<f64>() / qtys.len() as f64;
+        let std = var.sqrt();
+        if std == 0.0 { return None; }
+        Some((qtys.last()? - mean) / std)
+    }
+
 }
 
 
@@ -17263,5 +17321,70 @@ mod tests {
         ];
         let f = NormalizedTick::tick_large_qty_fraction(&ticks).unwrap();
         assert!((f - 0.0).abs() < 1e-9, "expected 0.0, got {}", f);
+    }
+
+    // ── round-158 ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_side_sell_size_mean_none_for_no_sells() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![make_tick_pq(dec!(100), dec!(1))];
+        assert!(NormalizedTick::side_sell_size_mean(&ticks).is_none());
+    }
+
+    #[test]
+    fn test_side_sell_size_mean_basic() {
+        use rust_decimal_macros::dec;
+        let mut t = make_tick_pq(dec!(100), dec!(6));
+        t.side = Some(crate::tick::TradeSide::Sell);
+        let m = NormalizedTick::side_sell_size_mean(&[t]).unwrap();
+        assert!((m - 6.0).abs() < 1e-9, "expected 6.0, got {}", m);
+    }
+
+    #[test]
+    fn test_tick_autocorrelation_none_for_two() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![make_tick_pq(dec!(100), dec!(1)), make_tick_pq(dec!(101), dec!(1))];
+        assert!(NormalizedTick::tick_autocorrelation(&ticks).is_none());
+    }
+
+    #[test]
+    fn test_tick_autocorrelation_constant_none() {
+        use rust_decimal_macros::dec;
+        // constant prices → std=0 → None
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(100), dec!(1)),
+        ];
+        assert!(NormalizedTick::tick_autocorrelation(&ticks).is_none());
+    }
+
+    #[test]
+    fn test_price_ema_ratio_none_for_empty() {
+        assert!(NormalizedTick::price_ema_ratio(&[]).is_none());
+    }
+
+    #[test]
+    fn test_price_ema_ratio_constant_one() {
+        use rust_decimal_macros::dec;
+        // constant price → ema=price → ratio=1.0
+        let ticks = vec![make_tick_pq(dec!(100), dec!(1)), make_tick_pq(dec!(100), dec!(1))];
+        let r = NormalizedTick::price_ema_ratio(&ticks).unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "expected 1.0, got {}", r);
+    }
+
+    #[test]
+    fn test_tick_qty_zscore_last_none_for_single() {
+        use rust_decimal_macros::dec;
+        assert!(NormalizedTick::tick_qty_zscore_last(&[make_tick_pq(dec!(100), dec!(1))]).is_none());
+    }
+
+    #[test]
+    fn test_tick_qty_zscore_last_uniform_none() {
+        use rust_decimal_macros::dec;
+        // uniform qty → std=0 → None
+        let ticks = vec![make_tick_pq(dec!(100), dec!(5)), make_tick_pq(dec!(101), dec!(5))];
+        assert!(NormalizedTick::tick_qty_zscore_last(&ticks).is_none());
     }
 }

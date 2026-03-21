@@ -5186,6 +5186,59 @@ impl MinMaxNormalizer {
         Some(sign_changes as f64 / (diffs.len() - 1) as f64)
     }
 
+    // ── round-158 ────────────────────────────────────────────────────────────
+
+    /// Exponentially weighted sum of window values (alpha=0.1, most recent highest weight).
+    pub fn window_exponential_decay_sum(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let alpha = 0.1_f64;
+        let n = vals.len();
+        let sum: f64 = vals.iter().enumerate()
+            .map(|(i, &v)| v * alpha.powi((n - 1 - i) as i32))
+            .sum();
+        Some(sum)
+    }
+
+    /// Mean of differences between values separated by lag=1 position.
+    pub fn window_lagged_diff(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let diffs: Vec<f64> = vals.windows(2).map(|w| w[1] - w[0]).collect();
+        Some(diffs.iter().sum::<f64>() / diffs.len() as f64)
+    }
+
+    /// Ratio of window mean to window maximum.
+    pub fn window_mean_to_max(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let mean = vals.iter().sum::<f64>() / vals.len() as f64;
+        let max = vals.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        if max == 0.0 { return None; }
+        Some(mean / max)
+    }
+
+    /// Fraction of values equal to the most frequent bucket (mode approximation, 8 bins).
+    pub fn window_mode_fraction(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let min = vals.iter().cloned().fold(f64::INFINITY, f64::min);
+        let max = vals.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        if (max - min).abs() < 1e-12 { return Some(1.0); }
+        let bins = 8usize;
+        let mut counts = vec![0usize; bins];
+        for &v in &vals {
+            let idx = ((v - min) / (max - min) * bins as f64).min(bins as f64 - 1.0) as usize;
+            counts[idx] += 1;
+        }
+        let mode_count = counts.iter().cloned().max().unwrap_or(0);
+        Some(mode_count as f64 / vals.len() as f64)
+    }
+
 }
 
 #[cfg(test)]
@@ -11197,6 +11250,67 @@ mod tests {
         let f = n.window_zero_cross_fraction().unwrap();
         assert!((f - 1.0).abs() < 1e-9, "expected 1.0, got {}", f);
     }
+
+    // ── round-158 ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_minmax_window_exponential_decay_sum_none_for_empty() {
+        let n = norm(4);
+        assert!(n.window_exponential_decay_sum().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_exponential_decay_sum_positive() {
+        let mut n = norm(3);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        let s = n.window_exponential_decay_sum().unwrap();
+        assert!(s > 0.0, "expected positive, got {}", s);
+    }
+
+    #[test]
+    fn test_minmax_window_lagged_diff_none_for_single() {
+        let mut n = norm(4);
+        n.update(dec!(5));
+        assert!(n.window_lagged_diff().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_lagged_diff_constant() {
+        let mut n = norm(3);
+        for v in [dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        let d = n.window_lagged_diff().unwrap();
+        assert!((d - 0.0).abs() < 1e-9, "expected 0.0, got {}", d);
+    }
+
+    #[test]
+    fn test_minmax_window_mean_to_max_none_for_empty() {
+        let n = norm(4);
+        assert!(n.window_mean_to_max().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_mean_to_max_all_equal() {
+        let mut n = norm(3);
+        for v in [dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        // mean=max → ratio=1.0
+        let r = n.window_mean_to_max().unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "expected 1.0, got {}", r);
+    }
+
+    #[test]
+    fn test_minmax_window_mode_fraction_none_for_empty() {
+        let n = norm(4);
+        assert!(n.window_mode_fraction().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_mode_fraction_uniform() {
+        let mut n = norm(3);
+        for v in [dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        // all same → mode fraction = 1.0
+        let f = n.window_mode_fraction().unwrap();
+        assert!((f - 1.0).abs() < 1e-9, "expected 1.0, got {}", f);
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -16327,6 +16441,59 @@ impl ZScoreNormalizer {
         let diffs: Vec<f64> = vals.windows(2).map(|w| w[1] - w[0]).collect();
         let sign_changes = diffs.windows(2).filter(|w| w[0] * w[1] < 0.0).count();
         Some(sign_changes as f64 / (diffs.len() - 1) as f64)
+    }
+
+    // ── round-158 ────────────────────────────────────────────────────────────
+
+    /// Exponentially weighted sum of window values (alpha=0.1, most recent highest weight).
+    pub fn window_exponential_decay_sum(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let alpha = 0.1_f64;
+        let n = vals.len();
+        let sum: f64 = vals.iter().enumerate()
+            .map(|(i, &v)| v * alpha.powi((n - 1 - i) as i32))
+            .sum();
+        Some(sum)
+    }
+
+    /// Mean of differences between values separated by lag=1 position.
+    pub fn window_lagged_diff(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let diffs: Vec<f64> = vals.windows(2).map(|w| w[1] - w[0]).collect();
+        Some(diffs.iter().sum::<f64>() / diffs.len() as f64)
+    }
+
+    /// Ratio of window mean to window maximum.
+    pub fn window_mean_to_max(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let mean = vals.iter().sum::<f64>() / vals.len() as f64;
+        let max = vals.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        if max == 0.0 { return None; }
+        Some(mean / max)
+    }
+
+    /// Fraction of values equal to the most frequent bucket (mode approximation, 8 bins).
+    pub fn window_mode_fraction(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let min = vals.iter().cloned().fold(f64::INFINITY, f64::min);
+        let max = vals.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        if (max - min).abs() < 1e-12 { return Some(1.0); }
+        let bins = 8usize;
+        let mut counts = vec![0usize; bins];
+        for &v in &vals {
+            let idx = ((v - min) / (max - min) * bins as f64).min(bins as f64 - 1.0) as usize;
+            counts[idx] += 1;
+        }
+        let mode_count = counts.iter().cloned().max().unwrap_or(0);
+        Some(mode_count as f64 / vals.len() as f64)
     }
 
 }
@@ -22334,6 +22501,65 @@ mod zscore_stability_tests {
         let mut n = znorm(4);
         for v in [dec!(1), dec!(3), dec!(1), dec!(3)] { n.update(v); }
         let f = n.window_zero_cross_fraction().unwrap();
+        assert!((f - 1.0).abs() < 1e-9, "expected 1.0, got {}", f);
+    }
+
+    // ── round-158 ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_zscore_window_exponential_decay_sum_none_for_empty() {
+        let n = znorm(4);
+        assert!(n.window_exponential_decay_sum().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_exponential_decay_sum_positive() {
+        let mut n = znorm(3);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        let s = n.window_exponential_decay_sum().unwrap();
+        assert!(s > 0.0, "expected positive, got {}", s);
+    }
+
+    #[test]
+    fn test_zscore_window_lagged_diff_none_for_single() {
+        let mut n = znorm(4);
+        n.update(dec!(5));
+        assert!(n.window_lagged_diff().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_lagged_diff_constant() {
+        let mut n = znorm(3);
+        for v in [dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        let d = n.window_lagged_diff().unwrap();
+        assert!((d - 0.0).abs() < 1e-9, "expected 0.0, got {}", d);
+    }
+
+    #[test]
+    fn test_zscore_window_mean_to_max_none_for_empty() {
+        let n = znorm(4);
+        assert!(n.window_mean_to_max().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_mean_to_max_all_equal() {
+        let mut n = znorm(3);
+        for v in [dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        let r = n.window_mean_to_max().unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "expected 1.0, got {}", r);
+    }
+
+    #[test]
+    fn test_zscore_window_mode_fraction_none_for_empty() {
+        let n = znorm(4);
+        assert!(n.window_mode_fraction().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_mode_fraction_uniform() {
+        let mut n = znorm(3);
+        for v in [dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        let f = n.window_mode_fraction().unwrap();
         assert!((f - 1.0).abs() < 1e-9, "expected 1.0, got {}", f);
     }
 }
