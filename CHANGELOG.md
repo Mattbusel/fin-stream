@@ -9,6 +9,28 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.10.68] - 2026-03-20
+
+### Added
+
+**`tick` module — `NormalizedTick` analytics (round 217)**
+- `NormalizedTick::tick_late_vol_frac(ticks)` — fraction of total volume in the second half of the tick sequence.
+- `NormalizedTick::tick_buy_price_peak(ticks)` — highest price seen on buy-side trades.
+- `NormalizedTick::tick_sell_vol_pct(ticks)` — fraction of total volume that is sell-side.
+- `NormalizedTick::tick_price_quarter_drift(ticks)` — mean price of last quarter minus first quarter.
+
+**`ohlcv` module — `OhlcvBar` analytics (round 217)**
+- `OhlcvBar::bar_open_to_low_pct(bars)` — mean (open - low) / range (open distance from low as fraction of range).
+- `OhlcvBar::bar_high_close_pct(bars)` — mean (high - close) / range (upper tail fraction).
+- `OhlcvBar::bar_close_range_rank(bars)` — mean close position within bar's high-low range.
+
+**`norm` module — `MinMaxNormalizer` + `ZScoreNormalizer` analytics (round 217)**
+- `window_neg_run_pct()` — fraction of consecutive pairs where value decreases.
+- `window_last_pct_range()` — last value as fraction of (max - min) range.
+- `window_cv_inverse()` — mean / std (stability score; inverse of coefficient of variation).
+
+---
+
 ## [2.10.67] - 2026-03-20
 
 ### Added

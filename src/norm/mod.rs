@@ -8008,6 +8008,46 @@ impl MinMaxNormalizer {
         Some(var.sqrt())
     }
 
+    /// Fraction of consecutive pairs where value decreases (negative run percentage).
+    pub fn window_neg_run_pct(&self) -> Option<f64> {
+        if self.window.len() < 2 { return None; }
+        use rust_decimal::prelude::ToPrimitive;
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.len() < 2 { return None; }
+        let n = vals.len() - 1;
+        let neg = vals.windows(2).filter(|w| w[1] < w[0]).count();
+        Some(neg as f64 / n as f64)
+    }
+
+    /// Last value as fraction of (max - min) range: (last - min) / (max - min).
+    pub fn window_last_pct_range(&self) -> Option<f64> {
+        if self.window.len() < 2 { return None; }
+        use rust_decimal::prelude::ToPrimitive;
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.len() < 2 { return None; }
+        let min = vals.iter().cloned().fold(f64::INFINITY, f64::min);
+        let max = vals.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        let range = max - min;
+        if range == 0.0 { return None; }
+        let last = *vals.last()?;
+        Some((last - min) / range)
+    }
+
+    /// Coefficient of variation inverse: mean / std (stability score, higher = more stable).
+    pub fn window_cv_inverse(&self) -> Option<f64> {
+        if self.window.len() < 2 { return None; }
+        use rust_decimal::prelude::ToPrimitive;
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.len() < 2 { return None; }
+        let mean = vals.iter().sum::<f64>() / vals.len() as f64;
+        let std = {
+            let var = vals.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / (vals.len() - 1) as f64;
+            var.sqrt()
+        };
+        if std == 0.0 { return None; }
+        Some(mean / std)
+    }
+
 }
 
 #[cfg(test)]
@@ -17336,6 +17376,53 @@ mod tests {
         let r = n.window_biased_std().unwrap();
         assert!(r.abs() < 1e-9, "expected 0 got {}", r);
     }
+
+    #[test]
+    fn test_minmax_window_neg_run_pct_none_single() {
+        let mut n = norm(5);
+        n.update(dec!(5));
+        assert!(n.window_neg_run_pct().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_neg_run_pct_all_decreasing() {
+        let mut n = norm(4);
+        for v in [dec!(10), dec!(8), dec!(6), dec!(4)] { n.update(v); }
+        let r = n.window_neg_run_pct().unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "expected 1.0 got {}", r);
+    }
+
+    #[test]
+    fn test_minmax_window_last_pct_range_none_uniform() {
+        let mut n = norm(3);
+        for _ in 0..3 { n.update(dec!(5)); }
+        assert!(n.window_last_pct_range().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_last_pct_range_returns_bounded() {
+        let mut n = norm(4);
+        for v in [dec!(0), dec!(5), dec!(10), dec!(10)] { n.update(v); }
+        // min=0, max=10, last=10 → 1.0
+        let r = n.window_last_pct_range().unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "expected 1.0 got {}", r);
+    }
+
+    #[test]
+    fn test_minmax_window_cv_inverse_none_uniform() {
+        let mut n = norm(3);
+        for _ in 0..3 { n.update(dec!(5)); }
+        assert!(n.window_cv_inverse().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_cv_inverse_returns_value() {
+        let mut n = norm(3);
+        for v in [dec!(8), dec!(10), dec!(12)] { n.update(v); }
+        let r = n.window_cv_inverse().unwrap();
+        // mean=10, std≈2 → cv_inverse≈5
+        assert!(r > 0.0, "expected positive got {}", r);
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -25289,6 +25376,46 @@ impl ZScoreNormalizer {
         let mean = vals.iter().sum::<f64>() / vals.len() as f64;
         let var = vals.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / vals.len() as f64;
         Some(var.sqrt())
+    }
+
+    /// Fraction of consecutive pairs where value decreases (negative run percentage).
+    pub fn window_neg_run_pct(&self) -> Option<f64> {
+        if self.window.len() < 2 { return None; }
+        use rust_decimal::prelude::ToPrimitive;
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.len() < 2 { return None; }
+        let n = vals.len() - 1;
+        let neg = vals.windows(2).filter(|w| w[1] < w[0]).count();
+        Some(neg as f64 / n as f64)
+    }
+
+    /// Last value as fraction of (max - min) range: (last - min) / (max - min).
+    pub fn window_last_pct_range(&self) -> Option<f64> {
+        if self.window.len() < 2 { return None; }
+        use rust_decimal::prelude::ToPrimitive;
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.len() < 2 { return None; }
+        let min = vals.iter().cloned().fold(f64::INFINITY, f64::min);
+        let max = vals.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        let range = max - min;
+        if range == 0.0 { return None; }
+        let last = *vals.last()?;
+        Some((last - min) / range)
+    }
+
+    /// Coefficient of variation inverse: mean / std (stability score, higher = more stable).
+    pub fn window_cv_inverse(&self) -> Option<f64> {
+        if self.window.len() < 2 { return None; }
+        use rust_decimal::prelude::ToPrimitive;
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.len() < 2 { return None; }
+        let mean = vals.iter().sum::<f64>() / vals.len() as f64;
+        let std = {
+            let var = vals.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / (vals.len() - 1) as f64;
+            var.sqrt()
+        };
+        if std == 0.0 { return None; }
+        Some(mean / std)
     }
 
 }
@@ -34566,5 +34693,50 @@ mod zscore_stability_tests {
         for _ in 0..3 { n.update(dec!(7)); }
         let r = n.window_biased_std().unwrap();
         assert!(r.abs() < 1e-9, "expected 0 got {}", r);
+    }
+
+    #[test]
+    fn test_zscore_window_neg_run_pct_none_single() {
+        let mut n = znorm(5);
+        n.update(dec!(5));
+        assert!(n.window_neg_run_pct().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_neg_run_pct_all_decreasing() {
+        let mut n = znorm(4);
+        for v in [dec!(10), dec!(8), dec!(6), dec!(4)] { n.update(v); }
+        let r = n.window_neg_run_pct().unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "expected 1.0 got {}", r);
+    }
+
+    #[test]
+    fn test_zscore_window_last_pct_range_none_uniform() {
+        let mut n = znorm(3);
+        for _ in 0..3 { n.update(dec!(5)); }
+        assert!(n.window_last_pct_range().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_last_pct_range_returns_bounded() {
+        let mut n = znorm(4);
+        for v in [dec!(0), dec!(5), dec!(10), dec!(10)] { n.update(v); }
+        let r = n.window_last_pct_range().unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "expected 1.0 got {}", r);
+    }
+
+    #[test]
+    fn test_zscore_window_cv_inverse_none_uniform() {
+        let mut n = znorm(3);
+        for _ in 0..3 { n.update(dec!(5)); }
+        assert!(n.window_cv_inverse().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_cv_inverse_returns_value() {
+        let mut n = znorm(3);
+        for v in [dec!(8), dec!(10), dec!(12)] { n.update(v); }
+        let r = n.window_cv_inverse().unwrap();
+        assert!(r > 0.0, "expected positive got {}", r);
     }
 }

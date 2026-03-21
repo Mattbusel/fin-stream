@@ -9856,6 +9856,48 @@ impl OhlcvBar {
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
+    /// Mean (open - low) / range across bars (distance open to range low as fraction of range).
+    pub fn bar_open_to_low_pct(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let vals: Vec<f64> = bars.iter().filter_map(|b| {
+            let range = (b.high - b.low).to_f64()?;
+            if range == 0.0 { return None; }
+            let dist = (b.open - b.low).to_f64()?;
+            Some(dist / range)
+        }).collect();
+        if vals.is_empty() { return None; }
+        Some(vals.iter().sum::<f64>() / vals.len() as f64)
+    }
+
+    /// Mean (high - close) / range across bars (upper tail fraction).
+    pub fn bar_high_close_pct(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let vals: Vec<f64> = bars.iter().filter_map(|b| {
+            let range = (b.high - b.low).to_f64()?;
+            if range == 0.0 { return None; }
+            let dist = (b.high - b.close).to_f64()?;
+            Some(dist / range)
+        }).collect();
+        if vals.is_empty() { return None; }
+        Some(vals.iter().sum::<f64>() / vals.len() as f64)
+    }
+
+    /// Close position within bar's range ranked as 0..1 across all bars.
+    pub fn bar_close_range_rank(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let scores: Vec<f64> = bars.iter().filter_map(|b| {
+            let range = (b.high - b.low).to_f64()?;
+            if range == 0.0 { return Some(0.5); }
+            let pos = (b.close - b.low).to_f64()?;
+            Some(pos / range)
+        }).collect();
+        if scores.is_empty() { return None; }
+        Some(scores.iter().sum::<f64>() / scores.len() as f64)
+    }
+
     /// Sign of bar volume rate-of-change: +1 if volume rising, -1 if falling, 0 if equal.
     pub fn bar_vol_roc_sign(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
@@ -23559,5 +23601,44 @@ mod tests {
         let b2 = make_ohlcv_bar(dec!(100), dec!(115), dec!(85), dec!(110));
         let r = OhlcvBar::bar_hl_persistence(&[b1, b2]).unwrap();
         assert!(r >= 0.0 && r <= 1.0);
+    }
+
+    #[test]
+    fn test_bar_open_to_low_pct_empty_none() {
+        assert!(OhlcvBar::bar_open_to_low_pct(&[]).is_none());
+    }
+
+    #[test]
+    fn test_bar_open_to_low_pct_returns_bounded() {
+        // open=100, high=110, low=90, close=105 → range=20, open-low=10 → 0.5
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let r = OhlcvBar::bar_open_to_low_pct(&[b]).unwrap();
+        assert!((r - 0.5).abs() < 1e-9, "expected 0.5 got {}", r);
+    }
+
+    #[test]
+    fn test_bar_high_close_pct_empty_none() {
+        assert!(OhlcvBar::bar_high_close_pct(&[]).is_none());
+    }
+
+    #[test]
+    fn test_bar_high_close_pct_returns_bounded() {
+        // open=100, high=110, low=90, close=105 → range=20, high-close=5 → 0.25
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let r = OhlcvBar::bar_high_close_pct(&[b]).unwrap();
+        assert!((r - 0.25).abs() < 1e-9, "expected 0.25 got {}", r);
+    }
+
+    #[test]
+    fn test_bar_close_range_rank_empty_none() {
+        assert!(OhlcvBar::bar_close_range_rank(&[]).is_none());
+    }
+
+    #[test]
+    fn test_bar_close_range_rank_top_of_range() {
+        // close=110 == high → rank=1.0
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(110));
+        let r = OhlcvBar::bar_close_range_rank(&[b]).unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "expected 1.0 got {}", r);
     }
 }

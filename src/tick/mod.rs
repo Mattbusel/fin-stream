@@ -10387,6 +10387,51 @@ impl NormalizedTick {
         Some(total)
     }
 
+    /// Fraction of total volume traded in the second half of the tick sequence.
+    pub fn tick_late_vol_frac(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() { return None; }
+        let total: f64 = ticks.iter().filter_map(|t| t.quantity.to_f64()).sum();
+        if total == 0.0 { return None; }
+        let half = ticks.len() / 2;
+        let late: f64 = ticks[half..].iter().filter_map(|t| t.quantity.to_f64()).sum();
+        Some(late / total)
+    }
+
+    /// Highest buy-side price seen in the tick window.
+    pub fn tick_buy_price_peak(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() { return None; }
+        ticks.iter()
+            .filter(|t| t.side == Some(TradeSide::Buy))
+            .filter_map(|t| t.price.to_f64())
+            .reduce(f64::max)
+    }
+
+    /// Fraction of total volume that is sell-side.
+    pub fn tick_sell_vol_pct(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() { return None; }
+        let total: f64 = ticks.iter().filter_map(|t| t.quantity.to_f64()).sum();
+        if total == 0.0 { return None; }
+        let sell: f64 = ticks.iter().filter_map(|t| {
+            if t.side == Some(TradeSide::Sell) { t.quantity.to_f64() } else { None }
+        }).sum();
+        Some(sell / total)
+    }
+
+    /// Mean price of last quarter minus mean price of first quarter (short-term trend).
+    pub fn tick_price_quarter_drift(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 4 { return None; }
+        let prices: Vec<f64> = ticks.iter().filter_map(|t| t.price.to_f64()).collect();
+        if prices.len() < 4 { return None; }
+        let q = prices.len() / 4;
+        let early_mean = prices[..q].iter().sum::<f64>() / q as f64;
+        let late_mean = prices[prices.len() - q..].iter().sum::<f64>() / q as f64;
+        Some(late_mean - early_mean)
+    }
+
     /// Total traded volume divided by number of ticks (average volume per trade).
     pub fn tick_vol_turnover(ticks: &[NormalizedTick]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
@@ -25056,5 +25101,88 @@ mod tests {
         ];
         let r = NormalizedTick::tick_price_floor_pct(&ticks).unwrap();
         assert!(r >= 0.0 && r <= 1.0);
+    }
+
+    #[test]
+    fn test_tick_late_vol_frac_empty_none() {
+        assert!(NormalizedTick::tick_late_vol_frac(&[]).is_none());
+    }
+
+    #[test]
+    fn test_tick_late_vol_frac_returns_bounded() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(101), dec!(1)),
+            make_tick_pq(dec!(102), dec!(3)),
+            make_tick_pq(dec!(103), dec!(3)),
+        ];
+        // total=8, late half=[3,3]=6 → 6/8=0.75
+        let r = NormalizedTick::tick_late_vol_frac(&ticks).unwrap();
+        assert!((r - 0.75).abs() < 1e-6, "expected 0.75 got {}", r);
+    }
+
+    #[test]
+    fn test_tick_buy_price_peak_empty_none() {
+        assert!(NormalizedTick::tick_buy_price_peak(&[]).is_none());
+    }
+
+    #[test]
+    fn test_tick_buy_price_peak_returns_max() {
+        use rust_decimal_macros::dec;
+        use crate::tick::TradeSide;
+        let mut b1 = make_tick_pq(dec!(100), dec!(1));
+        b1.side = Some(TradeSide::Buy);
+        let mut b2 = make_tick_pq(dec!(120), dec!(1));
+        b2.side = Some(TradeSide::Buy);
+        let ticks = vec![b1, b2];
+        let r = NormalizedTick::tick_buy_price_peak(&ticks).unwrap();
+        assert!((r - 120.0).abs() < 1e-6, "expected 120.0 got {}", r);
+    }
+
+    #[test]
+    fn test_tick_sell_vol_pct_empty_none() {
+        assert!(NormalizedTick::tick_sell_vol_pct(&[]).is_none());
+    }
+
+    #[test]
+    fn test_tick_sell_vol_pct_returns_bounded() {
+        use rust_decimal_macros::dec;
+        use crate::tick::TradeSide;
+        let mut s = make_tick_pq(dec!(100), dec!(4));
+        s.side = Some(TradeSide::Sell);
+        let mut b = make_tick_pq(dec!(101), dec!(6));
+        b.side = Some(TradeSide::Buy);
+        let ticks = vec![s, b];
+        // sell=4, total=10 → 0.4
+        let r = NormalizedTick::tick_sell_vol_pct(&ticks).unwrap();
+        assert!((r - 0.4).abs() < 1e-6, "expected 0.4 got {}", r);
+    }
+
+    #[test]
+    fn test_tick_price_quarter_drift_too_few_none() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(101), dec!(1)),
+        ];
+        assert!(NormalizedTick::tick_price_quarter_drift(&ticks).is_none());
+    }
+
+    #[test]
+    fn test_tick_price_quarter_drift_returns_value() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(110), dec!(1)),
+            make_tick_pq(dec!(110), dec!(1)),
+            make_tick_pq(dec!(110), dec!(1)),
+            make_tick_pq(dec!(120), dec!(1)),
+            make_tick_pq(dec!(120), dec!(1)),
+        ];
+        let r = NormalizedTick::tick_price_quarter_drift(&ticks).unwrap();
+        assert!(r > 0.0, "expected positive drift got {}", r);
     }
 }
