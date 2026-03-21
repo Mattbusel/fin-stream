@@ -9,6 +9,30 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.10.37] - 2026-03-20
+
+### Added
+
+**`tick` module — `NormalizedTick` analytics (round 186)**
+- `NormalizedTick::tick_time_weighted_price(ticks)` — time-weighted average price using received_at_ms intervals.
+- `NormalizedTick::price_abs_return_sum(ticks)` — sum of absolute price returns.
+- `NormalizedTick::tick_spread_per_qty(ticks)` — mean price / quantity per tick.
+- `NormalizedTick::price_trend_reversal_count(ticks)` — count of price trend reversals (up→down or down→up).
+
+**`ohlcv` module — `OhlcvBar` analytics (round 186)**
+- `OhlcvBar::bar_ohlc_mean(bars)` — mean (open + high + low + close) / 4 per bar.
+- `OhlcvBar::bar_open_close_accel(bars)` — mean second difference of (close - open): body acceleration.
+- `OhlcvBar::bar_close_vol_zscore(bars)` — z-score of the latest close vs. rolling close distribution.
+- `OhlcvBar::bar_open_range_pct(bars)` — mean (open - low) / (high - low): open position within bar range.
+
+**`norm` module — `MinMaxNormalizer` + `ZScoreNormalizer` analytics (round 186)**
+- `window_zscore_range()` — range of z-scores within the window.
+- `window_percentile_rank()` — percentile rank of the last window value.
+- `window_mean_abs_dev_f64()` — mean absolute deviation of window values.
+- `window_max_run_length_f64()` — max consecutive run of same sign as f64.
+
+---
+
 ## [2.10.36] - 2026-03-20
 
 ### Added

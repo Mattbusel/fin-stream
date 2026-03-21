@@ -9252,6 +9252,65 @@ impl NormalizedTick {
         Some(var.sqrt())
     }
 
+    /// Time-weighted average price: sum(price * qty * dt) / sum(qty * dt).
+    pub fn tick_time_weighted_price(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 2 { return None; }
+        let mut weighted_sum = 0.0f64;
+        let mut weight_total = 0.0f64;
+        for i in 1..ticks.len() {
+            let dt = (ticks[i].received_at_ms.saturating_sub(ticks[i - 1].received_at_ms)) as f64;
+            if let (Some(price), Some(qty)) = (ticks[i].price.to_f64(), ticks[i].quantity.to_f64()) {
+                weighted_sum += price * qty * dt;
+                weight_total += qty * dt;
+            }
+        }
+        if weight_total == 0.0 { return None; }
+        Some(weighted_sum / weight_total)
+    }
+
+    /// Sum of absolute price returns: sum(|price[i]/price[i-1] - 1|).
+    pub fn price_abs_return_sum(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 2 { return None; }
+        let prices: Vec<f64> = ticks.iter().filter_map(|t| t.price.to_f64()).collect();
+        if prices.len() < 2 { return None; }
+        let sum: f64 = prices.windows(2).filter_map(|w| {
+            if w[0] == 0.0 { return None; }
+            Some((w[1] / w[0] - 1.0).abs())
+        }).sum();
+        Some(sum)
+    }
+
+    /// Mean price / quantity per tick (spread proxy per unit).
+    pub fn tick_spread_per_qty(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() { return None; }
+        let vals: Vec<f64> = ticks.iter().filter_map(|t| {
+            let p = t.price.to_f64()?;
+            let q = t.quantity.to_f64()?;
+            if q == 0.0 { return None; }
+            Some(p / q)
+        }).collect();
+        if vals.is_empty() { return None; }
+        Some(vals.iter().sum::<f64>() / vals.len() as f64)
+    }
+
+    /// Count of price trend reversals: transitions from up to down or down to up.
+    pub fn price_trend_reversal_count(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 3 { return None; }
+        let prices: Vec<f64> = ticks.iter().filter_map(|t| t.price.to_f64()).collect();
+        if prices.len() < 3 { return None; }
+        let signs: Vec<i8> = prices.windows(2).map(|w| {
+            if w[1] > w[0] { 1 } else if w[1] < w[0] { -1 } else { 0 }
+        }).collect();
+        let reversals = signs.windows(2).filter(|w| {
+            (w[0] == 1 && w[1] == -1) || (w[0] == -1 && w[1] == 1)
+        }).count();
+        Some(reversals as f64)
+    }
+
 }
 
 
@@ -21042,6 +21101,55 @@ mod tests {
             make_tick_pq(dec!(100), dec!(1)),
         ];
         let r = NormalizedTick::price_return_std(&ticks).unwrap();
+        assert!(r.abs() < 1e-9, "expected 0.0, got {}", r);
+    }
+
+    #[test]
+    fn test_tick_time_weighted_price_empty_none() {
+        use rust_decimal_macros::dec;
+        assert!(NormalizedTick::tick_time_weighted_price(&[]).is_none());
+    }
+
+    #[test]
+    fn test_price_abs_return_sum_empty_none() {
+        use rust_decimal_macros::dec;
+        assert!(NormalizedTick::price_abs_return_sum(&[]).is_none());
+    }
+
+    #[test]
+    fn test_price_abs_return_sum_constant_zero() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(100), dec!(1)),
+        ];
+        let r = NormalizedTick::price_abs_return_sum(&ticks).unwrap();
+        assert!(r.abs() < 1e-9, "expected 0.0, got {}", r);
+    }
+
+    #[test]
+    fn test_tick_spread_per_qty_empty_none() {
+        use rust_decimal_macros::dec;
+        assert!(NormalizedTick::tick_spread_per_qty(&[]).is_none());
+    }
+
+    #[test]
+    fn test_price_trend_reversal_count_empty_none() {
+        use rust_decimal_macros::dec;
+        assert!(NormalizedTick::price_trend_reversal_count(&[]).is_none());
+    }
+
+    #[test]
+    fn test_price_trend_reversal_count_monotone_zero() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(101), dec!(1)),
+            make_tick_pq(dec!(102), dec!(1)),
+            make_tick_pq(dec!(103), dec!(1)),
+        ];
+        let r = NormalizedTick::price_trend_reversal_count(&ticks).unwrap();
         assert!(r.abs() < 1e-9, "expected 0.0, got {}", r);
     }
 }

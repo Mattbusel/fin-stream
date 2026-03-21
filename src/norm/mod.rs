@@ -6545,6 +6545,58 @@ impl MinMaxNormalizer {
         Some(self.window.iter().filter(|v| v.to_f64().unwrap_or(0.0) > 0.0).count() as f64)
     }
 
+    /// Range of z-scores within window: (max - min) / std.
+    pub fn window_zscore_range(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let mean = vals.iter().sum::<f64>() / vals.len() as f64;
+        let std = (vals.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / vals.len() as f64).sqrt();
+        if std == 0.0 { return None; }
+        let zscores: Vec<f64> = vals.iter().map(|v| (v - mean) / std).collect();
+        let zmin = zscores.iter().cloned().fold(f64::INFINITY, f64::min);
+        let zmax = zscores.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        Some(zmax - zmin)
+    }
+
+    /// Percentile rank of the last window value: fraction of values <= last.
+    pub fn window_percentile_rank(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let last = *vals.last()?;
+        let rank = vals.iter().filter(|&&v| v <= last).count();
+        Some(rank as f64 / vals.len() as f64)
+    }
+
+    /// Mean absolute deviation: mean(|val - mean|).
+    pub fn window_mean_abs_dev_f64(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let mean = vals.iter().sum::<f64>() / vals.len() as f64;
+        Some(vals.iter().map(|v| (v - mean).abs()).sum::<f64>() / vals.len() as f64)
+    }
+
+    /// Max run length of same sign as f64 (same logic as window_max_run_length but returns f64).
+    pub fn window_max_run_length_f64(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let signs: Vec<i8> = vals.iter().map(|&v| if v > 0.0 { 1 } else if v < 0.0 { -1 } else { 0 }).collect();
+        let mut max_run = 1usize;
+        let mut run = 1usize;
+        for i in 1..signs.len() {
+            if signs[i] == signs[i - 1] && signs[i] != 0 {
+                run += 1;
+                if run > max_run { max_run = run; }
+            } else {
+                run = 1;
+            }
+        }
+        Some(max_run as f64)
+    }
+
 }
 
 #[cfg(test)]
@@ -14246,6 +14298,67 @@ mod tests {
         let r = n.window_above_zero_count().unwrap();
         assert!((r - 4.0).abs() < 1e-9, "expected 4.0, got {}", r);
     }
+
+    #[test]
+    fn test_minmax_window_zscore_range_none_for_constant() {
+        let mut n = norm(4);
+        for v in [dec!(5), dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        assert!(n.window_zscore_range().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_zscore_range_value() {
+        // 1,2,3,4 → std=(10/4 - 2.5^2).sqrt() → range is symmetric: ~2.46
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let r = n.window_zscore_range().unwrap();
+        assert!(r > 0.0, "expected positive, got {}", r);
+    }
+
+    #[test]
+    fn test_minmax_window_percentile_rank_none_for_empty() {
+        let n = norm(4);
+        assert!(n.window_percentile_rank().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_percentile_rank_last_is_max() {
+        // 1,2,3,4 → last=4 → rank=1.0
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let r = n.window_percentile_rank().unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "expected 1.0, got {}", r);
+    }
+
+    #[test]
+    fn test_minmax_window_mean_abs_dev_f64_none_for_empty() {
+        let n = norm(4);
+        assert!(n.window_mean_abs_dev_f64().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_mean_abs_dev_f64_constant_zero() {
+        let mut n = norm(4);
+        for v in [dec!(5), dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        let r = n.window_mean_abs_dev_f64().unwrap();
+        assert!(r.abs() < 1e-9, "expected 0.0, got {}", r);
+    }
+
+    #[test]
+    fn test_minmax_window_max_run_length_f64_none_for_single() {
+        let mut n = norm(4);
+        n.update(dec!(5));
+        assert!(n.window_max_run_length_f64().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_max_run_length_f64_all_positive() {
+        // All positive → one run of length 4
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let r = n.window_max_run_length_f64().unwrap();
+        assert!((r - 4.0).abs() < 1e-9, "expected 4.0, got {}", r);
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -20739,6 +20852,58 @@ impl ZScoreNormalizer {
         use rust_decimal::prelude::ToPrimitive;
         if self.window.is_empty() { return None; }
         Some(self.window.iter().filter(|v| v.to_f64().unwrap_or(0.0) > 0.0).count() as f64)
+    }
+
+    /// Range of z-scores within window: (max - min) / std.
+    pub fn window_zscore_range(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let mean = vals.iter().sum::<f64>() / vals.len() as f64;
+        let std = (vals.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / vals.len() as f64).sqrt();
+        if std == 0.0 { return None; }
+        let zscores: Vec<f64> = vals.iter().map(|v| (v - mean) / std).collect();
+        let zmin = zscores.iter().cloned().fold(f64::INFINITY, f64::min);
+        let zmax = zscores.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        Some(zmax - zmin)
+    }
+
+    /// Percentile rank of the last window value: fraction of values <= last.
+    pub fn window_percentile_rank(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let last = *vals.last()?;
+        let rank = vals.iter().filter(|&&v| v <= last).count();
+        Some(rank as f64 / vals.len() as f64)
+    }
+
+    /// Mean absolute deviation: mean(|val - mean|).
+    pub fn window_mean_abs_dev_f64(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let mean = vals.iter().sum::<f64>() / vals.len() as f64;
+        Some(vals.iter().map(|v| (v - mean).abs()).sum::<f64>() / vals.len() as f64)
+    }
+
+    /// Max run length of same sign as f64.
+    pub fn window_max_run_length_f64(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let signs: Vec<i8> = vals.iter().map(|&v| if v > 0.0 { 1 } else if v < 0.0 { -1 } else { 0 }).collect();
+        let mut max_run = 1usize;
+        let mut run = 1usize;
+        for i in 1..signs.len() {
+            if signs[i] == signs[i - 1] && signs[i] != 0 {
+                run += 1;
+                if run > max_run { max_run = run; }
+            } else {
+                run = 1;
+            }
+        }
+        Some(max_run as f64)
     }
 
 }
@@ -28394,6 +28559,64 @@ mod zscore_stability_tests {
         let mut n = znorm(4);
         for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
         let r = n.window_above_zero_count().unwrap();
+        assert!((r - 4.0).abs() < 1e-9, "expected 4.0, got {}", r);
+    }
+
+    #[test]
+    fn test_zscore_window_zscore_range_none_for_constant() {
+        let mut n = znorm(4);
+        for v in [dec!(5), dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        assert!(n.window_zscore_range().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_zscore_range_value() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let r = n.window_zscore_range().unwrap();
+        assert!(r > 0.0, "expected positive, got {}", r);
+    }
+
+    #[test]
+    fn test_zscore_window_percentile_rank_none_for_empty() {
+        let n = znorm(4);
+        assert!(n.window_percentile_rank().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_percentile_rank_last_is_max() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let r = n.window_percentile_rank().unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "expected 1.0, got {}", r);
+    }
+
+    #[test]
+    fn test_zscore_window_mean_abs_dev_f64_none_for_empty() {
+        let n = znorm(4);
+        assert!(n.window_mean_abs_dev_f64().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_mean_abs_dev_f64_constant_zero() {
+        let mut n = znorm(4);
+        for v in [dec!(5), dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        let r = n.window_mean_abs_dev_f64().unwrap();
+        assert!(r.abs() < 1e-9, "expected 0.0, got {}", r);
+    }
+
+    #[test]
+    fn test_zscore_window_max_run_length_f64_none_for_single() {
+        let mut n = znorm(4);
+        n.update(dec!(5));
+        assert!(n.window_max_run_length_f64().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_max_run_length_f64_all_positive() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let r = n.window_max_run_length_f64().unwrap();
         assert!((r - 4.0).abs() < 1e-9, "expected 4.0, got {}", r);
     }
 }
