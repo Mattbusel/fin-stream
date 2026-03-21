@@ -5215,6 +5215,63 @@ impl OhlcvBar {
         Some(sum / bars.len() as f64)
     }
 
+    // ── round-116 ────────────────────────────────────────────────────────────
+
+    /// Mean of `high - close` across bars. Returns `None` for empty input.
+    pub fn avg_high_to_close(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let sum: f64 = bars.iter().map(|b| (b.high - b.close).to_f64().unwrap_or(0.0)).sum();
+        Some(sum / bars.len() as f64)
+    }
+
+    /// Shannon entropy of bar body-size distribution across 8 equal-width buckets.
+    /// Returns `None` for fewer than 2 bars.
+    pub fn bar_size_entropy(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.len() < 2 { return None; }
+        let sizes: Vec<f64> = bars.iter().map(|b| (b.close - b.open).abs().to_f64().unwrap_or(0.0)).collect();
+        let max = sizes.iter().cloned().fold(0f64, f64::max);
+        let min = sizes.iter().cloned().fold(f64::INFINITY, f64::min);
+        let range = max - min;
+        const BUCKETS: usize = 8;
+        let mut counts = [0usize; BUCKETS];
+        if range == 0.0 {
+            counts[0] = sizes.len();
+        } else {
+            for &s in &sizes {
+                let idx = ((s - min) / range * (BUCKETS - 1) as f64) as usize;
+                counts[idx.min(BUCKETS - 1)] += 1;
+            }
+        }
+        let n = sizes.len() as f64;
+        let entropy = counts.iter().map(|&c| {
+            if c == 0 { 0.0 } else { let p = c as f64 / n; -p * p.ln() }
+        }).sum();
+        Some(entropy)
+    }
+
+    /// Mean `(close - open) / open` percentage change per bar.
+    /// Bars with zero open are skipped. Returns `None` if no eligible bars.
+    pub fn close_to_open_pct(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let mut sum = 0f64;
+        let mut cnt = 0usize;
+        for b in bars {
+            if b.open.is_zero() { continue; }
+            sum += ((b.close - b.open) / b.open).to_f64().unwrap_or(0.0);
+            cnt += 1;
+        }
+        if cnt == 0 { None } else { Some(sum / cnt as f64) }
+    }
+
+    /// Fraction of bars where close > open (bullish). Returns `None` for empty input.
+    pub fn body_direction_score(bars: &[OhlcvBar]) -> Option<f64> {
+        if bars.is_empty() { return None; }
+        let bullish = bars.iter().filter(|b| b.close > b.open).count();
+        Some(bullish as f64 / bars.len() as f64)
+    }
+
 }
 
 impl std::fmt::Display for OhlcvBar {
@@ -12312,5 +12369,61 @@ mod tests {
         let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
         let c = OhlcvBar::avg_close_to_low(&[b]).unwrap();
         assert!((c - 15.0).abs() < 1e-9, "expected 15.0, got {}", c);
+    }
+
+    #[test]
+    fn test_avg_high_to_close_none_for_empty() {
+        assert!(OhlcvBar::avg_high_to_close(&[]).is_none());
+    }
+
+    #[test]
+    fn test_avg_high_to_close_basic() {
+        // high=110, close=105 → high-close=5
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let v = OhlcvBar::avg_high_to_close(&[b]).unwrap();
+        assert!((v - 5.0).abs() < 1e-9, "expected 5.0, got {}", v);
+    }
+
+    #[test]
+    fn test_bar_size_entropy_none_for_single() {
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        assert!(OhlcvBar::bar_size_entropy(&[b]).is_none());
+    }
+
+    #[test]
+    fn test_bar_size_entropy_basic() {
+        // two bars → some entropy
+        let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let b2 = make_ohlcv_bar(dec!(100), dec!(115), dec!(95), dec!(110));
+        let e = OhlcvBar::bar_size_entropy(&[b1, b2]);
+        assert!(e.is_some());
+    }
+
+    #[test]
+    fn test_close_to_open_pct_none_for_zero_open() {
+        let mut b = make_ohlcv_bar(dec!(0), dec!(110), dec!(90), dec!(105));
+        b.open = dec!(0);
+        assert!(OhlcvBar::close_to_open_pct(&[b]).is_none());
+    }
+
+    #[test]
+    fn test_close_to_open_pct_basic() {
+        // open=100, close=110 → 10%
+        let b = make_ohlcv_bar(dec!(100), dec!(115), dec!(95), dec!(110));
+        let p = OhlcvBar::close_to_open_pct(&[b]).unwrap();
+        assert!((p - 0.1).abs() < 1e-9, "expected 0.1, got {}", p);
+    }
+
+    #[test]
+    fn test_body_direction_score_none_for_empty() {
+        assert!(OhlcvBar::body_direction_score(&[]).is_none());
+    }
+
+    #[test]
+    fn test_body_direction_score_all_bullish() {
+        let b1 = make_ohlcv_bar(dec!(100), dec!(115), dec!(95), dec!(110));
+        let b2 = make_ohlcv_bar(dec!(100), dec!(120), dec!(95), dec!(115));
+        let s = OhlcvBar::body_direction_score(&[b1, b2]).unwrap();
+        assert!((s - 1.0).abs() < 1e-9, "expected 1.0, got {}", s);
     }
 }

@@ -5251,6 +5251,54 @@ impl NormalizedTick {
         Some(sum / (ticks.len() - 1) as f64)
     }
 
+    // ── round-116 ────────────────────────────────────────────────────────────
+
+    /// Price momentum index: fraction of consecutive pairs with rising price.
+    /// Returns `None` for fewer than 2 ticks.
+    pub fn price_momentum_index(ticks: &[NormalizedTick]) -> Option<f64> {
+        if ticks.len() < 2 { return None; }
+        let rising = ticks.windows(2).filter(|w| w[1].price > w[0].price).count();
+        Some(rising as f64 / (ticks.len() - 1) as f64)
+    }
+
+    /// Ratio of quantity range to mean quantity.
+    /// Returns `None` for empty input or zero mean quantity.
+    pub fn qty_range_ratio(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() { return None; }
+        let max_q = ticks.iter().map(|t| t.quantity).fold(ticks[0].quantity, |a, b| a.max(b));
+        let min_q = ticks.iter().map(|t| t.quantity).fold(ticks[0].quantity, |a, b| a.min(b));
+        let n = ticks.len() as f64;
+        let mean_q = ticks.iter().map(|t| t.quantity.to_f64().unwrap_or(0.0)).sum::<f64>() / n;
+        if mean_q == 0.0 { return None; }
+        ((max_q - min_q) / rust_decimal::Decimal::from_f64_retain(mean_q)?).to_f64()
+    }
+
+    /// Price change from the last tick to the one before it.
+    /// Returns `None` for fewer than 2 ticks.
+    pub fn recent_price_change(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 2 { return None; }
+        let n = ticks.len();
+        (ticks[n - 1].price - ticks[n - 2].price).to_f64()
+    }
+
+    /// Length of the longest consecutive run of sell-side ticks.
+    /// Returns `None` if no sell-side ticks exist.
+    pub fn sell_dominance_streak(ticks: &[NormalizedTick]) -> Option<usize> {
+        let mut max_run = 0usize;
+        let mut cur_run = 0usize;
+        for t in ticks {
+            if matches!(t.side, Some(TradeSide::Sell)) {
+                cur_run += 1;
+                if cur_run > max_run { max_run = cur_run; }
+            } else {
+                cur_run = 0;
+            }
+        }
+        if max_run == 0 { None } else { Some(max_run) }
+    }
+
 }
 
 
@@ -12070,5 +12118,61 @@ mod tests {
         let t3 = make_tick_pq(dec!(115), dec!(1));
         let g = NormalizedTick::price_gap_mean(&[t1, t2, t3]).unwrap();
         assert!((g - 7.5).abs() < 1e-9, "expected 7.5, got {}", g);
+    }
+
+    #[test]
+    fn test_price_momentum_index_none_for_single() {
+        use rust_decimal_macros::dec;
+        let t = make_tick_pq(dec!(100), dec!(1));
+        assert!(NormalizedTick::price_momentum_index(&[t]).is_none());
+    }
+
+    #[test]
+    fn test_price_momentum_index_basic() {
+        use rust_decimal_macros::dec;
+        // all rising → 1.0
+        let t1 = make_tick_pq(dec!(100), dec!(1));
+        let t2 = make_tick_pq(dec!(101), dec!(1));
+        let t3 = make_tick_pq(dec!(102), dec!(1));
+        let m = NormalizedTick::price_momentum_index(&[t1, t2, t3]).unwrap();
+        assert!((m - 1.0).abs() < 1e-9, "expected 1.0, got {}", m);
+    }
+
+    #[test]
+    fn test_qty_range_ratio_none_for_empty() {
+        assert!(NormalizedTick::qty_range_ratio(&[]).is_none());
+    }
+
+    #[test]
+    fn test_qty_range_ratio_basic() {
+        use rust_decimal_macros::dec;
+        // qtys: 1, 3 → range=2, mean=2 → ratio=1.0
+        let t1 = make_tick_pq(dec!(100), dec!(1));
+        let t2 = make_tick_pq(dec!(101), dec!(3));
+        let r = NormalizedTick::qty_range_ratio(&[t1, t2]).unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "expected 1.0, got {}", r);
+    }
+
+    #[test]
+    fn test_recent_price_change_none_for_single() {
+        use rust_decimal_macros::dec;
+        let t = make_tick_pq(dec!(100), dec!(1));
+        assert!(NormalizedTick::recent_price_change(&[t]).is_none());
+    }
+
+    #[test]
+    fn test_recent_price_change_basic() {
+        use rust_decimal_macros::dec;
+        let t1 = make_tick_pq(dec!(100), dec!(1));
+        let t2 = make_tick_pq(dec!(105), dec!(1));
+        let c = NormalizedTick::recent_price_change(&[t1, t2]).unwrap();
+        assert!((c - 5.0).abs() < 1e-9, "expected 5.0, got {}", c);
+    }
+
+    #[test]
+    fn test_sell_dominance_streak_none_when_no_sell() {
+        use rust_decimal_macros::dec;
+        let t = make_tick_pq(dec!(100), dec!(1));
+        assert!(NormalizedTick::sell_dominance_streak(&[t]).is_none());
     }
 }

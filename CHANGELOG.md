@@ -9,6 +9,36 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.6.7] - 2026-03-20
+
+### Added
+
+**`tick` module — `NormalizedTick` analytics (round 116)**
+- `NormalizedTick::price_momentum_index(ticks)` — fraction of consecutive pairs with rising price.
+- `NormalizedTick::qty_range_ratio(ticks)` — quantity range divided by mean quantity.
+- `NormalizedTick::recent_price_change(ticks)` — price change from second-to-last to last tick.
+- `NormalizedTick::sell_dominance_streak(ticks)` — longest consecutive run of sell-side ticks.
+
+**`ohlcv` module — `OhlcvBar` analytics (round 116)**
+- `OhlcvBar::avg_high_to_close(bars)` — mean `high - close` across bars.
+- `OhlcvBar::bar_size_entropy(bars)` — Shannon entropy of bar body-size distribution.
+- `OhlcvBar::close_to_open_pct(bars)` — mean `(close - open) / open` percentage per bar.
+- `OhlcvBar::body_direction_score(bars)` — fraction of bullish (close > open) bars.
+
+**`norm` module — `MinMaxNormalizer` analytics (round 116)**
+- `MinMaxNormalizer::window_max_deviation()` — maximum absolute deviation from the window mean.
+- `MinMaxNormalizer::window_range_mean_ratio()` — ratio of window range to mean.
+- `MinMaxNormalizer::window_step_up_count()` — count of strictly increasing consecutive pairs.
+- `MinMaxNormalizer::window_step_down_count()` — count of strictly decreasing consecutive pairs.
+
+**`norm` module — `ZScoreNormalizer` analytics (round 116)**
+- `ZScoreNormalizer::window_max_deviation()` — maximum absolute deviation from the window mean.
+- `ZScoreNormalizer::window_range_mean_ratio()` — ratio of window range to mean.
+- `ZScoreNormalizer::window_step_up_count()` — count of strictly increasing consecutive pairs.
+- `ZScoreNormalizer::window_step_down_count()` — count of strictly decreasing consecutive pairs.
+
+---
+
 ## [2.6.6] - 2026-03-20
 
 ### Added
