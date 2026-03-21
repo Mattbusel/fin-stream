@@ -9,6 +9,29 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.10.51] - 2026-03-20
+
+### Added
+
+**`tick` module — `NormalizedTick` analytics (round 200)**
+- `NormalizedTick::tick_last_qty_rank(ticks)` — percentile rank of last tick quantity within all quantities.
+- `NormalizedTick::tick_price_mean_cross(ticks)` — count of upward crossings of the mean price.
+- `NormalizedTick::tick_qty_vol_corr(ticks)` — Pearson correlation of per-tick price to quantity.
+- `NormalizedTick::tick_side_skew(ticks)` — (buy_count - sell_count) / total_with_side.
+
+**`ohlcv` module — `OhlcvBar` analytics (round 200)**
+- `OhlcvBar::bar_vol_change_sign(bars)` — sign of volume trend (second half vs first half).
+- `OhlcvBar::bar_wick_momentum(bars)` — mean (upper_shadow - lower_shadow) across bars.
+- `OhlcvBar::bar_open_vol_trend(bars)` — fraction of volume in gap-up bars (open > previous close).
+
+**`norm` module — `MinMaxNormalizer` + `ZScoreNormalizer` analytics (round 200)**
+- `window_below_mean_run()` — length of the longest run of consecutive values below the window mean.
+- `window_value_run()` — fraction of consecutive pairs moving in the same direction.
+- `window_slope_sign()` — sign of the linear slope of the window (1.0, -1.0, or 0.0).
+- `window_dominant_value_pct()` — fraction of values matching the most common value bin (2% tolerance).
+
+---
+
 ## [2.10.50] - 2026-03-20
 
 ### Added

@@ -9721,6 +9721,43 @@ impl OhlcvBar {
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
+    /// Sign of volume trend (positive if second half volume > first half).
+    pub fn bar_vol_change_sign(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.len() < 2 { return None; }
+        let half = bars.len() / 2;
+        let first: f64 = bars[..half].iter().filter_map(|b| b.volume.to_f64()).sum();
+        let second: f64 = bars[half..].iter().filter_map(|b| b.volume.to_f64()).sum();
+        if second > first { Some(1.0) } else if second < first { Some(-1.0) } else { Some(0.0) }
+    }
+
+    /// Mean of (upper_shadow - lower_shadow) across bars — wick directional momentum.
+    pub fn bar_wick_momentum(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let vals: Vec<f64> = bars.iter().filter_map(|b| {
+            let body_top = if b.close > b.open { b.close } else { b.open };
+            let body_bot = if b.close < b.open { b.close } else { b.open };
+            let upper = (b.high - body_top).to_f64()?;
+            let lower = (body_bot - b.low).to_f64()?;
+            Some(upper - lower)
+        }).collect();
+        if vals.is_empty() { return None; }
+        Some(vals.iter().sum::<f64>() / vals.len() as f64)
+    }
+
+    /// Fraction of volume in bars with open > previous close (gap-up bars).
+    pub fn bar_open_vol_trend(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.len() < 2 { return None; }
+        let total_vol: f64 = bars.iter().filter_map(|b| b.volume.to_f64()).sum();
+        if total_vol == 0.0 { return None; }
+        let gap_vol: f64 = bars.windows(2).filter_map(|w| {
+            if w[1].open > w[0].close { w[1].volume.to_f64() } else { None }
+        }).sum();
+        Some(gap_vol / total_vol)
+    }
+
     /// Mean volume per unit of body size across bars.
     pub fn bar_vol_body_ratio(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
@@ -21755,5 +21792,47 @@ mod tests {
         let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
         let r = OhlcvBar::bar_vol_body_ratio(&[b]).unwrap();
         assert!(r > 0.0);
+    }
+
+    #[test]
+    fn test_bar_vol_change_sign_too_few_none() {
+        assert!(OhlcvBar::bar_vol_change_sign(&[]).is_none());
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        assert!(OhlcvBar::bar_vol_change_sign(&[b]).is_none());
+    }
+
+    #[test]
+    fn test_bar_vol_change_sign_returns_sign() {
+        let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let b2 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let r = OhlcvBar::bar_vol_change_sign(&[b1, b2]).unwrap();
+        assert!(r == 0.0 || r == 1.0 || r == -1.0);
+    }
+
+    #[test]
+    fn test_bar_wick_momentum_empty_none() {
+        assert!(OhlcvBar::bar_wick_momentum(&[]).is_none());
+    }
+
+    #[test]
+    fn test_bar_wick_momentum_returns_value() {
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let r = OhlcvBar::bar_wick_momentum(&[b]);
+        assert!(r.is_some());
+    }
+
+    #[test]
+    fn test_bar_open_vol_trend_too_few_none() {
+        assert!(OhlcvBar::bar_open_vol_trend(&[]).is_none());
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        assert!(OhlcvBar::bar_open_vol_trend(&[b]).is_none());
+    }
+
+    #[test]
+    fn test_bar_open_vol_trend_returns_bounded() {
+        let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let b2 = make_ohlcv_bar(dec!(106), dec!(115), dec!(95), dec!(110));
+        let r = OhlcvBar::bar_open_vol_trend(&[b1, b2]).unwrap();
+        assert!(r >= 0.0 && r <= 1.0);
     }
 }

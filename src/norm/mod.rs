@@ -7274,6 +7274,67 @@ impl MinMaxNormalizer {
         Some(max / range)
     }
 
+    /// Length of the longest run of consecutive values below the window mean.
+    pub fn window_below_mean_run(&self) -> Option<f64> {
+        if self.window.is_empty() { return None; }
+        use rust_decimal::prelude::ToPrimitive;
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.is_empty() { return None; }
+        let mean = vals.iter().sum::<f64>() / vals.len() as f64;
+        let mut max_run = 0usize;
+        let mut cur_run = 0usize;
+        for v in &vals {
+            if *v < mean { cur_run += 1; max_run = max_run.max(cur_run); }
+            else { cur_run = 0; }
+        }
+        Some(max_run as f64)
+    }
+
+    /// Fraction of consecutive pairs where both move in the same direction.
+    pub fn window_value_run(&self) -> Option<f64> {
+        if self.window.len() < 2 { return None; }
+        use rust_decimal::prelude::ToPrimitive;
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.len() < 2 { return None; }
+        let n = vals.len() - 1;
+        let same = vals.windows(3).filter(|w| {
+            let d1 = w[1] - w[0];
+            let d2 = w[2] - w[1];
+            d1 * d2 > 0.0
+        }).count();
+        if n < 2 { return Some(0.0); }
+        Some(same as f64 / (n - 1) as f64)
+    }
+
+    /// Sign of the linear slope (1.0 if positive, -1.0 if negative, 0.0 if flat).
+    pub fn window_slope_sign(&self) -> Option<f64> {
+        if self.window.len() < 2 { return None; }
+        use rust_decimal::prelude::ToPrimitive;
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.len() < 2 { return None; }
+        let n = vals.len() as f64;
+        let x_mean = (n - 1.0) / 2.0;
+        let y_mean = vals.iter().sum::<f64>() / n;
+        let num: f64 = vals.iter().enumerate()
+            .map(|(i, y)| (i as f64 - x_mean) * (y - y_mean))
+            .sum();
+        if num > 1e-12 { Some(1.0) } else if num < -1e-12 { Some(-1.0) } else { Some(0.0) }
+    }
+
+    /// Fraction of values in the window that match the mode bin (2% tolerance buckets).
+    pub fn window_dominant_value_pct(&self) -> Option<f64> {
+        if self.window.is_empty() { return None; }
+        use rust_decimal::prelude::ToPrimitive;
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.is_empty() { return None; }
+        let mut best = 0usize;
+        for &v in &vals {
+            let count = vals.iter().filter(|&&x| (x - v).abs() <= v.abs() * 0.02 + 1e-12).count();
+            if count > best { best = count; }
+        }
+        Some(best as f64 / vals.len() as f64)
+    }
+
 }
 
 #[cfg(test)]
@@ -15779,6 +15840,62 @@ mod tests {
         let r = n.window_peak_ratio().unwrap();
         assert!(r.is_finite());
     }
+
+    #[test]
+    fn test_minmax_window_below_mean_run_empty_none() {
+        assert!(norm(4).window_below_mean_run().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_below_mean_run_returns_nonneg() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let r = n.window_below_mean_run().unwrap();
+        assert!(r >= 0.0);
+    }
+
+    #[test]
+    fn test_minmax_window_value_run_too_few_none() {
+        let mut n = norm(4);
+        n.update(dec!(1));
+        assert!(n.window_value_run().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_value_run_returns_bounded() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let r = n.window_value_run().unwrap();
+        assert!(r >= 0.0 && r <= 1.0);
+    }
+
+    #[test]
+    fn test_minmax_window_slope_sign_too_few_none() {
+        let mut n = norm(4);
+        n.update(dec!(1));
+        assert!(n.window_slope_sign().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_slope_sign_increasing() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let r = n.window_slope_sign().unwrap();
+        assert_eq!(r, 1.0);
+    }
+
+    #[test]
+    fn test_minmax_window_dominant_value_pct_empty_none() {
+        assert!(norm(4).window_dominant_value_pct().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_dominant_value_pct_all_same_one() {
+        let mut n = norm(4);
+        for v in [dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        let r = n.window_dominant_value_pct().unwrap();
+        assert!((r - 1.0).abs() < 1e-9);
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -23001,6 +23118,67 @@ impl ZScoreNormalizer {
         let range = max - min;
         if range == 0.0 { return Some(0.0); }
         Some(max / range)
+    }
+
+    /// Length of the longest run of consecutive values below the window mean.
+    pub fn window_below_mean_run(&self) -> Option<f64> {
+        if self.window.is_empty() { return None; }
+        use rust_decimal::prelude::ToPrimitive;
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.is_empty() { return None; }
+        let mean = vals.iter().sum::<f64>() / vals.len() as f64;
+        let mut max_run = 0usize;
+        let mut cur_run = 0usize;
+        for v in &vals {
+            if *v < mean { cur_run += 1; max_run = max_run.max(cur_run); }
+            else { cur_run = 0; }
+        }
+        Some(max_run as f64)
+    }
+
+    /// Fraction of consecutive pairs where both move in the same direction.
+    pub fn window_value_run(&self) -> Option<f64> {
+        if self.window.len() < 2 { return None; }
+        use rust_decimal::prelude::ToPrimitive;
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.len() < 2 { return None; }
+        let n = vals.len() - 1;
+        let same = vals.windows(3).filter(|w| {
+            let d1 = w[1] - w[0];
+            let d2 = w[2] - w[1];
+            d1 * d2 > 0.0
+        }).count();
+        if n < 2 { return Some(0.0); }
+        Some(same as f64 / (n - 1) as f64)
+    }
+
+    /// Sign of the linear slope (1.0 if positive, -1.0 if negative, 0.0 if flat).
+    pub fn window_slope_sign(&self) -> Option<f64> {
+        if self.window.len() < 2 { return None; }
+        use rust_decimal::prelude::ToPrimitive;
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.len() < 2 { return None; }
+        let n = vals.len() as f64;
+        let x_mean = (n - 1.0) / 2.0;
+        let y_mean = vals.iter().sum::<f64>() / n;
+        let num: f64 = vals.iter().enumerate()
+            .map(|(i, y)| (i as f64 - x_mean) * (y - y_mean))
+            .sum();
+        if num > 1e-12 { Some(1.0) } else if num < -1e-12 { Some(-1.0) } else { Some(0.0) }
+    }
+
+    /// Fraction of values in the window that match the mode bin (2% tolerance buckets).
+    pub fn window_dominant_value_pct(&self) -> Option<f64> {
+        if self.window.is_empty() { return None; }
+        use rust_decimal::prelude::ToPrimitive;
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.is_empty() { return None; }
+        let mut best = 0usize;
+        for &v in &vals {
+            let count = vals.iter().filter(|&&x| (x - v).abs() <= v.abs() * 0.02 + 1e-12).count();
+            if count > best { best = count; }
+        }
+        Some(best as f64 / vals.len() as f64)
     }
 
 }
@@ -31456,5 +31634,61 @@ mod zscore_stability_tests {
         for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
         let r = n.window_peak_ratio().unwrap();
         assert!(r.is_finite());
+    }
+
+    #[test]
+    fn test_zscore_window_below_mean_run_empty_none() {
+        assert!(znorm(4).window_below_mean_run().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_below_mean_run_returns_nonneg() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let r = n.window_below_mean_run().unwrap();
+        assert!(r >= 0.0);
+    }
+
+    #[test]
+    fn test_zscore_window_value_run_too_few_none() {
+        let mut n = znorm(4);
+        n.update(dec!(1));
+        assert!(n.window_value_run().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_value_run_returns_bounded() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let r = n.window_value_run().unwrap();
+        assert!(r >= 0.0 && r <= 1.0);
+    }
+
+    #[test]
+    fn test_zscore_window_slope_sign_too_few_none() {
+        let mut n = znorm(4);
+        n.update(dec!(1));
+        assert!(n.window_slope_sign().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_slope_sign_increasing() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let r = n.window_slope_sign().unwrap();
+        assert_eq!(r, 1.0);
+    }
+
+    #[test]
+    fn test_zscore_window_dominant_value_pct_empty_none() {
+        assert!(znorm(4).window_dominant_value_pct().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_dominant_value_pct_all_same_one() {
+        let mut n = znorm(4);
+        for v in [dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        let r = n.window_dominant_value_pct().unwrap();
+        assert!((r - 1.0).abs() < 1e-9);
     }
 }
