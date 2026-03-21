@@ -2714,6 +2714,54 @@ impl MinMaxNormalizer {
         Some(count)
     }
 
+    // ── round-107 ────────────────────────────────────────────────────────────
+
+    /// Sum of squared values in the window (signal energy).
+    pub fn window_energy(&self) -> Decimal {
+        self.window.iter().map(|&v| v * v).sum()
+    }
+
+    /// Mean of the middle 50% of window values (IQR mean / trimmed mean at 25%).
+    /// Returns `None` for fewer than 4 values.
+    pub fn window_interquartile_mean(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 4 { return None; }
+        let mut sorted: Vec<Decimal> = self.window.iter().copied().collect();
+        sorted.sort();
+        let n = sorted.len();
+        let q1_idx = n / 4;
+        let q3_idx = (3 * n) / 4;
+        let mid: Vec<Decimal> = sorted[q1_idx..q3_idx].to_vec();
+        if mid.is_empty() { return None; }
+        let mean: Decimal = mid.iter().copied().sum::<Decimal>() / Decimal::from(mid.len());
+        mean.to_f64()
+    }
+
+    /// Count of window values that exceed the window mean.
+    /// Returns `None` for an empty window.
+    pub fn above_mean_count(&self) -> Option<usize> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let total: Decimal = self.window.iter().copied().sum();
+        let mean = total / Decimal::from(self.window.len());
+        Some(self.window.iter().filter(|&&v| v > mean).count())
+    }
+
+    /// Approximate differential entropy of window values using log of std dev.
+    /// Returns `None` for fewer than 2 values or zero/negative variance.
+    pub fn window_diff_entropy(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.len() != self.window.len() { return None; }
+        let n = vals.len() as f64;
+        let mean = vals.iter().sum::<f64>() / n;
+        let var = vals.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / (n - 1.0);
+        if var <= 0.0 { return None; }
+        // Differential entropy of Normal: 0.5 * ln(2*pi*e*sigma^2)
+        Some(0.5 * (2.0 * std::f64::consts::PI * std::f64::consts::E * var).ln())
+    }
+
 }
 
 #[cfg(test)]
@@ -5599,6 +5647,56 @@ mod tests {
         let c = n.window_zero_crossings().unwrap();
         assert_eq!(c, 2);
     }
+
+    // ── round-107 tests ───────────────────────────────────────────────────────
+
+    #[test]
+    fn test_minmax_window_energy_basic() {
+        let mut n = norm(5);
+        for v in [dec!(3), dec!(4)] { n.update(v); }
+        // 3^2 + 4^2 = 9 + 16 = 25
+        assert_eq!(n.window_energy(), dec!(25));
+    }
+
+    #[test]
+    fn test_minmax_window_interquartile_mean_none_for_three() {
+        let mut n = norm(5);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        assert!(n.window_interquartile_mean().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_interquartile_mean_basic() {
+        let mut n = norm(10);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        // sorted [1,2,3,4]; q1_idx=1, q3_idx=3; mid=[2,3]; mean=2.5
+        let m = n.window_interquartile_mean().unwrap();
+        assert!((m - 2.5).abs() < 1e-9, "expected 2.5, got {}", m);
+    }
+
+    #[test]
+    fn test_minmax_above_mean_count_basic() {
+        let mut n = norm(5);
+        for v in [dec!(10), dec!(20), dec!(30)] { n.update(v); }
+        // mean=20; above: only 30 → count=1
+        let c = n.above_mean_count().unwrap();
+        assert_eq!(c, 1);
+    }
+
+    #[test]
+    fn test_minmax_window_diff_entropy_none_for_single() {
+        let mut n = norm(5);
+        n.update(dec!(10));
+        assert!(n.window_diff_entropy().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_diff_entropy_basic() {
+        let mut n = norm(5);
+        for v in [dec!(10), dec!(20), dec!(30)] { n.update(v); }
+        // Should return Some without panic
+        assert!(n.window_diff_entropy().is_some());
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -8260,6 +8358,53 @@ impl ZScoreNormalizer {
             })
             .count();
         Some(count)
+    }
+
+    // ── round-107 ────────────────────────────────────────────────────────────
+
+    /// Sum of squared values in the window (signal energy).
+    pub fn window_energy(&self) -> Decimal {
+        self.window.iter().map(|&v| v * v).sum()
+    }
+
+    /// Mean of the middle 50% of window values (IQR mean).
+    /// Returns `None` for fewer than 4 values.
+    pub fn window_interquartile_mean(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 4 { return None; }
+        let mut sorted: Vec<Decimal> = self.window.iter().copied().collect();
+        sorted.sort();
+        let n = sorted.len();
+        let q1_idx = n / 4;
+        let q3_idx = (3 * n) / 4;
+        let mid: Vec<Decimal> = sorted[q1_idx..q3_idx].to_vec();
+        if mid.is_empty() { return None; }
+        let mean: Decimal = mid.iter().copied().sum::<Decimal>() / Decimal::from(mid.len());
+        mean.to_f64()
+    }
+
+    /// Count of window values that exceed the window mean.
+    /// Returns `None` for an empty window.
+    pub fn above_mean_count(&self) -> Option<usize> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let total: Decimal = self.window.iter().copied().sum();
+        let mean = total / Decimal::from(self.window.len());
+        Some(self.window.iter().filter(|&&v| v > mean).count())
+    }
+
+    /// Approximate differential entropy using log of std dev.
+    /// Returns `None` for fewer than 2 values or zero/negative variance.
+    pub fn window_diff_entropy(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.len() != self.window.len() { return None; }
+        let n = vals.len() as f64;
+        let mean = vals.iter().sum::<f64>() / n;
+        let var = vals.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / (n - 1.0);
+        if var <= 0.0 { return None; }
+        Some(0.5 * (2.0 * std::f64::consts::PI * std::f64::consts::E * var).ln())
     }
 
 }
@@ -11275,5 +11420,51 @@ mod zscore_stability_tests {
         for v in [dec!(1), dec!(-1), dec!(1)] { n.update(v); }
         let c = n.window_zero_crossings().unwrap();
         assert_eq!(c, 2);
+    }
+
+    // ── round-107 tests ───────────────────────────────────────────────────────
+
+    #[test]
+    fn test_zscore_window_energy_basic() {
+        let mut n = znorm(5);
+        for v in [dec!(3), dec!(4)] { n.update(v); }
+        assert_eq!(n.window_energy(), dec!(25));
+    }
+
+    #[test]
+    fn test_zscore_window_interquartile_mean_none_for_three() {
+        let mut n = znorm(5);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        assert!(n.window_interquartile_mean().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_interquartile_mean_basic() {
+        let mut n = znorm(10);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let m = n.window_interquartile_mean().unwrap();
+        assert!((m - 2.5).abs() < 1e-9, "expected 2.5, got {}", m);
+    }
+
+    #[test]
+    fn test_zscore_above_mean_count_basic() {
+        let mut n = znorm(5);
+        for v in [dec!(10), dec!(20), dec!(30)] { n.update(v); }
+        let c = n.above_mean_count().unwrap();
+        assert_eq!(c, 1);
+    }
+
+    #[test]
+    fn test_zscore_window_diff_entropy_none_for_single() {
+        let mut n = znorm(5);
+        n.update(dec!(10));
+        assert!(n.window_diff_entropy().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_diff_entropy_basic() {
+        let mut n = znorm(5);
+        for v in [dec!(10), dec!(20), dec!(30)] { n.update(v); }
+        assert!(n.window_diff_entropy().is_some());
     }
 }

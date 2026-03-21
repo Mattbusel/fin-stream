@@ -9,6 +9,36 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.5.8] - 2026-03-20
+
+### Added
+
+**`tick` module — `NormalizedTick` analytics (round 107)**
+- `NormalizedTick::max_buy_price(ticks)` — maximum price among buy-side ticks.
+- `NormalizedTick::min_sell_price(ticks)` — minimum price among sell-side ticks.
+- `NormalizedTick::price_range_ratio(ticks)` — `(max - min) / mean` price range normalised by mean.
+- `NormalizedTick::qty_weighted_price_change(ticks)` — quantity-weighted sum of absolute price changes.
+
+**`ohlcv` module — `OhlcvBar` analytics (round 107)**
+- `OhlcvBar::open_to_high_ratio(bars)` — mean `(high - open) / high` across bars.
+- `OhlcvBar::close_range_position(bars)` — mean close position within the bar's high-low range.
+- `OhlcvBar::up_gap_count(bars)` — count of bars that gap up from the prior bar's high.
+- `OhlcvBar::high_to_prev_close(bars)` — mean `(high / prev_close - 1)` overnight gap fraction.
+
+**`norm` module — `MinMaxNormalizer` analytics (round 107)**
+- `MinMaxNormalizer::window_energy()` — sum of squared window values (signal energy).
+- `MinMaxNormalizer::window_interquartile_mean()` — mean of the middle 50% of window values.
+- `MinMaxNormalizer::above_mean_count()` — count of window values exceeding the mean.
+- `MinMaxNormalizer::window_diff_entropy()` — approximate differential entropy via log of variance.
+
+**`norm` module — `ZScoreNormalizer` analytics (round 107)**
+- `ZScoreNormalizer::window_energy()` — sum of squared window values (signal energy).
+- `ZScoreNormalizer::window_interquartile_mean()` — mean of the middle 50% of window values.
+- `ZScoreNormalizer::above_mean_count()` — count of window values exceeding the mean.
+- `ZScoreNormalizer::window_diff_entropy()` — approximate differential entropy via log of variance.
+
+---
+
 ## [2.5.7] - 2026-03-20
 
 ### Added

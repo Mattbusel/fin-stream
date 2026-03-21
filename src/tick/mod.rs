@@ -4777,6 +4777,56 @@ impl NormalizedTick {
         Some((total / Decimal::from(ticks.len())).to_f64().unwrap_or(0.0))
     }
 
+    // ── round-107 ────────────────────────────────────────────────────────────
+
+    /// Maximum price among buy-side ticks.
+    /// Returns `None` if there are no buy-side ticks.
+    pub fn max_buy_price(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        ticks.iter()
+            .filter(|t| matches!(t.side, Some(TradeSide::Buy)))
+            .map(|t| t.price)
+            .max()
+            .and_then(|p| p.to_f64())
+    }
+
+    /// Minimum price among sell-side ticks.
+    /// Returns `None` if there are no sell-side ticks.
+    pub fn min_sell_price(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        ticks.iter()
+            .filter(|t| matches!(t.side, Some(TradeSide::Sell)))
+            .map(|t| t.price)
+            .min()
+            .and_then(|p| p.to_f64())
+    }
+
+    /// Ratio of price range to mean price: `(max - min) / mean`.
+    /// Returns `None` for an empty slice or zero mean.
+    pub fn price_range_ratio(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() { return None; }
+        let max_p = ticks.iter().map(|t| t.price).max()?;
+        let min_p = ticks.iter().map(|t| t.price).min()?;
+        let total: Decimal = ticks.iter().map(|t| t.price).sum();
+        let mean = total / Decimal::from(ticks.len());
+        if mean.is_zero() { return None; }
+        Some(((max_p - min_p) / mean).to_f64().unwrap_or(0.0))
+    }
+
+    /// Quantity-weighted sum of absolute price changes between consecutive ticks.
+    /// Returns `None` for fewer than 2 ticks.
+    pub fn qty_weighted_price_change(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 2 { return None; }
+        let total: Decimal = ticks.windows(2).map(|w| {
+            let price_diff = (w[1].price - w[0].price).abs();
+            let avg_qty = (w[0].quantity + w[1].quantity) / Decimal::TWO;
+            price_diff * avg_qty
+        }).sum();
+        total.to_f64()
+    }
+
 }
 
 
@@ -11008,5 +11058,77 @@ mod tests {
         let t2 = make_tick_pq(dec!(100), dec!(5));
         let v = NormalizedTick::avg_trade_value(&[t1, t2]).unwrap();
         assert!((v - 500.0).abs() < 1e-9, "expected 500.0, got {}", v);
+    }
+
+    // ── round-107 tests ───────────────────────────────────────────────────────
+
+    #[test]
+    fn test_max_buy_price_none_when_no_buys() {
+        use rust_decimal_macros::dec;
+        let mut t = make_tick_pq(dec!(100), dec!(1));
+        t.side = Some(TradeSide::Sell);
+        assert!(NormalizedTick::max_buy_price(&[t]).is_none());
+    }
+
+    #[test]
+    fn test_max_buy_price_basic() {
+        use rust_decimal_macros::dec;
+        let mut t1 = make_tick_pq(dec!(105), dec!(1));
+        t1.side = Some(TradeSide::Buy);
+        let mut t2 = make_tick_pq(dec!(110), dec!(1));
+        t2.side = Some(TradeSide::Buy);
+        let m = NormalizedTick::max_buy_price(&[t1, t2]).unwrap();
+        assert!((m - 110.0).abs() < 1e-9, "expected 110.0, got {}", m);
+    }
+
+    #[test]
+    fn test_min_sell_price_none_when_no_sells() {
+        use rust_decimal_macros::dec;
+        let mut t = make_tick_pq(dec!(100), dec!(1));
+        t.side = Some(TradeSide::Buy);
+        assert!(NormalizedTick::min_sell_price(&[t]).is_none());
+    }
+
+    #[test]
+    fn test_min_sell_price_basic() {
+        use rust_decimal_macros::dec;
+        let mut t1 = make_tick_pq(dec!(95), dec!(1));
+        t1.side = Some(TradeSide::Sell);
+        let mut t2 = make_tick_pq(dec!(100), dec!(1));
+        t2.side = Some(TradeSide::Sell);
+        let m = NormalizedTick::min_sell_price(&[t1, t2]).unwrap();
+        assert!((m - 95.0).abs() < 1e-9, "expected 95.0, got {}", m);
+    }
+
+    #[test]
+    fn test_price_range_ratio_none_for_empty() {
+        assert!(NormalizedTick::price_range_ratio(&[]).is_none());
+    }
+
+    #[test]
+    fn test_price_range_ratio_basic() {
+        use rust_decimal_macros::dec;
+        // prices [90, 110]: range=20, mean=100 → ratio=0.2
+        let t1 = make_tick_pq(dec!(90), dec!(1));
+        let t2 = make_tick_pq(dec!(110), dec!(1));
+        let r = NormalizedTick::price_range_ratio(&[t1, t2]).unwrap();
+        assert!((r - 0.2).abs() < 1e-9, "expected 0.2, got {}", r);
+    }
+
+    #[test]
+    fn test_qty_weighted_price_change_none_for_single() {
+        use rust_decimal_macros::dec;
+        let t = make_tick_pq(dec!(100), dec!(1));
+        assert!(NormalizedTick::qty_weighted_price_change(&[t]).is_none());
+    }
+
+    #[test]
+    fn test_qty_weighted_price_change_basic() {
+        use rust_decimal_macros::dec;
+        // price change=10, avg_qty=(5+5)/2=5 → weighted=50
+        let t1 = make_tick_pq(dec!(100), dec!(5));
+        let t2 = make_tick_pq(dec!(110), dec!(5));
+        let w = NormalizedTick::qty_weighted_price_change(&[t1, t2]).unwrap();
+        assert!((w - 50.0).abs() < 1e-9, "expected 50.0, got {}", w);
     }
 }
