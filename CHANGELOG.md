@@ -9,6 +9,30 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.10.49] - 2026-03-20
+
+### Added
+
+**`tick` module — `NormalizedTick` analytics (round 198)**
+- `NormalizedTick::tick_last_price_rank(ticks)` — percentile rank of last price within all tick prices (0=min, 1=max).
+- `NormalizedTick::price_ema_vol_ratio(ticks)` — ratio of EMA of prices to EMA of quantities.
+- `NormalizedTick::tick_qty_mode_approx(ticks)` — approximate mode quantity via 10-bucket histogram.
+- `NormalizedTick::tick_cross_price_vol(ticks)` — total volume at ticks within 0.1% of the mean price.
+
+**`ohlcv` module — `OhlcvBar` analytics (round 198)**
+- `OhlcvBar::bar_open_high_dist(bars)` — mean normalized distance from open to high (open-to-high / range).
+- `OhlcvBar::bar_body_ratio_std(bars)` — std dev of body-to-range ratios across bars.
+- `OhlcvBar::bar_vol_vs_open_range(bars)` — mean volume per unit of open-to-high range.
+- `OhlcvBar::bar_trend_power(bars)` — mean signed (close-open)/range as a net directional power measure.
+
+**`norm` module — `MinMaxNormalizer` + `ZScoreNormalizer` analytics (round 198)**
+- `window_lower_tail()` — fraction of values in the lower 25% of the window range.
+- `window_upper_tail()` — fraction of values in the upper 25% of the window range.
+- `window_step_count()` — number of adjacent value changes (steps) greater than zero in the window.
+- `window_percentile_90()` — 90th percentile of window values.
+
+---
+
 ## [2.10.48] - 2026-03-20
 
 ### Added

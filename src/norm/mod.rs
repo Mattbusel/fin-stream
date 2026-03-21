@@ -7146,6 +7146,65 @@ impl MinMaxNormalizer {
         Some(vals[(3 * n) / 4])
     }
 
+    /// Fraction of values in the lower 25% of the window range.
+    pub fn window_lower_tail(&self) -> Option<f64> {
+        if self.window.is_empty() { return None; }
+        let mut vals: Vec<f64> = self.window.iter().filter_map(|v| {
+            use rust_decimal::prelude::ToPrimitive;
+            v.to_f64()
+        }).collect();
+        if vals.is_empty() { return None; }
+        vals.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let min = vals[0];
+        let max = *vals.last()?;
+        let range = max - min;
+        if range == 0.0 { return Some(1.0); }
+        let threshold = min + 0.25 * range;
+        let count = vals.iter().filter(|&&v| v <= threshold).count();
+        Some(count as f64 / vals.len() as f64)
+    }
+
+    /// Fraction of values in the upper 25% of the window range.
+    pub fn window_upper_tail(&self) -> Option<f64> {
+        if self.window.is_empty() { return None; }
+        let mut vals: Vec<f64> = self.window.iter().filter_map(|v| {
+            use rust_decimal::prelude::ToPrimitive;
+            v.to_f64()
+        }).collect();
+        if vals.is_empty() { return None; }
+        vals.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let min = vals[0];
+        let max = *vals.last()?;
+        let range = max - min;
+        if range == 0.0 { return Some(1.0); }
+        let threshold = max - 0.25 * range;
+        let count = vals.iter().filter(|&&v| v >= threshold).count();
+        Some(count as f64 / vals.len() as f64)
+    }
+
+    /// Number of distinct value steps (adjacent changes > 0) in the window.
+    pub fn window_step_count(&self) -> Option<f64> {
+        if self.window.len() < 2 { return None; }
+        use rust_decimal::prelude::ToPrimitive;
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.len() < 2 { return None; }
+        let steps = vals.windows(2).filter(|w| (w[1] - w[0]).abs() > 1e-12).count();
+        Some(steps as f64)
+    }
+
+    /// 90th percentile of the window values.
+    pub fn window_percentile_90(&self) -> Option<f64> {
+        if self.window.is_empty() { return None; }
+        let mut vals: Vec<f64> = self.window.iter().filter_map(|v| {
+            use rust_decimal::prelude::ToPrimitive;
+            v.to_f64()
+        }).collect();
+        if vals.is_empty() { return None; }
+        vals.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let idx = ((vals.len() as f64 * 0.9) as usize).min(vals.len() - 1);
+        Some(vals[idx])
+    }
+
 }
 
 #[cfg(test)]
@@ -15543,6 +15602,60 @@ mod tests {
         let q1 = n.window_q1_f64().unwrap();
         assert!(q3 >= q1);
     }
+
+    #[test]
+    fn test_minmax_window_lower_tail_empty_none() {
+        assert!(norm(4).window_lower_tail().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_lower_tail_returns_fraction() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let r = n.window_lower_tail().unwrap();
+        assert!(r >= 0.0 && r <= 1.0);
+    }
+
+    #[test]
+    fn test_minmax_window_upper_tail_empty_none() {
+        assert!(norm(4).window_upper_tail().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_upper_tail_returns_fraction() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let r = n.window_upper_tail().unwrap();
+        assert!(r >= 0.0 && r <= 1.0);
+    }
+
+    #[test]
+    fn test_minmax_window_step_count_too_few_none() {
+        let mut n = norm(4);
+        n.update(dec!(1));
+        assert!(n.window_step_count().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_step_count_returns_value() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let r = n.window_step_count().unwrap();
+        assert!(r >= 0.0);
+    }
+
+    #[test]
+    fn test_minmax_window_percentile_90_empty_none() {
+        assert!(norm(4).window_percentile_90().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_percentile_90_returns_value() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let r = n.window_percentile_90().unwrap();
+        assert!(r >= 1.0 && r <= 4.0);
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -22637,6 +22750,65 @@ impl ZScoreNormalizer {
         vals.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
         let n = vals.len();
         Some(vals[(3 * n) / 4])
+    }
+
+    /// Fraction of values in the lower 25% of the window range.
+    pub fn window_lower_tail(&self) -> Option<f64> {
+        if self.window.is_empty() { return None; }
+        let mut vals: Vec<f64> = self.window.iter().filter_map(|v| {
+            use rust_decimal::prelude::ToPrimitive;
+            v.to_f64()
+        }).collect();
+        if vals.is_empty() { return None; }
+        vals.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let min = vals[0];
+        let max = *vals.last()?;
+        let range = max - min;
+        if range == 0.0 { return Some(1.0); }
+        let threshold = min + 0.25 * range;
+        let count = vals.iter().filter(|&&v| v <= threshold).count();
+        Some(count as f64 / vals.len() as f64)
+    }
+
+    /// Fraction of values in the upper 25% of the window range.
+    pub fn window_upper_tail(&self) -> Option<f64> {
+        if self.window.is_empty() { return None; }
+        let mut vals: Vec<f64> = self.window.iter().filter_map(|v| {
+            use rust_decimal::prelude::ToPrimitive;
+            v.to_f64()
+        }).collect();
+        if vals.is_empty() { return None; }
+        vals.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let min = vals[0];
+        let max = *vals.last()?;
+        let range = max - min;
+        if range == 0.0 { return Some(1.0); }
+        let threshold = max - 0.25 * range;
+        let count = vals.iter().filter(|&&v| v >= threshold).count();
+        Some(count as f64 / vals.len() as f64)
+    }
+
+    /// Number of distinct value steps (adjacent changes > 0) in the window.
+    pub fn window_step_count(&self) -> Option<f64> {
+        if self.window.len() < 2 { return None; }
+        use rust_decimal::prelude::ToPrimitive;
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.len() < 2 { return None; }
+        let steps = vals.windows(2).filter(|w| (w[1] - w[0]).abs() > 1e-12).count();
+        Some(steps as f64)
+    }
+
+    /// 90th percentile of the window values.
+    pub fn window_percentile_90(&self) -> Option<f64> {
+        if self.window.is_empty() { return None; }
+        let mut vals: Vec<f64> = self.window.iter().filter_map(|v| {
+            use rust_decimal::prelude::ToPrimitive;
+            v.to_f64()
+        }).collect();
+        if vals.is_empty() { return None; }
+        vals.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let idx = ((vals.len() as f64 * 0.9) as usize).min(vals.len() - 1);
+        Some(vals[idx])
     }
 
 }
@@ -30984,5 +31156,59 @@ mod zscore_stability_tests {
         let q3 = n.window_q3_f64().unwrap();
         let q1 = n.window_q1_f64().unwrap();
         assert!(q3 >= q1);
+    }
+
+    #[test]
+    fn test_zscore_window_lower_tail_empty_none() {
+        assert!(znorm(4).window_lower_tail().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_lower_tail_returns_fraction() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let r = n.window_lower_tail().unwrap();
+        assert!(r >= 0.0 && r <= 1.0);
+    }
+
+    #[test]
+    fn test_zscore_window_upper_tail_empty_none() {
+        assert!(znorm(4).window_upper_tail().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_upper_tail_returns_fraction() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let r = n.window_upper_tail().unwrap();
+        assert!(r >= 0.0 && r <= 1.0);
+    }
+
+    #[test]
+    fn test_zscore_window_step_count_too_few_none() {
+        let mut n = znorm(4);
+        n.update(dec!(1));
+        assert!(n.window_step_count().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_step_count_returns_value() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let r = n.window_step_count().unwrap();
+        assert!(r >= 0.0);
+    }
+
+    #[test]
+    fn test_zscore_window_percentile_90_empty_none() {
+        assert!(znorm(4).window_percentile_90().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_percentile_90_returns_value() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let r = n.window_percentile_90().unwrap();
+        assert!(r >= 1.0 && r <= 4.0);
     }
 }
