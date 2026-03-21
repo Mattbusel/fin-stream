@@ -9746,6 +9746,65 @@ impl OhlcvBar {
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
+    /// Mean body as a fraction of total volume (body efficiency per volume unit).
+    pub fn bar_body_vol_efficiency(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let vals: Vec<f64> = bars.iter().filter_map(|b| {
+            let body = (b.close - b.open).abs().to_f64()?;
+            let vol = b.volume.to_f64()?;
+            if vol == 0.0 { return None; }
+            Some(body / vol)
+        }).collect();
+        if vals.is_empty() { return None; }
+        Some(vals.iter().sum::<f64>() / vals.len() as f64)
+    }
+
+    /// Mean (close_t - open_t) / close_{t-1} — normalized open-to-close momentum.
+    pub fn bar_close_open_momentum(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.len() < 2 { return None; }
+        let vals: Vec<f64> = bars.windows(2).filter_map(|w| {
+            let prev_close = w[0].close.to_f64()?;
+            if prev_close == 0.0 { return None; }
+            let curr_body = (w[1].close - w[1].open).to_f64()?;
+            Some(curr_body / prev_close)
+        }).collect();
+        if vals.is_empty() { return None; }
+        Some(vals.iter().sum::<f64>() / vals.len() as f64)
+    }
+
+    /// Mean (upper_wick - lower_wick) / range — directional wick delta.
+    pub fn bar_wick_body_delta(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let vals: Vec<f64> = bars.iter().filter_map(|b| {
+            let range = (b.high - b.low).to_f64()?;
+            if range == 0.0 { return Some(0.0); }
+            let body_top = if b.close > b.open { b.close } else { b.open };
+            let body_bot = if b.close < b.open { b.close } else { b.open };
+            let upper = (b.high - body_top).to_f64()?;
+            let lower = (body_bot - b.low).to_f64()?;
+            Some((upper - lower) / range)
+        }).collect();
+        if vals.is_empty() { return None; }
+        Some(vals.iter().sum::<f64>() / vals.len() as f64)
+    }
+
+    /// Mean (high - close) / (high - low) — fraction of range above close.
+    pub fn bar_high_close_momentum(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let vals: Vec<f64> = bars.iter().filter_map(|b| {
+            let hl = (b.high - b.low).to_f64()?;
+            if hl == 0.0 { return Some(0.0); }
+            let hc = (b.high - b.close).to_f64()?;
+            Some(hc / hl)
+        }).collect();
+        if vals.is_empty() { return None; }
+        Some(vals.iter().sum::<f64>() / vals.len() as f64)
+    }
+
     /// Mean absolute (open - close) across bars.
     pub fn bar_oc_mean_abs(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
@@ -22164,5 +22223,56 @@ mod tests {
         let b3 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
         let r = OhlcvBar::bar_close_skew(&[b1, b2, b3]);
         assert!(r.is_some());
+    }
+
+    #[test]
+    fn test_bar_body_vol_efficiency_empty_none() {
+        assert!(OhlcvBar::bar_body_vol_efficiency(&[]).is_none());
+    }
+
+    #[test]
+    fn test_bar_body_vol_efficiency_returns_value() {
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let r = OhlcvBar::bar_body_vol_efficiency(&[b]).unwrap();
+        assert!(r >= 0.0);
+    }
+
+    #[test]
+    fn test_bar_close_open_momentum_too_few_none() {
+        assert!(OhlcvBar::bar_close_open_momentum(&[]).is_none());
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        assert!(OhlcvBar::bar_close_open_momentum(&[b]).is_none());
+    }
+
+    #[test]
+    fn test_bar_close_open_momentum_returns_value() {
+        let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let b2 = make_ohlcv_bar(dec!(105), dec!(115), dec!(95), dec!(112));
+        let r = OhlcvBar::bar_close_open_momentum(&[b1, b2]);
+        assert!(r.is_some());
+    }
+
+    #[test]
+    fn test_bar_wick_body_delta_empty_none() {
+        assert!(OhlcvBar::bar_wick_body_delta(&[]).is_none());
+    }
+
+    #[test]
+    fn test_bar_wick_body_delta_returns_bounded() {
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let r = OhlcvBar::bar_wick_body_delta(&[b]).unwrap();
+        assert!(r >= -1.0 && r <= 1.0);
+    }
+
+    #[test]
+    fn test_bar_high_close_momentum_empty_none() {
+        assert!(OhlcvBar::bar_high_close_momentum(&[]).is_none());
+    }
+
+    #[test]
+    fn test_bar_high_close_momentum_returns_bounded() {
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let r = OhlcvBar::bar_high_close_momentum(&[b]).unwrap();
+        assert!(r >= 0.0 && r <= 1.0);
     }
 }

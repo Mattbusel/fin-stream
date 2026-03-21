@@ -10099,6 +10099,69 @@ impl NormalizedTick {
         Some(num / (dp * dq))
     }
 
+    /// Sensitivity: absolute price change per unit of quantity traded.
+    pub fn tick_price_vol_sensitivity(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 2 { return None; }
+        let total_qty: f64 = ticks.iter().filter_map(|t| t.quantity.to_f64()).sum();
+        if total_qty == 0.0 { return None; }
+        let first = ticks.first()?.price.to_f64()?;
+        let last = ticks.last()?.price.to_f64()?;
+        Some((last - first).abs() / total_qty)
+    }
+
+    /// Ratio of buy-side momentum to sell-side momentum.
+    pub fn tick_side_momentum_ratio(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 2 { return None; }
+        let prices: Vec<f64> = ticks.iter().filter_map(|t| t.price.to_f64()).collect();
+        if prices.len() < 2 { return None; }
+        let returns: Vec<f64> = prices.windows(2).map(|w| w[1] - w[0]).collect();
+        let buys: Vec<f64> = returns.iter().enumerate().filter_map(|(i, &r)| {
+            if ticks.get(i).and_then(|t| t.side) == Some(TradeSide::Buy) { Some(r) } else { None }
+        }).collect();
+        let sells: Vec<f64> = returns.iter().enumerate().filter_map(|(i, &r)| {
+            if ticks.get(i).and_then(|t| t.side) == Some(TradeSide::Sell) { Some(r) } else { None }
+        }).collect();
+        if buys.is_empty() || sells.is_empty() { return None; }
+        let buy_mom = buys.iter().sum::<f64>() / buys.len() as f64;
+        let sell_mom = sells.iter().sum::<f64>() / sells.len() as f64;
+        if sell_mom == 0.0 { return None; }
+        Some(buy_mom / sell_mom)
+    }
+
+    /// Mean length of consecutive same-direction quantity runs.
+    pub fn tick_qty_run_length(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 2 { return None; }
+        let qtys: Vec<f64> = ticks.iter().filter_map(|t| t.quantity.to_f64()).collect();
+        if qtys.len() < 2 { return None; }
+        let dirs: Vec<i8> = qtys.windows(2).map(|w| {
+            if w[1] > w[0] { 1 } else if w[1] < w[0] { -1 } else { 0 }
+        }).collect();
+        if dirs.is_empty() { return None; }
+        let mut runs = vec![];
+        let mut cur = 1usize;
+        for i in 1..dirs.len() {
+            if dirs[i] == dirs[i-1] { cur += 1; }
+            else { runs.push(cur); cur = 1; }
+        }
+        runs.push(cur);
+        Some(runs.iter().sum::<usize>() as f64 / runs.len() as f64)
+    }
+
+    /// Local fractal indicator: fraction of ticks that are local price extrema.
+    pub fn tick_price_fractal(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 3 { return None; }
+        let prices: Vec<f64> = ticks.iter().filter_map(|t| t.price.to_f64()).collect();
+        if prices.len() < 3 { return None; }
+        let extrema = prices.windows(3).filter(|w| {
+            (w[1] > w[0] && w[1] > w[2]) || (w[1] < w[0] && w[1] < w[2])
+        }).count();
+        Some(extrema as f64 / (prices.len() - 2) as f64)
+    }
+
     /// Fraction of consecutive tick pairs where price persists (no change) or increases.
     pub fn tick_price_persistence(ticks: &[NormalizedTick]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
@@ -23466,5 +23529,69 @@ mod tests {
         ];
         // no side info → none
         assert!(NormalizedTick::tick_aggressive_ratio(&ticks).is_none());
+    }
+
+    #[test]
+    fn test_tick_price_vol_sensitivity_too_few_none() {
+        use rust_decimal_macros::dec;
+        let t = make_tick_pq(dec!(100), dec!(1));
+        assert!(NormalizedTick::tick_price_vol_sensitivity(&[t]).is_none());
+    }
+
+    #[test]
+    fn test_tick_price_vol_sensitivity_returns_nonneg() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(2)),
+            make_tick_pq(dec!(110), dec!(3)),
+        ];
+        let r = NormalizedTick::tick_price_vol_sensitivity(&ticks).unwrap();
+        assert!(r >= 0.0);
+    }
+
+    #[test]
+    fn test_tick_side_momentum_ratio_too_few_none() {
+        use rust_decimal_macros::dec;
+        let t = make_tick_pq(dec!(100), dec!(1));
+        assert!(NormalizedTick::tick_side_momentum_ratio(&[t]).is_none());
+    }
+
+    #[test]
+    fn test_tick_qty_run_length_too_few_none() {
+        use rust_decimal_macros::dec;
+        let t = make_tick_pq(dec!(100), dec!(1));
+        assert!(NormalizedTick::tick_qty_run_length(&[t]).is_none());
+    }
+
+    #[test]
+    fn test_tick_qty_run_length_returns_positive() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(100), dec!(2)),
+            make_tick_pq(dec!(100), dec!(3)),
+        ];
+        let r = NormalizedTick::tick_qty_run_length(&ticks).unwrap();
+        assert!(r > 0.0);
+    }
+
+    #[test]
+    fn test_tick_price_fractal_too_few_none() {
+        use rust_decimal_macros::dec;
+        let t = make_tick_pq(dec!(100), dec!(1));
+        assert!(NormalizedTick::tick_price_fractal(&[t]).is_none());
+    }
+
+    #[test]
+    fn test_tick_price_fractal_returns_bounded() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(110), dec!(1)),
+            make_tick_pq(dec!(105), dec!(1)),
+            make_tick_pq(dec!(115), dec!(1)),
+        ];
+        let r = NormalizedTick::tick_price_fractal(&ticks).unwrap();
+        assert!(r >= 0.0 && r <= 1.0);
     }
 }

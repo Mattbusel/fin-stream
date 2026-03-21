@@ -9,6 +9,30 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.10.55] - 2026-03-20
+
+### Added
+
+**`tick` module — `NormalizedTick` analytics (round 204)**
+- `NormalizedTick::tick_price_vol_sensitivity(ticks)` — absolute price change per unit of total quantity.
+- `NormalizedTick::tick_side_momentum_ratio(ticks)` — ratio of buy-side momentum to sell-side momentum.
+- `NormalizedTick::tick_qty_run_length(ticks)` — mean length of consecutive same-direction quantity runs.
+- `NormalizedTick::tick_price_fractal(ticks)` — fraction of ticks that are local price extrema.
+
+**`ohlcv` module — `OhlcvBar` analytics (round 204)**
+- `OhlcvBar::bar_body_vol_efficiency(bars)` — mean body per unit of volume (body/volume ratio).
+- `OhlcvBar::bar_close_open_momentum(bars)` — mean (close - open) / prev_close across bars.
+- `OhlcvBar::bar_wick_body_delta(bars)` — mean (upper_wick - lower_wick) / range across bars.
+- `OhlcvBar::bar_high_close_momentum(bars)` — mean (high - close) / (high - low) across bars.
+
+**`norm` module — `MinMaxNormalizer` + `ZScoreNormalizer` analytics (round 204)**
+- `window_ewma_deviation()` — mean |value - EWMA| with alpha=0.3.
+- `window_below_mean_pct()` — fraction of values below the window mean.
+- `window_sum_positive()` — sum of strictly positive values in the window.
+- `window_trend_score()` — position-weighted sign trend score normalized by n².
+
+---
+
 ## [2.10.54] - 2026-03-20
 
 ### Added

@@ -7497,6 +7497,60 @@ impl MinMaxNormalizer {
         Some(max_run as f64)
     }
 
+    /// EWMA deviation: mean |value - EWMA| where alpha=0.3.
+    pub fn window_ewma_deviation(&self) -> Option<f64> {
+        if self.window.is_empty() { return None; }
+        use rust_decimal::prelude::ToPrimitive;
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.is_empty() { return None; }
+        let alpha = 0.3;
+        let mut ewma = vals[0];
+        let mut sum_dev = 0.0f64;
+        for &v in &vals[1..] {
+            ewma = alpha * v + (1.0 - alpha) * ewma;
+            sum_dev += (v - ewma).abs();
+        }
+        if vals.len() < 2 { return Some(0.0); }
+        Some(sum_dev / (vals.len() - 1) as f64)
+    }
+
+    /// Fraction of values below the window mean.
+    pub fn window_below_mean_pct(&self) -> Option<f64> {
+        if self.window.is_empty() { return None; }
+        use rust_decimal::prelude::ToPrimitive;
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.is_empty() { return None; }
+        let mean = vals.iter().sum::<f64>() / vals.len() as f64;
+        let count = vals.iter().filter(|&&v| v < mean).count();
+        Some(count as f64 / vals.len() as f64)
+    }
+
+    /// Sum of strictly positive window values.
+    pub fn window_sum_positive(&self) -> Option<f64> {
+        if self.window.is_empty() { return None; }
+        use rust_decimal::prelude::ToPrimitive;
+        let sum: f64 = self.window.iter()
+            .filter_map(|v| v.to_f64())
+            .filter(|&v| v > 0.0)
+            .sum();
+        Some(sum)
+    }
+
+    /// Weighted trend score: sum of (i * sign(v - mean)) / n^2.
+    pub fn window_trend_score(&self) -> Option<f64> {
+        if self.window.is_empty() { return None; }
+        use rust_decimal::prelude::ToPrimitive;
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.is_empty() { return None; }
+        let n = vals.len() as f64;
+        let mean = vals.iter().sum::<f64>() / n;
+        let score: f64 = vals.iter().enumerate().map(|(i, &v)| {
+            let sign = if v > mean { 1.0 } else if v < mean { -1.0 } else { 0.0 };
+            (i + 1) as f64 * sign
+        }).sum();
+        Some(score / (n * n))
+    }
+
 }
 
 #[cfg(test)]
@@ -16215,6 +16269,58 @@ mod tests {
         let r = n.window_above_zero_run().unwrap();
         assert_eq!(r, 3.0);
     }
+
+    #[test]
+    fn test_minmax_window_ewma_deviation_empty_none() {
+        assert!(norm(4).window_ewma_deviation().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_ewma_deviation_returns_nonneg() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let r = n.window_ewma_deviation().unwrap();
+        assert!(r >= 0.0);
+    }
+
+    #[test]
+    fn test_minmax_window_below_mean_pct_empty_none() {
+        assert!(norm(4).window_below_mean_pct().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_below_mean_pct_returns_bounded() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let r = n.window_below_mean_pct().unwrap();
+        assert!(r >= 0.0 && r <= 1.0);
+    }
+
+    #[test]
+    fn test_minmax_window_sum_positive_empty_none() {
+        assert!(norm(4).window_sum_positive().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_sum_positive_all_positive() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        let r = n.window_sum_positive().unwrap();
+        assert!((r - 6.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_minmax_window_trend_score_empty_none() {
+        assert!(norm(4).window_trend_score().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_trend_score_increasing_positive() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let r = n.window_trend_score().unwrap();
+        assert!(r > 0.0);
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -23657,6 +23763,60 @@ impl ZScoreNormalizer {
             else { cur_run = 0; }
         }
         Some(max_run as f64)
+    }
+
+    /// EWMA deviation: mean |value - EWMA| where alpha=0.3.
+    pub fn window_ewma_deviation(&self) -> Option<f64> {
+        if self.window.is_empty() { return None; }
+        use rust_decimal::prelude::ToPrimitive;
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.is_empty() { return None; }
+        let alpha = 0.3;
+        let mut ewma = vals[0];
+        let mut sum_dev = 0.0f64;
+        for &v in &vals[1..] {
+            ewma = alpha * v + (1.0 - alpha) * ewma;
+            sum_dev += (v - ewma).abs();
+        }
+        if vals.len() < 2 { return Some(0.0); }
+        Some(sum_dev / (vals.len() - 1) as f64)
+    }
+
+    /// Fraction of values below the window mean.
+    pub fn window_below_mean_pct(&self) -> Option<f64> {
+        if self.window.is_empty() { return None; }
+        use rust_decimal::prelude::ToPrimitive;
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.is_empty() { return None; }
+        let mean = vals.iter().sum::<f64>() / vals.len() as f64;
+        let count = vals.iter().filter(|&&v| v < mean).count();
+        Some(count as f64 / vals.len() as f64)
+    }
+
+    /// Sum of strictly positive window values.
+    pub fn window_sum_positive(&self) -> Option<f64> {
+        if self.window.is_empty() { return None; }
+        use rust_decimal::prelude::ToPrimitive;
+        let sum: f64 = self.window.iter()
+            .filter_map(|v| v.to_f64())
+            .filter(|&v| v > 0.0)
+            .sum();
+        Some(sum)
+    }
+
+    /// Weighted trend score: sum of (i * sign(v - mean)) / n^2.
+    pub fn window_trend_score(&self) -> Option<f64> {
+        if self.window.is_empty() { return None; }
+        use rust_decimal::prelude::ToPrimitive;
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.is_empty() { return None; }
+        let n = vals.len() as f64;
+        let mean = vals.iter().sum::<f64>() / n;
+        let score: f64 = vals.iter().enumerate().map(|(i, &v)| {
+            let sign = if v > mean { 1.0 } else if v < mean { -1.0 } else { 0.0 };
+            (i + 1) as f64 * sign
+        }).sum();
+        Some(score / (n * n))
     }
 
 }
@@ -32325,5 +32485,57 @@ mod zscore_stability_tests {
         for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
         let r = n.window_above_zero_run().unwrap();
         assert_eq!(r, 3.0);
+    }
+
+    #[test]
+    fn test_zscore_window_ewma_deviation_empty_none() {
+        assert!(znorm(4).window_ewma_deviation().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_ewma_deviation_returns_nonneg() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let r = n.window_ewma_deviation().unwrap();
+        assert!(r >= 0.0);
+    }
+
+    #[test]
+    fn test_zscore_window_below_mean_pct_empty_none() {
+        assert!(znorm(4).window_below_mean_pct().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_below_mean_pct_returns_bounded() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let r = n.window_below_mean_pct().unwrap();
+        assert!(r >= 0.0 && r <= 1.0);
+    }
+
+    #[test]
+    fn test_zscore_window_sum_positive_empty_none() {
+        assert!(znorm(4).window_sum_positive().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_sum_positive_all_positive() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        let r = n.window_sum_positive().unwrap();
+        assert!((r - 6.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_zscore_window_trend_score_empty_none() {
+        assert!(znorm(4).window_trend_score().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_trend_score_increasing_positive() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let r = n.window_trend_score().unwrap();
+        assert!(r > 0.0);
     }
 }
