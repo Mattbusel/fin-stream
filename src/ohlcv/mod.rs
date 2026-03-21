@@ -5570,6 +5570,52 @@ impl OhlcvBar {
         Some(count as f64 / (bars.len() - 1) as f64)
     }
 
+    // ── round-123 ────────────────────────────────────────────────────────────
+
+    /// Mean of (close - low) / (high - low) per bar (close position within range).
+    pub fn close_range_pct(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let sum: f64 = bars.iter().map(|b| {
+            let r = (b.high - b.low).to_f64().unwrap_or(0.0);
+            if r == 0.0 { 0.5 } else { (b.close - b.low).to_f64().unwrap_or(0.0) / r }
+        }).sum();
+        Some(sum / bars.len() as f64)
+    }
+
+    /// Mean of (high - low) / open as a fraction across bars.
+    pub fn avg_bar_range_pct(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let sum: f64 = bars.iter().map(|b| {
+            let o = b.open.to_f64().unwrap_or(0.0);
+            if o == 0.0 { 0.0 } else { (b.high - b.low).to_f64().unwrap_or(0.0) / o }
+        }).sum();
+        Some(sum / bars.len() as f64)
+    }
+
+    /// Mean of (open - low) / (high - low): open proximity to the low.
+    pub fn open_to_low_ratio(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let sum: f64 = bars.iter().map(|b| {
+            let r = (b.high - b.low).to_f64().unwrap_or(0.0);
+            if r == 0.0 { 0.5 } else { (b.open - b.low).to_f64().unwrap_or(0.0) / r }
+        }).sum();
+        Some(sum / bars.len() as f64)
+    }
+
+    /// Rank of last close among all closes (0.0 = lowest, 1.0 = highest).
+    pub fn bar_close_rank(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let last_close = bars.last()?.close.to_f64()?;
+        let mut closes: Vec<f64> = bars.iter().map(|b| b.close.to_f64().unwrap_or(0.0)).collect();
+        closes.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let pos = closes.iter().position(|&c| (c - last_close).abs() < 1e-12).unwrap_or(0);
+        Some(pos as f64 / (closes.len() - 1).max(1) as f64)
+    }
+
 }
 
 impl std::fmt::Display for OhlcvBar {
@@ -13056,5 +13102,62 @@ mod tests {
         let b2 = make_ohlcv_bar(dec!(111), dec!(125), dec!(108), dec!(120));
         let f = OhlcvBar::close_above_prior_high(&[b1, b2]).unwrap();
         assert!((f - 1.0).abs() < 1e-9, "expected 1.0, got {}", f);
+    }
+
+    // ── round-123 ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_close_range_pct_none_for_empty() {
+        assert!(OhlcvBar::close_range_pct(&[]).is_none());
+    }
+
+    #[test]
+    fn test_close_range_pct_at_high() {
+        // close=high=110, low=90, range=20 → (110-90)/20=1.0
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(110));
+        let r = OhlcvBar::close_range_pct(&[b]).unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "expected 1.0, got {}", r);
+    }
+
+    #[test]
+    fn test_avg_bar_range_pct_none_for_empty() {
+        assert!(OhlcvBar::avg_bar_range_pct(&[]).is_none());
+    }
+
+    #[test]
+    fn test_avg_bar_range_pct_basic() {
+        // open=100, high=110, low=90 → range=20, pct=0.2
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let r = OhlcvBar::avg_bar_range_pct(&[b]).unwrap();
+        assert!((r - 0.2).abs() < 1e-9, "expected 0.2, got {}", r);
+    }
+
+    #[test]
+    fn test_open_to_low_ratio_none_for_empty() {
+        assert!(OhlcvBar::open_to_low_ratio(&[]).is_none());
+    }
+
+    #[test]
+    fn test_open_to_low_ratio_open_at_low() {
+        // open=low=90, high=110, range=20 → (90-90)/20=0.0
+        let b = make_ohlcv_bar(dec!(90), dec!(110), dec!(90), dec!(100));
+        let r = OhlcvBar::open_to_low_ratio(&[b]).unwrap();
+        assert!(r.abs() < 1e-9, "expected 0.0, got {}", r);
+    }
+
+    #[test]
+    fn test_bar_close_rank_none_for_empty() {
+        assert!(OhlcvBar::bar_close_rank(&[]).is_none());
+    }
+
+    #[test]
+    fn test_bar_close_rank_highest() {
+        let bars = [
+            make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(101)),
+            make_ohlcv_bar(dec!(101), dec!(112), dec!(98), dec!(105)),
+            make_ohlcv_bar(dec!(104), dec!(115), dec!(100), dec!(112)),
+        ];
+        let r = OhlcvBar::bar_close_rank(&bars).unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "expected 1.0, got {}", r);
     }
 }

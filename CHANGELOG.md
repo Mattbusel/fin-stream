@@ -9,6 +9,36 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.7.4] - 2026-03-20
+
+### Added
+
+**`tick` module — `NormalizedTick` analytics (round 123)**
+- `NormalizedTick::qty_kurtosis(ticks)` — excess kurtosis of quantity distribution across ticks.
+- `NormalizedTick::price_monotonicity(ticks)` — fraction of consecutive price pairs that are rising.
+- `NormalizedTick::tick_count_per_second(ticks)` — tick rate using `received_at_ms` timestamps.
+- `NormalizedTick::price_range_std(ticks)` — standard deviation of price across all ticks.
+
+**`ohlcv` module — `OhlcvBar` analytics (round 123)**
+- `OhlcvBar::close_range_pct(bars)` — mean of (close - low) / (high - low) per bar.
+- `OhlcvBar::avg_bar_range_pct(bars)` — mean of (high - low) / open as a fraction across bars.
+- `OhlcvBar::open_to_low_ratio(bars)` — mean of (open - low) / (high - low): open proximity to the low.
+- `OhlcvBar::bar_close_rank(bars)` — rank of last close among all closes (0.0 = lowest, 1.0 = highest).
+
+**`norm` module — `MinMaxNormalizer` analytics (round 123)**
+- `MinMaxNormalizer::window_trend_reversal_count()` — count of trend reversals (sign changes in diffs).
+- `MinMaxNormalizer::window_first_last_diff()` — difference between first and last values in the window.
+- `MinMaxNormalizer::window_upper_half_count()` — count of values in the upper half of the range.
+- `MinMaxNormalizer::window_lower_half_count()` — count of values in the lower half of the range.
+
+**`norm` module — `ZScoreNormalizer` analytics (round 123)**
+- `ZScoreNormalizer::window_trend_reversal_count()` — count of trend reversals.
+- `ZScoreNormalizer::window_first_last_diff()` — difference between first and last values.
+- `ZScoreNormalizer::window_upper_half_count()` — count of values in the upper half of the range.
+- `ZScoreNormalizer::window_lower_half_count()` — count of values in the lower half of the range.
+
+---
+
 ## [2.7.3] - 2026-03-20
 
 ### Added

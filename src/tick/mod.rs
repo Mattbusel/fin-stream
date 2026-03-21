@@ -5643,6 +5643,49 @@ impl NormalizedTick {
         if total == 0.0 { None } else { Some(buy_qty / total) }
     }
 
+    // ── round-123 ────────────────────────────────────────────────────────────
+
+    /// Excess kurtosis of quantity distribution across ticks.
+    pub fn qty_kurtosis(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 4 { return None; }
+        let vals: Vec<f64> = ticks.iter().map(|t| t.quantity.to_f64().unwrap_or(0.0)).collect();
+        let n = vals.len() as f64;
+        let mean = vals.iter().sum::<f64>() / n;
+        let var = vals.iter().map(|&x| (x - mean).powi(2)).sum::<f64>() / n;
+        if var == 0.0 { return None; }
+        let kurt = vals.iter().map(|&x| ((x - mean) / var.sqrt()).powi(4)).sum::<f64>() / n - 3.0;
+        Some(kurt)
+    }
+
+    /// Fraction of consecutive price pairs that are monotonically increasing.
+    pub fn price_monotonicity(ticks: &[NormalizedTick]) -> Option<f64> {
+        if ticks.len() < 2 { return None; }
+        let rises = ticks.windows(2).filter(|w| w[1].price > w[0].price).count();
+        Some(rises as f64 / (ticks.len() - 1) as f64)
+    }
+
+    /// Ticks per second using first/last received_at_ms; None if same timestamp.
+    pub fn tick_count_per_second(ticks: &[NormalizedTick]) -> Option<f64> {
+        if ticks.len() < 2 { return None; }
+        let first = ticks.first()?.received_at_ms;
+        let last = ticks.last()?.received_at_ms;
+        if last <= first { return None; }
+        let secs = (last - first) as f64 / 1000.0;
+        Some(ticks.len() as f64 / secs)
+    }
+
+    /// Standard deviation of price across all ticks.
+    pub fn price_range_std(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 2 { return None; }
+        let vals: Vec<f64> = ticks.iter().map(|t| t.price.to_f64().unwrap_or(0.0)).collect();
+        let n = vals.len() as f64;
+        let mean = vals.iter().sum::<f64>() / n;
+        let var = vals.iter().map(|&x| (x - mean).powi(2)).sum::<f64>() / n;
+        Some(var.sqrt())
+    }
+
 }
 
 
@@ -12885,5 +12928,60 @@ mod tests {
         // all qty is buy → fraction = 1.0
         let f = NormalizedTick::tick_buy_qty_fraction(&[t]).unwrap();
         assert!((f - 1.0).abs() < 1e-9, "expected 1.0, got {}", f);
+    }
+
+    // ── round-123 ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_qty_kurtosis_none_for_three() {
+        use rust_decimal_macros::dec;
+        let ticks: Vec<_> = (0..3).map(|_| make_tick_pq(dec!(100), dec!(1))).collect();
+        assert!(NormalizedTick::qty_kurtosis(&ticks).is_none());
+    }
+
+    #[test]
+    fn test_qty_kurtosis_uniform_none() {
+        use rust_decimal_macros::dec;
+        // uniform qty → variance=0 → None
+        let ticks: Vec<_> = (0..5).map(|_| make_tick_pq(dec!(100), dec!(3))).collect();
+        assert!(NormalizedTick::qty_kurtosis(&ticks).is_none());
+    }
+
+    #[test]
+    fn test_price_monotonicity_none_for_single() {
+        use rust_decimal_macros::dec;
+        assert!(NormalizedTick::price_monotonicity(&[make_tick_pq(dec!(100), dec!(1))]).is_none());
+    }
+
+    #[test]
+    fn test_price_monotonicity_all_rising() {
+        use rust_decimal_macros::dec;
+        let ticks = [
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(101), dec!(1)),
+            make_tick_pq(dec!(102), dec!(1)),
+        ];
+        let m = NormalizedTick::price_monotonicity(&ticks).unwrap();
+        assert!((m - 1.0).abs() < 1e-9, "expected 1.0, got {}", m);
+    }
+
+    #[test]
+    fn test_tick_count_per_second_none_for_single() {
+        use rust_decimal_macros::dec;
+        assert!(NormalizedTick::tick_count_per_second(&[make_tick_pq(dec!(100), dec!(1))]).is_none());
+    }
+
+    #[test]
+    fn test_price_range_std_none_for_single() {
+        use rust_decimal_macros::dec;
+        assert!(NormalizedTick::price_range_std(&[make_tick_pq(dec!(100), dec!(1))]).is_none());
+    }
+
+    #[test]
+    fn test_price_range_std_uniform_zero() {
+        use rust_decimal_macros::dec;
+        let ticks: Vec<_> = (0..3).map(|_| make_tick_pq(dec!(100), dec!(1))).collect();
+        let s = NormalizedTick::price_range_std(&ticks).unwrap();
+        assert!(s.abs() < 1e-9, "expected 0.0, got {}", s);
     }
 }

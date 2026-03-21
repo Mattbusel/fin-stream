@@ -3504,6 +3504,48 @@ impl MinMaxNormalizer {
         Some(if mean > median { 1.0 } else if mean < median { -1.0 } else { 0.0 })
     }
 
+    // ── round-123 ────────────────────────────────────────────────────────────
+
+    /// Count of trend reversals: sign changes in consecutive differences.
+    pub fn window_trend_reversal_count(&self) -> Option<usize> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 3 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let diffs: Vec<f64> = vals.windows(2).map(|w| w[1] - w[0]).collect();
+        Some(diffs.windows(2).filter(|w| w[0] * w[1] < 0.0).count())
+    }
+
+    /// Difference between first and last values in the window.
+    pub fn window_first_last_diff(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let first = self.window.front()?.to_f64()?;
+        let last = self.window.back()?.to_f64()?;
+        Some(last - first)
+    }
+
+    /// Count of values in the upper half of the window's range.
+    pub fn window_upper_half_count(&self) -> Option<usize> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let min = vals.iter().cloned().fold(f64::INFINITY, f64::min);
+        let max = vals.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        let mid = (min + max) / 2.0;
+        Some(vals.iter().filter(|&&v| v > mid).count())
+    }
+
+    /// Count of values in the lower half of the window's range.
+    pub fn window_lower_half_count(&self) -> Option<usize> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let min = vals.iter().cloned().fold(f64::INFINITY, f64::min);
+        let max = vals.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        let mid = (min + max) / 2.0;
+        Some(vals.iter().filter(|&&v| v < mid).count())
+    }
+
 }
 
 #[cfg(test)]
@@ -7343,6 +7385,69 @@ mod tests {
         let d = n.window_skew_direction().unwrap();
         assert!((d - 1.0).abs() < 1e-9, "expected 1.0, got {}", d);
     }
+
+    // ── round-123 ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_minmax_window_trend_reversal_count_none_for_two() {
+        let mut n = norm(3);
+        for v in [dec!(1), dec!(2)] { n.update(v); }
+        assert!(n.window_trend_reversal_count().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_trend_reversal_count_alternating() {
+        let mut n = norm(5);
+        // 1,3,1,3,1 → reversals=3
+        for v in [dec!(1), dec!(3), dec!(1), dec!(3), dec!(1)] { n.update(v); }
+        let c = n.window_trend_reversal_count().unwrap();
+        assert_eq!(c, 3);
+    }
+
+    #[test]
+    fn test_minmax_window_first_last_diff_none_for_single() {
+        let mut n = norm(3);
+        n.update(dec!(5));
+        assert!(n.window_first_last_diff().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_first_last_diff_basic() {
+        let mut n = norm(3);
+        for v in [dec!(2), dec!(3), dec!(7)] { n.update(v); }
+        let d = n.window_first_last_diff().unwrap();
+        assert!((d - 5.0).abs() < 1e-9, "expected 5.0, got {}", d);
+    }
+
+    #[test]
+    fn test_minmax_window_upper_half_count_none_for_empty() {
+        let n = norm(3);
+        assert!(n.window_upper_half_count().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_upper_half_count_basic() {
+        let mut n = norm(4);
+        // 1,2,3,4 → mid=2.5 → above: 3,4 → 2
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let c = n.window_upper_half_count().unwrap();
+        assert_eq!(c, 2);
+    }
+
+    #[test]
+    fn test_minmax_window_lower_half_count_none_for_empty() {
+        let n = norm(3);
+        assert!(n.window_lower_half_count().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_lower_half_count_basic() {
+        let mut n = norm(4);
+        // 1,2,3,4 → mid=2.5 → below: 1,2 → 2
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let c = n.window_lower_half_count().unwrap();
+        assert_eq!(c, 2);
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -10792,6 +10897,48 @@ impl ZScoreNormalizer {
         let median = if n % 2 == 0 { (sorted[n/2 - 1] + sorted[n/2]) / 2.0 } else { sorted[n/2] };
         let mean = sorted.iter().sum::<f64>() / n as f64;
         Some(if mean > median { 1.0 } else if mean < median { -1.0 } else { 0.0 })
+    }
+
+    // ── round-123 ────────────────────────────────────────────────────────────
+
+    /// Count of trend reversals: sign changes in consecutive differences.
+    pub fn window_trend_reversal_count(&self) -> Option<usize> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 3 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let diffs: Vec<f64> = vals.windows(2).map(|w| w[1] - w[0]).collect();
+        Some(diffs.windows(2).filter(|w| w[0] * w[1] < 0.0).count())
+    }
+
+    /// Difference between first and last values in the window.
+    pub fn window_first_last_diff(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let first = self.window.front()?.to_f64()?;
+        let last = self.window.back()?.to_f64()?;
+        Some(last - first)
+    }
+
+    /// Count of values in the upper half of the window's range.
+    pub fn window_upper_half_count(&self) -> Option<usize> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let min = vals.iter().cloned().fold(f64::INFINITY, f64::min);
+        let max = vals.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        let mid = (min + max) / 2.0;
+        Some(vals.iter().filter(|&&v| v > mid).count())
+    }
+
+    /// Count of values in the lower half of the window's range.
+    pub fn window_lower_half_count(&self) -> Option<usize> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let min = vals.iter().cloned().fold(f64::INFINITY, f64::min);
+        let max = vals.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        let mid = (min + max) / 2.0;
+        Some(vals.iter().filter(|&&v| v < mid).count())
     }
 
 }
@@ -14709,5 +14856,65 @@ mod zscore_stability_tests {
         for v in [dec!(1), dec!(2), dec!(10)] { n.update(v); }
         let d = n.window_skew_direction().unwrap();
         assert!((d - 1.0).abs() < 1e-9, "expected 1.0, got {}", d);
+    }
+
+    // ── round-123 ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_zscore_window_trend_reversal_count_none_for_two() {
+        let mut n = znorm(3);
+        for v in [dec!(1), dec!(2)] { n.update(v); }
+        assert!(n.window_trend_reversal_count().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_trend_reversal_count_alternating() {
+        let mut n = znorm(5);
+        for v in [dec!(1), dec!(3), dec!(1), dec!(3), dec!(1)] { n.update(v); }
+        let c = n.window_trend_reversal_count().unwrap();
+        assert_eq!(c, 3);
+    }
+
+    #[test]
+    fn test_zscore_window_first_last_diff_none_for_single() {
+        let mut n = znorm(3);
+        n.update(dec!(5));
+        assert!(n.window_first_last_diff().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_first_last_diff_basic() {
+        let mut n = znorm(3);
+        for v in [dec!(2), dec!(3), dec!(7)] { n.update(v); }
+        let d = n.window_first_last_diff().unwrap();
+        assert!((d - 5.0).abs() < 1e-9, "expected 5.0, got {}", d);
+    }
+
+    #[test]
+    fn test_zscore_window_upper_half_count_none_for_empty() {
+        let n = znorm(3);
+        assert!(n.window_upper_half_count().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_upper_half_count_basic() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let c = n.window_upper_half_count().unwrap();
+        assert_eq!(c, 2);
+    }
+
+    #[test]
+    fn test_zscore_window_lower_half_count_none_for_empty() {
+        let n = znorm(3);
+        assert!(n.window_lower_half_count().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_lower_half_count_basic() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let c = n.window_lower_half_count().unwrap();
+        assert_eq!(c, 2);
     }
 }
