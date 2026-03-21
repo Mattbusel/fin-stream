@@ -9,6 +9,36 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.6.8] - 2026-03-20
+
+### Added
+
+**`tick` module — `NormalizedTick` analytics (round 117)**
+- `NormalizedTick::price_momentum_slope(ticks)` — OLS slope of price over tick index.
+- `NormalizedTick::qty_dispersion(ticks)` — coefficient of variation of quantities.
+- `NormalizedTick::tick_buy_pct(ticks)` — fraction of sided ticks that are buy-side.
+- `NormalizedTick::consecutive_price_rise(ticks)` — longest run of consecutive rising prices.
+
+**`ohlcv` module — `OhlcvBar` analytics (round 117)**
+- `OhlcvBar::close_above_open_pct(bars)` — fraction of bars where close > open.
+- `OhlcvBar::avg_low_to_close(bars)` — mean `low - close` across bars.
+- `OhlcvBar::bar_trend_score(bars)` — fraction of consecutive close pairs that are rising.
+- `OhlcvBar::volume_above_avg_count(bars)` — count of bars with above-average volume.
+
+**`norm` module — `MinMaxNormalizer` analytics (round 117)**
+- `MinMaxNormalizer::window_entropy_of_changes()` — entropy of absolute differences between consecutive values.
+- `MinMaxNormalizer::window_level_crossing_rate()` — rate at which values cross the window mean.
+- `MinMaxNormalizer::window_abs_mean()` — mean of absolute window values.
+- `MinMaxNormalizer::window_rolling_max()` — maximum value in the window.
+
+**`norm` module — `ZScoreNormalizer` analytics (round 117)**
+- `ZScoreNormalizer::window_entropy_of_changes()` — entropy of absolute differences between consecutive values.
+- `ZScoreNormalizer::window_level_crossing_rate()` — rate at which values cross the window mean.
+- `ZScoreNormalizer::window_abs_mean()` — mean of absolute window values.
+- `ZScoreNormalizer::window_rolling_max()` — maximum value in the window.
+
+---
+
 ## [2.6.7] - 2026-03-20
 
 ### Added

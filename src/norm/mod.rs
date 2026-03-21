@@ -3230,6 +3230,62 @@ impl MinMaxNormalizer {
         Some(vals.windows(2).filter(|w| w[1] < w[0]).count())
     }
 
+    // ── round-117 ────────────────────────────────────────────────────────────
+
+    /// Shannon entropy of absolute differences between consecutive window values,
+    /// binned into 8 equal-width buckets. Returns `None` for fewer than 2 values.
+    pub fn window_entropy_of_changes(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let diffs: Vec<f64> = vals.windows(2).map(|w| (w[1] - w[0]).abs()).collect();
+        let max = diffs.iter().cloned().fold(0f64, f64::max);
+        let min = diffs.iter().cloned().fold(f64::INFINITY, f64::min);
+        let range = max - min;
+        const BUCKETS: usize = 8;
+        let mut counts = [0usize; BUCKETS];
+        if range == 0.0 {
+            counts[0] = diffs.len();
+        } else {
+            for &d in &diffs {
+                let idx = ((d - min) / range * (BUCKETS - 1) as f64) as usize;
+                counts[idx.min(BUCKETS - 1)] += 1;
+            }
+        }
+        let n = diffs.len() as f64;
+        Some(counts.iter().map(|&c| {
+            if c == 0 { 0.0 } else { let p = c as f64 / n; -p * p.ln() }
+        }).sum())
+    }
+
+    /// Rate at which window values cross their mean level.
+    /// Returns `None` for fewer than 2 values.
+    pub fn window_level_crossing_rate(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let mean = vals.iter().sum::<f64>() / vals.len() as f64;
+        let crossings = vals.windows(2).filter(|w| {
+            (w[0] >= mean && w[1] < mean) || (w[0] < mean && w[1] >= mean)
+        }).count();
+        Some(crossings as f64 / (vals.len() - 1) as f64)
+    }
+
+    /// Mean of absolute window values. Returns `None` for empty window.
+    pub fn window_abs_mean(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let sum: f64 = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0).abs()).sum();
+        Some(sum / self.window.len() as f64)
+    }
+
+    /// Maximum value in the window. Returns `None` for empty window.
+    pub fn window_rolling_max(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        self.window.iter().map(|v| v.to_f64().unwrap_or(f64::NEG_INFINITY)).reduce(f64::max)
+    }
+
 }
 
 #[cfg(test)]
@@ -6702,6 +6758,65 @@ mod tests {
         let c = n.window_step_down_count().unwrap();
         assert_eq!(c, 2);
     }
+
+    #[test]
+    fn test_minmax_window_entropy_of_changes_none_for_single() {
+        let mut n = norm(3);
+        n.update(dec!(5));
+        assert!(n.window_entropy_of_changes().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_entropy_of_changes_basic() {
+        let mut n = norm(3);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        let e = n.window_entropy_of_changes().unwrap();
+        assert!(e >= 0.0, "entropy should be non-negative, got {}", e);
+    }
+
+    #[test]
+    fn test_minmax_window_level_crossing_rate_none_for_single() {
+        let mut n = norm(3);
+        n.update(dec!(5));
+        assert!(n.window_level_crossing_rate().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_level_crossing_rate_basic() {
+        let mut n = norm(4);
+        // 1, 3, 1, 3 → crosses mean (2) twice → rate = 2/3
+        for v in [dec!(1), dec!(3), dec!(1), dec!(3)] { n.update(v); }
+        let r = n.window_level_crossing_rate().unwrap();
+        assert!(r > 0.0 && r <= 1.0, "expected (0,1], got {}", r);
+    }
+
+    #[test]
+    fn test_minmax_window_abs_mean_none_for_empty() {
+        let n = norm(3);
+        assert!(n.window_abs_mean().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_abs_mean_basic() {
+        let mut n = norm(3);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        let m = n.window_abs_mean().unwrap();
+        assert!((m - 2.0).abs() < 1e-9, "expected 2.0, got {}", m);
+    }
+
+    #[test]
+    fn test_minmax_window_rolling_max_none_for_empty() {
+        let n = norm(3);
+        assert!(n.window_rolling_max().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_rolling_max_basic() {
+        let mut n = norm(3);
+        for v in [dec!(1), dec!(5), dec!(3)] { n.update(v); }
+        let m = n.window_rolling_max().unwrap();
+        assert!((m - 5.0).abs() < 1e-9, "expected 5.0, got {}", m);
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -9877,6 +9992,62 @@ impl ZScoreNormalizer {
         if self.window.len() < 2 { return None; }
         let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
         Some(vals.windows(2).filter(|w| w[1] < w[0]).count())
+    }
+
+    // ── round-117 ────────────────────────────────────────────────────────────
+
+    /// Shannon entropy of absolute differences between consecutive window values,
+    /// binned into 8 equal-width buckets. Returns `None` for fewer than 2 values.
+    pub fn window_entropy_of_changes(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let diffs: Vec<f64> = vals.windows(2).map(|w| (w[1] - w[0]).abs()).collect();
+        let max = diffs.iter().cloned().fold(0f64, f64::max);
+        let min = diffs.iter().cloned().fold(f64::INFINITY, f64::min);
+        let range = max - min;
+        const BUCKETS: usize = 8;
+        let mut counts = [0usize; BUCKETS];
+        if range == 0.0 {
+            counts[0] = diffs.len();
+        } else {
+            for &d in &diffs {
+                let idx = ((d - min) / range * (BUCKETS - 1) as f64) as usize;
+                counts[idx.min(BUCKETS - 1)] += 1;
+            }
+        }
+        let n = diffs.len() as f64;
+        Some(counts.iter().map(|&c| {
+            if c == 0 { 0.0 } else { let p = c as f64 / n; -p * p.ln() }
+        }).sum())
+    }
+
+    /// Rate at which window values cross their mean level.
+    /// Returns `None` for fewer than 2 values.
+    pub fn window_level_crossing_rate(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let mean = vals.iter().sum::<f64>() / vals.len() as f64;
+        let crossings = vals.windows(2).filter(|w| {
+            (w[0] >= mean && w[1] < mean) || (w[0] < mean && w[1] >= mean)
+        }).count();
+        Some(crossings as f64 / (vals.len() - 1) as f64)
+    }
+
+    /// Mean of absolute window values. Returns `None` for empty window.
+    pub fn window_abs_mean(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let sum: f64 = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0).abs()).sum();
+        Some(sum / self.window.len() as f64)
+    }
+
+    /// Maximum value in the window. Returns `None` for empty window.
+    pub fn window_rolling_max(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        self.window.iter().map(|v| v.to_f64().unwrap_or(f64::NEG_INFINITY)).reduce(f64::max)
     }
 
 }
@@ -13444,5 +13615,63 @@ mod zscore_stability_tests {
         for v in [dec!(3), dec!(2), dec!(1)] { n.update(v); }
         let c = n.window_step_down_count().unwrap();
         assert_eq!(c, 2);
+    }
+
+    #[test]
+    fn test_zscore_window_entropy_of_changes_none_for_single() {
+        let mut n = znorm(3);
+        n.update(dec!(5));
+        assert!(n.window_entropy_of_changes().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_entropy_of_changes_basic() {
+        let mut n = znorm(3);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        let e = n.window_entropy_of_changes().unwrap();
+        assert!(e >= 0.0, "entropy should be non-negative, got {}", e);
+    }
+
+    #[test]
+    fn test_zscore_window_level_crossing_rate_none_for_single() {
+        let mut n = znorm(3);
+        n.update(dec!(5));
+        assert!(n.window_level_crossing_rate().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_level_crossing_rate_basic() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(3), dec!(1), dec!(3)] { n.update(v); }
+        let r = n.window_level_crossing_rate().unwrap();
+        assert!(r > 0.0 && r <= 1.0, "expected (0,1], got {}", r);
+    }
+
+    #[test]
+    fn test_zscore_window_abs_mean_none_for_empty() {
+        let n = znorm(3);
+        assert!(n.window_abs_mean().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_abs_mean_basic() {
+        let mut n = znorm(3);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        let m = n.window_abs_mean().unwrap();
+        assert!((m - 2.0).abs() < 1e-9, "expected 2.0, got {}", m);
+    }
+
+    #[test]
+    fn test_zscore_window_rolling_max_none_for_empty() {
+        let n = znorm(3);
+        assert!(n.window_rolling_max().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_rolling_max_basic() {
+        let mut n = znorm(3);
+        for v in [dec!(1), dec!(5), dec!(3)] { n.update(v); }
+        let m = n.window_rolling_max().unwrap();
+        assert!((m - 5.0).abs() < 1e-9, "expected 5.0, got {}", m);
     }
 }

@@ -5272,6 +5272,42 @@ impl OhlcvBar {
         Some(bullish as f64 / bars.len() as f64)
     }
 
+    // ── round-117 ────────────────────────────────────────────────────────────
+
+    /// Fraction of bars where close > open. Alias providing explicit naming.
+    /// Returns `None` for empty input.
+    pub fn close_above_open_pct(bars: &[OhlcvBar]) -> Option<f64> {
+        if bars.is_empty() { return None; }
+        let count = bars.iter().filter(|b| b.close > b.open).count();
+        Some(count as f64 / bars.len() as f64)
+    }
+
+    /// Mean of `low - close` (negative when close > low). Returns `None` for empty input.
+    pub fn avg_low_to_close(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let sum: f64 = bars.iter().map(|b| (b.low - b.close).to_f64().unwrap_or(0.0)).sum();
+        Some(sum / bars.len() as f64)
+    }
+
+    /// Bar trend score: fraction of consecutive close-to-close pairs that are rising.
+    /// Returns `None` for fewer than 2 bars.
+    pub fn bar_trend_score(bars: &[OhlcvBar]) -> Option<f64> {
+        if bars.len() < 2 { return None; }
+        let rising = bars.windows(2).filter(|w| w[1].close > w[0].close).count();
+        Some(rising as f64 / (bars.len() - 1) as f64)
+    }
+
+    /// Count of bars where volume exceeds the mean volume of the slice.
+    /// Returns `None` for empty input.
+    pub fn volume_above_avg_count(bars: &[OhlcvBar]) -> Option<usize> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let n = bars.len() as f64;
+        let mean_vol = bars.iter().map(|b| b.volume.to_f64().unwrap_or(0.0)).sum::<f64>() / n;
+        Some(bars.iter().filter(|b| b.volume.to_f64().unwrap_or(0.0) > mean_vol).count())
+    }
+
 }
 
 impl std::fmt::Display for OhlcvBar {
@@ -12425,5 +12461,60 @@ mod tests {
         let b2 = make_ohlcv_bar(dec!(100), dec!(120), dec!(95), dec!(115));
         let s = OhlcvBar::body_direction_score(&[b1, b2]).unwrap();
         assert!((s - 1.0).abs() < 1e-9, "expected 1.0, got {}", s);
+    }
+
+    #[test]
+    fn test_close_above_open_pct_none_for_empty() {
+        assert!(OhlcvBar::close_above_open_pct(&[]).is_none());
+    }
+
+    #[test]
+    fn test_close_above_open_pct_basic() {
+        let b1 = make_ohlcv_bar(dec!(100), dec!(115), dec!(95), dec!(110));
+        let b2 = make_ohlcv_bar(dec!(100), dec!(120), dec!(95), dec!(115));
+        let p = OhlcvBar::close_above_open_pct(&[b1, b2]).unwrap();
+        assert!((p - 1.0).abs() < 1e-9, "expected 1.0, got {}", p);
+    }
+
+    #[test]
+    fn test_avg_low_to_close_none_for_empty() {
+        assert!(OhlcvBar::avg_low_to_close(&[]).is_none());
+    }
+
+    #[test]
+    fn test_avg_low_to_close_basic() {
+        // low=90, close=105 → low-close=-15
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let v = OhlcvBar::avg_low_to_close(&[b]).unwrap();
+        assert!((v - (-15.0)).abs() < 1e-9, "expected -15.0, got {}", v);
+    }
+
+    #[test]
+    fn test_bar_trend_score_none_for_single() {
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        assert!(OhlcvBar::bar_trend_score(&[b]).is_none());
+    }
+
+    #[test]
+    fn test_bar_trend_score_all_rising() {
+        let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100));
+        let b2 = make_ohlcv_bar(dec!(100), dec!(115), dec!(95), dec!(110));
+        let b3 = make_ohlcv_bar(dec!(105), dec!(125), dec!(100), dec!(120));
+        let s = OhlcvBar::bar_trend_score(&[b1, b2, b3]).unwrap();
+        assert!((s - 1.0).abs() < 1e-9, "expected 1.0, got {}", s);
+    }
+
+    #[test]
+    fn test_volume_above_avg_count_none_for_empty() {
+        assert!(OhlcvBar::volume_above_avg_count(&[]).is_none());
+    }
+
+    #[test]
+    fn test_volume_above_avg_count_basic() {
+        // all same volume → none above mean → 0
+        let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let b2 = make_ohlcv_bar(dec!(100), dec!(115), dec!(95), dec!(110));
+        let c = OhlcvBar::volume_above_avg_count(&[b1, b2]).unwrap();
+        assert_eq!(c, 0);
     }
 }

@@ -5299,6 +5299,59 @@ impl NormalizedTick {
         if max_run == 0 { None } else { Some(max_run) }
     }
 
+    // ── round-117 ────────────────────────────────────────────────────────────
+
+    /// OLS slope of price over tick index. Returns `None` for fewer than 2 ticks.
+    pub fn price_momentum_slope(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 2 { return None; }
+        let n = ticks.len() as f64;
+        let x_mean = (n - 1.0) / 2.0;
+        let prices: Vec<f64> = ticks.iter().map(|t| t.price.to_f64().unwrap_or(0.0)).collect();
+        let y_mean = prices.iter().sum::<f64>() / n;
+        let num: f64 = prices.iter().enumerate().map(|(i, &y)| (i as f64 - x_mean) * (y - y_mean)).sum();
+        let den: f64 = prices.iter().enumerate().map(|(i, _)| (i as f64 - x_mean).powi(2)).sum();
+        if den == 0.0 { None } else { Some(num / den) }
+    }
+
+    /// Quantity dispersion: coefficient of variation `std / mean`.
+    /// Returns `None` for empty input or zero mean.
+    pub fn qty_dispersion(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() { return None; }
+        let vals: Vec<f64> = ticks.iter().map(|t| t.quantity.to_f64().unwrap_or(0.0)).collect();
+        let n = vals.len() as f64;
+        let mean = vals.iter().sum::<f64>() / n;
+        if mean == 0.0 { return None; }
+        let std = (vals.iter().map(|&x| (x - mean).powi(2)).sum::<f64>() / n).sqrt();
+        Some(std / mean)
+    }
+
+    /// Fraction of ticks that are buy-side. Returns `None` if no sided ticks exist.
+    pub fn tick_buy_pct(ticks: &[NormalizedTick]) -> Option<f64> {
+        let sided: Vec<&NormalizedTick> = ticks.iter().filter(|t| t.side.is_some()).collect();
+        if sided.is_empty() { return None; }
+        let buys = sided.iter().filter(|t| matches!(t.side, Some(TradeSide::Buy))).count();
+        Some(buys as f64 / sided.len() as f64)
+    }
+
+    /// Length of the longest consecutive run of rising prices.
+    /// Returns `None` for fewer than 2 ticks.
+    pub fn consecutive_price_rise(ticks: &[NormalizedTick]) -> Option<usize> {
+        if ticks.len() < 2 { return None; }
+        let mut max_run = 0usize;
+        let mut cur_run = 0usize;
+        for w in ticks.windows(2) {
+            if w[1].price > w[0].price {
+                cur_run += 1;
+                if cur_run > max_run { max_run = cur_run; }
+            } else {
+                cur_run = 0;
+            }
+        }
+        Some(max_run)
+    }
+
 }
 
 
@@ -12174,5 +12227,61 @@ mod tests {
         use rust_decimal_macros::dec;
         let t = make_tick_pq(dec!(100), dec!(1));
         assert!(NormalizedTick::sell_dominance_streak(&[t]).is_none());
+    }
+
+    #[test]
+    fn test_price_momentum_slope_none_for_single() {
+        use rust_decimal_macros::dec;
+        let t = make_tick_pq(dec!(100), dec!(1));
+        assert!(NormalizedTick::price_momentum_slope(&[t]).is_none());
+    }
+
+    #[test]
+    fn test_price_momentum_slope_positive_for_rising() {
+        use rust_decimal_macros::dec;
+        let t1 = make_tick_pq(dec!(100), dec!(1));
+        let t2 = make_tick_pq(dec!(110), dec!(1));
+        let t3 = make_tick_pq(dec!(120), dec!(1));
+        let s = NormalizedTick::price_momentum_slope(&[t1, t2, t3]).unwrap();
+        assert!(s > 0.0, "expected positive slope, got {}", s);
+    }
+
+    #[test]
+    fn test_qty_dispersion_none_for_empty() {
+        assert!(NormalizedTick::qty_dispersion(&[]).is_none());
+    }
+
+    #[test]
+    fn test_qty_dispersion_zero_for_uniform() {
+        use rust_decimal_macros::dec;
+        let t1 = make_tick_pq(dec!(100), dec!(5));
+        let t2 = make_tick_pq(dec!(101), dec!(5));
+        let d = NormalizedTick::qty_dispersion(&[t1, t2]).unwrap();
+        assert!(d.abs() < 1e-9, "expected 0, got {}", d);
+    }
+
+    #[test]
+    fn test_tick_buy_pct_none_for_no_sides() {
+        use rust_decimal_macros::dec;
+        let t = make_tick_pq(dec!(100), dec!(1));
+        assert!(NormalizedTick::tick_buy_pct(&[t]).is_none());
+    }
+
+    #[test]
+    fn test_consecutive_price_rise_none_for_single() {
+        use rust_decimal_macros::dec;
+        let t = make_tick_pq(dec!(100), dec!(1));
+        assert!(NormalizedTick::consecutive_price_rise(&[t]).is_none());
+    }
+
+    #[test]
+    fn test_consecutive_price_rise_basic() {
+        use rust_decimal_macros::dec;
+        // all rising → streak = 2
+        let t1 = make_tick_pq(dec!(100), dec!(1));
+        let t2 = make_tick_pq(dec!(105), dec!(1));
+        let t3 = make_tick_pq(dec!(110), dec!(1));
+        let r = NormalizedTick::consecutive_price_rise(&[t1, t2, t3]).unwrap();
+        assert_eq!(r, 2);
     }
 }
