@@ -6170,6 +6170,58 @@ impl NormalizedTick {
         Some((mean - min) / range)
     }
 
+    // ── round-133 ────────────────────────────────────────────────────────────
+
+    /// Price rate of change: (last price - first price) / first price.
+    pub fn price_roc(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 2 { return None; }
+        let first = ticks.first()?.price.to_f64()?;
+        let last = ticks.last()?.price.to_f64()?;
+        if first == 0.0 { return None; }
+        Some((last - first) / first.abs())
+    }
+
+    /// Quantity rate of change: (last qty - first qty) / first qty.
+    pub fn qty_roc(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 2 { return None; }
+        let first = ticks.first()?.quantity.to_f64()?;
+        let last = ticks.last()?.quantity.to_f64()?;
+        if first == 0.0 { return None; }
+        Some((last - first) / first.abs())
+    }
+
+    /// Tick timing score: fraction of ticks in the first half by timestamp.
+    pub fn tick_timing_score(ticks: &[NormalizedTick]) -> Option<f64> {
+        if ticks.len() < 2 { return None; }
+        let mid_ts = (ticks.first()?.received_at_ms + ticks.last()?.received_at_ms) / 2;
+        let in_first_half = ticks.iter().filter(|t| t.received_at_ms <= mid_ts).count();
+        Some(in_first_half as f64 / ticks.len() as f64)
+    }
+
+    /// Side spread ratio: std of buy prices / std of sell prices.
+    pub fn side_spread_ratio(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let std_of = |prices: &[f64]| -> Option<f64> {
+            if prices.len() < 2 { return None; }
+            let mean = prices.iter().sum::<f64>() / prices.len() as f64;
+            let std = (prices.iter().map(|&p| (p - mean).powi(2)).sum::<f64>() / prices.len() as f64).sqrt();
+            if std == 0.0 { None } else { Some(std) }
+        };
+        let buy_prices: Vec<f64> = ticks.iter()
+            .filter(|t| matches!(t.side, Some(TradeSide::Buy)))
+            .map(|t| t.price.to_f64().unwrap_or(0.0))
+            .collect();
+        let sell_prices: Vec<f64> = ticks.iter()
+            .filter(|t| matches!(t.side, Some(TradeSide::Sell)))
+            .map(|t| t.price.to_f64().unwrap_or(0.0))
+            .collect();
+        let buy_std = std_of(&buy_prices)?;
+        let sell_std = std_of(&sell_prices)?;
+        Some(buy_std / sell_std)
+    }
+
 }
 
 
@@ -14063,5 +14115,82 @@ mod tests {
         ];
         let s = NormalizedTick::price_range_skew(&ticks).unwrap();
         assert!((s - 0.5).abs() < 1e-9, "expected 0.5, got {}", s);
+    }
+
+    // ── round-133 ────────────────────────────────────────────────────────────
+    #[test]
+    fn test_price_roc_none_for_single() {
+        use rust_decimal_macros::dec;
+        assert!(NormalizedTick::price_roc(&[make_tick_pq(dec!(100), dec!(1))]).is_none());
+    }
+
+    #[test]
+    fn test_price_roc_basic() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(110), dec!(1)),
+        ];
+        let r = NormalizedTick::price_roc(&ticks).unwrap();
+        assert!((r - 0.1).abs() < 1e-9, "expected 0.1, got {}", r);
+    }
+
+    #[test]
+    fn test_qty_roc_none_for_single() {
+        use rust_decimal_macros::dec;
+        assert!(NormalizedTick::qty_roc(&[make_tick_pq(dec!(100), dec!(1))]).is_none());
+    }
+
+    #[test]
+    fn test_qty_roc_basic() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(2)),
+            make_tick_pq(dec!(101), dec!(3)),
+        ];
+        let r = NormalizedTick::qty_roc(&ticks).unwrap();
+        assert!((r - 0.5).abs() < 1e-9, "expected 0.5, got {}", r);
+    }
+
+    #[test]
+    fn test_tick_timing_score_none_for_single() {
+        use rust_decimal_macros::dec;
+        assert!(NormalizedTick::tick_timing_score(&[make_tick_pq(dec!(100), dec!(1))]).is_none());
+    }
+
+    #[test]
+    fn test_tick_timing_score_all_in_first_half() {
+        use rust_decimal_macros::dec;
+        let mut t1 = make_tick_pq(dec!(100), dec!(1));
+        t1.received_at_ms = 0;
+        let mut t2 = make_tick_pq(dec!(101), dec!(1));
+        t2.received_at_ms = 100;
+        // both at or before mid=50 — t1 yes, t2 no → 1/2
+        let s = NormalizedTick::tick_timing_score(&[t1, t2]).unwrap();
+        assert!(s > 0.0, "expected positive score, got {}", s);
+    }
+
+    #[test]
+    fn test_side_spread_ratio_none_for_insufficient_sides() {
+        use rust_decimal_macros::dec;
+        // only one side, can't compute std
+        let mut t = make_tick_pq(dec!(100), dec!(1));
+        t.side = Some(TradeSide::Buy);
+        assert!(NormalizedTick::side_spread_ratio(&[t]).is_none());
+    }
+
+    #[test]
+    fn test_side_spread_ratio_equal_spread() {
+        use rust_decimal_macros::dec;
+        let mut b1 = make_tick_pq(dec!(100), dec!(1));
+        b1.side = Some(TradeSide::Buy);
+        let mut b2 = make_tick_pq(dec!(102), dec!(1));
+        b2.side = Some(TradeSide::Buy);
+        let mut s1 = make_tick_pq(dec!(100), dec!(1));
+        s1.side = Some(TradeSide::Sell);
+        let mut s2 = make_tick_pq(dec!(102), dec!(1));
+        s2.side = Some(TradeSide::Sell);
+        let r = NormalizedTick::side_spread_ratio(&[b1, b2, s1, s2]).unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "expected 1.0 for equal spread, got {}", r);
     }
 }

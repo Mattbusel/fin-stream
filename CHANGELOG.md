@@ -9,6 +9,36 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.8.4] - 2026-03-20
+
+### Added
+
+**`tick` module — `NormalizedTick` analytics (round 133)**
+- `NormalizedTick::price_roc(ticks)` — (last price - first price) / first price.
+- `NormalizedTick::qty_roc(ticks)` — (last qty - first qty) / first qty.
+- `NormalizedTick::tick_timing_score(ticks)` — fraction of ticks in the first temporal half.
+- `NormalizedTick::side_spread_ratio(ticks)` — std of buy prices / std of sell prices.
+
+**`ohlcv` module — `OhlcvBar` analytics (round 133)**
+- `OhlcvBar::bar_open_close_momentum(bars)` — sum of bullish/bearish signs across bars.
+- `OhlcvBar::close_body_position(bars)` — mean of (close - low) / (high - low) per bar.
+- `OhlcvBar::bar_close_persistence(bars)` — fraction where current close > prior open.
+- `OhlcvBar::close_wick_ratio(bars)` — mean of upper wick / body per bar.
+
+**`norm` module — `MinMaxNormalizer` analytics (round 133)**
+- `MinMaxNormalizer::window_abs_diff_sum()` — sum of absolute consecutive differences.
+- `MinMaxNormalizer::window_max_gap()` — maximum absolute gap between consecutive values.
+- `MinMaxNormalizer::window_local_max_count()` — count of local maxima in the window.
+- `MinMaxNormalizer::window_first_half_mean()` — mean of the first half of the window.
+
+**`norm` module — `ZScoreNormalizer` analytics (round 133)**
+- `ZScoreNormalizer::window_abs_diff_sum()` — sum of absolute consecutive differences.
+- `ZScoreNormalizer::window_max_gap()` — maximum absolute gap between consecutive values.
+- `ZScoreNormalizer::window_local_max_count()` — count of local maxima in the window.
+- `ZScoreNormalizer::window_first_half_mean()` — mean of the first half of the window.
+
+---
+
 ## [2.8.3] - 2026-03-20
 
 ### Added

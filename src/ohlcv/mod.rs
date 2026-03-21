@@ -6055,6 +6055,62 @@ impl OhlcvBar {
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
+    // ── round-133 ────────────────────────────────────────────────────────────
+
+    /// Bar open-close momentum: sum of signs of (close - open) across bars.
+    pub fn bar_open_close_momentum(bars: &[OhlcvBar]) -> Option<f64> {
+        if bars.is_empty() { return None; }
+        let sum: f64 = bars.iter().map(|b| {
+            if b.close > b.open { 1.0 }
+            else if b.close < b.open { -1.0 }
+            else { 0.0 }
+        }).sum();
+        Some(sum)
+    }
+
+    /// Close body position: mean of (close - low) / (high - low) per bar (1.0 = close at high).
+    pub fn close_body_position(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let vals: Vec<f64> = bars.iter().filter_map(|b| {
+            let cl = b.close.to_f64()?;
+            let lo = b.low.to_f64()?;
+            let hi = b.high.to_f64()?;
+            let range = hi - lo;
+            if range == 0.0 { return None; }
+            Some((cl - lo) / range)
+        }).collect();
+        if vals.is_empty() { return None; }
+        Some(vals.iter().sum::<f64>() / vals.len() as f64)
+    }
+
+    /// Bar close persistence: fraction of bars where close > prior close (already exists as
+    /// `bar_trend_persistence`, so this version uses open-close comparison across bars).
+    pub fn bar_close_persistence(bars: &[OhlcvBar]) -> Option<f64> {
+        if bars.len() < 2 { return None; }
+        let count = bars.windows(2)
+            .filter(|w| w[1].close > w[0].open)
+            .count();
+        Some(count as f64 / (bars.len() - 1) as f64)
+    }
+
+    /// Close wick ratio: mean of upper_wick / body per bar.
+    pub fn close_wick_ratio(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let vals: Vec<f64> = bars.iter().filter_map(|b| {
+            let hi = b.high.to_f64()?;
+            let cl = b.close.to_f64()?;
+            let op = b.open.to_f64()?;
+            let body = (cl - op).abs();
+            if body == 0.0 { return None; }
+            let upper_wick = hi - cl.max(op);
+            Some(upper_wick / body)
+        }).collect();
+        if vals.is_empty() { return None; }
+        Some(vals.iter().sum::<f64>() / vals.len() as f64)
+    }
+
 }
 
 impl std::fmt::Display for OhlcvBar {
@@ -14104,5 +14160,58 @@ mod tests {
         let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
         let s = OhlcvBar::bar_spread_score(&[b]).unwrap();
         assert!(s > 0.0, "expected positive score, got {}", s);
+    }
+
+    // ── round-133 ────────────────────────────────────────────────────────────
+    #[test]
+    fn test_bar_open_close_momentum_none_for_empty() {
+        assert!(OhlcvBar::bar_open_close_momentum(&[]).is_none());
+    }
+
+    #[test]
+    fn test_bar_open_close_momentum_all_bullish() {
+        let b1 = make_ohlcv_bar(dec!(100), dec!(115), dec!(85), dec!(110));
+        let b2 = make_ohlcv_bar(dec!(110), dec!(125), dec!(95), dec!(120));
+        let m = OhlcvBar::bar_open_close_momentum(&[b1, b2]).unwrap();
+        assert!((m - 2.0).abs() < 1e-9, "expected 2.0, got {}", m);
+    }
+
+    #[test]
+    fn test_close_body_position_none_for_empty() {
+        assert!(OhlcvBar::close_body_position(&[]).is_none());
+    }
+
+    #[test]
+    fn test_close_body_position_at_high() {
+        // high=110, low=90, close=110 → position=1.0
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(110));
+        let p = OhlcvBar::close_body_position(&[b]).unwrap();
+        assert!((p - 1.0).abs() < 1e-9, "expected 1.0, got {}", p);
+    }
+
+    #[test]
+    fn test_bar_close_persistence_none_for_single() {
+        assert!(OhlcvBar::bar_close_persistence(&[make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105))]).is_none());
+    }
+
+    #[test]
+    fn test_bar_close_persistence_always_higher() {
+        let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let b2 = make_ohlcv_bar(dec!(105), dec!(115), dec!(95), dec!(115));
+        let p = OhlcvBar::bar_close_persistence(&[b1, b2]).unwrap();
+        assert!((p - 1.0).abs() < 1e-9, "expected 1.0, got {}", p);
+    }
+
+    #[test]
+    fn test_close_wick_ratio_none_for_empty() {
+        assert!(OhlcvBar::close_wick_ratio(&[]).is_none());
+    }
+
+    #[test]
+    fn test_close_wick_ratio_no_upper_wick() {
+        // open=100, close=110, high=110 → upper_wick=0, body=10 → ratio=0
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(110));
+        let r = OhlcvBar::close_wick_ratio(&[b]).unwrap();
+        assert!(r.abs() < 1e-9, "expected 0.0 for no upper wick, got {}", r);
     }
 }

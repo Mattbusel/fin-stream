@@ -3984,6 +3984,48 @@ impl MinMaxNormalizer {
         Some(max_run)
     }
 
+    // ── round-133 ────────────────────────────────────────────────────────────
+
+    /// Sum of absolute differences between consecutive window values.
+    pub fn window_abs_diff_sum(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let sum: f64 = vals.windows(2).map(|w| (w[1] - w[0]).abs()).sum();
+        Some(sum)
+    }
+
+    /// Maximum gap between any two consecutive window values.
+    pub fn window_max_gap(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let max_gap = vals.windows(2)
+            .map(|w| (w[1] - w[0]).abs())
+            .fold(f64::NEG_INFINITY, f64::max);
+        Some(max_gap)
+    }
+
+    /// Count of local maxima in the window (values greater than both neighbors).
+    pub fn window_local_max_count(&self) -> Option<usize> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 3 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let count = vals.windows(3).filter(|w| w[1] > w[0] && w[1] > w[2]).count();
+        Some(count)
+    }
+
+    /// Mean of the first half of the window.
+    pub fn window_first_half_mean(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let mid = vals.len() / 2;
+        let first_half = &vals[..mid];
+        if first_half.is_empty() { return None; }
+        Some(first_half.iter().sum::<f64>() / first_half.len() as f64)
+    }
+
 }
 
 #[cfg(test)]
@@ -8432,6 +8474,69 @@ mod tests {
         let r = n.window_run_length().unwrap();
         assert_eq!(r, 2);
     }
+
+    // ── round-133 ────────────────────────────────────────────────────────────
+    #[test]
+    fn test_minmax_window_abs_diff_sum_none_for_single() {
+        let mut n = norm(3);
+        n.update(dec!(5));
+        assert!(n.window_abs_diff_sum().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_abs_diff_sum_basic() {
+        let mut n = norm(3);
+        for v in [dec!(1), dec!(3), dec!(2)] { n.update(v); }
+        // |3-1| + |2-3| = 2 + 1 = 3
+        let s = n.window_abs_diff_sum().unwrap();
+        assert!((s - 3.0).abs() < 1e-9, "expected 3.0, got {}", s);
+    }
+
+    #[test]
+    fn test_minmax_window_max_gap_none_for_single() {
+        let mut n = norm(3);
+        n.update(dec!(5));
+        assert!(n.window_max_gap().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_max_gap_basic() {
+        let mut n = norm(3);
+        for v in [dec!(1), dec!(5), dec!(3)] { n.update(v); }
+        let g = n.window_max_gap().unwrap();
+        assert!((g - 4.0).abs() < 1e-9, "expected 4.0, got {}", g);
+    }
+
+    #[test]
+    fn test_minmax_window_local_max_count_none_for_two() {
+        let mut n = norm(2);
+        for v in [dec!(1), dec!(2)] { n.update(v); }
+        assert!(n.window_local_max_count().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_local_max_count_one_peak() {
+        let mut n = norm(3);
+        for v in [dec!(1), dec!(3), dec!(2)] { n.update(v); }
+        let c = n.window_local_max_count().unwrap();
+        assert_eq!(c, 1);
+    }
+
+    #[test]
+    fn test_minmax_window_first_half_mean_none_for_single() {
+        let mut n = norm(3);
+        n.update(dec!(5));
+        assert!(n.window_first_half_mean().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_first_half_mean_basic() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        // first half: [1,2] → mean=1.5
+        let m = n.window_first_half_mean().unwrap();
+        assert!((m - 1.5).abs() < 1e-9, "expected 1.5, got {}", m);
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -12360,6 +12465,48 @@ impl ZScoreNormalizer {
         }
         max_run = max_run.max(cur_run);
         Some(max_run)
+    }
+
+    // ── round-133 ────────────────────────────────────────────────────────────
+
+    /// Sum of absolute differences between consecutive window values.
+    pub fn window_abs_diff_sum(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let sum: f64 = vals.windows(2).map(|w| (w[1] - w[0]).abs()).sum();
+        Some(sum)
+    }
+
+    /// Maximum gap between any two consecutive window values.
+    pub fn window_max_gap(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let max_gap = vals.windows(2)
+            .map(|w| (w[1] - w[0]).abs())
+            .fold(f64::NEG_INFINITY, f64::max);
+        Some(max_gap)
+    }
+
+    /// Count of local maxima in the window (values greater than both neighbors).
+    pub fn window_local_max_count(&self) -> Option<usize> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 3 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let count = vals.windows(3).filter(|w| w[1] > w[0] && w[1] > w[2]).count();
+        Some(count)
+    }
+
+    /// Mean of the first half of the window.
+    pub fn window_first_half_mean(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let mid = vals.len() / 2;
+        let first_half = &vals[..mid];
+        if first_half.is_empty() { return None; }
+        Some(first_half.iter().sum::<f64>() / first_half.len() as f64)
     }
 
 }
@@ -16870,5 +17017,66 @@ mod zscore_stability_tests {
         for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
         let r = n.window_run_length().unwrap();
         assert_eq!(r, 2);
+    }
+
+    // ── round-133 ────────────────────────────────────────────────────────────
+    #[test]
+    fn test_zscore_window_abs_diff_sum_none_for_single() {
+        let mut n = znorm(3);
+        n.update(dec!(5));
+        assert!(n.window_abs_diff_sum().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_abs_diff_sum_basic() {
+        let mut n = znorm(3);
+        for v in [dec!(1), dec!(3), dec!(2)] { n.update(v); }
+        let s = n.window_abs_diff_sum().unwrap();
+        assert!((s - 3.0).abs() < 1e-9, "expected 3.0, got {}", s);
+    }
+
+    #[test]
+    fn test_zscore_window_max_gap_none_for_single() {
+        let mut n = znorm(3);
+        n.update(dec!(5));
+        assert!(n.window_max_gap().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_max_gap_basic() {
+        let mut n = znorm(3);
+        for v in [dec!(1), dec!(5), dec!(3)] { n.update(v); }
+        let g = n.window_max_gap().unwrap();
+        assert!((g - 4.0).abs() < 1e-9, "expected 4.0, got {}", g);
+    }
+
+    #[test]
+    fn test_zscore_window_local_max_count_none_for_two() {
+        let mut n = znorm(2);
+        for v in [dec!(1), dec!(2)] { n.update(v); }
+        assert!(n.window_local_max_count().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_local_max_count_one_peak() {
+        let mut n = znorm(3);
+        for v in [dec!(1), dec!(3), dec!(2)] { n.update(v); }
+        let c = n.window_local_max_count().unwrap();
+        assert_eq!(c, 1);
+    }
+
+    #[test]
+    fn test_zscore_window_first_half_mean_none_for_single() {
+        let mut n = znorm(3);
+        n.update(dec!(5));
+        assert!(n.window_first_half_mean().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_first_half_mean_basic() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let m = n.window_first_half_mean().unwrap();
+        assert!((m - 1.5).abs() < 1e-9, "expected 1.5, got {}", m);
     }
 }
