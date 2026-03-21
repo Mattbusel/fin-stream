@@ -4843,6 +4843,55 @@ impl OhlcvBar {
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
+    // ── round-109 ────────────────────────────────────────────────────────────
+
+    /// Fraction of bars where open != close of the prior bar (open gap).
+    /// Returns `None` for fewer than 2 bars.
+    pub fn open_gap_frequency(bars: &[OhlcvBar]) -> Option<f64> {
+        if bars.len() < 2 { return None; }
+        let gapped = bars.windows(2).filter(|w| w[1].open != w[0].close).count();
+        Some(gapped as f64 / (bars.len() - 1) as f64)
+    }
+
+    /// Mean of `close / open - 1` (intra-bar return) across bars with non-zero open.
+    /// Returns `None` for an empty slice.
+    pub fn avg_close_to_open(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let vals: Vec<f64> = bars.iter().filter_map(|b| {
+            if b.open.is_zero() { None }
+            else { Some(((b.close - b.open) / b.open).to_f64().unwrap_or(0.0)) }
+        }).collect();
+        if vals.is_empty() { return None; }
+        Some(vals.iter().sum::<f64>() / vals.len() as f64)
+    }
+
+    /// Count of bars where close crossed through the prior bar's open price.
+    /// Returns `None` for fewer than 2 bars.
+    pub fn close_cross_open_count(bars: &[OhlcvBar]) -> Option<usize> {
+        if bars.len() < 2 { return None; }
+        let count = bars.windows(2).filter(|w| {
+            let prev_open = w[0].open;
+            // current close crosses prev bar's open
+            (w[0].close < prev_open && w[1].close >= prev_open)
+                || (w[0].close > prev_open && w[1].close <= prev_open)
+        }).count();
+        Some(count)
+    }
+
+    /// Mean trailing stop distance: `close - min(low over last N bars)` for each bar, N=3.
+    /// Returns `None` for fewer than 3 bars.
+    pub fn trailing_stop_distance(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.len() < 3 { return None; }
+        let distances: Vec<f64> = bars.windows(3).filter_map(|w| {
+            let min_low = w.iter().map(|b| b.low).min()?;
+            let last_close = w[2].close;
+            Some((last_close - min_low).to_f64().unwrap_or(0.0))
+        }).collect();
+        if distances.is_empty() { return None; }
+        Some(distances.iter().sum::<f64>() / distances.len() as f64)
+    }
+
 }
 
 impl std::fmt::Display for OhlcvBar {
@@ -11523,5 +11572,67 @@ mod tests {
         let b = make_ohlcv_bar(dec!(100), dec!(120), dec!(100), dec!(110));
         let f = OhlcvBar::body_upper_fraction(&[b]).unwrap();
         assert!(f.abs() < 1e-9, "expected ~0.0, got {}", f);
+    }
+
+    // ── round-109 tests ───────────────────────────────────────────────────────
+
+    #[test]
+    fn test_open_gap_frequency_none_for_single() {
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        assert!(OhlcvBar::open_gap_frequency(&[b]).is_none());
+    }
+
+    #[test]
+    fn test_open_gap_frequency_basic() {
+        // prev close=105; curr open=110 ≠ 105 → gap
+        let prev = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let curr = make_ohlcv_bar(dec!(110), dec!(120), dec!(105), dec!(115));
+        let f = OhlcvBar::open_gap_frequency(&[prev, curr]).unwrap();
+        assert!((f - 1.0).abs() < 1e-9, "expected 1.0, got {}", f);
+    }
+
+    #[test]
+    fn test_avg_close_to_open_none_for_empty() {
+        assert!(OhlcvBar::avg_close_to_open(&[]).is_none());
+    }
+
+    #[test]
+    fn test_avg_close_to_open_basic() {
+        // open=100, close=110 → (110-100)/100 = 0.1
+        let b = make_ohlcv_bar(dec!(100), dec!(115), dec!(90), dec!(110));
+        let r = OhlcvBar::avg_close_to_open(&[b]).unwrap();
+        assert!((r - 0.1).abs() < 1e-9, "expected 0.1, got {}", r);
+    }
+
+    #[test]
+    fn test_close_cross_open_count_none_for_single() {
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        assert!(OhlcvBar::close_cross_open_count(&[b]).is_none());
+    }
+
+    #[test]
+    fn test_close_cross_open_count_zero_for_no_cross() {
+        // both bars close above open of prev bar — no crossing occurs
+        let b1 = make_ohlcv_bar(dec!(100), dec!(115), dec!(90), dec!(112));
+        let b2 = make_ohlcv_bar(dec!(110), dec!(120), dec!(105), dec!(118));
+        let c = OhlcvBar::close_cross_open_count(&[b1, b2]).unwrap();
+        assert_eq!(c, 0);
+    }
+
+    #[test]
+    fn test_trailing_stop_distance_none_for_two() {
+        let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let b2 = make_ohlcv_bar(dec!(105), dec!(115), dec!(95), dec!(108));
+        assert!(OhlcvBar::trailing_stop_distance(&[b1, b2]).is_none());
+    }
+
+    #[test]
+    fn test_trailing_stop_distance_basic() {
+        // 3 bars: lows [90,95,92]; min_low=90; last_close=108 → distance=18
+        let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let b2 = make_ohlcv_bar(dec!(105), dec!(115), dec!(95), dec!(110));
+        let b3 = make_ohlcv_bar(dec!(108), dec!(115), dec!(92), dec!(108));
+        let d = OhlcvBar::trailing_stop_distance(&[b1, b2, b3]).unwrap();
+        assert!((d - 18.0).abs() < 1e-9, "expected 18.0, got {}", d);
     }
 }

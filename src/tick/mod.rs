@@ -4877,6 +4877,52 @@ impl NormalizedTick {
         sorted[idx.min(sorted.len() - 1)].to_f64()
     }
 
+    // ── round-109 ────────────────────────────────────────────────────────────
+
+    /// Count of ticks on the sell side.
+    /// Returns `None` for an empty slice.
+    pub fn sell_tick_count(ticks: &[NormalizedTick]) -> Option<usize> {
+        if ticks.is_empty() { return None; }
+        Some(ticks.iter().filter(|t| matches!(t.side, Some(TradeSide::Sell))).count())
+    }
+
+    /// Range of inter-tick gaps in milliseconds: `max_gap - min_gap`.
+    /// Returns `None` for fewer than 3 ticks (need at least 2 gaps).
+    pub fn inter_tick_range_ms(ticks: &[NormalizedTick]) -> Option<f64> {
+        if ticks.len() < 3 { return None; }
+        let gaps: Vec<u64> = ticks.windows(2)
+            .map(|w| w[1].received_at_ms.saturating_sub(w[0].received_at_ms))
+            .collect();
+        let max_g = gaps.iter().copied().max()?;
+        let min_g = gaps.iter().copied().min()?;
+        Some((max_g - min_g) as f64)
+    }
+
+    /// Net quantity flow: buy total quantity minus sell total quantity.
+    /// Returns `None` for an empty slice.
+    pub fn net_qty_flow(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() { return None; }
+        let buy_qty: Decimal = ticks.iter()
+            .filter(|t| matches!(t.side, Some(TradeSide::Buy)))
+            .map(|t| t.quantity).sum();
+        let sell_qty: Decimal = ticks.iter()
+            .filter(|t| matches!(t.side, Some(TradeSide::Sell)))
+            .map(|t| t.quantity).sum();
+        (buy_qty - sell_qty).to_f64()
+    }
+
+    /// Ratio of max quantity to min quantity across the slice.
+    /// Returns `None` for an empty slice or zero min quantity.
+    pub fn qty_skew_ratio(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() { return None; }
+        let max_q = ticks.iter().map(|t| t.quantity).max()?;
+        let min_q = ticks.iter().map(|t| t.quantity).min()?;
+        if min_q.is_zero() { return None; }
+        Some((max_q / min_q).to_f64().unwrap_or(0.0))
+    }
+
 }
 
 
@@ -11256,5 +11302,76 @@ mod tests {
         ];
         let p = NormalizedTick::price_percentile_25(&ticks).unwrap();
         assert!((p - 10.0).abs() < 1e-9, "expected 10.0, got {}", p);
+    }
+
+    // ── round-109 tests ───────────────────────────────────────────────────────
+
+    #[test]
+    fn test_sell_tick_count_none_for_empty() {
+        assert!(NormalizedTick::sell_tick_count(&[]).is_none());
+    }
+
+    #[test]
+    fn test_sell_tick_count_basic() {
+        use rust_decimal_macros::dec;
+        let mut buy = make_tick_pq(dec!(100), dec!(1));
+        buy.side = Some(TradeSide::Buy);
+        let mut sell = make_tick_pq(dec!(100), dec!(1));
+        sell.side = Some(TradeSide::Sell);
+        let c = NormalizedTick::sell_tick_count(&[buy, sell]).unwrap();
+        assert_eq!(c, 1);
+    }
+
+    #[test]
+    fn test_inter_tick_range_ms_none_for_two() {
+        use rust_decimal_macros::dec;
+        let t1 = make_tick_pq(dec!(100), dec!(1));
+        let t2 = make_tick_pq(dec!(100), dec!(1));
+        assert!(NormalizedTick::inter_tick_range_ms(&[t1, t2]).is_none());
+    }
+
+    #[test]
+    fn test_inter_tick_range_ms_basic() {
+        use rust_decimal_macros::dec;
+        let mut t1 = make_tick_pq(dec!(100), dec!(1));
+        t1.received_at_ms = 0;
+        let mut t2 = make_tick_pq(dec!(100), dec!(1));
+        t2.received_at_ms = 10;
+        let mut t3 = make_tick_pq(dec!(100), dec!(1));
+        t3.received_at_ms = 110;
+        // gaps: [10, 100]; range = 90
+        let r = NormalizedTick::inter_tick_range_ms(&[t1, t2, t3]).unwrap();
+        assert!((r - 90.0).abs() < 1e-9, "expected 90.0, got {}", r);
+    }
+
+    #[test]
+    fn test_net_qty_flow_none_for_empty() {
+        assert!(NormalizedTick::net_qty_flow(&[]).is_none());
+    }
+
+    #[test]
+    fn test_net_qty_flow_basic() {
+        use rust_decimal_macros::dec;
+        let mut buy = make_tick_pq(dec!(100), dec!(7));
+        buy.side = Some(TradeSide::Buy);
+        let mut sell = make_tick_pq(dec!(100), dec!(3));
+        sell.side = Some(TradeSide::Sell);
+        let f = NormalizedTick::net_qty_flow(&[buy, sell]).unwrap();
+        assert!((f - 4.0).abs() < 1e-9, "expected 4.0, got {}", f);
+    }
+
+    #[test]
+    fn test_qty_skew_ratio_none_for_empty() {
+        assert!(NormalizedTick::qty_skew_ratio(&[]).is_none());
+    }
+
+    #[test]
+    fn test_qty_skew_ratio_basic() {
+        use rust_decimal_macros::dec;
+        // max=10, min=2 → ratio=5
+        let t1 = make_tick_pq(dec!(100), dec!(2));
+        let t2 = make_tick_pq(dec!(100), dec!(10));
+        let r = NormalizedTick::qty_skew_ratio(&[t1, t2]).unwrap();
+        assert!((r - 5.0).abs() < 1e-9, "expected 5.0, got {}", r);
     }
 }

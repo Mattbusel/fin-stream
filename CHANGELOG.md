@@ -9,6 +9,36 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.6.0] - 2026-03-20
+
+### Added
+
+**`tick` module — `NormalizedTick` analytics (round 109)**
+- `NormalizedTick::sell_tick_count(ticks)` — count of ticks on the sell side.
+- `NormalizedTick::inter_tick_range_ms(ticks)` — range (max - min) of inter-tick gaps in milliseconds.
+- `NormalizedTick::net_qty_flow(ticks)` — buy total quantity minus sell total quantity.
+- `NormalizedTick::qty_skew_ratio(ticks)` — ratio of maximum to minimum trade quantity.
+
+**`ohlcv` module — `OhlcvBar` analytics (round 109)**
+- `OhlcvBar::open_gap_frequency(bars)` — fraction of bars that open at a different price than the prior close.
+- `OhlcvBar::avg_close_to_open(bars)` — mean intra-bar return `(close - open) / open` across bars.
+- `OhlcvBar::close_cross_open_count(bars)` — count of bars where close crosses through the prior bar's open.
+- `OhlcvBar::trailing_stop_distance(bars)` — mean `close - min(low over 3-bar window)` trailing stop distance.
+
+**`norm` module — `MinMaxNormalizer` analytics (round 109)**
+- `MinMaxNormalizer::window_zscore_mean()` — mean z-score of window values (always ~0, sanity check).
+- `MinMaxNormalizer::window_positive_sum()` — sum of positive values in the window.
+- `MinMaxNormalizer::window_negative_sum()` — sum of negative values in the window.
+- `MinMaxNormalizer::window_trend_consistency()` — fraction of steps consistent with the overall trend.
+
+**`norm` module — `ZScoreNormalizer` analytics (round 109)**
+- `ZScoreNormalizer::window_zscore_mean()` — mean z-score of window values (always ~0, sanity check).
+- `ZScoreNormalizer::window_positive_sum()` — sum of positive values in the window.
+- `ZScoreNormalizer::window_negative_sum()` — sum of negative values in the window.
+- `ZScoreNormalizer::window_trend_consistency()` — fraction of steps consistent with the overall trend.
+
+---
+
 ## [2.5.9] - 2026-03-20
 
 ### Added

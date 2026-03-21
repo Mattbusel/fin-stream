@@ -2801,6 +2801,52 @@ impl MinMaxNormalizer {
         sorted[idx.min(sorted.len() - 1)].to_f64()
     }
 
+    // ── round-109 ────────────────────────────────────────────────────────────
+
+    /// Mean z-score of all window values relative to the window's own mean/std.
+    /// By definition equals 0; useful as a sanity check.
+    /// Returns `None` for fewer than 2 values or zero std dev.
+    pub fn window_zscore_mean(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.len() != self.window.len() { return None; }
+        let n = vals.len() as f64;
+        let mean = vals.iter().sum::<f64>() / n;
+        let std_dev = (vals.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / n).sqrt();
+        if std_dev == 0.0 { return None; }
+        let sum_z: f64 = vals.iter().map(|v| (v - mean) / std_dev).sum();
+        Some(sum_z / n)
+    }
+
+    /// Sum of all positive values in the window.
+    pub fn window_positive_sum(&self) -> Decimal {
+        self.window.iter().copied().filter(|v| v.is_sign_positive()).sum()
+    }
+
+    /// Sum of all negative values in the window (result is <= 0).
+    pub fn window_negative_sum(&self) -> Decimal {
+        self.window.iter().copied().filter(|v| v.is_sign_negative()).sum()
+    }
+
+    /// Fraction of consecutive pairs that continue in the same direction as the
+    /// overall window trend (up if last > first, down if last < first).
+    /// Returns `None` for fewer than 2 values or no net trend.
+    pub fn window_trend_consistency(&self) -> Option<f64> {
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<Decimal> = self.window.iter().copied().collect();
+        let overall = vals.last()? - vals.first()?;
+        if overall.is_zero() { return None; }
+        let consistent = vals.windows(2)
+            .filter(|w| {
+                let step = w[1] - w[0];
+                (overall.is_sign_positive() && step.is_sign_positive())
+                    || (overall.is_sign_negative() && step.is_sign_negative())
+            })
+            .count();
+        Some(consistent as f64 / (vals.len() - 1) as f64)
+    }
+
 }
 
 #[cfg(test)]
@@ -5786,6 +5832,54 @@ mod tests {
         let p = n.window_percentile_10().unwrap();
         assert!((p - 10.0).abs() < 1e-9, "expected 10.0, got {}", p);
     }
+
+    // ── round-109 tests ───────────────────────────────────────────────────────
+
+    #[test]
+    fn test_minmax_window_zscore_mean_none_for_single() {
+        let mut n = norm(5);
+        n.update(dec!(10));
+        assert!(n.window_zscore_mean().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_zscore_mean_basic() {
+        let mut n = norm(5);
+        for v in [dec!(10), dec!(20), dec!(30)] { n.update(v); }
+        // z-score mean is always ~0
+        let z = n.window_zscore_mean().unwrap();
+        assert!(z.abs() < 1e-9, "expected ~0, got {}", z);
+    }
+
+    #[test]
+    fn test_minmax_window_positive_sum_basic() {
+        let mut n = norm(5);
+        for v in [dec!(5), dec!(-3), dec!(8)] { n.update(v); }
+        assert_eq!(n.window_positive_sum(), dec!(13));
+    }
+
+    #[test]
+    fn test_minmax_window_negative_sum_basic() {
+        let mut n = norm(5);
+        for v in [dec!(5), dec!(-3), dec!(-7)] { n.update(v); }
+        assert_eq!(n.window_negative_sum(), dec!(-10));
+    }
+
+    #[test]
+    fn test_minmax_window_trend_consistency_none_for_flat() {
+        let mut n = norm(5);
+        for v in [dec!(10), dec!(10), dec!(10)] { n.update(v); }
+        assert!(n.window_trend_consistency().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_trend_consistency_perfect() {
+        let mut n = norm(5);
+        for v in [dec!(10), dec!(20), dec!(30)] { n.update(v); }
+        // all steps consistent with upward trend
+        let c = n.window_trend_consistency().unwrap();
+        assert!((c - 1.0).abs() < 1e-9, "expected 1.0, got {}", c);
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -8533,6 +8627,51 @@ impl ZScoreNormalizer {
         sorted.sort();
         let idx = ((sorted.len() as f64 * 0.10).ceil() as usize).saturating_sub(1);
         sorted[idx.min(sorted.len() - 1)].to_f64()
+    }
+
+    // ── round-109 ────────────────────────────────────────────────────────────
+
+    /// Mean z-score of all window values (should equal 0 by definition).
+    /// Returns `None` for fewer than 2 values or zero std dev.
+    pub fn window_zscore_mean(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.len() != self.window.len() { return None; }
+        let n = vals.len() as f64;
+        let mean = vals.iter().sum::<f64>() / n;
+        let std_dev = (vals.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / n).sqrt();
+        if std_dev == 0.0 { return None; }
+        let sum_z: f64 = vals.iter().map(|v| (v - mean) / std_dev).sum();
+        Some(sum_z / n)
+    }
+
+    /// Sum of all positive values in the window.
+    pub fn window_positive_sum(&self) -> Decimal {
+        self.window.iter().copied().filter(|v| v.is_sign_positive()).sum()
+    }
+
+    /// Sum of all negative values in the window (result is <= 0).
+    pub fn window_negative_sum(&self) -> Decimal {
+        self.window.iter().copied().filter(|v| v.is_sign_negative()).sum()
+    }
+
+    /// Fraction of consecutive pairs that continue in the same direction as the
+    /// overall window trend.
+    /// Returns `None` for fewer than 2 values or no net trend.
+    pub fn window_trend_consistency(&self) -> Option<f64> {
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<Decimal> = self.window.iter().copied().collect();
+        let overall = vals.last()? - vals.first()?;
+        if overall.is_zero() { return None; }
+        let consistent = vals.windows(2)
+            .filter(|w| {
+                let step = w[1] - w[0];
+                (overall.is_sign_positive() && step.is_sign_positive())
+                    || (overall.is_sign_negative() && step.is_sign_negative())
+            })
+            .count();
+        Some(consistent as f64 / (vals.len() - 1) as f64)
     }
 
 }
@@ -11641,5 +11780,51 @@ mod zscore_stability_tests {
                   dec!(60), dec!(70), dec!(80), dec!(90), dec!(100)] { n.update(v); }
         let p = n.window_percentile_10().unwrap();
         assert!((p - 10.0).abs() < 1e-9, "expected 10.0, got {}", p);
+    }
+
+    // ── round-109 tests ───────────────────────────────────────────────────────
+
+    #[test]
+    fn test_zscore_window_zscore_mean_none_for_single() {
+        let mut n = znorm(5);
+        n.update(dec!(10));
+        assert!(n.window_zscore_mean().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_zscore_mean_basic() {
+        let mut n = znorm(5);
+        for v in [dec!(10), dec!(20), dec!(30)] { n.update(v); }
+        let z = n.window_zscore_mean().unwrap();
+        assert!(z.abs() < 1e-9, "expected ~0, got {}", z);
+    }
+
+    #[test]
+    fn test_zscore_window_positive_sum_basic() {
+        let mut n = znorm(5);
+        for v in [dec!(5), dec!(-3), dec!(8)] { n.update(v); }
+        assert_eq!(n.window_positive_sum(), dec!(13));
+    }
+
+    #[test]
+    fn test_zscore_window_negative_sum_basic() {
+        let mut n = znorm(5);
+        for v in [dec!(5), dec!(-3), dec!(-7)] { n.update(v); }
+        assert_eq!(n.window_negative_sum(), dec!(-10));
+    }
+
+    #[test]
+    fn test_zscore_window_trend_consistency_none_for_flat() {
+        let mut n = znorm(5);
+        for v in [dec!(10), dec!(10), dec!(10)] { n.update(v); }
+        assert!(n.window_trend_consistency().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_trend_consistency_perfect() {
+        let mut n = znorm(5);
+        for v in [dec!(10), dec!(20), dec!(30)] { n.update(v); }
+        let c = n.window_trend_consistency().unwrap();
+        assert!((c - 1.0).abs() < 1e-9, "expected 1.0, got {}", c);
     }
 }
