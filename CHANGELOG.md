@@ -20,6 +20,16 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - `NormalizedTick::sell_to_total_volume_ratio(ticks)` — fraction of total volume classified as sell-side.
 - `NormalizedTick::notional_std(ticks)` — std dev of per-tick notional (`price × quantity`); requires ≥ 2 ticks.
 
+**`ohlcv` module — `OhlcvBar` analytics (round 82)**
+- `OhlcvBar::avg_bar_range(bars)` — mean of `high − low` across bars.
+- `OhlcvBar::max_up_move(bars)` — largest single-bar upward body (`max(close − open, 0)`).
+- `OhlcvBar::max_down_move(bars)` — largest single-bar downward body (`max(open − close, 0)`).
+- `OhlcvBar::avg_close_position(bars)` — mean of `(close − low) / range` for bars with non-zero range.
+- `OhlcvBar::volume_std(bars)` — std dev of volume across bars; requires ≥ 2 bars.
+- `OhlcvBar::avg_wick_ratio(bars)` — mean of `total_wick / range` per bar; excludes doji bars.
+- `OhlcvBar::open_gap_mean(bars)` — mean of `|open_i − close_{i-1}| / close_{i-1}`; measures gap size.
+- `OhlcvBar::net_directional_move(bars)` — `(last_close − first_open) / first_open`; overall percentage move.
+
 **`norm` module — `MinMaxNormalizer` and `ZScoreNormalizer` analytics (round 82)**
 - `mean_absolute_change() -> Option<f64>` — mean of `|x_i − x_{i-1}|` across consecutive window values; average absolute step size.
 

@@ -7858,4 +7858,111 @@ mod tests {
         let mut b2 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105)); b2.trade_count = 2;
         assert_eq!(OhlcvBar::min_trade_count(&[b1, b2]).unwrap(), 2);
     }
+
+    // ── round-82 tests ────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_avg_bar_range_none_for_empty() {
+        assert!(OhlcvBar::avg_bar_range(&[]).is_none());
+    }
+
+    #[test]
+    fn test_avg_bar_range_correct_value() {
+        let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105)); // range=20
+        let b2 = make_ohlcv_bar(dec!(100), dec!(115), dec!(95), dec!(105)); // range=20
+        let r = OhlcvBar::avg_bar_range(&[b1, b2]).unwrap();
+        assert_eq!(r, dec!(20));
+    }
+
+    #[test]
+    fn test_max_up_move_none_for_empty() {
+        assert!(OhlcvBar::max_up_move(&[]).is_none());
+    }
+
+    #[test]
+    fn test_max_up_move_largest_bullish_body() {
+        let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(108)); // up: 8
+        let b2 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105)); // up: 5
+        assert_eq!(OhlcvBar::max_up_move(&[b1, b2]).unwrap(), dec!(8));
+    }
+
+    #[test]
+    fn test_max_down_move_none_for_empty() {
+        assert!(OhlcvBar::max_down_move(&[]).is_none());
+    }
+
+    #[test]
+    fn test_max_down_move_largest_bearish_body() {
+        let b1 = make_ohlcv_bar(dec!(108), dec!(115), dec!(85), dec!(100)); // down: 8
+        let b2 = make_ohlcv_bar(dec!(103), dec!(110), dec!(90), dec!(100)); // down: 3
+        assert_eq!(OhlcvBar::max_down_move(&[b1, b2]).unwrap(), dec!(8));
+    }
+
+    #[test]
+    fn test_avg_close_position_none_for_doji_only() {
+        let b = make_ohlcv_bar(dec!(100), dec!(100), dec!(100), dec!(100)); // range=0
+        assert!(OhlcvBar::avg_close_position(&[b]).is_none());
+    }
+
+    #[test]
+    fn test_avg_close_position_one_for_close_at_high() {
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(100), dec!(110));
+        let pos = OhlcvBar::avg_close_position(&[b]).unwrap();
+        assert!((pos - 1.0).abs() < 1e-9, "close at high → position=1, got {}", pos);
+    }
+
+    #[test]
+    fn test_volume_std_none_for_single_bar() {
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        assert!(OhlcvBar::volume_std(&[b]).is_none());
+    }
+
+    #[test]
+    fn test_volume_std_zero_for_equal_volumes() {
+        let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let b2 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let s = OhlcvBar::volume_std(&[b1, b2]).unwrap();
+        assert!(s.abs() < 1e-9, "equal volumes → std=0, got {}", s);
+    }
+
+    #[test]
+    fn test_avg_wick_ratio_none_for_doji_only() {
+        let b = make_ohlcv_bar(dec!(100), dec!(100), dec!(100), dec!(100));
+        assert!(OhlcvBar::avg_wick_ratio(&[b]).is_none());
+    }
+
+    #[test]
+    fn test_avg_wick_ratio_in_range() {
+        let b = make_ohlcv_bar(dec!(100), dec!(115), dec!(85), dec!(105));
+        let r = OhlcvBar::avg_wick_ratio(&[b]).unwrap();
+        assert!(r >= 0.0 && r <= 1.0, "wick ratio should be in [0,1], got {}", r);
+    }
+
+    #[test]
+    fn test_open_gap_mean_none_for_single_bar() {
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        assert!(OhlcvBar::open_gap_mean(&[b]).is_none());
+    }
+
+    #[test]
+    fn test_open_gap_mean_zero_for_no_gap() {
+        let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let mut b2 = make_ohlcv_bar(dec!(105), dec!(115), dec!(95), dec!(110));
+        b2.open = dec!(105); // open == prev_close → no gap
+        let g = OhlcvBar::open_gap_mean(&[b1, b2]).unwrap();
+        assert!(g.abs() < 1e-9, "no gap → mean=0, got {}", g);
+    }
+
+    #[test]
+    fn test_net_directional_move_none_for_empty() {
+        assert!(OhlcvBar::net_directional_move(&[]).is_none());
+    }
+
+    #[test]
+    fn test_net_directional_move_positive_for_rising_close() {
+        let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let b2 = make_ohlcv_bar(dec!(105), dec!(120), dec!(100), dec!(115));
+        let m = OhlcvBar::net_directional_move(&[b1, b2]).unwrap();
+        assert!(m > 0.0, "rising bar sequence → positive move, got {}", m);
+    }
 }

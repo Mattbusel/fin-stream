@@ -3186,6 +3186,31 @@ mod tests {
         let slope = n.z_score_trend_slope().unwrap();
         assert!(slope > 0.0, "rising window → positive z-score slope, got {}", slope);
     }
+
+    // ── MinMaxNormalizer::mean_absolute_change ────────────────────────────────
+
+    #[test]
+    fn test_minmax_mean_absolute_change_none_for_single_value() {
+        let mut n = norm(4);
+        n.update(dec!(10));
+        assert!(n.mean_absolute_change().is_none());
+    }
+
+    #[test]
+    fn test_minmax_mean_absolute_change_zero_for_constant() {
+        let mut n = norm(4);
+        for _ in 0..4 { n.update(dec!(5)); }
+        let mac = n.mean_absolute_change().unwrap();
+        assert!(mac.abs() < 1e-9, "constant window → MAC=0, got {}", mac);
+    }
+
+    #[test]
+    fn test_minmax_mean_absolute_change_positive_for_varying() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(3), dec!(2), dec!(5)] { n.update(v); }
+        let mac = n.mean_absolute_change().unwrap();
+        assert!(mac > 0.0, "varying window → MAC > 0, got {}", mac);
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -6487,5 +6512,30 @@ mod zscore_stability_tests {
         for v in [dec!(1), dec!(2), dec!(3), dec!(4), dec!(5)] { n.update(v); }
         let slope = n.z_score_trend_slope().unwrap();
         assert!(slope > 0.0, "rising window → positive z-score slope, got {}", slope);
+    }
+
+    // ── ZScoreNormalizer::mean_absolute_change ────────────────────────────────
+
+    #[test]
+    fn test_zscore_mean_absolute_change_none_for_single_value() {
+        let mut n = znorm(4);
+        n.update(dec!(10));
+        assert!(n.mean_absolute_change().is_none());
+    }
+
+    #[test]
+    fn test_zscore_mean_absolute_change_zero_for_constant() {
+        let mut n = znorm(4);
+        for _ in 0..4 { n.update(dec!(5)); }
+        let mac = n.mean_absolute_change().unwrap();
+        assert!(mac.abs() < 1e-9, "constant window → MAC=0, got {}", mac);
+    }
+
+    #[test]
+    fn test_zscore_mean_absolute_change_positive_for_varying() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(3), dec!(2), dec!(5)] { n.update(v); }
+        let mac = n.mean_absolute_change().unwrap();
+        assert!(mac > 0.0, "varying window → MAC > 0, got {}", mac);
     }
 }

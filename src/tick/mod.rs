@@ -2411,6 +2411,186 @@ impl NormalizedTick {
         Some(var.sqrt())
     }
 
+    // ── round-83 ─────────────────────────────────────────────────────────────
+
+    /// Autocorrelation of trade sizes at lag 1.
+    ///
+    /// Measures whether large (or small) trades tend to follow each other.
+    /// Returns `None` if fewer than 3 ticks or variance is zero.
+    pub fn quantity_autocorrelation(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 3 {
+            return None;
+        }
+        let vals: Vec<f64> = ticks.iter().filter_map(|t| t.quantity.to_f64()).collect();
+        let n = vals.len() as f64;
+        let mean = vals.iter().sum::<f64>() / n;
+        let var = vals.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / n;
+        if var == 0.0 {
+            return None;
+        }
+        let cov = vals.windows(2).map(|w| (w[0] - mean) * (w[1] - mean)).sum::<f64>() / n;
+        Some(cov / var)
+    }
+
+    /// Fraction of ticks where price strictly exceeds the VWAP.
+    ///
+    /// Returns `None` for empty slices or when VWAP cannot be computed.
+    pub fn fraction_above_vwap(ticks: &[NormalizedTick]) -> Option<f64> {
+        let vwap = Self::vwap(ticks)?;
+        if ticks.is_empty() {
+            return None;
+        }
+        let above = ticks.iter().filter(|t| t.price > vwap).count();
+        Some(above as f64 / ticks.len() as f64)
+    }
+
+    /// Maximum consecutive buy ticks (by side) within the slice.
+    ///
+    /// Returns 0 if no buy ticks are present.
+    pub fn max_buy_streak(ticks: &[NormalizedTick]) -> usize {
+        let mut max = 0usize;
+        let mut current = 0usize;
+        for t in ticks {
+            if t.side == Some(TradeSide::Buy) {
+                current += 1;
+                if current > max {
+                    max = current;
+                }
+            } else {
+                current = 0;
+            }
+        }
+        max
+    }
+
+    /// Maximum consecutive sell ticks (by side) within the slice.
+    ///
+    /// Returns 0 if no sell ticks are present.
+    pub fn max_sell_streak(ticks: &[NormalizedTick]) -> usize {
+        let mut max = 0usize;
+        let mut current = 0usize;
+        for t in ticks {
+            if t.side == Some(TradeSide::Sell) {
+                current += 1;
+                if current > max {
+                    max = current;
+                }
+            } else {
+                current = 0;
+            }
+        }
+        max
+    }
+
+    /// Entropy of the trade side distribution across buy, sell, and neutral.
+    ///
+    /// Computed as `-Σ p_i * ln(p_i)` over the three categories. Zero
+    /// entropy means all ticks share the same side; higher = more mixed.
+    /// Returns `None` for empty slices.
+    pub fn side_entropy(ticks: &[NormalizedTick]) -> Option<f64> {
+        if ticks.is_empty() {
+            return None;
+        }
+        let n = ticks.len() as f64;
+        let buys = Self::buy_count(ticks) as f64;
+        let sells = Self::sell_count(ticks) as f64;
+        let neutrals = Self::count_neutral(ticks) as f64;
+        let entropy = [buys, sells, neutrals]
+            .iter()
+            .filter(|&&c| c > 0.0)
+            .map(|&c| {
+                let p = c / n;
+                -p * p.ln()
+            })
+            .sum::<f64>();
+        Some(entropy)
+    }
+
+    /// Mean time gap between consecutive ticks in milliseconds.
+    ///
+    /// Uses `received_at_ms`. Returns `None` for fewer than 2 ticks or
+    /// if all ticks have identical timestamps.
+    pub fn mean_inter_tick_gap_ms(ticks: &[NormalizedTick]) -> Option<f64> {
+        if ticks.len() < 2 {
+            return None;
+        }
+        let gaps: Vec<f64> = ticks
+            .windows(2)
+            .map(|w| w[1].received_at_ms.saturating_sub(w[0].received_at_ms) as f64)
+            .collect();
+        let mean = gaps.iter().sum::<f64>() / gaps.len() as f64;
+        Some(mean)
+    }
+
+    /// Fraction of ticks whose price is a round number divisible by `step`.
+    ///
+    /// Returns `None` for empty slices or zero `step`.
+    pub fn round_number_fraction(ticks: &[NormalizedTick], step: Decimal) -> Option<f64> {
+        if ticks.is_empty() || step.is_zero() {
+            return None;
+        }
+        let round = ticks.iter().filter(|t| (t.price % step).is_zero()).count();
+        Some(round as f64 / ticks.len() as f64)
+    }
+
+    /// Geometric mean of trade quantities.
+    ///
+    /// Computed as `exp(mean(ln(q_i)))`. Returns `None` for empty slices
+    /// or if any quantity is non-positive.
+    pub fn geometric_mean_quantity(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() {
+            return None;
+        }
+        let log_sum: f64 = ticks
+            .iter()
+            .map(|t| {
+                let q = t.quantity.to_f64()?;
+                if q <= 0.0 { None } else { Some(q.ln()) }
+            })
+            .try_fold(0.0f64, |acc, v| v.map(|x| acc + x))?;
+        Some((log_sum / ticks.len() as f64).exp())
+    }
+
+    /// Maximum price return (best single tick-to-tick gain) in the slice.
+    ///
+    /// Returns `None` for fewer than 2 ticks.
+    pub fn max_tick_return(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 2 {
+            return None;
+        }
+        ticks
+            .windows(2)
+            .filter_map(|w| {
+                let prev = w[0].price.to_f64()?;
+                if prev == 0.0 { return None; }
+                let curr = w[1].price.to_f64()?;
+                Some((curr - prev) / prev)
+            })
+            .reduce(f64::max)
+    }
+
+    /// Minimum price return (worst single tick-to-tick drop) in the slice.
+    ///
+    /// Returns `None` for fewer than 2 ticks.
+    pub fn min_tick_return(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 2 {
+            return None;
+        }
+        ticks
+            .windows(2)
+            .filter_map(|w| {
+                let prev = w[0].price.to_f64()?;
+                if prev == 0.0 { return None; }
+                let curr = w[1].price.to_f64()?;
+                Some((curr - prev) / prev)
+            })
+            .reduce(f64::min)
+    }
+
 }
 
 
@@ -6582,5 +6762,96 @@ mod tests {
             make_tick_pq(dec!(103), dec!(1)),
         ];
         assert_eq!(NormalizedTick::floor_price(&ticks), NormalizedTick::min_price(&ticks));
+    }
+
+    // ── round-82 tests ────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_price_momentum_score_none_for_single_tick() {
+        use rust_decimal_macros::dec;
+        let t = make_tick_pq(dec!(100), dec!(1));
+        assert!(NormalizedTick::price_momentum_score(&[t]).is_none());
+    }
+
+    #[test]
+    fn test_price_momentum_score_positive_for_rising_prices() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(102), dec!(2)),
+            make_tick_pq(dec!(104), dec!(2)),
+        ];
+        let s = NormalizedTick::price_momentum_score(&ticks).unwrap();
+        assert!(s > 0.0, "rising prices → positive momentum, got {}", s);
+    }
+
+    #[test]
+    fn test_vwap_std_none_for_single_tick() {
+        use rust_decimal_macros::dec;
+        let t = make_tick_pq(dec!(100), dec!(1));
+        assert!(NormalizedTick::vwap_std(&[t]).is_none());
+    }
+
+    #[test]
+    fn test_vwap_std_zero_for_constant_price() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(100), dec!(2)),
+            make_tick_pq(dec!(100), dec!(3)),
+        ];
+        let s = NormalizedTick::vwap_std(&ticks).unwrap();
+        assert!(s.abs() < 1e-9, "constant price → vwap_std=0, got {}", s);
+    }
+
+    #[test]
+    fn test_price_range_expansion_none_for_empty() {
+        assert!(NormalizedTick::price_range_expansion(&[]).is_none());
+    }
+
+    #[test]
+    fn test_price_range_expansion_monotone_rising() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(101), dec!(1)),
+            make_tick_pq(dec!(102), dec!(1)),
+            make_tick_pq(dec!(103), dec!(1)),
+        ];
+        let f = NormalizedTick::price_range_expansion(&ticks).unwrap();
+        // Every tick after the first sets a new high → count=3, total=4 → 0.75
+        assert!((f - 0.75).abs() < 1e-9, "expected 0.75, got {}", f);
+    }
+
+    #[test]
+    fn test_sell_to_total_volume_ratio_none_for_empty() {
+        assert!(NormalizedTick::sell_to_total_volume_ratio(&[]).is_none());
+    }
+
+    #[test]
+    fn test_sell_to_total_volume_ratio_zero_for_all_buys() {
+        use rust_decimal_macros::dec;
+        let mut t1 = make_tick_pq(dec!(100), dec!(5));
+        t1.side = Some(crate::tick::TradeSide::Buy);
+        let mut t2 = make_tick_pq(dec!(101), dec!(3));
+        t2.side = Some(crate::tick::TradeSide::Buy);
+        let r = NormalizedTick::sell_to_total_volume_ratio(&[t1, t2]).unwrap();
+        assert!(r.abs() < 1e-9, "all buys → sell ratio=0, got {}", r);
+    }
+
+    #[test]
+    fn test_notional_std_none_for_single_tick() {
+        use rust_decimal_macros::dec;
+        let t = make_tick_pq(dec!(100), dec!(1));
+        assert!(NormalizedTick::notional_std(&[t]).is_none());
+    }
+
+    #[test]
+    fn test_notional_std_zero_for_identical_notionals() {
+        use rust_decimal_macros::dec;
+        let t1 = make_tick_pq(dec!(100), dec!(2));
+        let t2 = make_tick_pq(dec!(100), dec!(2));
+        let s = NormalizedTick::notional_std(&[t1, t2]).unwrap();
+        assert!(s.abs() < 1e-9, "identical notionals → std=0, got {}", s);
     }
 }
