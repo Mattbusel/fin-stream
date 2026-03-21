@@ -7972,6 +7972,42 @@ impl MinMaxNormalizer {
         Some(max / mean)
     }
 
+    /// Cumulative sum of last half divided by total sum (recent contribution ratio).
+    pub fn window_cum_sum_ratio(&self) -> Option<f64> {
+        if self.window.len() < 2 { return None; }
+        use rust_decimal::prelude::ToPrimitive;
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.len() < 2 { return None; }
+        let total: f64 = vals.iter().sum();
+        if total == 0.0 { return None; }
+        let half = vals.len() / 2;
+        let recent: f64 = vals[half..].iter().sum();
+        Some(recent / total)
+    }
+
+    /// Exponentially decayed mean (most recent values weighted more).
+    pub fn window_decay_mean(&self) -> Option<f64> {
+        if self.window.is_empty() { return None; }
+        use rust_decimal::prelude::ToPrimitive;
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.is_empty() { return None; }
+        let alpha = 2.0 / (vals.len() as f64 + 1.0);
+        let mut ema = vals[0];
+        for &v in &vals[1..] { ema = alpha * v + (1.0 - alpha) * ema; }
+        Some(ema)
+    }
+
+    /// Biased standard deviation (population std dev, divides by N).
+    pub fn window_biased_std(&self) -> Option<f64> {
+        if self.window.len() < 2 { return None; }
+        use rust_decimal::prelude::ToPrimitive;
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.len() < 2 { return None; }
+        let mean = vals.iter().sum::<f64>() / vals.len() as f64;
+        let var = vals.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / vals.len() as f64;
+        Some(var.sqrt())
+    }
+
 }
 
 #[cfg(test)]
@@ -17255,6 +17291,51 @@ mod tests {
         let r = n.window_max_pct_of_mean().unwrap();
         assert!((r - 1.5).abs() < 1e-9, "expected 1.5 got {}", r);
     }
+
+    #[test]
+    fn test_minmax_window_cum_sum_ratio_none_single() {
+        let mut n = norm(5);
+        n.update(dec!(10));
+        assert!(n.window_cum_sum_ratio().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_cum_sum_ratio_returns_bounded() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let r = n.window_cum_sum_ratio().unwrap();
+        assert!(r >= 0.0 && r <= 1.0);
+    }
+
+    #[test]
+    fn test_minmax_window_decay_mean_none_for_empty() {
+        let n = norm(5);
+        assert!(n.window_decay_mean().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_decay_mean_returns_value() {
+        let mut n = norm(3);
+        for v in [dec!(10), dec!(20), dec!(30)] { n.update(v); }
+        let r = n.window_decay_mean().unwrap();
+        // EMA should be closer to 30 than to 10
+        assert!(r > 15.0 && r <= 30.0, "expected in (15, 30] got {}", r);
+    }
+
+    #[test]
+    fn test_minmax_window_biased_std_none_single() {
+        let mut n = norm(5);
+        n.update(dec!(5));
+        assert!(n.window_biased_std().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_biased_std_uniform_zero() {
+        let mut n = norm(3);
+        for _ in 0..3 { n.update(dec!(7)); }
+        let r = n.window_biased_std().unwrap();
+        assert!(r.abs() < 1e-9, "expected 0 got {}", r);
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -25172,6 +25253,42 @@ impl ZScoreNormalizer {
         if mean == 0.0 { return None; }
         let max = vals.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
         Some(max / mean)
+    }
+
+    /// Cumulative sum of last half divided by total sum (recent contribution ratio).
+    pub fn window_cum_sum_ratio(&self) -> Option<f64> {
+        if self.window.len() < 2 { return None; }
+        use rust_decimal::prelude::ToPrimitive;
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.len() < 2 { return None; }
+        let total: f64 = vals.iter().sum();
+        if total == 0.0 { return None; }
+        let half = vals.len() / 2;
+        let recent: f64 = vals[half..].iter().sum();
+        Some(recent / total)
+    }
+
+    /// Exponentially decayed mean (most recent values weighted more).
+    pub fn window_decay_mean(&self) -> Option<f64> {
+        if self.window.is_empty() { return None; }
+        use rust_decimal::prelude::ToPrimitive;
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.is_empty() { return None; }
+        let alpha = 2.0 / (vals.len() as f64 + 1.0);
+        let mut ema = vals[0];
+        for &v in &vals[1..] { ema = alpha * v + (1.0 - alpha) * ema; }
+        Some(ema)
+    }
+
+    /// Biased standard deviation (population std dev, divides by N).
+    pub fn window_biased_std(&self) -> Option<f64> {
+        if self.window.len() < 2 { return None; }
+        use rust_decimal::prelude::ToPrimitive;
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.len() < 2 { return None; }
+        let mean = vals.iter().sum::<f64>() / vals.len() as f64;
+        let var = vals.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / vals.len() as f64;
+        Some(var.sqrt())
     }
 
 }
@@ -34405,5 +34522,49 @@ mod zscore_stability_tests {
         // mean=4, max=6 → 6/4=1.5
         let r = n.window_max_pct_of_mean().unwrap();
         assert!((r - 1.5).abs() < 1e-9, "expected 1.5 got {}", r);
+    }
+
+    #[test]
+    fn test_zscore_window_cum_sum_ratio_none_single() {
+        let mut n = znorm(5);
+        n.update(dec!(10));
+        assert!(n.window_cum_sum_ratio().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_cum_sum_ratio_returns_bounded() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let r = n.window_cum_sum_ratio().unwrap();
+        assert!(r >= 0.0 && r <= 1.0);
+    }
+
+    #[test]
+    fn test_zscore_window_decay_mean_none_for_empty() {
+        let n = znorm(5);
+        assert!(n.window_decay_mean().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_decay_mean_returns_value() {
+        let mut n = znorm(3);
+        for v in [dec!(10), dec!(20), dec!(30)] { n.update(v); }
+        let r = n.window_decay_mean().unwrap();
+        assert!(r > 15.0 && r <= 30.0, "expected in (15, 30] got {}", r);
+    }
+
+    #[test]
+    fn test_zscore_window_biased_std_none_single() {
+        let mut n = znorm(5);
+        n.update(dec!(5));
+        assert!(n.window_biased_std().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_biased_std_uniform_zero() {
+        let mut n = znorm(3);
+        for _ in 0..3 { n.update(dec!(7)); }
+        let r = n.window_biased_std().unwrap();
+        assert!(r.abs() < 1e-9, "expected 0 got {}", r);
     }
 }

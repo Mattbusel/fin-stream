@@ -9,6 +9,29 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.10.67] - 2026-03-20
+
+### Added
+
+**`tick` module — `NormalizedTick` analytics (round 216)**
+- `NormalizedTick::tick_vol_turnover(ticks)` — total volume divided by tick count (avg volume per trade).
+- `NormalizedTick::tick_buy_avg_qty(ticks)` — mean quantity of buy-side trades.
+- `NormalizedTick::tick_price_up_down_ratio(ticks)` — ratio of up-moves to down-moves in price.
+- `NormalizedTick::tick_price_floor_pct(ticks)` — fraction of ticks at a running price minimum.
+
+**`ohlcv` module — `OhlcvBar` analytics (round 216)**
+- `OhlcvBar::bar_vol_roc_sign(bars)` — sign of volume rate-of-change between last two bars.
+- `OhlcvBar::bar_body_range_diff(bars)` — mean (high - close) across bars.
+- `OhlcvBar::bar_open_volatility(bars)` — std dev of open prices across bars.
+- `OhlcvBar::bar_hl_persistence(bars)` — fraction of bars where range expands vs prior.
+
+**`norm` module — `MinMaxNormalizer` + `ZScoreNormalizer` analytics (round 216)**
+- `window_cum_sum_ratio()` — recent-half cumulative sum as fraction of total sum.
+- `window_decay_mean()` — exponentially decayed (EMA) mean of window values.
+- `window_biased_std()` — population standard deviation (divides by N).
+
+---
+
 ## [2.10.66] - 2026-03-20
 
 ### Added
