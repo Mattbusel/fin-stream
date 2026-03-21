@@ -9,6 +9,45 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.3.5] - 2026-03-20
+
+### Added
+
+**`tick` module — `NormalizedTick` analytics (round 83)**
+- `NormalizedTick::quantity_autocorrelation(ticks)` — lag-1 autocorrelation of trade sizes; > 0 means large trades cluster together.
+- `NormalizedTick::fraction_above_vwap(ticks)` — fraction of ticks priced strictly above the VWAP.
+- `NormalizedTick::max_buy_streak(ticks)` — longest consecutive run of buy-side ticks.
+- `NormalizedTick::max_sell_streak(ticks)` — longest consecutive run of sell-side ticks.
+- `NormalizedTick::side_entropy(ticks)` — entropy of the buy/sell/neutral distribution; higher = more mixed flow.
+- `NormalizedTick::mean_inter_tick_gap_ms(ticks)` — mean time gap between consecutive ticks in milliseconds.
+- `NormalizedTick::round_number_fraction(ticks, step)` — fraction of ticks whose price is divisible by `step`.
+- `NormalizedTick::geometric_mean_quantity(ticks)` — geometric mean of trade quantities.
+- `NormalizedTick::max_tick_return(ticks)` — best single tick-to-tick percentage gain.
+- `NormalizedTick::min_tick_return(ticks)` — worst single tick-to-tick percentage drop.
+
+**`ohlcv` module — `OhlcvBar` analytics (round 83)**
+- `OhlcvBar::close_above_median_fraction(bars)` — fraction of bars where close > `(high + low) / 2`.
+- `OhlcvBar::avg_range_to_open(bars)` — mean of `(high − low) / open`; intrabar range relative to open.
+- `OhlcvBar::close_sum(bars)` — sum of all close prices across the slice.
+- `OhlcvBar::above_avg_volume_count(bars)` — count of bars with volume above the slice average.
+- `OhlcvBar::median_close(bars)` — median close price across the slice.
+- `OhlcvBar::flat_bar_fraction(bars)` — fraction of bars where open == close (doji-like).
+- `OhlcvBar::avg_body_to_range(bars)` — mean of `body / range` per bar.
+- `OhlcvBar::max_open_gap(bars)` — largest single-bar open vs. previous-close gap.
+- `OhlcvBar::volume_trend_slope(bars)` — OLS slope of bar volume over bar index.
+- `OhlcvBar::up_close_fraction(bars)` — fraction of bars where close > previous close.
+- `OhlcvBar::avg_upper_shadow_ratio(bars)` — mean of `upper_shadow / range` per bar.
+
+**`norm` module — `MinMaxNormalizer` analytics (round 83)**
+- `monotone_increase_fraction() -> Option<f64>` — fraction of consecutive window pairs that are increasing.
+- `abs_max() -> Option<Decimal>` — maximum absolute value in the window.
+- `abs_min() -> Option<Decimal>` — minimum absolute value in the window.
+- `max_count() -> Option<usize>` — count of window values equal to the maximum.
+- `min_count() -> Option<usize>` — count of window values equal to the minimum.
+- `mean_ratio() -> Option<f64>` — ratio of the current window mean to the mean of the first half.
+
+---
+
 ## [2.3.4] - 2026-03-20
 
 ### Added

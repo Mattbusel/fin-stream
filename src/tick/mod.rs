@@ -2591,6 +2591,135 @@ impl NormalizedTick {
             .reduce(f64::min)
     }
 
+    // ── round-83 ─────────────────────────────────────────────────────────────
+
+    /// Mean price of buy-side ticks only; `None` if no buy ticks present.
+    pub fn buy_price_mean(ticks: &[NormalizedTick]) -> Option<Decimal> {
+        let buys: Vec<Decimal> = ticks
+            .iter()
+            .filter(|t| t.side == Some(crate::tick::TradeSide::Buy))
+            .map(|t| t.price)
+            .collect();
+        if buys.is_empty() {
+            return None;
+        }
+        Some(buys.iter().copied().sum::<Decimal>() / Decimal::from(buys.len()))
+    }
+
+    /// Mean price of sell-side ticks only; `None` if no sell ticks present.
+    pub fn sell_price_mean(ticks: &[NormalizedTick]) -> Option<Decimal> {
+        let sells: Vec<Decimal> = ticks
+            .iter()
+            .filter(|t| t.side == Some(crate::tick::TradeSide::Sell))
+            .map(|t| t.price)
+            .collect();
+        if sells.is_empty() {
+            return None;
+        }
+        Some(sells.iter().copied().sum::<Decimal>() / Decimal::from(sells.len()))
+    }
+
+    /// `|last_price − first_price| / Σ|price_i − price_{i-1}|`; 1.0 = perfectly directional, near 0 = noisy.
+    pub fn price_efficiency(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 2 {
+            return None;
+        }
+        let total_path: Decimal = ticks
+            .windows(2)
+            .map(|w| (w[1].price - w[0].price).abs())
+            .sum();
+        if total_path.is_zero() {
+            return None;
+        }
+        let net = (ticks.last()?.price - ticks.first()?.price).abs();
+        (net / total_path).to_f64()
+    }
+
+    /// Skewness of tick-to-tick log returns; requires ≥ 5 ticks.
+    pub fn price_return_skewness(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 5 {
+            return None;
+        }
+        let returns: Vec<f64> = ticks
+            .windows(2)
+            .filter_map(|w| {
+                let prev = w[0].price.to_f64()?;
+                if prev <= 0.0 { return None; }
+                let curr = w[1].price.to_f64()?;
+                Some((curr / prev).ln())
+            })
+            .collect();
+        let n = returns.len() as f64;
+        if n < 4.0 {
+            return None;
+        }
+        let mean = returns.iter().sum::<f64>() / n;
+        let var = returns.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / n;
+        let std = var.sqrt();
+        if std == 0.0 {
+            return None;
+        }
+        let skew = returns.iter().map(|v| ((v - mean) / std).powi(3)).sum::<f64>() / n;
+        Some(skew)
+    }
+
+    /// Buy VWAP minus sell VWAP; positive = buyers paid more than sellers received.
+    pub fn buy_sell_vwap_spread(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let (buy_pv, buy_v): (Decimal, Decimal) = ticks
+            .iter()
+            .filter(|t| t.side == Some(crate::tick::TradeSide::Buy))
+            .fold((Decimal::ZERO, Decimal::ZERO), |(pv, v), t| {
+                (pv + t.price * t.quantity, v + t.quantity)
+            });
+        let (sell_pv, sell_v): (Decimal, Decimal) = ticks
+            .iter()
+            .filter(|t| t.side == Some(crate::tick::TradeSide::Sell))
+            .fold((Decimal::ZERO, Decimal::ZERO), |(pv, v), t| {
+                (pv + t.price * t.quantity, v + t.quantity)
+            });
+        if buy_v.is_zero() || sell_v.is_zero() {
+            return None;
+        }
+        let buy_vwap = (buy_pv / buy_v).to_f64()?;
+        let sell_vwap = (sell_pv / sell_v).to_f64()?;
+        Some(buy_vwap - sell_vwap)
+    }
+
+    /// Fraction of ticks with quantity above the mean quantity.
+    pub fn above_mean_quantity_fraction(ticks: &[NormalizedTick]) -> Option<f64> {
+        if ticks.is_empty() {
+            return None;
+        }
+        let total: Decimal = ticks.iter().map(|t| t.quantity).sum();
+        let mean = total / Decimal::from(ticks.len());
+        let count = ticks.iter().filter(|t| t.quantity > mean).count();
+        Some(count as f64 / ticks.len() as f64)
+    }
+
+    /// Fraction of ticks where price equals the previous tick's price (unchanged price).
+    pub fn price_unchanged_fraction(ticks: &[NormalizedTick]) -> Option<f64> {
+        if ticks.len() < 2 {
+            return None;
+        }
+        let unchanged = ticks.windows(2).filter(|w| w[0].price == w[1].price).count();
+        Some(unchanged as f64 / (ticks.len() - 1) as f64)
+    }
+
+    /// Quantity-weighted price range: `Σ(price_i × qty_i) / Σ(qty_i)` applied to max/min spread.
+    /// Returns the difference between quantity-weighted high and low prices.
+    pub fn qty_weighted_range(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() {
+            return None;
+        }
+        let hi = ticks.iter().map(|t| t.price).max()?;
+        let lo = ticks.iter().map(|t| t.price).min()?;
+        (hi - lo).to_f64()
+    }
+
 }
 
 
