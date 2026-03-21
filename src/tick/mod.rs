@@ -2929,6 +2929,55 @@ impl NormalizedTick {
         Some(var.sqrt())
     }
 
+    /// Total number of buy-side ticks.
+    pub fn buy_count(ticks: &[NormalizedTick]) -> usize {
+        ticks.iter().filter(|t| t.side == Some(crate::tick::TradeSide::Buy)).count()
+    }
+
+    /// Total number of sell-side ticks.
+    pub fn sell_count(ticks: &[NormalizedTick]) -> usize {
+        ticks.iter().filter(|t| t.side == Some(crate::tick::TradeSide::Sell)).count()
+    }
+
+    /// Ratio of buy count to sell count; `None` if there are no sell ticks.
+    pub fn buy_sell_count_ratio(ticks: &[NormalizedTick]) -> Option<f64> {
+        let sells = Self::sell_count(ticks);
+        if sells == 0 {
+            return None;
+        }
+        Some(Self::buy_count(ticks) as f64 / sells as f64)
+    }
+
+    /// Mean absolute deviation of prices from the price mean.
+    pub fn price_mad(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() {
+            return None;
+        }
+        let sum: Decimal = ticks.iter().map(|t| t.price).sum();
+        let mean = sum / Decimal::from(ticks.len() as i64);
+        let mad: f64 = ticks
+            .iter()
+            .filter_map(|t| (t.price - mean).abs().to_f64())
+            .sum::<f64>() / ticks.len() as f64;
+        Some(mad)
+    }
+
+    /// Price range expressed as a percentage of the first tick's price.
+    pub fn price_range_pct_of_open(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() {
+            return None;
+        }
+        let first_price = ticks.first()?.price;
+        if first_price.is_zero() {
+            return None;
+        }
+        let hi = ticks.iter().map(|t| t.price).max()?;
+        let lo = ticks.iter().map(|t| t.price).min()?;
+        ((hi - lo) / first_price).to_f64()
+    }
+
 }
 
 
