@@ -3785,6 +3785,53 @@ impl MinMaxNormalizer {
         Some((above - below) / n)
     }
 
+    // ── round-129 ────────────────────────────────────────────────────────────
+
+    /// Cumulative sum of all window values.
+    pub fn window_cumulative_sum(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let sum: f64 = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).sum();
+        Some(sum)
+    }
+
+    /// Spread ratio: (max - min) / mean of the window.
+    pub fn window_spread_ratio(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let mean = vals.iter().sum::<f64>() / vals.len() as f64;
+        if mean == 0.0 { return None; }
+        let max = vals.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        let min = vals.iter().cloned().fold(f64::INFINITY, f64::min);
+        Some((max - min) / mean.abs())
+    }
+
+    /// Center of mass: weighted index position (higher = recent values dominate).
+    pub fn window_center_of_mass(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let total: f64 = vals.iter().sum();
+        if total == 0.0 { return None; }
+        let weighted: f64 = vals.iter().enumerate()
+            .map(|(i, &v)| i as f64 * v)
+            .sum();
+        Some(weighted / total)
+    }
+
+    /// Cycle count: number of direction reversals in the window.
+    pub fn window_cycle_count(&self) -> Option<usize> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 3 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let diffs: Vec<f64> = vals.windows(2).map(|w| w[1] - w[0]).collect();
+        let count = diffs.windows(2)
+            .filter(|w| w[0] * w[1] < 0.0)
+            .count();
+        Some(count)
+    }
+
 }
 
 #[cfg(test)]
@@ -7992,6 +8039,66 @@ mod tests {
         let s = n.window_regime_score().unwrap();
         assert!(s > 0.0, "expected positive, got {}", s);
     }
+
+    // ── round-129 ────────────────────────────────────────────────────────────
+    #[test]
+    fn test_minmax_window_cumulative_sum_none_for_empty() {
+        let n = norm(3);
+        assert!(n.window_cumulative_sum().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_cumulative_sum_basic() {
+        let mut n = norm(3);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        let s = n.window_cumulative_sum().unwrap();
+        assert!((s - 6.0).abs() < 1e-9, "expected 6.0, got {}", s);
+    }
+
+    #[test]
+    fn test_minmax_window_spread_ratio_none_for_empty() {
+        let n = norm(3);
+        assert!(n.window_spread_ratio().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_spread_ratio_basic() {
+        let mut n = norm(3);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        // range=2, mean=2 → ratio=1.0
+        let r = n.window_spread_ratio().unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "expected 1.0, got {}", r);
+    }
+
+    #[test]
+    fn test_minmax_window_center_of_mass_none_for_empty() {
+        let n = norm(3);
+        assert!(n.window_center_of_mass().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_center_of_mass_basic() {
+        let mut n = norm(2);
+        for v in [dec!(1), dec!(1)] { n.update(v); }
+        // equal weights → COM = (0*1 + 1*1) / 2 = 0.5
+        let c = n.window_center_of_mass().unwrap();
+        assert!((c - 0.5).abs() < 1e-9, "expected 0.5, got {}", c);
+    }
+
+    #[test]
+    fn test_minmax_window_cycle_count_none_for_two() {
+        let mut n = norm(2);
+        for v in [dec!(1), dec!(2)] { n.update(v); }
+        assert!(n.window_cycle_count().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_cycle_count_one_reversal() {
+        let mut n = norm(3);
+        for v in [dec!(1), dec!(3), dec!(2)] { n.update(v); }
+        let c = n.window_cycle_count().unwrap();
+        assert_eq!(c, 1);
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -11721,6 +11828,53 @@ impl ZScoreNormalizer {
         let above = vals.iter().filter(|&&v| v > mean).count() as f64;
         let below = vals.iter().filter(|&&v| v < mean).count() as f64;
         Some((above - below) / n)
+    }
+
+    // ── round-129 ────────────────────────────────────────────────────────────
+
+    /// Cumulative sum of all window values.
+    pub fn window_cumulative_sum(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let sum: f64 = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).sum();
+        Some(sum)
+    }
+
+    /// Spread ratio: (max - min) / mean of the window.
+    pub fn window_spread_ratio(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let mean = vals.iter().sum::<f64>() / vals.len() as f64;
+        if mean == 0.0 { return None; }
+        let max = vals.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        let min = vals.iter().cloned().fold(f64::INFINITY, f64::min);
+        Some((max - min) / mean.abs())
+    }
+
+    /// Center of mass: weighted index position (higher = recent values dominate).
+    pub fn window_center_of_mass(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let total: f64 = vals.iter().sum();
+        if total == 0.0 { return None; }
+        let weighted: f64 = vals.iter().enumerate()
+            .map(|(i, &v)| i as f64 * v)
+            .sum();
+        Some(weighted / total)
+    }
+
+    /// Cycle count: number of direction reversals in the window.
+    pub fn window_cycle_count(&self) -> Option<usize> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 3 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let diffs: Vec<f64> = vals.windows(2).map(|w| w[1] - w[0]).collect();
+        let count = diffs.windows(2)
+            .filter(|w| w[0] * w[1] < 0.0)
+            .count();
+        Some(count)
     }
 
 }
@@ -15994,5 +16148,63 @@ mod zscore_stability_tests {
         for v in [dec!(10), dec!(10), dec!(1)] { n.update(v); }
         let s = n.window_regime_score().unwrap();
         assert!(s > 0.0, "expected positive, got {}", s);
+    }
+
+    // ── round-129 ────────────────────────────────────────────────────────────
+    #[test]
+    fn test_zscore_window_cumulative_sum_none_for_empty() {
+        let n = znorm(3);
+        assert!(n.window_cumulative_sum().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_cumulative_sum_basic() {
+        let mut n = znorm(3);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        let s = n.window_cumulative_sum().unwrap();
+        assert!((s - 6.0).abs() < 1e-9, "expected 6.0, got {}", s);
+    }
+
+    #[test]
+    fn test_zscore_window_spread_ratio_none_for_empty() {
+        let n = znorm(3);
+        assert!(n.window_spread_ratio().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_spread_ratio_basic() {
+        let mut n = znorm(3);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        let r = n.window_spread_ratio().unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "expected 1.0, got {}", r);
+    }
+
+    #[test]
+    fn test_zscore_window_center_of_mass_none_for_empty() {
+        let n = znorm(3);
+        assert!(n.window_center_of_mass().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_center_of_mass_basic() {
+        let mut n = znorm(2);
+        for v in [dec!(1), dec!(1)] { n.update(v); }
+        let c = n.window_center_of_mass().unwrap();
+        assert!((c - 0.5).abs() < 1e-9, "expected 0.5, got {}", c);
+    }
+
+    #[test]
+    fn test_zscore_window_cycle_count_none_for_two() {
+        let mut n = znorm(2);
+        for v in [dec!(1), dec!(2)] { n.update(v); }
+        assert!(n.window_cycle_count().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_cycle_count_one_reversal() {
+        let mut n = znorm(3);
+        for v in [dec!(1), dec!(3), dec!(2)] { n.update(v); }
+        let c = n.window_cycle_count().unwrap();
+        assert_eq!(c, 1);
     }
 }

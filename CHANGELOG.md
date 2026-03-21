@@ -9,6 +9,36 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.8.0] - 2026-03-20
+
+### Added
+
+**`tick` module — `NormalizedTick` analytics (round 129)**
+- `NormalizedTick::price_wave_ratio(ticks)` — fraction of consecutive price moves that are upward.
+- `NormalizedTick::qty_entropy_score(ticks)` — Shannon entropy of the quantity distribution.
+- `NormalizedTick::tick_burst_rate(ticks)` — ratio of max inter-tick gap to mean inter-tick gap.
+- `NormalizedTick::side_weighted_price(ticks)` — quantity-weighted mean price, buy positive / sell negative.
+
+**`ohlcv` module — `OhlcvBar` analytics (round 129)**
+- `OhlcvBar::bar_energy(bars)` — mean of squared bar ranges (high - low)^2.
+- `OhlcvBar::open_close_persistence(bars)` — fraction of bars where open equals prior bar's close.
+- `OhlcvBar::bar_range_trend(bars)` — mean of consecutive bar range differences.
+- `OhlcvBar::open_high_spread(bars)` — mean of (high - open) / open across bars.
+
+**`norm` module — `MinMaxNormalizer` analytics (round 129)**
+- `MinMaxNormalizer::window_cumulative_sum()` — sum of all values in the window.
+- `MinMaxNormalizer::window_spread_ratio()` — (max - min) / |mean| of the window.
+- `MinMaxNormalizer::window_center_of_mass()` — index-weighted center of mass of window values.
+- `MinMaxNormalizer::window_cycle_count()` — number of direction reversals in the window.
+
+**`norm` module — `ZScoreNormalizer` analytics (round 129)**
+- `ZScoreNormalizer::window_cumulative_sum()` — sum of all values in the window.
+- `ZScoreNormalizer::window_spread_ratio()` — (max - min) / |mean| of the window.
+- `ZScoreNormalizer::window_center_of_mass()` — index-weighted center of mass of window values.
+- `ZScoreNormalizer::window_cycle_count()` — number of direction reversals in the window.
+
+---
+
 ## [2.7.9] - 2026-03-20
 
 ### Added

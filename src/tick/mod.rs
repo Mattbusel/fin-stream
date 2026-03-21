@@ -5938,6 +5938,65 @@ impl NormalizedTick {
         Some(buy_mean / sell_mean)
     }
 
+    // ── round-129 ────────────────────────────────────────────────────────────
+
+    /// Price wave ratio: ratio of upward price moves to total moves.
+    pub fn price_wave_ratio(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 2 { return None; }
+        let prices: Vec<f64> = ticks.iter().map(|t| t.price.to_f64().unwrap_or(0.0)).collect();
+        let total = prices.len() - 1;
+        let up = prices.windows(2).filter(|w| w[1] > w[0]).count();
+        Some(up as f64 / total as f64)
+    }
+
+    /// Quantity entropy score: Shannon entropy of quantity distribution.
+    pub fn qty_entropy_score(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() { return None; }
+        let qtys: Vec<f64> = ticks.iter().map(|t| t.quantity.to_f64().unwrap_or(0.0)).collect();
+        let total: f64 = qtys.iter().sum();
+        if total == 0.0 { return None; }
+        let entropy = qtys.iter().map(|&q| {
+            let p = q / total;
+            if p > 0.0 { -p * p.ln() } else { 0.0 }
+        }).sum::<f64>();
+        Some(entropy)
+    }
+
+    /// Tick burst rate: ratio of max inter-tick gap to mean inter-tick gap.
+    pub fn tick_burst_rate(ticks: &[NormalizedTick]) -> Option<f64> {
+        if ticks.len() < 2 { return None; }
+        let gaps: Vec<f64> = ticks.windows(2)
+            .map(|w| (w[1].received_at_ms as f64) - (w[0].received_at_ms as f64))
+            .collect();
+        let mean = gaps.iter().sum::<f64>() / gaps.len() as f64;
+        if mean == 0.0 { return None; }
+        let max = gaps.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        Some(max / mean)
+    }
+
+    /// Side-weighted price: mean price weighted by quantity, buy side positive, sell side negative.
+    pub fn side_weighted_price(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let weighted: Vec<f64> = ticks.iter().filter_map(|t| {
+            let p = t.price.to_f64()?;
+            let q = t.quantity.to_f64()?;
+            match t.side {
+                Some(TradeSide::Buy)  => Some(p * q),
+                Some(TradeSide::Sell) => Some(-p * q),
+                _ => None,
+            }
+        }).collect();
+        if weighted.is_empty() { return None; }
+        let total_qty: f64 = ticks.iter()
+            .filter(|t| t.side.is_some())
+            .filter_map(|t| t.quantity.to_f64())
+            .sum();
+        if total_qty == 0.0 { return None; }
+        Some(weighted.iter().sum::<f64>() / total_qty)
+    }
+
 }
 
 
@@ -13544,5 +13603,77 @@ mod tests {
         sell.side = Some(TradeSide::Sell);
         let r = NormalizedTick::relative_price_strength(&[buy, sell]).unwrap();
         assert!((r - 1.0).abs() < 1e-9, "expected 1.0, got {}", r);
+    }
+
+    // ── round-129 ────────────────────────────────────────────────────────────
+    #[test]
+    fn test_price_wave_ratio_none_for_single() {
+        use rust_decimal_macros::dec;
+        assert!(NormalizedTick::price_wave_ratio(&[make_tick_pq(dec!(100), dec!(1))]).is_none());
+    }
+
+    #[test]
+    fn test_price_wave_ratio_all_up() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(101), dec!(1)),
+            make_tick_pq(dec!(102), dec!(1)),
+        ];
+        let r = NormalizedTick::price_wave_ratio(&ticks).unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "expected 1.0, got {}", r);
+    }
+
+    #[test]
+    fn test_qty_entropy_score_none_for_empty() {
+        assert!(NormalizedTick::qty_entropy_score(&[]).is_none());
+    }
+
+    #[test]
+    fn test_qty_entropy_score_uniform() {
+        use rust_decimal_macros::dec;
+        // uniform distribution has max entropy
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(101), dec!(1)),
+        ];
+        let e = NormalizedTick::qty_entropy_score(&ticks).unwrap();
+        assert!(e > 0.0, "entropy should be positive, got {}", e);
+    }
+
+    #[test]
+    fn test_tick_burst_rate_none_for_single() {
+        use rust_decimal_macros::dec;
+        assert!(NormalizedTick::tick_burst_rate(&[make_tick_pq(dec!(100), dec!(1))]).is_none());
+    }
+
+    #[test]
+    fn test_tick_burst_rate_equal_gaps() {
+        use rust_decimal_macros::dec;
+        let mut t1 = make_tick_pq(dec!(100), dec!(1));
+        t1.received_at_ms = 0;
+        let mut t2 = make_tick_pq(dec!(101), dec!(1));
+        t2.received_at_ms = 100;
+        let mut t3 = make_tick_pq(dec!(102), dec!(1));
+        t3.received_at_ms = 200;
+        let r = NormalizedTick::tick_burst_rate(&[t1, t2, t3]).unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "expected 1.0 for equal gaps, got {}", r);
+    }
+
+    #[test]
+    fn test_side_weighted_price_none_for_no_sides() {
+        use rust_decimal_macros::dec;
+        assert!(NormalizedTick::side_weighted_price(&[make_tick_pq(dec!(100), dec!(1))]).is_none());
+    }
+
+    #[test]
+    fn test_side_weighted_price_equal_buy_sell() {
+        use rust_decimal_macros::dec;
+        let mut buy = make_tick_pq(dec!(100), dec!(1));
+        buy.side = Some(TradeSide::Buy);
+        let mut sell = make_tick_pq(dec!(100), dec!(1));
+        sell.side = Some(TradeSide::Sell);
+        let r = NormalizedTick::side_weighted_price(&[buy, sell]).unwrap();
+        assert!(r.abs() < 1e-9, "expected ~0.0 for equal buy/sell, got {}", r);
     }
 }
