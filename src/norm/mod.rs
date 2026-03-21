@@ -5099,6 +5099,47 @@ impl MinMaxNormalizer {
         Some(range / mean.abs())
     }
 
+    // ── round-156 ────────────────────────────────────────────────────────────
+
+    /// Mean of negative consecutive changes in the window.
+    pub fn window_negative_change_mean(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let neg_changes: Vec<f64> = vals.windows(2)
+            .filter_map(|w| if w[1] < w[0] { Some(w[0] - w[1]) } else { None })
+            .collect();
+        if neg_changes.is_empty() { return None; }
+        Some(neg_changes.iter().sum::<f64>() / neg_changes.len() as f64)
+    }
+
+    /// Fraction of consecutive window pairs where value falls.
+    pub fn window_fall_fraction(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let falls = vals.windows(2).filter(|w| w[1] < w[0]).count();
+        Some(falls as f64 / (vals.len() - 1) as f64)
+    }
+
+    /// Difference between the last window value and the window maximum.
+    pub fn window_last_vs_max(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let last = self.window.back()?.to_f64()?;
+        let max = self.window.iter().map(|v| v.to_f64().unwrap_or(f64::NEG_INFINITY)).fold(f64::NEG_INFINITY, f64::max);
+        Some(last - max)
+    }
+
+    /// Difference between the last window value and the window minimum.
+    pub fn window_last_vs_min(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let last = self.window.back()?.to_f64()?;
+        let min = self.window.iter().map(|v| v.to_f64().unwrap_or(f64::INFINITY)).fold(f64::INFINITY, f64::min);
+        Some(last - min)
+    }
+
 }
 
 #[cfg(test)]
@@ -10982,6 +11023,68 @@ mod tests {
         let cv = n.window_range_cv().unwrap();
         assert!((cv - 0.0).abs() < 1e-9, "expected 0.0, got {}", cv);
     }
+
+    // ── round-156 ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_minmax_window_negative_change_mean_none_for_single() {
+        let mut n = norm(4);
+        n.update(dec!(5));
+        assert!(n.window_negative_change_mean().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_negative_change_mean_no_falls() {
+        let mut n = norm(2);
+        for v in [dec!(1), dec!(5)] { n.update(v); }
+        // only rise → None
+        assert!(n.window_negative_change_mean().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_fall_fraction_none_for_single() {
+        let mut n = norm(4);
+        n.update(dec!(5));
+        assert!(n.window_fall_fraction().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_fall_fraction_all_descending() {
+        let mut n = norm(3);
+        for v in [dec!(5), dec!(3), dec!(1)] { n.update(v); }
+        let f = n.window_fall_fraction().unwrap();
+        assert!((f - 1.0).abs() < 1e-9, "expected 1.0, got {}", f);
+    }
+
+    #[test]
+    fn test_minmax_window_last_vs_max_none_for_empty() {
+        let n = norm(4);
+        assert!(n.window_last_vs_max().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_last_vs_max_at_max() {
+        let mut n = norm(3);
+        for v in [dec!(1), dec!(3), dec!(5)] { n.update(v); }
+        // last=5=max → diff=0
+        let d = n.window_last_vs_max().unwrap();
+        assert!((d - 0.0).abs() < 1e-9, "expected 0.0, got {}", d);
+    }
+
+    #[test]
+    fn test_minmax_window_last_vs_min_none_for_empty() {
+        let n = norm(4);
+        assert!(n.window_last_vs_min().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_last_vs_min_at_min() {
+        let mut n = norm(3);
+        for v in [dec!(5), dec!(3), dec!(1)] { n.update(v); }
+        // last=1=min → diff=0
+        let d = n.window_last_vs_min().unwrap();
+        assert!((d - 0.0).abs() < 1e-9, "expected 0.0, got {}", d);
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -16025,6 +16128,47 @@ impl ZScoreNormalizer {
         let mean = vals.iter().sum::<f64>() / vals.len() as f64;
         if mean == 0.0 { return None; }
         Some(range / mean.abs())
+    }
+
+    // ── round-156 ────────────────────────────────────────────────────────────
+
+    /// Mean of negative consecutive changes in the window.
+    pub fn window_negative_change_mean(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let neg_changes: Vec<f64> = vals.windows(2)
+            .filter_map(|w| if w[1] < w[0] { Some(w[0] - w[1]) } else { None })
+            .collect();
+        if neg_changes.is_empty() { return None; }
+        Some(neg_changes.iter().sum::<f64>() / neg_changes.len() as f64)
+    }
+
+    /// Fraction of consecutive window pairs where value falls.
+    pub fn window_fall_fraction(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let falls = vals.windows(2).filter(|w| w[1] < w[0]).count();
+        Some(falls as f64 / (vals.len() - 1) as f64)
+    }
+
+    /// Difference between the last window value and the window maximum.
+    pub fn window_last_vs_max(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let last = self.window.back()?.to_f64()?;
+        let max = self.window.iter().map(|v| v.to_f64().unwrap_or(f64::NEG_INFINITY)).fold(f64::NEG_INFINITY, f64::max);
+        Some(last - max)
+    }
+
+    /// Difference between the last window value and the window minimum.
+    pub fn window_last_vs_min(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let last = self.window.back()?.to_f64()?;
+        let min = self.window.iter().map(|v| v.to_f64().unwrap_or(f64::INFINITY)).fold(f64::INFINITY, f64::min);
+        Some(last - min)
     }
 
 }
@@ -21912,5 +22056,64 @@ mod zscore_stability_tests {
         for v in [dec!(5), dec!(5), dec!(5)] { n.update(v); }
         let cv = n.window_range_cv().unwrap();
         assert!((cv - 0.0).abs() < 1e-9, "expected 0.0, got {}", cv);
+    }
+
+    // ── round-156 ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_zscore_window_negative_change_mean_none_for_single() {
+        let mut n = znorm(4);
+        n.update(dec!(5));
+        assert!(n.window_negative_change_mean().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_negative_change_mean_no_falls() {
+        let mut n = znorm(2);
+        for v in [dec!(1), dec!(5)] { n.update(v); }
+        assert!(n.window_negative_change_mean().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_fall_fraction_none_for_single() {
+        let mut n = znorm(4);
+        n.update(dec!(5));
+        assert!(n.window_fall_fraction().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_fall_fraction_all_descending() {
+        let mut n = znorm(3);
+        for v in [dec!(5), dec!(3), dec!(1)] { n.update(v); }
+        let f = n.window_fall_fraction().unwrap();
+        assert!((f - 1.0).abs() < 1e-9, "expected 1.0, got {}", f);
+    }
+
+    #[test]
+    fn test_zscore_window_last_vs_max_none_for_empty() {
+        let n = znorm(4);
+        assert!(n.window_last_vs_max().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_last_vs_max_at_max() {
+        let mut n = znorm(3);
+        for v in [dec!(1), dec!(3), dec!(5)] { n.update(v); }
+        let d = n.window_last_vs_max().unwrap();
+        assert!((d - 0.0).abs() < 1e-9, "expected 0.0, got {}", d);
+    }
+
+    #[test]
+    fn test_zscore_window_last_vs_min_none_for_empty() {
+        let n = znorm(4);
+        assert!(n.window_last_vs_min().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_last_vs_min_at_min() {
+        let mut n = znorm(3);
+        for v in [dec!(5), dec!(3), dec!(1)] { n.update(v); }
+        let d = n.window_last_vs_min().unwrap();
+        assert!((d - 0.0).abs() < 1e-9, "expected 0.0, got {}", d);
     }
 }

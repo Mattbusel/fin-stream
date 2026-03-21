@@ -7448,6 +7448,56 @@ impl NormalizedTick {
         Some(max_dd)
     }
 
+    // ── round-156 ────────────────────────────────────────────────────────────
+
+    /// Mean of absolute price gaps between consecutive ticks.
+    pub fn tick_price_gap_mean(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 2 { return None; }
+        let prices: Vec<f64> = ticks.iter().filter_map(|t| t.price.to_f64()).collect();
+        if prices.len() < 2 { return None; }
+        let gaps: Vec<f64> = prices.windows(2).map(|w| (w[1] - w[0]).abs()).collect();
+        Some(gaps.iter().sum::<f64>() / gaps.len() as f64)
+    }
+
+    /// Difference of buy-weighted mean price minus sell-weighted mean price.
+    pub fn side_weighted_price_diff(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let buy_prices: Vec<f64> = ticks.iter()
+            .filter(|t| matches!(t.side, Some(TradeSide::Buy)))
+            .filter_map(|t| t.price.to_f64()).collect();
+        let sell_prices: Vec<f64> = ticks.iter()
+            .filter(|t| matches!(t.side, Some(TradeSide::Sell)))
+            .filter_map(|t| t.price.to_f64()).collect();
+        if buy_prices.is_empty() || sell_prices.is_empty() { return None; }
+        let buy_mean = buy_prices.iter().sum::<f64>() / buy_prices.len() as f64;
+        let sell_mean = sell_prices.iter().sum::<f64>() / sell_prices.len() as f64;
+        Some(buy_mean - sell_mean)
+    }
+
+    /// EMA deviation: last price minus EMA of all prices (alpha=0.1).
+    pub fn price_ema_deviation(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() { return None; }
+        let prices: Vec<f64> = ticks.iter().filter_map(|t| t.price.to_f64()).collect();
+        if prices.is_empty() { return None; }
+        let alpha = 0.1_f64;
+        let mut ema = prices[0];
+        for &p in &prices[1..] {
+            ema = alpha * p + (1.0 - alpha) * ema;
+        }
+        Some(prices.last()? - ema)
+    }
+
+    /// Net price change: last price minus first price.
+    pub fn tick_net_price_change(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 2 { return None; }
+        let first = ticks.first()?.price.to_f64()?;
+        let last = ticks.last()?.price.to_f64()?;
+        Some(last - first)
+    }
+
 }
 
 
@@ -17032,5 +17082,69 @@ mod tests {
         ];
         let dd = NormalizedTick::price_max_drawdown(&ticks).unwrap();
         assert!((dd - 0.0).abs() < 1e-9, "expected 0.0, got {}", dd);
+    }
+
+    // ── round-156 ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_tick_price_gap_mean_none_for_single() {
+        use rust_decimal_macros::dec;
+        assert!(NormalizedTick::tick_price_gap_mean(&[make_tick_pq(dec!(100), dec!(1))]).is_none());
+    }
+
+    #[test]
+    fn test_tick_price_gap_mean_constant() {
+        use rust_decimal_macros::dec;
+        // same price → gap=0
+        let ticks = vec![make_tick_pq(dec!(100), dec!(1)), make_tick_pq(dec!(100), dec!(1))];
+        let g = NormalizedTick::tick_price_gap_mean(&ticks).unwrap();
+        assert!((g - 0.0).abs() < 1e-9, "expected 0.0, got {}", g);
+    }
+
+    #[test]
+    fn test_side_weighted_price_diff_none_for_no_sides() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![make_tick_pq(dec!(100), dec!(1))];
+        assert!(NormalizedTick::side_weighted_price_diff(&ticks).is_none());
+    }
+
+    #[test]
+    fn test_side_weighted_price_diff_equal_prices() {
+        use rust_decimal_macros::dec;
+        let mut t_buy = make_tick_pq(dec!(100), dec!(1));
+        t_buy.side = Some(crate::tick::TradeSide::Buy);
+        let mut t_sell = make_tick_pq(dec!(100), dec!(1));
+        t_sell.side = Some(crate::tick::TradeSide::Sell);
+        let d = NormalizedTick::side_weighted_price_diff(&[t_buy, t_sell]).unwrap();
+        assert!((d - 0.0).abs() < 1e-9, "expected 0.0, got {}", d);
+    }
+
+    #[test]
+    fn test_price_ema_deviation_none_for_empty() {
+        assert!(NormalizedTick::price_ema_deviation(&[]).is_none());
+    }
+
+    #[test]
+    fn test_price_ema_deviation_single_zero() {
+        use rust_decimal_macros::dec;
+        // single tick → last=first, ema=first → deviation=0
+        let ticks = vec![make_tick_pq(dec!(100), dec!(1))];
+        let d = NormalizedTick::price_ema_deviation(&ticks).unwrap();
+        assert!((d - 0.0).abs() < 1e-9, "expected 0.0, got {}", d);
+    }
+
+    #[test]
+    fn test_tick_net_price_change_none_for_single() {
+        use rust_decimal_macros::dec;
+        assert!(NormalizedTick::tick_net_price_change(&[make_tick_pq(dec!(100), dec!(1))]).is_none());
+    }
+
+    #[test]
+    fn test_tick_net_price_change_basic() {
+        use rust_decimal_macros::dec;
+        // first=100, last=110 → net=10
+        let ticks = vec![make_tick_pq(dec!(100), dec!(1)), make_tick_pq(dec!(110), dec!(1))];
+        let c = NormalizedTick::tick_net_price_change(&ticks).unwrap();
+        assert!((c - 10.0).abs() < 1e-9, "expected 10.0, got {}", c);
     }
 }

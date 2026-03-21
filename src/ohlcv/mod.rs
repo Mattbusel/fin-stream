@@ -7205,6 +7205,51 @@ impl OhlcvBar {
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
+    // ── round-156 ────────────────────────────────────────────────────────────
+
+    /// Mean of open-to-close gaps (close[i] - open[i]) across bars (signed).
+    pub fn bar_open_close_gap(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let gaps: Vec<f64> = bars.iter().filter_map(|b| (b.close - b.open).to_f64()).collect();
+        if gaps.is_empty() { return None; }
+        Some(gaps.iter().sum::<f64>() / gaps.len() as f64)
+    }
+
+    /// Count of bars where close > open (bullish candles).
+    pub fn bar_bullish_count(bars: &[OhlcvBar]) -> Option<usize> {
+        if bars.is_empty() { return None; }
+        Some(bars.iter().filter(|b| b.close > b.open).count())
+    }
+
+    /// Ratio of each bar's range to the mean range across all bars.
+    pub fn bar_range_mean_ratio(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let ranges: Vec<f64> = bars.iter().filter_map(|b| (b.high - b.low).to_f64()).collect();
+        if ranges.is_empty() { return None; }
+        let mean = ranges.iter().sum::<f64>() / ranges.len() as f64;
+        if mean == 0.0 { return None; }
+        // Return ratio of last bar range to mean
+        let last = *ranges.last()?;
+        Some(last / mean)
+    }
+
+    /// Linear trend slope of (high - low) ranges: how bar volatility is trending.
+    pub fn bar_volatility_trend(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.len() < 2 { return None; }
+        let ranges: Vec<f64> = bars.iter().filter_map(|b| (b.high - b.low).to_f64()).collect();
+        if ranges.len() < 2 { return None; }
+        let n = ranges.len() as f64;
+        let x_mean = (n - 1.0) / 2.0;
+        let y_mean = ranges.iter().sum::<f64>() / n;
+        let num: f64 = ranges.iter().enumerate().map(|(i, &y)| (i as f64 - x_mean) * (y - y_mean)).sum();
+        let den: f64 = ranges.iter().enumerate().map(|(i, _)| (i as f64 - x_mean).powi(2)).sum();
+        if den == 0.0 { return Some(0.0); }
+        Some(num / den)
+    }
+
 }
 
 impl std::fmt::Display for OhlcvBar {
@@ -16623,5 +16668,65 @@ mod tests {
         let bars = vec![make_ohlcv_bar(dec!(90), dec!(110), dec!(90), dec!(110))];
         let s = OhlcvBar::bar_candle_strength(&bars).unwrap();
         assert!((s - 1.0).abs() < 1e-9, "expected 1.0, got {}", s);
+    }
+
+    // ── round-156 ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_bar_open_close_gap_none_for_empty() {
+        assert!(OhlcvBar::bar_open_close_gap(&[]).is_none());
+    }
+
+    #[test]
+    fn test_bar_open_close_gap_neutral() {
+        // close=open → gap=0
+        let bars = vec![make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100))];
+        let g = OhlcvBar::bar_open_close_gap(&bars).unwrap();
+        assert!((g - 0.0).abs() < 1e-9, "expected 0.0, got {}", g);
+    }
+
+    #[test]
+    fn test_bar_bullish_count_none_for_empty() {
+        assert!(OhlcvBar::bar_bullish_count(&[]).is_none());
+    }
+
+    #[test]
+    fn test_bar_bullish_count_all_bullish() {
+        let bars = vec![
+            make_ohlcv_bar(dec!(90), dec!(110), dec!(85), dec!(105)),
+            make_ohlcv_bar(dec!(105), dec!(120), dec!(100), dec!(115)),
+        ];
+        let c = OhlcvBar::bar_bullish_count(&bars).unwrap();
+        assert_eq!(c, 2);
+    }
+
+    #[test]
+    fn test_bar_range_mean_ratio_none_for_empty() {
+        assert!(OhlcvBar::bar_range_mean_ratio(&[]).is_none());
+    }
+
+    #[test]
+    fn test_bar_range_mean_ratio_single() {
+        // only one bar → mean=range → ratio=1.0
+        let bars = vec![make_ohlcv_bar(dec!(100), dec!(120), dec!(100), dec!(110))];
+        let r = OhlcvBar::bar_range_mean_ratio(&bars).unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "expected 1.0, got {}", r);
+    }
+
+    #[test]
+    fn test_bar_volatility_trend_none_for_single() {
+        let bars = vec![make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105))];
+        assert!(OhlcvBar::bar_volatility_trend(&bars).is_none());
+    }
+
+    #[test]
+    fn test_bar_volatility_trend_flat() {
+        // same range → slope=0
+        let bars = vec![
+            make_ohlcv_bar(dec!(100), dec!(120), dec!(100), dec!(110)),
+            make_ohlcv_bar(dec!(110), dec!(130), dec!(110), dec!(120)),
+        ];
+        let t = OhlcvBar::bar_volatility_trend(&bars).unwrap();
+        assert!((t - 0.0).abs() < 1e-9, "expected 0.0, got {}", t);
     }
 }

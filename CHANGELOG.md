@@ -9,6 +9,36 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.10.7] - 2026-03-20
+
+### Added
+
+**`tick` module — `NormalizedTick` analytics (round 156)**
+- `NormalizedTick::tick_price_gap_mean(ticks)` — mean absolute price gap between consecutive ticks.
+- `NormalizedTick::side_weighted_price_diff(ticks)` — buy-side mean price minus sell-side mean price.
+- `NormalizedTick::price_ema_deviation(ticks)` — last price minus EMA(alpha=0.1) of all prices.
+- `NormalizedTick::tick_net_price_change(ticks)` — net price change from first to last tick.
+
+**`ohlcv` module — `OhlcvBar` analytics (round 156)**
+- `OhlcvBar::bar_open_close_gap(bars)` — mean signed (close - open) gap across bars.
+- `OhlcvBar::bar_bullish_count(bars)` — count of bars where close > open.
+- `OhlcvBar::bar_range_mean_ratio(bars)` — ratio of last bar range to mean range.
+- `OhlcvBar::bar_volatility_trend(bars)` — linear trend slope of bar range volatility.
+
+**`norm` module — `MinMaxNormalizer` analytics (round 156)**
+- `MinMaxNormalizer::window_negative_change_mean()` — mean magnitude of negative consecutive changes.
+- `MinMaxNormalizer::window_fall_fraction()` — fraction of consecutive falling value pairs.
+- `MinMaxNormalizer::window_last_vs_max()` — last window value minus window maximum.
+- `MinMaxNormalizer::window_last_vs_min()` — last window value minus window minimum.
+
+**`norm` module — `ZScoreNormalizer` analytics (round 156)**
+- `ZScoreNormalizer::window_negative_change_mean()` — mean magnitude of negative consecutive changes.
+- `ZScoreNormalizer::window_fall_fraction()` — fraction of consecutive falling value pairs.
+- `ZScoreNormalizer::window_last_vs_max()` — last window value minus window maximum.
+- `ZScoreNormalizer::window_last_vs_min()` — last window value minus window minimum.
+
+---
+
 ## [2.10.6] - 2026-03-20
 
 ### Added
