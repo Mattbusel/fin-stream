@@ -7798,6 +7798,56 @@ impl NormalizedTick {
         Some(reversals as f64 / (prices.len() - 2) as f64)
     }
 
+    // ── round-162 ────────────────────────────────────────────────────────────
+
+    /// 75th percentile of tick prices.
+    pub fn price_percentile_75(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() { return None; }
+        let mut prices: Vec<f64> = ticks.iter().filter_map(|t| t.price.to_f64()).collect();
+        if prices.is_empty() { return None; }
+        prices.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let idx = ((prices.len() as f64 - 1.0) * 0.75).round() as usize;
+        Some(prices[idx])
+    }
+
+    /// Mean rate of change: mean(price[i+1] - price[i]) / price[i] * 100.
+    pub fn price_roc_mean(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 2 { return None; }
+        let prices: Vec<f64> = ticks.iter().filter_map(|t| t.price.to_f64()).collect();
+        if prices.len() < 2 { return None; }
+        let rocs: Vec<f64> = prices.windows(2)
+            .filter(|w| w[0] != 0.0)
+            .map(|w| (w[1] - w[0]) / w[0] * 100.0)
+            .collect();
+        if rocs.is_empty() { return None; }
+        Some(rocs.iter().sum::<f64>() / rocs.len() as f64)
+    }
+
+    /// Mean drawdown: mean of (running_max - price[i]) across ticks.
+    pub fn price_drawdown_mean(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() { return None; }
+        let prices: Vec<f64> = ticks.iter().filter_map(|t| t.price.to_f64()).collect();
+        if prices.is_empty() { return None; }
+        let mut running_max = prices[0];
+        let drawdowns: Vec<f64> = prices.iter().map(|&p| {
+            if p > running_max { running_max = p; }
+            running_max - p
+        }).collect();
+        Some(drawdowns.iter().sum::<f64>() / drawdowns.len() as f64)
+    }
+
+    /// Fraction of ticks with Buy side out of all sided ticks.
+    pub fn buy_qty_fraction(ticks: &[NormalizedTick]) -> Option<f64> {
+        if ticks.is_empty() { return None; }
+        let buy = ticks.iter().filter(|t| t.side == Some(TradeSide::Buy)).count();
+        let total_sided = ticks.iter().filter(|t| t.side.is_some()).count();
+        if total_sided == 0 { return None; }
+        Some(buy as f64 / total_sided as f64)
+    }
+
 }
 
 
@@ -17804,6 +17854,77 @@ mod tests {
             make_tick_pq(dec!(105), dec!(1)),
         ];
         let f = NormalizedTick::price_direction_reversal_rate(&ticks).unwrap();
+        assert!((f - 1.0).abs() < 1e-9, "expected 1.0, got {}", f);
+    }
+
+    // ── round-162 ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_price_percentile_75_none_for_empty() {
+        assert!(NormalizedTick::price_percentile_75(&[]).is_none());
+    }
+
+    #[test]
+    fn test_price_percentile_75_single() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![make_tick_pq(dec!(100), dec!(1))];
+        let p = NormalizedTick::price_percentile_75(&ticks).unwrap();
+        assert!((p - 100.0).abs() < 1e-9, "expected 100.0, got {}", p);
+    }
+
+    #[test]
+    fn test_price_roc_mean_none_for_single() {
+        use rust_decimal_macros::dec;
+        assert!(NormalizedTick::price_roc_mean(&[make_tick_pq(dec!(100), dec!(1))]).is_none());
+    }
+
+    #[test]
+    fn test_price_roc_mean_constant_zero() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(100), dec!(1)),
+        ];
+        let r = NormalizedTick::price_roc_mean(&ticks).unwrap();
+        assert!((r - 0.0).abs() < 1e-9, "expected 0.0, got {}", r);
+    }
+
+    #[test]
+    fn test_price_drawdown_mean_none_for_empty() {
+        assert!(NormalizedTick::price_drawdown_mean(&[]).is_none());
+    }
+
+    #[test]
+    fn test_price_drawdown_mean_ascending_zero() {
+        use rust_decimal_macros::dec;
+        // ascending → no drawdown → mean=0
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(101), dec!(1)),
+            make_tick_pq(dec!(102), dec!(1)),
+        ];
+        let d = NormalizedTick::price_drawdown_mean(&ticks).unwrap();
+        assert!((d - 0.0).abs() < 1e-9, "expected 0.0, got {}", d);
+    }
+
+    #[test]
+    fn test_buy_qty_fraction_none_for_empty() {
+        assert!(NormalizedTick::buy_qty_fraction(&[]).is_none());
+    }
+
+    #[test]
+    fn test_buy_qty_fraction_none_for_no_sides() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![make_tick_pq(dec!(100), dec!(1))];
+        assert!(NormalizedTick::buy_qty_fraction(&ticks).is_none());
+    }
+
+    #[test]
+    fn test_buy_qty_fraction_all_buy_one() {
+        use rust_decimal_macros::dec;
+        let mut t = make_tick_pq(dec!(100), dec!(1));
+        t.side = Some(crate::tick::TradeSide::Buy);
+        let f = NormalizedTick::buy_qty_fraction(&[t]).unwrap();
         assert!((f - 1.0).abs() < 1e-9, "expected 1.0, got {}", f);
     }
 }

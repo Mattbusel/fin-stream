@@ -7494,6 +7494,56 @@ impl OhlcvBar {
         Some(wicks.iter().sum::<f64>() / wicks.len() as f64)
     }
 
+    // ── round-162 ────────────────────────────────────────────────────────────
+
+    /// Mean of open/close ratio (open / close) across bars; None if any close is zero.
+    pub fn bar_open_close_ratio(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let ratios: Vec<f64> = bars.iter()
+            .filter_map(|b| {
+                let o = b.open.to_f64()?;
+                let c = b.close.to_f64()?;
+                if c == 0.0 { return None; }
+                Some(o / c)
+            })
+            .collect();
+        if ratios.is_empty() { return None; }
+        Some(ratios.iter().sum::<f64>() / ratios.len() as f64)
+    }
+
+    /// Fraction of bars where close > open (bullish bars).
+    pub fn bar_close_above_open_fraction(bars: &[OhlcvBar]) -> Option<f64> {
+        if bars.is_empty() { return None; }
+        let bullish = bars.iter().filter(|b| b.close > b.open).count();
+        Some(bullish as f64 / bars.len() as f64)
+    }
+
+    /// Mean of (high - low) across all bars.
+    pub fn bar_hl_spread_mean(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let spreads: Vec<f64> = bars.iter()
+            .filter_map(|b| {
+                let h = b.high.to_f64()?;
+                let l = b.low.to_f64()?;
+                Some(h - l)
+            })
+            .collect();
+        if spreads.is_empty() { return None; }
+        Some(spreads.iter().sum::<f64>() / spreads.len() as f64)
+    }
+
+    /// Mean absolute gap between consecutive bar highs (high[i+1] - high[i]).
+    pub fn bar_high_gap_mean(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.len() < 2 { return None; }
+        let highs: Vec<f64> = bars.iter().filter_map(|b| b.high.to_f64()).collect();
+        if highs.len() < 2 { return None; }
+        let gaps: Vec<f64> = highs.windows(2).map(|w| w[1] - w[0]).collect();
+        Some(gaps.iter().sum::<f64>() / gaps.len() as f64)
+    }
+
 }
 
 impl std::fmt::Display for OhlcvBar {
@@ -17264,5 +17314,61 @@ mod tests {
         // bullish bar only → no bear bars → None
         let bars = vec![make_ohlcv_bar(dec!(100), dec!(115), dec!(90), dec!(110))];
         assert!(OhlcvBar::bar_bear_wick_mean(&bars).is_none());
+    }
+
+    // ── round-162 ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_bar_open_close_ratio_none_for_empty() {
+        assert!(OhlcvBar::bar_open_close_ratio(&[]).is_none());
+    }
+
+    #[test]
+    fn test_bar_open_close_ratio_equal_one() {
+        // open=close → ratio=1.0
+        let bars = vec![make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100))];
+        let r = OhlcvBar::bar_open_close_ratio(&bars).unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "expected 1.0, got {}", r);
+    }
+
+    #[test]
+    fn test_bar_close_above_open_fraction_none_for_empty() {
+        assert!(OhlcvBar::bar_close_above_open_fraction(&[]).is_none());
+    }
+
+    #[test]
+    fn test_bar_close_above_open_fraction_all_bullish_one() {
+        let bars = vec![make_ohlcv_bar(dec!(100), dec!(115), dec!(90), dec!(110))];
+        let f = OhlcvBar::bar_close_above_open_fraction(&bars).unwrap();
+        assert!((f - 1.0).abs() < 1e-9, "expected 1.0, got {}", f);
+    }
+
+    #[test]
+    fn test_bar_hl_spread_mean_none_for_empty() {
+        assert!(OhlcvBar::bar_hl_spread_mean(&[]).is_none());
+    }
+
+    #[test]
+    fn test_bar_hl_spread_mean_basic() {
+        // high=110, low=90 → spread=20
+        let bars = vec![make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105))];
+        let s = OhlcvBar::bar_hl_spread_mean(&bars).unwrap();
+        assert!((s - 20.0).abs() < 1e-9, "expected 20.0, got {}", s);
+    }
+
+    #[test]
+    fn test_bar_high_gap_mean_none_for_single() {
+        let bars = vec![make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105))];
+        assert!(OhlcvBar::bar_high_gap_mean(&bars).is_none());
+    }
+
+    #[test]
+    fn test_bar_high_gap_mean_constant_zero() {
+        let bars = vec![
+            make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105)),
+            make_ohlcv_bar(dec!(105), dec!(110), dec!(95), dec!(108)),
+        ];
+        let g = OhlcvBar::bar_high_gap_mean(&bars).unwrap();
+        assert!((g - 0.0).abs() < 1e-9, "expected 0.0, got {}", g);
     }
 }

@@ -9,6 +9,30 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.10.13] - 2026-03-20
+
+### Added
+
+**`tick` module — `NormalizedTick` analytics (round 162)**
+- `NormalizedTick::price_percentile_75(ticks)` — 75th percentile of tick prices.
+- `NormalizedTick::price_roc_mean(ticks)` — mean rate of change (price[i+1]-price[i])/price[i]*100.
+- `NormalizedTick::price_drawdown_mean(ticks)` — mean drawdown from running maximum.
+- `NormalizedTick::buy_qty_fraction(ticks)` — fraction of sided ticks that are Buy.
+
+**`ohlcv` module — `OhlcvBar` analytics (round 162)**
+- `OhlcvBar::bar_open_close_ratio(bars)` — mean of open/close ratio across bars.
+- `OhlcvBar::bar_close_above_open_fraction(bars)` — fraction of bullish bars (close > open).
+- `OhlcvBar::bar_hl_spread_mean(bars)` — mean of (high - low) across bars.
+- `OhlcvBar::bar_high_gap_mean(bars)` — mean gap between consecutive bar highs.
+
+**`norm` module — `MinMaxNormalizer` + `ZScoreNormalizer` analytics (round 162)**
+- `window_below_zero_streak()` — longest consecutive run of values strictly below zero.
+- `window_max_to_mean()` — ratio of window maximum to window mean.
+- `window_sign_run_length()` — longest run of consecutive values sharing the same sign.
+- `window_decay_weighted_mean()` — exponentially decay-weighted mean (alpha=0.2).
+
+---
+
 ## [2.10.12] - 2026-03-20
 
 ### Added
