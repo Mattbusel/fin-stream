@@ -6945,6 +6945,59 @@ impl OhlcvBar {
         Some(count)
     }
 
+    // ── round-151 ────────────────────────────────────────────────────────────
+
+    /// Mean ratio of high to open across bars.
+    pub fn bar_high_open_ratio(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let vals: Vec<f64> = bars.iter().filter_map(|b| {
+            let o = b.open.to_f64()?;
+            if o == 0.0 { return None; }
+            let h = b.high.to_f64()?;
+            Some(h / o)
+        }).collect();
+        if vals.is_empty() { return None; }
+        Some(vals.iter().sum::<f64>() / vals.len() as f64)
+    }
+
+    /// Standard deviation of close gaps (close[i] - close[i-1]).
+    pub fn bar_close_gap_std(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.len() < 3 { return None; }
+        let gaps: Vec<f64> = bars.windows(2).filter_map(|w| (w[1].close - w[0].close).to_f64()).collect();
+        if gaps.len() < 2 { return None; }
+        let mean = gaps.iter().sum::<f64>() / gaps.len() as f64;
+        let var = gaps.iter().map(|g| (g - mean).powi(2)).sum::<f64>() / gaps.len() as f64;
+        Some(var.sqrt())
+    }
+
+    /// Mean rate of open-to-close change per bar (close - open velocity).
+    pub fn open_close_velocity(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let vals: Vec<f64> = bars.iter().filter_map(|b| (b.close - b.open).to_f64()).collect();
+        if vals.is_empty() { return None; }
+        Some(vals.iter().sum::<f64>() / vals.len() as f64)
+    }
+
+    /// Mean ratio of total tail (wick) length to body size.
+    pub fn bar_tail_ratio(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let vals: Vec<f64> = bars.iter().filter_map(|b| {
+            let body = (b.close - b.open).abs().to_f64()?;
+            if body == 0.0 { return None; }
+            let body_top = b.close.max(b.open);
+            let body_bot = b.close.min(b.open);
+            let upper_wick = (b.high - body_top).to_f64()?;
+            let lower_wick = (body_bot - b.low).to_f64()?;
+            Some((upper_wick + lower_wick) / body)
+        }).collect();
+        if vals.is_empty() { return None; }
+        Some(vals.iter().sum::<f64>() / vals.len() as f64)
+    }
+
 }
 
 impl std::fmt::Display for OhlcvBar {
@@ -16058,5 +16111,63 @@ mod tests {
         ];
         let c = OhlcvBar::close_direction_change_count(&bars).unwrap();
         assert_eq!(c, 0);
+    }
+
+    // ── round-151 ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_bar_high_open_ratio_none_for_empty() {
+        assert!(OhlcvBar::bar_high_open_ratio(&[]).is_none());
+    }
+
+    #[test]
+    fn test_bar_high_open_ratio_basic() {
+        // high=110, open=100 → ratio=1.1
+        let bars = vec![make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105))];
+        let r = OhlcvBar::bar_high_open_ratio(&bars).unwrap();
+        assert!((r - 1.1).abs() < 1e-9, "expected 1.1, got {}", r);
+    }
+
+    #[test]
+    fn test_bar_close_gap_std_none_for_single() {
+        let bars = vec![make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105))];
+        assert!(OhlcvBar::bar_close_gap_std(&bars).is_none());
+    }
+
+    #[test]
+    fn test_bar_close_gap_std_equal_gaps() {
+        // closes: 100, 110, 120 → gaps: 10, 10 → std=0
+        let bars = vec![
+            make_ohlcv_bar(dec!(90), dec!(105), dec!(85), dec!(100)),
+            make_ohlcv_bar(dec!(100), dec!(115), dec!(95), dec!(110)),
+            make_ohlcv_bar(dec!(110), dec!(125), dec!(105), dec!(120)),
+        ];
+        let s = OhlcvBar::bar_close_gap_std(&bars).unwrap();
+        assert!((s - 0.0).abs() < 1e-9, "expected 0.0, got {}", s);
+    }
+
+    #[test]
+    fn test_open_close_velocity_none_for_empty() {
+        assert!(OhlcvBar::open_close_velocity(&[]).is_none());
+    }
+
+    #[test]
+    fn test_open_close_velocity_basic() {
+        // close=105, open=100 → velocity=5
+        let bars = vec![make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105))];
+        let v = OhlcvBar::open_close_velocity(&bars).unwrap();
+        assert!((v - 5.0).abs() < 1e-9, "expected 5.0, got {}", v);
+    }
+
+    #[test]
+    fn test_bar_tail_ratio_none_for_empty() {
+        assert!(OhlcvBar::bar_tail_ratio(&[]).is_none());
+    }
+
+    #[test]
+    fn test_bar_tail_ratio_no_body() {
+        // open=close → body=0 → filtered → None
+        let bars = vec![make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100))];
+        assert!(OhlcvBar::bar_tail_ratio(&bars).is_none());
     }
 }

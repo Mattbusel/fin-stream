@@ -4863,6 +4863,57 @@ impl MinMaxNormalizer {
         Some((pos - neg) / n)
     }
 
+    // ── round-151 ────────────────────────────────────────────────────────────
+
+    /// Deviation of the second-to-last window value from the last value.
+    pub fn window_penultimate_vs_last(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let mut iter = self.window.iter().rev();
+        let last = iter.next()?.to_f64()?;
+        let penultimate = iter.next()?.to_f64()?;
+        Some(penultimate - last)
+    }
+
+    /// Position of the window mean within the window range (0=at min, 1=at max).
+    pub fn window_mean_range_position(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let mean = vals.iter().sum::<f64>() / vals.len() as f64;
+        let min = vals.iter().cloned().fold(f64::INFINITY, f64::min);
+        let max = vals.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        if (max - min).abs() < 1e-12 { return Some(0.5); }
+        Some((mean - min) / (max - min))
+    }
+
+    /// Z-score of the most recent window value.
+    pub fn window_zscore_last(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let last = self.window.back()?.to_f64()?;
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let mean = vals.iter().sum::<f64>() / vals.len() as f64;
+        let var = vals.iter().map(|x| (x - mean).powi(2)).sum::<f64>() / vals.len() as f64;
+        let std = var.sqrt();
+        if std == 0.0 { return None; }
+        Some((last - mean) / std)
+    }
+
+    /// Gradient (slope) of a linear fit to sequential window indices.
+    pub fn window_gradient(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let n = vals.len() as f64;
+        let x_mean = (n - 1.0) / 2.0;
+        let y_mean = vals.iter().sum::<f64>() / n;
+        let num: f64 = vals.iter().enumerate().map(|(i, &y)| (i as f64 - x_mean) * (y - y_mean)).sum();
+        let den: f64 = vals.iter().enumerate().map(|(i, _)| (i as f64 - x_mean).powi(2)).sum();
+        if den == 0.0 { return Some(0.0); }
+        Some(num / den)
+    }
+
 }
 
 #[cfg(test)]
@@ -10435,6 +10486,68 @@ mod tests {
         let sb = n.window_sign_bias().unwrap();
         assert!((sb - 1.0).abs() < 1e-9, "expected 1.0, got {}", sb);
     }
+
+    // ── round-151 ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_minmax_window_penultimate_vs_last_none_for_single() {
+        let mut n = norm(4);
+        n.update(dec!(5));
+        assert!(n.window_penultimate_vs_last().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_penultimate_vs_last_basic() {
+        let mut n = norm(4);
+        for v in [dec!(10), dec!(6)] { n.update(v); }
+        // penultimate=10, last=6 → 10-6=4
+        let d = n.window_penultimate_vs_last().unwrap();
+        assert!((d - 4.0).abs() < 1e-9, "expected 4.0, got {}", d);
+    }
+
+    #[test]
+    fn test_minmax_window_mean_range_position_none_for_empty() {
+        let n = norm(4);
+        assert!(n.window_mean_range_position().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_mean_range_position_single() {
+        let mut n = norm(4);
+        n.update(dec!(5));
+        let _ = n.window_mean_range_position();
+    }
+
+    #[test]
+    fn test_minmax_window_zscore_last_none_for_single() {
+        let mut n = norm(4);
+        n.update(dec!(5));
+        assert!(n.window_zscore_last().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_zscore_last_zero_for_uniform() {
+        let mut n = norm(3);
+        for v in [dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        // std=0 → None (no z-score)
+        assert!(n.window_zscore_last().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_gradient_none_for_single() {
+        let mut n = norm(4);
+        n.update(dec!(5));
+        assert!(n.window_gradient().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_gradient_ascending() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        // perfectly ascending → positive gradient
+        let g = n.window_gradient().unwrap();
+        assert!(g > 0.0, "expected positive gradient, got {}", g);
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -15242,6 +15355,57 @@ impl ZScoreNormalizer {
         let pos = self.window.iter().filter(|v| v.to_f64().map_or(false, |x| x > 0.0)).count() as f64;
         let neg = self.window.iter().filter(|v| v.to_f64().map_or(false, |x| x < 0.0)).count() as f64;
         Some((pos - neg) / n)
+    }
+
+    // ── round-151 ────────────────────────────────────────────────────────────
+
+    /// Deviation of the second-to-last window value from the last value.
+    pub fn window_penultimate_vs_last(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let mut iter = self.window.iter().rev();
+        let last = iter.next()?.to_f64()?;
+        let penultimate = iter.next()?.to_f64()?;
+        Some(penultimate - last)
+    }
+
+    /// Position of the window mean within the window range (0=at min, 1=at max).
+    pub fn window_mean_range_position(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let mean = vals.iter().sum::<f64>() / vals.len() as f64;
+        let min = vals.iter().cloned().fold(f64::INFINITY, f64::min);
+        let max = vals.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        if (max - min).abs() < 1e-12 { return Some(0.5); }
+        Some((mean - min) / (max - min))
+    }
+
+    /// Z-score of the most recent window value.
+    pub fn window_zscore_last(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let last = self.window.back()?.to_f64()?;
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let mean = vals.iter().sum::<f64>() / vals.len() as f64;
+        let var = vals.iter().map(|x| (x - mean).powi(2)).sum::<f64>() / vals.len() as f64;
+        let std = var.sqrt();
+        if std == 0.0 { return None; }
+        Some((last - mean) / std)
+    }
+
+    /// Gradient (slope) of a linear fit to sequential window indices.
+    pub fn window_gradient(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let n = vals.len() as f64;
+        let x_mean = (n - 1.0) / 2.0;
+        let y_mean = vals.iter().sum::<f64>() / n;
+        let num: f64 = vals.iter().enumerate().map(|(i, &y)| (i as f64 - x_mean) * (y - y_mean)).sum();
+        let den: f64 = vals.iter().enumerate().map(|(i, _)| (i as f64 - x_mean).powi(2)).sum();
+        if den == 0.0 { return Some(0.0); }
+        Some(num / den)
     }
 
 }
@@ -20831,5 +20995,64 @@ mod zscore_stability_tests {
         for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
         let sb = n.window_sign_bias().unwrap();
         assert!((sb - 1.0).abs() < 1e-9, "expected 1.0, got {}", sb);
+    }
+
+    // ── round-151 ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_zscore_window_penultimate_vs_last_none_for_single() {
+        let mut n = znorm(4);
+        n.update(dec!(5));
+        assert!(n.window_penultimate_vs_last().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_penultimate_vs_last_basic() {
+        let mut n = znorm(4);
+        for v in [dec!(10), dec!(6)] { n.update(v); }
+        let d = n.window_penultimate_vs_last().unwrap();
+        assert!((d - 4.0).abs() < 1e-9, "expected 4.0, got {}", d);
+    }
+
+    #[test]
+    fn test_zscore_window_mean_range_position_none_for_empty() {
+        let n = znorm(4);
+        assert!(n.window_mean_range_position().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_mean_range_position_single() {
+        let mut n = znorm(4);
+        n.update(dec!(5));
+        let _ = n.window_mean_range_position();
+    }
+
+    #[test]
+    fn test_zscore_window_zscore_last_none_for_single() {
+        let mut n = znorm(4);
+        n.update(dec!(5));
+        assert!(n.window_zscore_last().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_zscore_last_zero_for_uniform() {
+        let mut n = znorm(3);
+        for v in [dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        assert!(n.window_zscore_last().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_gradient_none_for_single() {
+        let mut n = znorm(4);
+        n.update(dec!(5));
+        assert!(n.window_gradient().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_gradient_ascending() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let g = n.window_gradient().unwrap();
+        assert!(g > 0.0, "expected positive gradient, got {}", g);
     }
 }

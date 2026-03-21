@@ -9,6 +9,36 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.10.2] - 2026-03-20
+
+### Added
+
+**`tick` module — `NormalizedTick` analytics (round 151)**
+- `NormalizedTick::price_spike_ratio(ticks)` — fraction of ticks with price > 2 std devs from mean.
+- `NormalizedTick::tick_weighted_latency(ticks)` — quantity-weighted mean received_at_ms timestamp.
+- `NormalizedTick::side_price_spread_std(ticks)` — std dev of Buy vs Sell price differences.
+- `NormalizedTick::qty_buy_dominance(ticks)` — Buy quantity dominance fraction over total sided qty.
+
+**`ohlcv` module — `OhlcvBar` analytics (round 151)**
+- `OhlcvBar::bar_high_open_ratio(bars)` — mean ratio of bar high to open across bars.
+- `OhlcvBar::bar_close_gap_std(bars)` — std dev of close-to-close gaps between consecutive bars.
+- `OhlcvBar::open_close_velocity(bars)` — mean close-minus-open per bar.
+- `OhlcvBar::bar_tail_ratio(bars)` — mean ratio of lower tail to body size.
+
+**`norm` module — `MinMaxNormalizer` analytics (round 151)**
+- `MinMaxNormalizer::window_penultimate_vs_last()` — second-to-last minus last window value.
+- `MinMaxNormalizer::window_mean_range_position()` — window mean position within [min, max] range.
+- `MinMaxNormalizer::window_zscore_last()` — z-score of the most recent window value.
+- `MinMaxNormalizer::window_gradient()` — linear regression slope over sequential window indices.
+
+**`norm` module — `ZScoreNormalizer` analytics (round 151)**
+- `ZScoreNormalizer::window_penultimate_vs_last()` — second-to-last minus last window value.
+- `ZScoreNormalizer::window_mean_range_position()` — window mean position within [min, max] range.
+- `ZScoreNormalizer::window_zscore_last()` — z-score of the most recent window value.
+- `ZScoreNormalizer::window_gradient()` — linear regression slope over sequential window indices.
+
+---
+
 ## [2.10.1] - 2026-03-20
 
 ### Added

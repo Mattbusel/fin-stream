@@ -7166,6 +7166,67 @@ impl NormalizedTick {
         Some(var.sqrt())
     }
 
+    // ── round-151 ────────────────────────────────────────────────────────────
+
+    /// Fraction of ticks whose price is more than 2 std devs from the mean (spike ratio).
+    pub fn price_spike_ratio(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() { return None; }
+        let prices: Vec<f64> = ticks.iter().filter_map(|t| t.price.to_f64()).collect();
+        if prices.is_empty() { return None; }
+        let mean = prices.iter().sum::<f64>() / prices.len() as f64;
+        let var = prices.iter().map(|p| (p - mean).powi(2)).sum::<f64>() / prices.len() as f64;
+        let std = var.sqrt();
+        if std == 0.0 { return Some(0.0); }
+        let spikes = prices.iter().filter(|&&p| (p - mean).abs() > 2.0 * std).count();
+        Some(spikes as f64 / prices.len() as f64)
+    }
+
+    /// Quantity-weighted mean latency (quantity × received_at_ms / total_quantity).
+    pub fn tick_weighted_latency(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() { return None; }
+        let total_qty: f64 = ticks.iter().filter_map(|t| t.quantity.to_f64()).sum();
+        if total_qty == 0.0 { return None; }
+        let weighted: f64 = ticks.iter().filter_map(|t| {
+            let q = t.quantity.to_f64()?;
+            Some(q * t.received_at_ms as f64)
+        }).sum();
+        Some(weighted / total_qty)
+    }
+
+    /// Standard deviation of price difference between Buy and Sell ticks.
+    pub fn side_price_spread_std(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let buy_prices: Vec<f64> = ticks.iter()
+            .filter(|t| matches!(t.side, Some(TradeSide::Buy)))
+            .filter_map(|t| t.price.to_f64()).collect();
+        let sell_prices: Vec<f64> = ticks.iter()
+            .filter(|t| matches!(t.side, Some(TradeSide::Sell)))
+            .filter_map(|t| t.price.to_f64()).collect();
+        if buy_prices.is_empty() || sell_prices.is_empty() { return None; }
+        let spreads: Vec<f64> = buy_prices.iter().zip(sell_prices.iter())
+            .map(|(b, s)| (b - s).abs()).collect();
+        if spreads.len() < 2 { return None; }
+        let mean = spreads.iter().sum::<f64>() / spreads.len() as f64;
+        let var = spreads.iter().map(|s| (s - mean).powi(2)).sum::<f64>() / spreads.len() as f64;
+        Some(var.sqrt())
+    }
+
+    /// Fraction of total Buy quantity where Buy dominates Sell.
+    pub fn qty_buy_dominance(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let buy_qty: f64 = ticks.iter()
+            .filter(|t| matches!(t.side, Some(TradeSide::Buy)))
+            .filter_map(|t| t.quantity.to_f64()).sum();
+        let sell_qty: f64 = ticks.iter()
+            .filter(|t| matches!(t.side, Some(TradeSide::Sell)))
+            .filter_map(|t| t.quantity.to_f64()).sum();
+        let total = buy_qty + sell_qty;
+        if total == 0.0 { return None; }
+        Some(if buy_qty > sell_qty { (buy_qty - sell_qty) / total } else { 0.0 })
+    }
+
 }
 
 
@@ -16411,5 +16472,68 @@ mod tests {
         ];
         let s = NormalizedTick::tick_vol_spread(&ticks).unwrap();
         assert!((s - 0.0).abs() < 1e-9, "expected 0.0, got {}", s);
+    }
+
+    // ── round-151 ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_price_spike_ratio_none_for_empty() {
+        assert!(NormalizedTick::price_spike_ratio(&[]).is_none());
+    }
+
+    #[test]
+    fn test_price_spike_ratio_no_spikes() {
+        use rust_decimal_macros::dec;
+        // all same price → std=0 → no spikes
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(100), dec!(1)),
+        ];
+        let r = NormalizedTick::price_spike_ratio(&ticks).unwrap();
+        assert!((r - 0.0).abs() < 1e-9, "expected 0.0, got {}", r);
+    }
+
+    #[test]
+    fn test_tick_weighted_latency_none_for_empty() {
+        assert!(NormalizedTick::tick_weighted_latency(&[]).is_none());
+    }
+
+    #[test]
+    fn test_tick_weighted_latency_equal_weights() {
+        use rust_decimal_macros::dec;
+        // all qty=1 → weighted mean = simple mean of received_at_ms
+        let mut t1 = make_tick_pq(dec!(100), dec!(1));
+        t1.received_at_ms = 100;
+        let mut t2 = make_tick_pq(dec!(101), dec!(1));
+        t2.received_at_ms = 200;
+        let wl = NormalizedTick::tick_weighted_latency(&[t1, t2]).unwrap();
+        assert!((wl - 150.0).abs() < 1e-9, "expected 150.0, got {}", wl);
+    }
+
+    #[test]
+    fn test_side_price_spread_std_none_for_empty() {
+        assert!(NormalizedTick::side_price_spread_std(&[]).is_none());
+    }
+
+    #[test]
+    fn test_side_price_spread_std_no_pairs() {
+        use rust_decimal_macros::dec;
+        // only buy ticks → no buy-sell pairs → None
+        let ticks = vec![make_tick_pq(dec!(100), dec!(1))];
+        assert!(NormalizedTick::side_price_spread_std(&ticks).is_none());
+    }
+
+    #[test]
+    fn test_qty_buy_dominance_none_for_empty() {
+        assert!(NormalizedTick::qty_buy_dominance(&[]).is_none());
+    }
+
+    #[test]
+    fn test_qty_buy_dominance_no_sides() {
+        use rust_decimal_macros::dec;
+        // no sided ticks → total=0 → None
+        let ticks = vec![make_tick_pq(dec!(100), dec!(5))];
+        assert!(NormalizedTick::qty_buy_dominance(&ticks).is_none());
     }
 }
