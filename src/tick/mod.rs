@@ -8800,6 +8800,67 @@ impl NormalizedTick {
         Some(max_drawup)
     }
 
+    /// Number of times price crosses its running mean (from above to below or vice versa).
+    pub fn tick_price_crossover_count(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 2 { return None; }
+        let prices: Vec<f64> = ticks.iter().filter_map(|t| t.price.to_f64()).collect();
+        if prices.len() < 2 { return None; }
+        let mut crossovers = 0_usize;
+        let mut sum = prices[0]; let mut prev_above = prices[0] >= prices[0];
+        for i in 1..prices.len() {
+            sum += prices[i];
+            let mean = sum / (i + 1) as f64;
+            let above = prices[i] >= mean;
+            if above != prev_above { crossovers += 1; }
+            prev_above = above;
+        }
+        Some(crossovers as f64 / (prices.len() - 1) as f64)
+    }
+
+    /// Fraction of ticks where price has returned within 0.1% of its starting price.
+    pub fn price_mean_reversion_pct(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() { return None; }
+        let prices: Vec<f64> = ticks.iter().filter_map(|t| t.price.to_f64()).collect();
+        if prices.is_empty() { return None; }
+        let start = prices[0];
+        if start == 0.0 { return None; }
+        let threshold = start * 0.001;
+        let reversions = prices.iter().filter(|&&p| (p - start).abs() <= threshold).count();
+        Some(reversions as f64 / prices.len() as f64)
+    }
+
+    /// Net directional force: sum(qty * sign(price_change)) / total_qty.
+    pub fn tick_qty_weighted_side(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 2 { return None; }
+        let prices: Vec<f64> = ticks.iter().filter_map(|t| t.price.to_f64()).collect();
+        let qtys: Vec<f64> = ticks.iter().filter_map(|t| t.quantity.to_f64()).collect();
+        if prices.len() < 2 || qtys.len() != prices.len() { return None; }
+        let total_q: f64 = qtys.iter().sum();
+        if total_q == 0.0 { return None; }
+        let net: f64 = prices.windows(2).zip(qtys.windows(2)).map(|(pw, qw)| {
+            let sign = if pw[1] > pw[0] { 1.0 } else if pw[1] < pw[0] { -1.0 } else { 0.0 };
+            sign * qw[1]
+        }).sum();
+        Some(net / total_q)
+    }
+
+    /// (last_price - first_price).abs() / (high - low): close-to-range travel ratio.
+    pub fn price_close_to_range_ratio(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() { return None; }
+        let prices: Vec<f64> = ticks.iter().filter_map(|t| t.price.to_f64()).collect();
+        if prices.is_empty() { return None; }
+        let first = prices[0]; let last = *prices.last()?;
+        let max = prices.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        let min = prices.iter().cloned().fold(f64::INFINITY, f64::min);
+        let range = max - min;
+        if range == 0.0 { return Some(0.0); }
+        Some((last - first).abs() / range)
+    }
+
 }
 
 
@@ -20023,6 +20084,84 @@ mod tests {
             make_tick_pq(dec!(100), dec!(1)),
         ];
         let r = NormalizedTick::price_max_drawup(&ticks).unwrap();
+        assert!(r.abs() < 1e-9, "expected 0.0, got {}", r);
+    }
+
+    // --- round-178 ---
+
+    #[test]
+    fn test_tick_price_crossover_count_none_for_single() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![make_tick_pq(dec!(100), dec!(1))];
+        assert!(NormalizedTick::tick_price_crossover_count(&ticks).is_none());
+    }
+
+    #[test]
+    fn test_tick_price_crossover_count_constant_zero() {
+        use rust_decimal_macros::dec;
+        // Constant price → price always == mean → no crossovers
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(100), dec!(1)),
+        ];
+        let r = NormalizedTick::tick_price_crossover_count(&ticks).unwrap();
+        assert!(r.abs() < 1e-9, "expected 0.0, got {}", r);
+    }
+
+    #[test]
+    fn test_price_mean_reversion_pct_none_for_empty() {
+        assert!(NormalizedTick::price_mean_reversion_pct(&[]).is_none());
+    }
+
+    #[test]
+    fn test_price_mean_reversion_pct_all_at_start() {
+        use rust_decimal_macros::dec;
+        // All prices at start → all within 0.1% → 1.0
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(100), dec!(1)),
+        ];
+        let r = NormalizedTick::price_mean_reversion_pct(&ticks).unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "expected 1.0, got {}", r);
+    }
+
+    #[test]
+    fn test_tick_qty_weighted_side_none_for_single() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![make_tick_pq(dec!(100), dec!(1))];
+        assert!(NormalizedTick::tick_qty_weighted_side(&ticks).is_none());
+    }
+
+    #[test]
+    fn test_tick_qty_weighted_side_constant_zero() {
+        use rust_decimal_macros::dec;
+        // Constant prices → no moves → net=0
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(5)),
+            make_tick_pq(dec!(100), dec!(5)),
+            make_tick_pq(dec!(100), dec!(5)),
+        ];
+        let r = NormalizedTick::tick_qty_weighted_side(&ticks).unwrap();
+        assert!(r.abs() < 1e-9, "expected 0.0, got {}", r);
+    }
+
+    #[test]
+    fn test_price_close_to_range_ratio_none_for_empty() {
+        assert!(NormalizedTick::price_close_to_range_ratio(&[]).is_none());
+    }
+
+    #[test]
+    fn test_price_close_to_range_ratio_constant_zero() {
+        use rust_decimal_macros::dec;
+        // All same price → range=0 → returns 0.0
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(100), dec!(1)),
+        ];
+        let r = NormalizedTick::price_close_to_range_ratio(&ticks).unwrap();
         assert!(r.abs() < 1e-9, "expected 0.0, got {}", r);
     }
 }

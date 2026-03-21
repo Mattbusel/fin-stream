@@ -9,6 +9,30 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.10.29] - 2026-03-20
+
+### Added
+
+**`tick` module — `NormalizedTick` analytics (round 178)**
+- `NormalizedTick::tick_price_crossover_count(ticks)` — fraction of steps where price crosses its running mean.
+- `NormalizedTick::price_mean_reversion_pct(ticks)` — fraction of ticks within 0.1% of starting price.
+- `NormalizedTick::tick_qty_weighted_side(ticks)` — net directional force: sum(qty * sign(price_change)) / total_qty.
+- `NormalizedTick::price_close_to_range_ratio(ticks)` — |last - first| / (max - min).
+
+**`ohlcv` module — `OhlcvBar` analytics (round 178)**
+- `OhlcvBar::bar_candle_pattern_score(bars)` — mean (body/range * sign) per bar.
+- `OhlcvBar::bar_hl_ratio(bars)` — mean high / low per bar.
+- `OhlcvBar::bar_range_to_volume(bars)` — mean (high - low) / volume per bar.
+- `OhlcvBar::bar_typical_price_std(bars)` — std dev of typical price (H+L+C)/3.
+
+**`norm` module — `MinMaxNormalizer` + `ZScoreNormalizer` analytics (round 178)**
+- `window_nonzero_ratio()` — fraction of window values that are non-zero.
+- `window_min_to_max_ratio()` — min / max of window values.
+- `window_consecutive_same_sign()` — longest run of consecutive diffs with the same sign.
+- `window_value_above_median()` — fraction of values strictly above the window median.
+
+---
+
 ## [2.10.28] - 2026-03-20
 
 ### Added

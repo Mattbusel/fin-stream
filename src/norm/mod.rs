@@ -6178,6 +6178,54 @@ impl MinMaxNormalizer {
         Some(1.0)
     }
 
+    /// Fraction of window values that are non-zero.
+    pub fn window_nonzero_ratio(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let nz = self.window.iter().filter(|v| v.to_f64().unwrap_or(0.0) != 0.0).count();
+        Some(nz as f64 / self.window.len() as f64)
+    }
+
+    /// min / max of window values.
+    pub fn window_min_to_max_ratio(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let min = vals.iter().cloned().fold(f64::INFINITY, f64::min);
+        let max = vals.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        if max == 0.0 { return None; }
+        Some(min / max)
+    }
+
+    /// Longest consecutive run where all consecutive diffs have the same sign.
+    pub fn window_consecutive_same_sign(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let signs: Vec<i8> = vals.windows(2).map(|w| {
+            let d = w[1] - w[0];
+            if d > 0.0 { 1 } else if d < 0.0 { -1 } else { 0 }
+        }).collect();
+        let mut max_run = 1_usize; let mut run = 1_usize;
+        for i in 1..signs.len() {
+            if signs[i] == signs[i - 1] && signs[i] != 0 { run += 1; if run > max_run { max_run = run; } }
+            else { run = 1; }
+        }
+        Some(max_run as f64)
+    }
+
+    /// Fraction of window values that are above the window median.
+    pub fn window_value_above_median(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let mut vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        vals.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let n = vals.len();
+        let median = if n % 2 == 0 { (vals[n / 2 - 1] + vals[n / 2]) / 2.0 } else { vals[n / 2] };
+        let above = self.window.iter().filter(|v| v.to_f64().unwrap_or(0.0) > median).count();
+        Some(above as f64 / n as f64)
+    }
+
 }
 
 #[cfg(test)]
@@ -13407,6 +13455,67 @@ mod tests {
         for v in [dec!(0), dec!(0), dec!(0)] { n.update(v); }
         assert!(n.window_decay_midpoint().is_none());
     }
+
+    // ── round-178 tests ──────────────────────────────────────────────────────
+
+    #[test]
+    fn test_minmax_window_nonzero_ratio_none_for_empty() {
+        let n = norm(4);
+        assert!(n.window_nonzero_ratio().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_nonzero_ratio_all_nonzero_one() {
+        let mut n = norm(3);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        let r = n.window_nonzero_ratio().unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "expected 1.0, got {}", r);
+    }
+
+    #[test]
+    fn test_minmax_window_min_to_max_ratio_none_for_empty() {
+        let n = norm(4);
+        assert!(n.window_min_to_max_ratio().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_min_to_max_ratio_constant_one() {
+        let mut n = norm(3);
+        for v in [dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        let r = n.window_min_to_max_ratio().unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "expected 1.0, got {}", r);
+    }
+
+    #[test]
+    fn test_minmax_window_consecutive_same_sign_none_for_single() {
+        let mut n = norm(4);
+        n.update(dec!(5));
+        assert!(n.window_consecutive_same_sign().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_consecutive_same_sign_monotone_increasing() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        // All diffs positive → longest run = 3
+        let r = n.window_consecutive_same_sign().unwrap();
+        assert!((r - 3.0).abs() < 1e-9, "expected 3.0, got {}", r);
+    }
+
+    #[test]
+    fn test_minmax_window_value_above_median_none_for_empty() {
+        let n = norm(4);
+        assert!(n.window_value_above_median().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_value_above_median_constant_zero() {
+        // All same → none strictly above median → 0.0
+        let mut n = norm(3);
+        for v in [dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        let r = n.window_value_above_median().unwrap();
+        assert!(r.abs() < 1e-9, "expected 0.0, got {}", r);
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -19533,6 +19642,54 @@ impl ZScoreNormalizer {
             }
         }
         Some(1.0)
+    }
+
+    /// Fraction of window values that are non-zero.
+    pub fn window_nonzero_ratio(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let nz = self.window.iter().filter(|v| v.to_f64().unwrap_or(0.0) != 0.0).count();
+        Some(nz as f64 / self.window.len() as f64)
+    }
+
+    /// min / max of window values.
+    pub fn window_min_to_max_ratio(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let min = vals.iter().cloned().fold(f64::INFINITY, f64::min);
+        let max = vals.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        if max == 0.0 { return None; }
+        Some(min / max)
+    }
+
+    /// Longest consecutive run where all consecutive diffs have the same sign.
+    pub fn window_consecutive_same_sign(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let signs: Vec<i8> = vals.windows(2).map(|w| {
+            let d = w[1] - w[0];
+            if d > 0.0 { 1 } else if d < 0.0 { -1 } else { 0 }
+        }).collect();
+        let mut max_run = 1_usize; let mut run = 1_usize;
+        for i in 1..signs.len() {
+            if signs[i] == signs[i - 1] && signs[i] != 0 { run += 1; if run > max_run { max_run = run; } }
+            else { run = 1; }
+        }
+        Some(max_run as f64)
+    }
+
+    /// Fraction of window values that are above the window median.
+    pub fn window_value_above_median(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let mut vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        vals.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let n = vals.len();
+        let median = if n % 2 == 0 { (vals[n / 2 - 1] + vals[n / 2]) / 2.0 } else { vals[n / 2] };
+        let above = self.window.iter().filter(|v| v.to_f64().unwrap_or(0.0) > median).count();
+        Some(above as f64 / n as f64)
     }
 
 }
@@ -26729,5 +26886,64 @@ mod zscore_stability_tests {
         let mut n = znorm(3);
         for v in [dec!(0), dec!(0), dec!(0)] { n.update(v); }
         assert!(n.window_decay_midpoint().is_none());
+    }
+
+    // ── round-178 tests ──────────────────────────────────────────────────────
+
+    #[test]
+    fn test_zscore_window_nonzero_ratio_none_for_empty() {
+        let n = znorm(4);
+        assert!(n.window_nonzero_ratio().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_nonzero_ratio_all_nonzero_one() {
+        let mut n = znorm(3);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        let r = n.window_nonzero_ratio().unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "expected 1.0, got {}", r);
+    }
+
+    #[test]
+    fn test_zscore_window_min_to_max_ratio_none_for_empty() {
+        let n = znorm(4);
+        assert!(n.window_min_to_max_ratio().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_min_to_max_ratio_constant_one() {
+        let mut n = znorm(3);
+        for v in [dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        let r = n.window_min_to_max_ratio().unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "expected 1.0, got {}", r);
+    }
+
+    #[test]
+    fn test_zscore_window_consecutive_same_sign_none_for_single() {
+        let mut n = znorm(4);
+        n.update(dec!(5));
+        assert!(n.window_consecutive_same_sign().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_consecutive_same_sign_monotone_increasing() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let r = n.window_consecutive_same_sign().unwrap();
+        assert!((r - 3.0).abs() < 1e-9, "expected 3.0, got {}", r);
+    }
+
+    #[test]
+    fn test_zscore_window_value_above_median_none_for_empty() {
+        let n = znorm(4);
+        assert!(n.window_value_above_median().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_value_above_median_constant_zero() {
+        let mut n = znorm(3);
+        for v in [dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        let r = n.window_value_above_median().unwrap();
+        assert!(r.abs() < 1e-9, "expected 0.0, got {}", r);
     }
 }
