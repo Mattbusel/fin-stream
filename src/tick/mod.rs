@@ -3020,6 +3020,134 @@ impl NormalizedTick {
         Some(var.sqrt())
     }
 
+    // ── round-87 ─────────────────────────────────────────────────────────────
+
+    /// Standard deviation of (price − VWAP) across ticks; measures how dispersed
+    /// individual trade prices are around the session VWAP.  Returns `None` if
+    /// fewer than 2 ticks or total quantity is zero.
+    pub fn vwap_deviation_std(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 2 {
+            return None;
+        }
+        let total_qty: Decimal = ticks.iter().map(|t| t.quantity).sum();
+        if total_qty.is_zero() {
+            return None;
+        }
+        let vwap = ticks
+            .iter()
+            .map(|t| t.price * t.quantity)
+            .sum::<Decimal>()
+            / total_qty;
+        let deviations: Vec<f64> = ticks
+            .iter()
+            .filter_map(|t| (t.price - vwap).to_f64())
+            .collect();
+        let n = deviations.len() as f64;
+        if n < 2.0 {
+            return None;
+        }
+        let mean_dev = deviations.iter().sum::<f64>() / n;
+        let var = deviations
+            .iter()
+            .map(|d| (d - mean_dev).powi(2))
+            .sum::<f64>()
+            / (n - 1.0);
+        Some(var.sqrt())
+    }
+
+    /// Length of the longest run of trades on the same side (Buy or Sell).
+    /// Ticks with no side are skipped.  Returns `0` if no sided ticks.
+    pub fn max_consecutive_side_run(ticks: &[NormalizedTick]) -> usize {
+        let mut max_run = 0usize;
+        let mut current_run = 0usize;
+        let mut last_side: Option<TradeSide> = None;
+        for t in ticks {
+            if let Some(side) = t.side {
+                if Some(side) == last_side {
+                    current_run += 1;
+                } else {
+                    current_run = 1;
+                    last_side = Some(side);
+                }
+                if current_run > max_run {
+                    max_run = current_run;
+                }
+            }
+        }
+        max_run
+    }
+
+    /// Coefficient of variation of inter-arrival times (std dev / mean).
+    /// Measures burstiness of trade arrival.  Returns `None` if fewer than
+    /// 2 ticks with `received_at_ms` or if mean inter-arrival is zero.
+    pub fn inter_arrival_cv(ticks: &[NormalizedTick]) -> Option<f64> {
+        if ticks.len() < 2 {
+            return None;
+        }
+        let intervals: Vec<f64> = ticks
+            .windows(2)
+            .filter_map(|w| {
+                let dt = w[1].received_at_ms.checked_sub(w[0].received_at_ms)?;
+                Some(dt as f64)
+            })
+            .collect();
+        if intervals.len() < 2 {
+            return None;
+        }
+        let n = intervals.len() as f64;
+        let mean = intervals.iter().sum::<f64>() / n;
+        if mean == 0.0 {
+            return None;
+        }
+        let var = intervals
+            .iter()
+            .map(|v| (v - mean).powi(2))
+            .sum::<f64>()
+            / (n - 1.0);
+        Some(var.sqrt() / mean)
+    }
+
+    /// Total traded quantity divided by elapsed milliseconds.
+    /// Returns `None` if fewer than 2 ticks or elapsed time is zero.
+    pub fn volume_per_ms(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 2 {
+            return None;
+        }
+        let first_ms = ticks.first()?.received_at_ms;
+        let last_ms = ticks.last()?.received_at_ms;
+        let elapsed = last_ms.checked_sub(first_ms)? as f64;
+        if elapsed == 0.0 {
+            return None;
+        }
+        let total_qty: f64 = ticks
+            .iter()
+            .filter_map(|t| t.quantity.to_f64())
+            .sum();
+        Some(total_qty / elapsed)
+    }
+
+    /// Total notional (price × quantity) divided by elapsed seconds.
+    /// Returns `None` if fewer than 2 ticks or elapsed time is zero.
+    pub fn notional_per_second(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 2 {
+            return None;
+        }
+        let first_ms = ticks.first()?.received_at_ms;
+        let last_ms = ticks.last()?.received_at_ms;
+        let elapsed_sec = last_ms.checked_sub(first_ms)? as f64 / 1000.0;
+        if elapsed_sec == 0.0 {
+            return None;
+        }
+        let total_notional: f64 = ticks
+            .iter()
+            .filter_map(|t| (t.price * t.quantity).to_f64())
+            .sum();
+        Some(total_notional / elapsed_sec)
+    }
+
 }
 
 
