@@ -1452,6 +1452,58 @@ impl MinMaxNormalizer {
         (current_mean / early_mean).to_f64()
     }
 
+    // ── round-84 ─────────────────────────────────────────────────────────────
+
+    /// Exponentially-weighted mean with decay factor `alpha` ∈ (0, 1]; most-recent value has highest weight.
+    pub fn exponential_weighted_mean(&self, alpha: f64) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() {
+            return None;
+        }
+        let alpha = alpha.clamp(1e-6, 1.0);
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.is_empty() {
+            return None;
+        }
+        let mut ewm = vals[0];
+        for &v in &vals[1..] {
+            ewm = alpha * v + (1.0 - alpha) * ewm;
+        }
+        Some(ewm)
+    }
+
+    /// Mean of squared values in the window (second raw moment).
+    pub fn second_moment(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() {
+            return None;
+        }
+        let sum: f64 = self.window.iter().filter_map(|v| v.to_f64()).map(|v| v * v).sum();
+        Some(sum / self.window.len() as f64)
+    }
+
+    /// Range / mean — coefficient of dispersion; `None` if mean is zero.
+    pub fn range_over_mean(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let max = self.window.iter().copied().max()?;
+        let min = self.window.iter().copied().min()?;
+        let mean = self.mean()?;
+        if mean.is_zero() {
+            return None;
+        }
+        ((max - min) / mean).to_f64()
+    }
+
+    /// Fraction of window values strictly above the window median.
+    pub fn above_median_fraction(&self) -> Option<f64> {
+        if self.window.is_empty() {
+            return None;
+        }
+        let median = self.median()?;
+        let count = self.window.iter().filter(|&&v| v > median).count();
+        Some(count as f64 / self.window.len() as f64)
+    }
+
 }
 
 #[cfg(test)]
@@ -3339,6 +3391,36 @@ mod tests {
         n.update(dec!(10));
         assert!(n.mean_ratio().is_none());
     }
+
+    // ── round-84 tests ─────────────────────────────────────────────────────
+
+    #[test]
+    fn test_minmax_exponential_weighted_mean_none_for_empty() {
+        let n = norm(4);
+        assert!(n.exponential_weighted_mean(0.5).is_none());
+    }
+
+    #[test]
+    fn test_minmax_exponential_weighted_mean_returns_value() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let ewm = n.exponential_weighted_mean(0.5).unwrap();
+        assert!(ewm > 0.0, "EWM should be positive, got {}", ewm);
+    }
+
+    #[test]
+    fn test_minmax_peak_to_trough_none_for_empty() {
+        let n = norm(4);
+        assert!(n.peak_to_trough_ratio().is_none());
+    }
+
+    #[test]
+    fn test_minmax_peak_to_trough_correct() {
+        let mut n = norm(4);
+        for v in [dec!(2), dec!(4), dec!(1), dec!(8)] { n.update(v); }
+        let r = n.peak_to_trough_ratio().unwrap();
+        assert!((r - 8.0).abs() < 1e-9, "max=8, min=1 → ratio=8, got {}", r);
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -4735,6 +4817,76 @@ impl ZScoreNormalizer {
             return None;
         }
         (current_mean / early_mean).to_f64()
+    }
+
+    // ── round-84 ─────────────────────────────────────────────────────────────
+
+    /// Exponentially-weighted mean with decay factor `alpha` ∈ (0, 1]; most-recent value has highest weight.
+    pub fn exponential_weighted_mean(&self, alpha: f64) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() {
+            return None;
+        }
+        let alpha = alpha.clamp(1e-6, 1.0);
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.is_empty() {
+            return None;
+        }
+        let mut ewm = vals[0];
+        for &v in &vals[1..] {
+            ewm = alpha * v + (1.0 - alpha) * ewm;
+        }
+        Some(ewm)
+    }
+
+    /// Ratio of window maximum to window minimum; requires non-zero minimum.
+    pub fn peak_to_trough_ratio(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let max = self.window.iter().copied().reduce(|a, b| a.max(b))?;
+        let min = self.window.iter().copied().reduce(|a, b| a.min(b))?;
+        if min.is_zero() {
+            return None;
+        }
+        (max / min).to_f64()
+    }
+
+    /// Mean of squared values in the window (second raw moment).
+    pub fn second_moment(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() {
+            return None;
+        }
+        let sum: f64 = self.window.iter().filter_map(|v| v.to_f64()).map(|v| v * v).sum();
+        Some(sum / self.window.len() as f64)
+    }
+
+    /// Range / mean — coefficient of dispersion; `None` if mean is zero.
+    pub fn range_over_mean(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let max = self.window.iter().copied().reduce(|a, b| a.max(b))?;
+        let min = self.window.iter().copied().reduce(|a, b| a.min(b))?;
+        let mean = self.mean()?;
+        if mean.is_zero() {
+            return None;
+        }
+        ((max - min) / mean).to_f64()
+    }
+
+    /// Fraction of window values strictly above the window median.
+    pub fn above_median_fraction(&self) -> Option<f64> {
+        if self.window.is_empty() {
+            return None;
+        }
+        let mut sorted: Vec<Decimal> = self.window.iter().copied().collect();
+        sorted.sort();
+        let mid = sorted.len() / 2;
+        let median = if sorted.len() % 2 == 0 {
+            (sorted[mid - 1] + sorted[mid]) / Decimal::from(2)
+        } else {
+            sorted[mid]
+        };
+        let count = self.window.iter().filter(|&&v| v > median).count();
+        Some(count as f64 / self.window.len() as f64)
     }
 
 }
@@ -6767,5 +6919,35 @@ mod zscore_stability_tests {
         let mut n = znorm(4);
         n.update(dec!(10));
         assert!(n.mean_ratio().is_none());
+    }
+
+    // ── round-84 tests ─────────────────────────────────────────────────────
+
+    #[test]
+    fn test_zscore_exponential_weighted_mean_none_for_empty() {
+        let n = znorm(4);
+        assert!(n.exponential_weighted_mean(0.5).is_none());
+    }
+
+    #[test]
+    fn test_zscore_exponential_weighted_mean_returns_value() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let ewm = n.exponential_weighted_mean(0.5).unwrap();
+        assert!(ewm > 0.0, "EWM should be positive, got {}", ewm);
+    }
+
+    #[test]
+    fn test_zscore_peak_to_trough_none_for_empty() {
+        let n = znorm(4);
+        assert!(n.peak_to_trough_ratio().is_none());
+    }
+
+    #[test]
+    fn test_zscore_peak_to_trough_correct() {
+        let mut n = znorm(4);
+        for v in [dec!(2), dec!(4), dec!(1), dec!(8)] { n.update(v); }
+        let r = n.peak_to_trough_ratio().unwrap();
+        assert!((r - 8.0).abs() < 1e-9, "max=8, min=1 → ratio=8, got {}", r);
     }
 }

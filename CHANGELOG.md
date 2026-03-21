@@ -9,6 +9,30 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.3.6] - 2026-03-21
+
+### Added
+
+**`tick` module — `NormalizedTick` analytics (round 84)**
+- `NormalizedTick::sell_notional_fraction(ticks)` — fraction of total notional that is sell-side; complement of `buy_notional_fraction`.
+- `NormalizedTick::max_price_gap(ticks)` — maximum absolute price jump between consecutive ticks.
+- `NormalizedTick::price_range_velocity(ticks)` — `(high − low) / time_span_ms`; rate of price range expansion.
+- `NormalizedTick::tick_count_per_ms(ticks)` — ticks per millisecond over the slice time span.
+
+**`ohlcv` module — `OhlcvBar` analytics (round 84)**
+- `OhlcvBar::avg_lower_shadow_ratio(bars)` — mean of `lower_shadow / range` per bar; excludes doji bars.
+- `OhlcvBar::close_to_open_range_ratio(bars)` — mean of `(close − open) / range` per bar; signed body position.
+- `OhlcvBar::max_high(bars)` — maximum high price across all bars.
+- `OhlcvBar::min_low(bars)` — minimum low price across all bars.
+- `OhlcvBar::avg_bar_efficiency(bars)` — mean `|close − open| / range` across non-doji bars.
+- `OhlcvBar::open_range_fraction(bars)` — fraction of bars where `open` is in the upper half of `[low, high]`.
+
+**`norm` module — `MinMaxNormalizer` and `ZScoreNormalizer` analytics (round 84)**
+- `exponential_weighted_mean(alpha) -> Option<f64>` — EWM with decay `alpha`; most-recent value has highest weight.
+- `peak_to_trough_ratio() -> Option<f64>` — ratio of window maximum to minimum; requires non-zero minimum.
+
+---
+
 ## [2.3.5] - 2026-03-20
 
 ### Added

@@ -3039,6 +3039,156 @@ impl OhlcvBar {
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
+    // ── round-84 ─────────────────────────────────────────────────────────────
+
+    /// Mean of `lower_shadow / range` per bar; excludes doji bars.
+    pub fn avg_lower_shadow_ratio(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let r = b.range();
+                if r.is_zero() { return None; }
+                (b.lower_shadow() / r).to_f64()
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
+        Some(vals.iter().sum::<f64>() / vals.len() as f64)
+    }
+
+    /// Mean of `(close - open) / (high - low)` per bar with non-zero range; signed body position.
+    pub fn close_to_open_range_ratio(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let r = b.range();
+                if r.is_zero() { return None; }
+                ((b.close - b.open) / r).to_f64()
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
+        Some(vals.iter().sum::<f64>() / vals.len() as f64)
+    }
+
+    /// Maximum high price across all bars.
+    pub fn max_high(bars: &[OhlcvBar]) -> Option<Decimal> {
+        bars.iter().map(|b| b.high).max()
+    }
+
+    /// Minimum low price across all bars.
+    pub fn min_low(bars: &[OhlcvBar]) -> Option<Decimal> {
+        bars.iter().map(|b| b.low).min()
+    }
+
+    /// Mean `|close − open| / range` across non-doji bars; how much of the range became directional body.
+    pub fn avg_bar_efficiency(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let r = b.range();
+                if r.is_zero() { return None; }
+                ((b.close - b.open).abs() / r).to_f64()
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
+        Some(vals.iter().sum::<f64>() / vals.len() as f64)
+    }
+
+    /// Fraction of bars where `open` lies in the upper half of `[low, high]`.
+    pub fn open_range_fraction(bars: &[OhlcvBar]) -> Option<f64> {
+        if bars.is_empty() {
+            return None;
+        }
+        let count = bars
+            .iter()
+            .filter(|b| {
+                let mid = (b.high + b.low) / Decimal::from(2);
+                b.open >= mid
+            })
+            .count();
+        Some(count as f64 / bars.len() as f64)
+    }
+
+    /// Skewness of close prices across bars.
+    pub fn close_skewness(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.len() < 3 {
+            return None;
+        }
+        let vals: Vec<f64> = bars.iter().filter_map(|b| b.close.to_f64()).collect();
+        let n = vals.len() as f64;
+        let mean = vals.iter().sum::<f64>() / n;
+        let var = vals.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / n;
+        let std = var.sqrt();
+        if std < 1e-12 {
+            return None;
+        }
+        let skew = vals.iter().map(|v| ((v - mean) / std).powi(3)).sum::<f64>() / n;
+        Some(skew)
+    }
+
+    /// Fraction of bars whose volume exceeds the median bar volume.
+    pub fn volume_above_median_fraction(bars: &[OhlcvBar]) -> Option<f64> {
+        if bars.is_empty() {
+            return None;
+        }
+        let mut vols: Vec<Decimal> = bars.iter().map(|b| b.volume).collect();
+        vols.sort();
+        let mid = vols.len() / 2;
+        let median = if vols.len() % 2 == 0 {
+            (vols[mid - 1] + vols[mid]) / Decimal::from(2)
+        } else {
+            vols[mid]
+        };
+        let count = bars.iter().filter(|b| b.volume > median).count();
+        Some(count as f64 / bars.len() as f64)
+    }
+
+    /// Sum of typical prices `(high + low + close) / 3` across bars.
+    pub fn typical_price_sum(bars: &[OhlcvBar]) -> Decimal {
+        bars.iter()
+            .map(|b| (b.high + b.low + b.close) / Decimal::from(3))
+            .sum()
+    }
+
+    /// Maximum bar body size `|close - open|` across all bars.
+    pub fn max_body_size(bars: &[OhlcvBar]) -> Option<Decimal> {
+        bars.iter().map(|b| (b.close - b.open).abs()).max()
+    }
+
+    /// Minimum bar body size `|close - open|` across all bars.
+    pub fn min_body_size(bars: &[OhlcvBar]) -> Option<Decimal> {
+        bars.iter().map(|b| (b.close - b.open).abs()).min()
+    }
+
+    /// Mean ratio of lower wick to full bar range; zero-range bars are excluded.
+    pub fn avg_lower_wick_to_range(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let range = b.high - b.low;
+                if range.is_zero() {
+                    return None;
+                }
+                let lower_wick = b.open.min(b.close) - b.low;
+                (lower_wick / range).to_f64()
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
+        Some(vals.iter().sum::<f64>() / vals.len() as f64)
+    }
+
 }
 
 impl std::fmt::Display for OhlcvBar {
@@ -8223,5 +8373,74 @@ mod tests {
     fn test_avg_upper_shadow_ratio_none_for_doji_only() {
         let b = make_ohlcv_bar(dec!(100), dec!(100), dec!(100), dec!(100));
         assert!(OhlcvBar::avg_upper_shadow_ratio(&[b]).is_none());
+    }
+
+    // ── round-84 tests ────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_avg_lower_shadow_ratio_none_for_empty() {
+        assert!(OhlcvBar::avg_lower_shadow_ratio(&[]).is_none());
+    }
+
+    #[test]
+    fn test_avg_lower_shadow_ratio_in_range() {
+        let b = make_ohlcv_bar(dec!(100), dec!(115), dec!(85), dec!(105));
+        let r = OhlcvBar::avg_lower_shadow_ratio(&[b]).unwrap();
+        assert!(r >= 0.0 && r <= 1.0, "lower shadow ratio in [0,1], got {}", r);
+    }
+
+    #[test]
+    fn test_close_to_open_range_ratio_none_for_doji_only() {
+        let b = make_ohlcv_bar(dec!(100), dec!(100), dec!(100), dec!(100));
+        assert!(OhlcvBar::close_to_open_range_ratio(&[b]).is_none());
+    }
+
+    #[test]
+    fn test_max_high_none_for_empty() {
+        assert!(OhlcvBar::max_high(&[]).is_none());
+    }
+
+    #[test]
+    fn test_max_high_returns_maximum() {
+        let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let b2 = make_ohlcv_bar(dec!(100), dec!(120), dec!(90), dec!(110));
+        assert_eq!(OhlcvBar::max_high(&[b1, b2]).unwrap(), dec!(120));
+    }
+
+    #[test]
+    fn test_min_low_none_for_empty() {
+        assert!(OhlcvBar::min_low(&[]).is_none());
+    }
+
+    #[test]
+    fn test_min_low_returns_minimum() {
+        let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(85), dec!(105));
+        let b2 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        assert_eq!(OhlcvBar::min_low(&[b1, b2]).unwrap(), dec!(85));
+    }
+
+    #[test]
+    fn test_avg_bar_efficiency_none_for_doji_only() {
+        let b = make_ohlcv_bar(dec!(100), dec!(100), dec!(100), dec!(100));
+        assert!(OhlcvBar::avg_bar_efficiency(&[b]).is_none());
+    }
+
+    #[test]
+    fn test_avg_bar_efficiency_one_for_full_body_bar() {
+        let b = make_ohlcv_bar(dec!(90), dec!(110), dec!(90), dec!(110));
+        let e = OhlcvBar::avg_bar_efficiency(&[b]).unwrap();
+        assert!((e - 1.0).abs() < 1e-9, "full body → efficiency=1, got {}", e);
+    }
+
+    #[test]
+    fn test_open_range_fraction_none_for_empty() {
+        assert!(OhlcvBar::open_range_fraction(&[]).is_none());
+    }
+
+    #[test]
+    fn test_open_range_fraction_in_range() {
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let f = OhlcvBar::open_range_fraction(&[b]).unwrap();
+        assert!(f >= 0.0 && f <= 1.0, "fraction in [0,1], got {}", f);
     }
 }

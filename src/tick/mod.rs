@@ -2720,6 +2720,156 @@ impl NormalizedTick {
         (hi - lo).to_f64()
     }
 
+    // ── round-84 ─────────────────────────────────────────────────────────────
+
+    /// Fraction of total notional that is sell-side; complement of `buy_notional_fraction`.
+    pub fn sell_notional_fraction(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() {
+            return None;
+        }
+        let total: Decimal = ticks.iter().map(|t| t.price * t.quantity).sum();
+        if total.is_zero() {
+            return Some(0.0);
+        }
+        let sell_notional: Decimal = ticks
+            .iter()
+            .filter(|t| t.side == Some(crate::tick::TradeSide::Sell))
+            .map(|t| t.price * t.quantity)
+            .sum();
+        sell_notional.to_f64().zip(total.to_f64()).map(|(s, t)| s / t)
+    }
+
+    /// Maximum absolute price jump between consecutive ticks.
+    pub fn max_price_gap(ticks: &[NormalizedTick]) -> Option<Decimal> {
+        if ticks.len() < 2 {
+            return None;
+        }
+        ticks.windows(2).map(|w| (w[1].price - w[0].price).abs()).max()
+    }
+
+    /// Rate of price range expansion: `(high - low) / time_span_ms`; requires ≥ 2 ticks with different timestamps.
+    pub fn price_range_velocity(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 2 {
+            return None;
+        }
+        let time_span = ticks.last()?.received_at_ms.saturating_sub(ticks.first()?.received_at_ms);
+        if time_span == 0 {
+            return None;
+        }
+        let hi = ticks.iter().map(|t| t.price).max()?;
+        let lo = ticks.iter().map(|t| t.price).min()?;
+        let range = (hi - lo).to_f64()?;
+        Some(range / time_span as f64)
+    }
+
+    /// Number of ticks per millisecond of the slice's time span.
+    pub fn tick_count_per_ms(ticks: &[NormalizedTick]) -> Option<f64> {
+        if ticks.len() < 2 {
+            return None;
+        }
+        let span = ticks.last()?.received_at_ms.saturating_sub(ticks.first()?.received_at_ms);
+        if span == 0 {
+            return None;
+        }
+        Some(ticks.len() as f64 / span as f64)
+    }
+
+    /// Fraction of total quantity attributable to buy-side trades.
+    pub fn buy_quantity_fraction(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() {
+            return None;
+        }
+        let total: Decimal = ticks.iter().map(|t| t.quantity).sum();
+        if total.is_zero() {
+            return Some(0.0);
+        }
+        let buy_qty: Decimal = ticks
+            .iter()
+            .filter(|t| t.side == Some(crate::tick::TradeSide::Buy))
+            .map(|t| t.quantity)
+            .sum();
+        buy_qty.to_f64().zip(total.to_f64()).map(|(b, tot)| b / tot)
+    }
+
+    /// Fraction of total quantity attributable to sell-side trades.
+    pub fn sell_quantity_fraction(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() {
+            return None;
+        }
+        let total: Decimal = ticks.iter().map(|t| t.quantity).sum();
+        if total.is_zero() {
+            return Some(0.0);
+        }
+        let sell_qty: Decimal = ticks
+            .iter()
+            .filter(|t| t.side == Some(crate::tick::TradeSide::Sell))
+            .map(|t| t.quantity)
+            .sum();
+        sell_qty.to_f64().zip(total.to_f64()).map(|(s, tot)| s / tot)
+    }
+
+    /// Number of times the price crosses through (or touches) its own window mean.
+    pub fn price_mean_crossover_count(ticks: &[NormalizedTick]) -> Option<usize> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 2 {
+            return None;
+        }
+        let sum: Decimal = ticks.iter().map(|t| t.price).sum();
+        let mean = sum / Decimal::from(ticks.len() as i64);
+        let crossovers = ticks
+            .windows(2)
+            .filter(|w| {
+                let prev = w[0].price - mean;
+                let curr = w[1].price - mean;
+                prev.is_sign_negative() != curr.is_sign_negative()
+            })
+            .count();
+        let _ = mean.to_f64(); // ensure mean is convertible (always true for Decimal)
+        Some(crossovers)
+    }
+
+    /// Skewness of per-tick notional values (`price × quantity`).
+    pub fn notional_skewness(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 3 {
+            return None;
+        }
+        let vals: Vec<f64> = ticks
+            .iter()
+            .filter_map(|t| (t.price * t.quantity).to_f64())
+            .collect();
+        let n = vals.len() as f64;
+        if n < 3.0 {
+            return None;
+        }
+        let mean = vals.iter().sum::<f64>() / n;
+        let var = vals.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / n;
+        let std = var.sqrt();
+        if std < 1e-12 {
+            return None;
+        }
+        let skew = vals.iter().map(|v| ((v - mean) / std).powi(3)).sum::<f64>() / n;
+        Some(skew)
+    }
+
+    /// Volume-weighted midpoint of the price range: `sum(price * quantity) / sum(quantity)`.
+    /// Equivalent to VWAP but emphasises price centrality.
+    pub fn volume_weighted_mid_price(ticks: &[NormalizedTick]) -> Option<Decimal> {
+        if ticks.is_empty() {
+            return None;
+        }
+        let total_qty: Decimal = ticks.iter().map(|t| t.quantity).sum();
+        if total_qty.is_zero() {
+            return None;
+        }
+        let pv: Decimal = ticks.iter().map(|t| t.price * t.quantity).sum();
+        Some(pv / total_qty)
+    }
+
 }
 
 
@@ -7098,5 +7248,120 @@ mod tests {
         let t = make_tick_pq(dec!(100), dec!(2));
         let r = NormalizedTick::qty_weighted_range(&[t]).unwrap();
         assert!(r.abs() < 1e-9, "single tick → range=0, got {}", r);
+    }
+
+    // ── round-84 tests ────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_sell_notional_fraction_none_for_empty() {
+        assert!(NormalizedTick::sell_notional_fraction(&[]).is_none());
+    }
+
+    #[test]
+    fn test_sell_notional_fraction_zero_for_all_buys() {
+        use rust_decimal_macros::dec;
+        let mut t1 = make_tick_pq(dec!(100), dec!(3));
+        t1.side = Some(crate::tick::TradeSide::Buy);
+        let r = NormalizedTick::sell_notional_fraction(&[t1]).unwrap();
+        assert!(r.abs() < 1e-9, "all buys → sell fraction=0, got {}", r);
+    }
+
+    #[test]
+    fn test_max_price_gap_none_for_single_tick() {
+        use rust_decimal_macros::dec;
+        let t = make_tick_pq(dec!(100), dec!(1));
+        assert!(NormalizedTick::max_price_gap(&[t]).is_none());
+    }
+
+    #[test]
+    fn test_max_price_gap_correct_value() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(105), dec!(1)),
+            make_tick_pq(dec!(103), dec!(1)),
+        ];
+        assert_eq!(NormalizedTick::max_price_gap(&ticks).unwrap(), dec!(5));
+    }
+
+    #[test]
+    fn test_price_range_velocity_none_for_single_tick() {
+        use rust_decimal_macros::dec;
+        let t = make_tick_pq(dec!(100), dec!(1));
+        assert!(NormalizedTick::price_range_velocity(&[t]).is_none());
+    }
+
+    #[test]
+    fn test_tick_count_per_ms_none_for_single_tick() {
+        use rust_decimal_macros::dec;
+        let t = make_tick_pq(dec!(100), dec!(1));
+        assert!(NormalizedTick::tick_count_per_ms(&[t]).is_none());
+    }
+
+    #[test]
+    fn test_buy_quantity_fraction_none_for_empty() {
+        assert!(NormalizedTick::buy_quantity_fraction(&[]).is_none());
+    }
+
+    #[test]
+    fn test_buy_quantity_fraction_one_for_all_buys() {
+        use rust_decimal_macros::dec;
+        let mut t = make_tick_pq(dec!(100), dec!(5));
+        t.side = Some(crate::tick::TradeSide::Buy);
+        let f = NormalizedTick::buy_quantity_fraction(&[t]).unwrap();
+        assert!((f - 1.0).abs() < 1e-9, "all buys → buy fraction=1, got {}", f);
+    }
+
+    #[test]
+    fn test_sell_quantity_fraction_none_for_empty() {
+        assert!(NormalizedTick::sell_quantity_fraction(&[]).is_none());
+    }
+
+    #[test]
+    fn test_sell_quantity_fraction_one_for_all_sells() {
+        use rust_decimal_macros::dec;
+        let mut t = make_tick_pq(dec!(100), dec!(5));
+        t.side = Some(crate::tick::TradeSide::Sell);
+        let f = NormalizedTick::sell_quantity_fraction(&[t]).unwrap();
+        assert!((f - 1.0).abs() < 1e-9, "all sells → sell fraction=1, got {}", f);
+    }
+
+    #[test]
+    fn test_price_mean_crossover_count_none_for_single_tick() {
+        use rust_decimal_macros::dec;
+        let t = make_tick_pq(dec!(100), dec!(1));
+        assert!(NormalizedTick::price_mean_crossover_count(&[t]).is_none());
+    }
+
+    #[test]
+    fn test_price_mean_crossover_count_in_range() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(90), dec!(1)),
+            make_tick_pq(dec!(110), dec!(1)),
+            make_tick_pq(dec!(90), dec!(1)),
+        ];
+        let c = NormalizedTick::price_mean_crossover_count(&ticks).unwrap();
+        assert!(c >= 1, "expect at least 1 crossover, got {}", c);
+    }
+
+    #[test]
+    fn test_notional_skewness_none_for_two_ticks() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![make_tick_pq(dec!(100), dec!(1)), make_tick_pq(dec!(101), dec!(1))];
+        assert!(NormalizedTick::notional_skewness(&ticks).is_none());
+    }
+
+    #[test]
+    fn test_volume_weighted_mid_price_none_for_empty() {
+        assert!(NormalizedTick::volume_weighted_mid_price(&[]).is_none());
+    }
+
+    #[test]
+    fn test_volume_weighted_mid_price_equals_price_for_single_tick() {
+        use rust_decimal_macros::dec;
+        let t = make_tick_pq(dec!(123), dec!(5));
+        let mid = NormalizedTick::volume_weighted_mid_price(&[t]).unwrap();
+        assert_eq!(mid, dec!(123));
     }
 }
