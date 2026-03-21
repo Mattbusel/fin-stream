@@ -3926,6 +3926,50 @@ mod tests {
         let r = n.max_to_min_ratio().unwrap();
         assert!((r - 1.0).abs() < 1e-9, "constant window → ratio=1, got {}", r);
     }
+
+    // ── round-90 tests ────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_minmax_above_midpoint_fraction_none_for_empty() {
+        assert!(norm(4).above_midpoint_fraction().is_none());
+    }
+
+    #[test]
+    fn test_minmax_above_midpoint_fraction_half_for_symmetric() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        // midpoint = (1+4)/2 = 2.5; values above: 3 and 4 → 2/4 = 0.5
+        let f = n.above_midpoint_fraction().unwrap();
+        assert!((f - 0.5).abs() < 1e-9, "expected 0.5, got {}", f);
+    }
+
+    #[test]
+    fn test_minmax_span_utilization_none_for_empty() {
+        assert!(norm(4).span_utilization().is_none());
+    }
+
+    #[test]
+    fn test_minmax_span_utilization_one_for_latest_at_max() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(5), dec!(3), dec!(10)] { n.update(v); }
+        // range [1,10], latest=10 → utilization = 1.0
+        let u = n.span_utilization().unwrap();
+        assert!((u - 1.0).abs() < 1e-9, "latest=max → 1.0, got {}", u);
+    }
+
+    #[test]
+    fn test_minmax_positive_fraction_none_for_empty() {
+        assert!(norm(4).positive_fraction().is_none());
+    }
+
+    #[test]
+    fn test_minmax_positive_fraction_half() {
+        let mut n = norm(4);
+        for v in [dec!(-1), dec!(0), dec!(1), dec!(2)] { n.update(v); }
+        // strictly > 0: 1 and 2 → 2/4 = 0.5
+        let f = n.positive_fraction().unwrap();
+        assert!((f - 0.5).abs() < 1e-9, "expected 0.5, got {}", f);
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -7955,5 +7999,48 @@ mod zscore_stability_tests {
         for _ in 0..4 { n.update(dec!(5)); }
         let r = n.max_to_min_ratio().unwrap();
         assert!((r - 1.0).abs() < 1e-9, "constant window → ratio=1, got {}", r);
+    }
+
+    // ── round-90 tests ────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_zscore_above_midpoint_fraction_none_for_empty() {
+        assert!(znorm(4).above_midpoint_fraction().is_none());
+    }
+
+    #[test]
+    fn test_zscore_above_midpoint_fraction_half_for_symmetric() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        // midpoint = (1+4)/2 = 2.5; values above: 3 and 4 → 2/4 = 0.5
+        let f = n.above_midpoint_fraction().unwrap();
+        assert!((f - 0.5).abs() < 1e-9, "expected 0.5, got {}", f);
+    }
+
+    #[test]
+    fn test_zscore_positive_fraction_none_for_empty() {
+        assert!(znorm(4).positive_fraction().is_none());
+    }
+
+    #[test]
+    fn test_zscore_positive_fraction_zero_for_all_nonpositive() {
+        let mut n = znorm(3);
+        for v in [dec!(-3), dec!(-1), dec!(0)] { n.update(v); }
+        let f = n.positive_fraction().unwrap();
+        assert!((f - 0.0).abs() < 1e-9, "no positives → 0.0, got {}", f);
+    }
+
+    #[test]
+    fn test_zscore_above_mean_fraction_none_for_empty() {
+        assert!(znorm(4).above_mean_fraction().is_none());
+    }
+
+    #[test]
+    fn test_zscore_above_mean_fraction_half_for_symmetric() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        // mean = 2.5; values above: 3 and 4 → 0.5
+        let f = n.above_mean_fraction().unwrap();
+        assert!((f - 0.5).abs() < 1e-9, "expected 0.5, got {}", f);
     }
 }
