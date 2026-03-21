@@ -9266,4 +9266,56 @@ mod tests {
         let r = OhlcvBar::up_down_bar_ratio(&[up_bar, dn_bar]).unwrap();
         assert!((r - 1.0).abs() < 1e-9, "1 up / 1 down → 1.0, got {}", r);
     }
+
+    // ── round-90 tests ────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_close_range_fraction_none_for_empty() {
+        assert!(OhlcvBar::close_range_fraction(&[]).is_none());
+    }
+
+    #[test]
+    fn test_close_range_fraction_one_for_close_at_high() {
+        // close == high → (close-low)/(high-low) = 1.0 > 0.5 → fraction = 1.0
+        let b = make_ohlcv_bar(dec!(90), dec!(110), dec!(90), dec!(110));
+        let f = OhlcvBar::close_range_fraction(&[b]).unwrap();
+        assert!((f - 1.0).abs() < 1e-9, "close=high → 1.0, got {}", f);
+    }
+
+    #[test]
+    fn test_close_range_fraction_zero_for_close_at_low() {
+        // close == low → (close-low)/(high-low) = 0.0 < 0.5 → fraction = 0.0
+        let b = make_ohlcv_bar(dec!(110), dec!(120), dec!(90), dec!(90));
+        let f = OhlcvBar::close_range_fraction(&[b]).unwrap();
+        assert!((f - 0.0).abs() < 1e-9, "close=low → 0.0, got {}", f);
+    }
+
+    #[test]
+    fn test_tail_symmetry_none_for_empty() {
+        assert!(OhlcvBar::tail_symmetry(&[]).is_none());
+    }
+
+    #[test]
+    fn test_tail_symmetry_one_for_symmetric_bar() {
+        // open and close at midpoint → equal upper/lower shadows
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100)); // open=close=100, high=110, low=90
+        let s = OhlcvBar::tail_symmetry(&[b]).unwrap();
+        assert!((s - 1.0).abs() < 1e-9, "symmetric bar → 1.0, got {}", s);
+    }
+
+    #[test]
+    fn test_bar_trend_strength_none_for_single_bar() {
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        assert!(OhlcvBar::bar_trend_strength(&[b]).is_none());
+    }
+
+    #[test]
+    fn test_bar_trend_strength_one_for_monotone_up() {
+        let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100));
+        let b2 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let b3 = make_ohlcv_bar(dec!(105), dec!(115), dec!(95), dec!(110));
+        // all closes increasing: 100 → 105 → 110
+        let s = OhlcvBar::bar_trend_strength(&[b1, b2, b3]).unwrap();
+        assert!((s - 1.0).abs() < 1e-9, "monotone up → 1.0, got {}", s);
+    }
 }
