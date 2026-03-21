@@ -6983,4 +6983,120 @@ mod tests {
         let s = NormalizedTick::notional_std(&[t1, t2]).unwrap();
         assert!(s.abs() < 1e-9, "identical notionals → std=0, got {}", s);
     }
+
+    // ── round-83 tests ────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_buy_price_mean_none_when_no_buys() {
+        use rust_decimal_macros::dec;
+        let t = make_tick_pq(dec!(100), dec!(1)); // side=None
+        assert!(NormalizedTick::buy_price_mean(&[t]).is_none());
+    }
+
+    #[test]
+    fn test_buy_price_mean_correct_value() {
+        use rust_decimal_macros::dec;
+        let mut t1 = make_tick_pq(dec!(100), dec!(1));
+        t1.side = Some(crate::tick::TradeSide::Buy);
+        let mut t2 = make_tick_pq(dec!(102), dec!(1));
+        t2.side = Some(crate::tick::TradeSide::Buy);
+        let mean = NormalizedTick::buy_price_mean(&[t1, t2]).unwrap();
+        assert_eq!(mean, dec!(101));
+    }
+
+    #[test]
+    fn test_sell_price_mean_none_when_no_sells() {
+        use rust_decimal_macros::dec;
+        let t = make_tick_pq(dec!(100), dec!(1));
+        assert!(NormalizedTick::sell_price_mean(&[t]).is_none());
+    }
+
+    #[test]
+    fn test_price_efficiency_none_for_single_tick() {
+        use rust_decimal_macros::dec;
+        let t = make_tick_pq(dec!(100), dec!(1));
+        assert!(NormalizedTick::price_efficiency(&[t]).is_none());
+    }
+
+    #[test]
+    fn test_price_efficiency_one_for_directional() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(102), dec!(1)),
+            make_tick_pq(dec!(104), dec!(1)),
+        ];
+        let e = NormalizedTick::price_efficiency(&ticks).unwrap();
+        assert!((e - 1.0).abs() < 1e-9, "monotone rising → efficiency=1, got {}", e);
+    }
+
+    #[test]
+    fn test_price_return_skewness_none_for_few_ticks() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(101), dec!(1)),
+            make_tick_pq(dec!(102), dec!(1)),
+        ];
+        assert!(NormalizedTick::price_return_skewness(&ticks).is_none());
+    }
+
+    #[test]
+    fn test_buy_sell_vwap_spread_none_when_no_sides() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(101), dec!(1)),
+        ];
+        assert!(NormalizedTick::buy_sell_vwap_spread(&ticks).is_none());
+    }
+
+    #[test]
+    fn test_above_mean_quantity_fraction_none_for_empty() {
+        assert!(NormalizedTick::above_mean_quantity_fraction(&[]).is_none());
+    }
+
+    #[test]
+    fn test_above_mean_quantity_fraction_in_range() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(100), dec!(5)),
+            make_tick_pq(dec!(100), dec!(3)),
+        ];
+        let f = NormalizedTick::above_mean_quantity_fraction(&ticks).unwrap();
+        assert!(f >= 0.0 && f <= 1.0, "fraction in [0,1], got {}", f);
+    }
+
+    #[test]
+    fn test_price_unchanged_fraction_none_for_single_tick() {
+        use rust_decimal_macros::dec;
+        let t = make_tick_pq(dec!(100), dec!(1));
+        assert!(NormalizedTick::price_unchanged_fraction(&[t]).is_none());
+    }
+
+    #[test]
+    fn test_price_unchanged_fraction_zero_for_all_changing() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(101), dec!(1)),
+            make_tick_pq(dec!(102), dec!(1)),
+        ];
+        let f = NormalizedTick::price_unchanged_fraction(&ticks).unwrap();
+        assert!(f.abs() < 1e-9, "all prices different → unchanged=0, got {}", f);
+    }
+
+    #[test]
+    fn test_qty_weighted_range_none_for_empty() {
+        assert!(NormalizedTick::qty_weighted_range(&[]).is_none());
+    }
+
+    #[test]
+    fn test_qty_weighted_range_zero_for_single_tick() {
+        use rust_decimal_macros::dec;
+        let t = make_tick_pq(dec!(100), dec!(2));
+        let r = NormalizedTick::qty_weighted_range(&[t]).unwrap();
+        assert!(r.abs() < 1e-9, "single tick → range=0, got {}", r);
+    }
 }

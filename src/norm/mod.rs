@@ -3289,6 +3289,56 @@ mod tests {
         let mac = n.mean_absolute_change().unwrap();
         assert!(mac > 0.0, "varying window → MAC > 0, got {}", mac);
     }
+
+    // ── round-83 tests ─────────────────────────────────────────────────────
+
+    #[test]
+    fn test_minmax_monotone_increase_fraction_none_for_single() {
+        let mut n = norm(4);
+        n.update(dec!(5));
+        assert!(n.monotone_increase_fraction().is_none());
+    }
+
+    #[test]
+    fn test_minmax_monotone_increase_fraction_one_for_rising() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let f = n.monotone_increase_fraction().unwrap();
+        assert!((f - 1.0).abs() < 1e-9, "all rising → fraction=1, got {}", f);
+    }
+
+    #[test]
+    fn test_minmax_abs_max_none_for_empty() {
+        let n = norm(4);
+        assert!(n.abs_max().is_none());
+    }
+
+    #[test]
+    fn test_minmax_abs_max_returns_max_absolute() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(3), dec!(2)] { n.update(v); }
+        assert_eq!(n.abs_max().unwrap(), dec!(3));
+    }
+
+    #[test]
+    fn test_minmax_max_count_none_for_empty() {
+        let n = norm(4);
+        assert!(n.max_count().is_none());
+    }
+
+    #[test]
+    fn test_minmax_max_count_correct() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(5), dec!(3), dec!(5)] { n.update(v); }
+        assert_eq!(n.max_count().unwrap(), 2);
+    }
+
+    #[test]
+    fn test_minmax_mean_ratio_none_for_single() {
+        let mut n = norm(4);
+        n.update(dec!(10));
+        assert!(n.mean_ratio().is_none());
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -4633,6 +4683,58 @@ impl ZScoreNormalizer {
         }
         let mac = vals.windows(2).map(|w| (w[1] - w[0]).abs()).sum::<f64>() / (vals.len() - 1) as f64;
         Some(mac)
+    }
+
+    // ── round-83 ─────────────────────────────────────────────────────────────
+
+    /// Fraction of consecutive pairs that are monotonically increasing.
+    pub fn monotone_increase_fraction(&self) -> Option<f64> {
+        let vals: Vec<Decimal> = self.window.iter().copied().collect();
+        let n = vals.len();
+        if n < 2 {
+            return None;
+        }
+        let inc = vals.windows(2).filter(|w| w[1] > w[0]).count();
+        Some(inc as f64 / (n - 1) as f64)
+    }
+
+    /// Maximum absolute value in the rolling window.
+    pub fn abs_max(&self) -> Option<Decimal> {
+        self.window.iter().map(|v| v.abs()).reduce(|a, b| a.max(b))
+    }
+
+    /// Minimum absolute value in the rolling window.
+    pub fn abs_min(&self) -> Option<Decimal> {
+        self.window.iter().map(|v| v.abs()).reduce(|a, b| a.min(b))
+    }
+
+    /// Count of values equal to the window maximum.
+    pub fn max_count(&self) -> Option<usize> {
+        let max = self.window.iter().copied().reduce(|a, b| a.max(b))?;
+        Some(self.window.iter().filter(|&&v| v == max).count())
+    }
+
+    /// Count of values equal to the window minimum.
+    pub fn min_count(&self) -> Option<usize> {
+        let min = self.window.iter().copied().reduce(|a, b| a.min(b))?;
+        Some(self.window.iter().filter(|&&v| v == min).count())
+    }
+
+    /// Ratio of current full-window mean to the mean of the first half.
+    pub fn mean_ratio(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let n = self.window.len();
+        if n < 2 {
+            return None;
+        }
+        let current_mean = self.mean()?;
+        let half = (n / 2).max(1);
+        let early_sum: Decimal = self.window.iter().take(half).copied().sum();
+        let early_mean = early_sum / Decimal::from(half as i64);
+        if early_mean.is_zero() {
+            return None;
+        }
+        (current_mean / early_mean).to_f64()
     }
 
 }
@@ -6615,5 +6717,55 @@ mod zscore_stability_tests {
         for v in [dec!(1), dec!(3), dec!(2), dec!(5)] { n.update(v); }
         let mac = n.mean_absolute_change().unwrap();
         assert!(mac > 0.0, "varying window → MAC > 0, got {}", mac);
+    }
+
+    // ── round-83 tests ─────────────────────────────────────────────────────
+
+    #[test]
+    fn test_zscore_monotone_increase_fraction_none_for_single() {
+        let mut n = znorm(4);
+        n.update(dec!(5));
+        assert!(n.monotone_increase_fraction().is_none());
+    }
+
+    #[test]
+    fn test_zscore_monotone_increase_fraction_one_for_rising() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let f = n.monotone_increase_fraction().unwrap();
+        assert!((f - 1.0).abs() < 1e-9, "all rising → fraction=1, got {}", f);
+    }
+
+    #[test]
+    fn test_zscore_abs_max_none_for_empty() {
+        let n = znorm(4);
+        assert!(n.abs_max().is_none());
+    }
+
+    #[test]
+    fn test_zscore_abs_max_returns_max_absolute() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(3), dec!(2)] { n.update(v); }
+        assert_eq!(n.abs_max().unwrap(), dec!(3));
+    }
+
+    #[test]
+    fn test_zscore_max_count_none_for_empty() {
+        let n = znorm(4);
+        assert!(n.max_count().is_none());
+    }
+
+    #[test]
+    fn test_zscore_max_count_correct() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(5), dec!(3), dec!(5)] { n.update(v); }
+        assert_eq!(n.max_count().unwrap(), 2);
+    }
+
+    #[test]
+    fn test_zscore_mean_ratio_none_for_single() {
+        let mut n = znorm(4);
+        n.update(dec!(10));
+        assert!(n.mean_ratio().is_none());
     }
 }

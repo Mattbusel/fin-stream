@@ -8131,4 +8131,97 @@ mod tests {
         let m = OhlcvBar::net_directional_move(&[b1, b2]).unwrap();
         assert!(m > 0.0, "rising bar sequence → positive move, got {}", m);
     }
+
+    // ── round-83 tests ────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_close_above_median_fraction_none_for_empty() {
+        assert!(OhlcvBar::close_above_median_fraction(&[]).is_none());
+    }
+
+    #[test]
+    fn test_close_above_median_fraction_half_for_symmetric() {
+        let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(95));
+        let b2 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let b3 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(95));
+        let b4 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(108));
+        let f = OhlcvBar::close_above_median_fraction(&[b1, b2, b3, b4]).unwrap();
+        assert!(f >= 0.0 && f <= 1.0, "fraction in [0,1], got {}", f);
+    }
+
+    #[test]
+    fn test_avg_range_to_open_none_for_empty() {
+        assert!(OhlcvBar::avg_range_to_open(&[]).is_none());
+    }
+
+    #[test]
+    fn test_close_sum_zero_for_empty() {
+        assert_eq!(OhlcvBar::close_sum(&[]), dec!(0));
+    }
+
+    #[test]
+    fn test_close_sum_sums_all_closes() {
+        let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let b2 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(107));
+        assert_eq!(OhlcvBar::close_sum(&[b1, b2]), dec!(212));
+    }
+
+    #[test]
+    fn test_above_avg_volume_count_zero_for_empty() {
+        assert_eq!(OhlcvBar::above_avg_volume_count(&[]), 0);
+    }
+
+    #[test]
+    fn test_median_close_none_for_empty() {
+        assert!(OhlcvBar::median_close(&[]).is_none());
+    }
+
+    #[test]
+    fn test_median_close_correct_for_sorted() {
+        let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100));
+        let b2 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let b3 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(110));
+        let m = OhlcvBar::median_close(&[b1, b2, b3]).unwrap();
+        assert_eq!(m, dec!(105));
+    }
+
+    #[test]
+    fn test_flat_bar_fraction_none_for_empty() {
+        assert!(OhlcvBar::flat_bar_fraction(&[]).is_none());
+    }
+
+    #[test]
+    fn test_avg_body_to_range_none_for_empty() {
+        assert!(OhlcvBar::avg_body_to_range(&[]).is_none());
+    }
+
+    #[test]
+    fn test_avg_body_to_range_in_range() {
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let r = OhlcvBar::avg_body_to_range(&[b]).unwrap();
+        assert!(r >= 0.0 && r <= 1.0, "body-to-range in [0,1], got {}", r);
+    }
+
+    #[test]
+    fn test_max_open_gap_none_for_single_bar() {
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        assert!(OhlcvBar::max_open_gap(&[b]).is_none());
+    }
+
+    #[test]
+    fn test_volume_trend_slope_none_for_single_bar() {
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        assert!(OhlcvBar::volume_trend_slope(&[b]).is_none());
+    }
+
+    #[test]
+    fn test_up_close_fraction_none_for_empty() {
+        assert!(OhlcvBar::up_close_fraction(&[]).is_none());
+    }
+
+    #[test]
+    fn test_avg_upper_shadow_ratio_none_for_doji_only() {
+        let b = make_ohlcv_bar(dec!(100), dec!(100), dec!(100), dec!(100));
+        assert!(OhlcvBar::avg_upper_shadow_ratio(&[b]).is_none());
+    }
 }
