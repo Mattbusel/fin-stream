@@ -2193,6 +2193,125 @@ impl NormalizedTick {
             .sum()
     }
 
+    // ── round-81 ─────────────────────────────────────────────────────────────
+
+    /// Cumulative volume as a `Vec` of running totals, one entry per tick.
+    ///
+    /// The first entry equals `ticks[0].quantity`; the last equals the total
+    /// volume. Returns an empty `Vec` for an empty slice.
+    pub fn cumulative_volume(ticks: &[NormalizedTick]) -> Vec<Decimal> {
+        let mut acc = Decimal::ZERO;
+        ticks
+            .iter()
+            .map(|t| {
+                acc += t.quantity;
+                acc
+            })
+            .collect()
+    }
+
+    /// Ratio of price range to mean price: `(max − min) / mean`.
+    ///
+    /// A dimensionless measure of relative price dispersion across the slice.
+    /// Returns `None` for an empty slice or if the mean is zero.
+    pub fn price_volatility_ratio(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let range = Self::price_range(ticks)?;
+        let mean = Self::average_price(ticks)?;
+        if mean.is_zero() {
+            return None;
+        }
+        (range / mean).to_f64()
+    }
+
+    /// Mean notional value per tick: `total_notional / tick_count`.
+    ///
+    /// Alias for [`average_notional`](Self::average_notional) expressed as
+    /// `f64` for ML feature pipelines.
+    ///
+    /// Returns `None` for an empty slice.
+    pub fn notional_per_tick(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        Self::average_notional(ticks)?.to_f64()
+    }
+
+    /// Fraction of total volume (buy + sell + neutral) that is buy-initiated.
+    ///
+    /// Returns `None` for an empty slice or when total volume is zero.
+    pub fn buy_to_total_volume_ratio(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() {
+            return None;
+        }
+        let total: Decimal = ticks.iter().map(|t| t.quantity).sum();
+        if total.is_zero() {
+            return None;
+        }
+        (Self::buy_volume(ticks) / total).to_f64()
+    }
+
+    /// Mean transport latency (ms) for ticks that carry an exchange timestamp.
+    ///
+    /// Averages `received_at_ms − exchange_ts_ms` over ticks where
+    /// `exchange_ts_ms` is `Some`. Returns `None` if no such ticks exist.
+    pub fn avg_latency_ms(ticks: &[NormalizedTick]) -> Option<f64> {
+        let latencies: Vec<i64> = ticks.iter().filter_map(|t| t.latency_ms()).collect();
+        if latencies.is_empty() {
+            return None;
+        }
+        Some(latencies.iter().sum::<i64>() as f64 / latencies.len() as f64)
+    }
+
+    /// Gini coefficient of trade prices across the slice.
+    ///
+    /// Measures price inequality: 0 means all trades at the same price,
+    /// 1 means maximum price dispersion. Returns `None` if the slice is
+    /// empty or all prices are zero.
+    pub fn price_gini(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() {
+            return None;
+        }
+        let mut prices: Vec<f64> = ticks.iter().filter_map(|t| t.price.to_f64()).collect();
+        if prices.is_empty() {
+            return None;
+        }
+        prices.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let n = prices.len() as f64;
+        let sum: f64 = prices.iter().sum();
+        if sum == 0.0 {
+            return None;
+        }
+        let weighted_sum: f64 = prices
+            .iter()
+            .enumerate()
+            .map(|(i, &p)| (2.0 * (i + 1) as f64 - n - 1.0) * p)
+            .sum();
+        Some(weighted_sum / (n * sum))
+    }
+
+    /// Rate of tick arrival: `tick_count / time_span_ms`.
+    ///
+    /// Returns ticks per millisecond. Returns `None` if the slice has fewer
+    /// than 2 ticks or the time span is zero.
+    pub fn trade_velocity(ticks: &[NormalizedTick]) -> Option<f64> {
+        let span_ms = Self::time_span_ms(ticks)?;
+        if span_ms == 0 {
+            return None;
+        }
+        Some(ticks.len() as f64 / span_ms as f64)
+    }
+
+    /// Minimum price across the slice.
+    ///
+    /// Semantic alias for [`min_price`](Self::min_price) that matches the
+    /// "floor" framing used in support/resistance analysis.
+    ///
+    /// Returns `None` if the slice is empty.
+    pub fn floor_price(ticks: &[NormalizedTick]) -> Option<Decimal> {
+        Self::min_price(ticks)
+    }
+
 }
 
 
@@ -6241,5 +6360,128 @@ mod tests {
             NormalizedTick::volume_at_vwap(&[], rust_decimal_macros::dec!(1)),
             Decimal::ZERO
         );
+    }
+
+    // ── NormalizedTick::cumulative_volume ─────────────────────────────────────
+
+    #[test]
+    fn test_cumulative_volume_empty_for_empty_slice() {
+        assert!(NormalizedTick::cumulative_volume(&[]).is_empty());
+    }
+
+    #[test]
+    fn test_cumulative_volume_last_equals_total() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(2)),
+            make_tick_pq(dec!(101), dec!(3)),
+            make_tick_pq(dec!(102), dec!(5)),
+        ];
+        let cv = NormalizedTick::cumulative_volume(&ticks);
+        assert_eq!(cv.last().copied().unwrap(), dec!(10));
+        assert_eq!(cv[0], dec!(2));
+    }
+
+    // ── NormalizedTick::price_volatility_ratio ────────────────────────────────
+
+    #[test]
+    fn test_price_volatility_ratio_none_for_empty() {
+        assert!(NormalizedTick::price_volatility_ratio(&[]).is_none());
+    }
+
+    #[test]
+    fn test_price_volatility_ratio_zero_for_constant_price() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![make_tick_pq(dec!(100), dec!(1)), make_tick_pq(dec!(100), dec!(1))];
+        let r = NormalizedTick::price_volatility_ratio(&ticks).unwrap();
+        assert!(r.abs() < 1e-9, "constant price → ratio=0, got {}", r);
+    }
+
+    // ── NormalizedTick::notional_per_tick ─────────────────────────────────────
+
+    #[test]
+    fn test_notional_per_tick_none_for_empty() {
+        assert!(NormalizedTick::notional_per_tick(&[]).is_none());
+    }
+
+    #[test]
+    fn test_notional_per_tick_equals_single_tick_notional() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![make_tick_pq(dec!(100), dec!(5))];
+        let n = NormalizedTick::notional_per_tick(&ticks).unwrap();
+        assert!((n - 500.0).abs() < 1e-6, "100×5=500, got {}", n);
+    }
+
+    // ── NormalizedTick::buy_to_total_volume_ratio ─────────────────────────────
+
+    #[test]
+    fn test_buy_to_total_volume_ratio_none_for_empty() {
+        assert!(NormalizedTick::buy_to_total_volume_ratio(&[]).is_none());
+    }
+
+    #[test]
+    fn test_buy_to_total_volume_ratio_zero_for_all_neutral() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![make_tick_pq(dec!(100), dec!(5)), make_tick_pq(dec!(101), dec!(3))];
+        let r = NormalizedTick::buy_to_total_volume_ratio(&ticks).unwrap();
+        assert!(r.abs() < 1e-9, "neutral ticks → buy ratio=0, got {}", r);
+    }
+
+    // ── NormalizedTick::avg_latency_ms ────────────────────────────────────────
+
+    #[test]
+    fn test_avg_latency_ms_none_when_no_exchange_ts() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![make_tick_pq(dec!(100), dec!(1))];
+        assert!(NormalizedTick::avg_latency_ms(&ticks).is_none());
+    }
+
+    // ── NormalizedTick::price_gini ────────────────────────────────────────────
+
+    #[test]
+    fn test_price_gini_none_for_empty() {
+        assert!(NormalizedTick::price_gini(&[]).is_none());
+    }
+
+    #[test]
+    fn test_price_gini_zero_for_uniform_prices() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(100), dec!(1)),
+        ];
+        let g = NormalizedTick::price_gini(&ticks).unwrap();
+        assert!(g.abs() < 1e-9, "uniform prices → gini=0, got {}", g);
+    }
+
+    // ── NormalizedTick::trade_velocity ────────────────────────────────────────
+
+    #[test]
+    fn test_trade_velocity_none_for_same_timestamp() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(101), dec!(1)),
+        ];
+        assert!(NormalizedTick::trade_velocity(&ticks).is_none());
+    }
+
+    // ── NormalizedTick::floor_price ───────────────────────────────────────────
+
+    #[test]
+    fn test_floor_price_none_for_empty() {
+        assert!(NormalizedTick::floor_price(&[]).is_none());
+    }
+
+    #[test]
+    fn test_floor_price_equals_min_price() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(105), dec!(1)),
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(103), dec!(1)),
+        ];
+        assert_eq!(NormalizedTick::floor_price(&ticks), NormalizedTick::min_price(&ticks));
     }
 }

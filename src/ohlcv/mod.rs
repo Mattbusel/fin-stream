@@ -2631,6 +2631,130 @@ impl OhlcvBar {
         bars.iter().map(|b| b.trade_count).max()
     }
 
+    // ── round-81 ─────────────────────────────────────────────────────────────
+
+    /// Standard deviation of `(close − high)` across bars.
+    ///
+    /// Measures how consistently close prices approach the bar high.
+    /// Returns `None` if fewer than 2 bars are provided.
+    pub fn close_to_high_std(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.len() < 2 {
+            return None;
+        }
+        let vals: Vec<f64> = bars.iter().filter_map(|b| (b.high - b.close).to_f64()).collect();
+        if vals.len() < 2 {
+            return None;
+        }
+        let n = vals.len() as f64;
+        let mean = vals.iter().sum::<f64>() / n;
+        let variance = vals.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / (n - 1.0);
+        Some(variance.sqrt())
+    }
+
+    /// Mean ratio of `volume / open` across bars.
+    ///
+    /// Normalises bar volume by the opening price level, useful for comparing
+    /// activity across different price regimes. Bars with zero open are skipped.
+    /// Returns `None` if no bars have a non-zero open.
+    pub fn avg_open_volume_ratio(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                if b.open.is_zero() {
+                    return None;
+                }
+                (b.volume / b.open).to_f64()
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
+        Some(vals.iter().sum::<f64>() / vals.len() as f64)
+    }
+
+    /// Standard deviation of typical prices `(high + low + close) / 3` across bars.
+    ///
+    /// Returns `None` if fewer than 2 bars are provided.
+    pub fn typical_price_std(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.len() < 2 {
+            return None;
+        }
+        let vals: Vec<f64> = bars.iter().filter_map(|b| b.typical_price().to_f64()).collect();
+        if vals.len() < 2 {
+            return None;
+        }
+        let n = vals.len() as f64;
+        let mean = vals.iter().sum::<f64>() / n;
+        let variance = vals.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / (n - 1.0);
+        Some(variance.sqrt())
+    }
+
+    /// Mean absolute deviation of bar VWAPs from the slice mean VWAP.
+    ///
+    /// Measures how spread the intrabar VWAPs are across the slice.
+    /// Bars without a VWAP (gap-fill bars) are skipped.
+    /// Returns `None` if fewer than 1 bar has a VWAP.
+    pub fn vwap_deviation_avg(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let vwaps: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| b.vwap?.to_f64())
+            .collect();
+        if vwaps.is_empty() {
+            return None;
+        }
+        let mean = vwaps.iter().sum::<f64>() / vwaps.len() as f64;
+        let mad = vwaps.iter().map(|v| (v - mean).abs()).sum::<f64>() / vwaps.len() as f64;
+        Some(mad)
+    }
+
+    /// Mean ratio of `high / low` across bars.
+    ///
+    /// A value near 1.0 means bars are narrow; higher values indicate wider ranges.
+    /// Bars with zero low are skipped. Returns `None` if no bars have non-zero low.
+    pub fn avg_high_low_ratio(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                if b.low.is_zero() {
+                    return None;
+                }
+                (b.high / b.low).to_f64()
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
+        Some(vals.iter().sum::<f64>() / vals.len() as f64)
+    }
+
+    /// Fraction of bars that are gap-fill bars (`is_gap_fill == true`).
+    ///
+    /// Returns `None` if the slice is empty.
+    pub fn gap_fill_fraction(bars: &[OhlcvBar]) -> Option<f64> {
+        if bars.is_empty() {
+            return None;
+        }
+        let gap_bars = bars.iter().filter(|b| b.is_gap_fill).count();
+        Some(gap_bars as f64 / bars.len() as f64)
+    }
+
+    /// Count of complete bars (where `is_complete == true`).
+    pub fn complete_bar_count(bars: &[OhlcvBar]) -> usize {
+        bars.iter().filter(|b| b.is_complete).count()
+    }
+
+    /// Minimum `trade_count` seen across the slice.
+    ///
+    /// Returns `None` if the slice is empty.
+    pub fn min_trade_count(bars: &[OhlcvBar]) -> Option<u64> {
+        bars.iter().map(|b| b.trade_count).min()
+    }
+
 }
 
 impl std::fmt::Display for OhlcvBar {
@@ -7532,5 +7656,88 @@ mod tests {
         let mut b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105)); b1.trade_count = 5;
         let mut b2 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105)); b2.trade_count = 10;
         assert_eq!(OhlcvBar::max_trade_count(&[b1, b2]).unwrap(), 10);
+    }
+
+    // ── round-81 tests ────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_close_to_high_std_none_for_single_bar() {
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        assert!(OhlcvBar::close_to_high_std(&[b]).is_none());
+    }
+
+    #[test]
+    fn test_close_to_high_std_zero_for_identical_bars() {
+        let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let b2 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let sd = OhlcvBar::close_to_high_std(&[b1, b2]).unwrap();
+        assert!(sd.abs() < 1e-9, "identical bars → std=0, got {}", sd);
+    }
+
+    #[test]
+    fn test_avg_open_volume_ratio_none_for_empty() {
+        assert!(OhlcvBar::avg_open_volume_ratio(&[]).is_none());
+    }
+
+    #[test]
+    fn test_typical_price_std_none_for_single_bar() {
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        assert!(OhlcvBar::typical_price_std(&[b]).is_none());
+    }
+
+    #[test]
+    fn test_typical_price_std_zero_for_identical_bars() {
+        let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let b2 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let sd = OhlcvBar::typical_price_std(&[b1, b2]).unwrap();
+        assert!(sd.abs() < 1e-9, "identical bars → std=0, got {}", sd);
+    }
+
+    #[test]
+    fn test_vwap_deviation_avg_none_for_empty() {
+        assert!(OhlcvBar::vwap_deviation_avg(&[]).is_none());
+    }
+
+    #[test]
+    fn test_avg_high_low_ratio_none_for_empty() {
+        assert!(OhlcvBar::avg_high_low_ratio(&[]).is_none());
+    }
+
+    #[test]
+    fn test_avg_high_low_ratio_one_for_doji() {
+        // high == low (doji) → ratio = 1.0 but low=0 is skipped... use low=100
+        let b = make_ohlcv_bar(dec!(100), dec!(100), dec!(100), dec!(100));
+        let r = OhlcvBar::avg_high_low_ratio(&[b]).unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "high==low → ratio=1, got {}", r);
+    }
+
+    #[test]
+    fn test_gap_fill_fraction_none_for_empty() {
+        assert!(OhlcvBar::gap_fill_fraction(&[]).is_none());
+    }
+
+    #[test]
+    fn test_gap_fill_fraction_zero_for_no_gaps() {
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let f = OhlcvBar::gap_fill_fraction(&[b]).unwrap();
+        assert!(f.abs() < 1e-9, "no gap fills → fraction=0, got {}", f);
+    }
+
+    #[test]
+    fn test_complete_bar_count_zero_for_incomplete() {
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        assert_eq!(OhlcvBar::complete_bar_count(&[b]), 0);
+    }
+
+    #[test]
+    fn test_min_trade_count_none_for_empty() {
+        assert!(OhlcvBar::min_trade_count(&[]).is_none());
+    }
+
+    #[test]
+    fn test_min_trade_count_returns_min() {
+        let mut b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105)); b1.trade_count = 5;
+        let mut b2 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105)); b2.trade_count = 2;
+        assert_eq!(OhlcvBar::min_trade_count(&[b1, b2]).unwrap(), 2);
     }
 }

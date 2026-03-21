@@ -1296,6 +1296,71 @@ impl MinMaxNormalizer {
         Some(numerator / denominator)
     }
 
+    // ── round-81 ─────────────────────────────────────────────────────────────
+
+    /// Ratio of the first-half window variance to the second-half window variance.
+    ///
+    /// Values above 1.0 indicate decreasing volatility; below 1.0 indicate
+    /// increasing volatility. Returns `None` if the window has fewer than 4
+    /// observations or if the second-half variance is zero.
+    pub fn variance_ratio(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let n = self.window.len();
+        if n < 4 {
+            return None;
+        }
+        let mid = n / 2;
+        let first: Vec<f64> = self.window.iter().take(mid).filter_map(|v| v.to_f64()).collect();
+        let second: Vec<f64> = self.window.iter().skip(mid).filter_map(|v| v.to_f64()).collect();
+        let var = |vals: &[f64]| -> Option<f64> {
+            let n_f = vals.len() as f64;
+            if n_f < 2.0 { return None; }
+            let mean = vals.iter().sum::<f64>() / n_f;
+            Some(vals.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / (n_f - 1.0))
+        };
+        let v1 = var(&first)?;
+        let v2 = var(&second)?;
+        if v2 == 0.0 {
+            return None;
+        }
+        Some(v1 / v2)
+    }
+
+    /// Linear trend slope of z-scores over the window.
+    ///
+    /// First computes the z-score of each window value relative to the full
+    /// window mean and std-dev, then returns the OLS slope over the resulting
+    /// z-score sequence. Positive means z-scores are trending upward.
+    /// Returns `None` if fewer than 2 observations or std-dev is zero.
+    pub fn z_score_trend_slope(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let n = self.window.len();
+        if n < 2 {
+            return None;
+        }
+        let std_dev = self.std_dev()?;
+        if std_dev == 0.0 {
+            return None;
+        }
+        let mean = self.mean()?.to_f64()?;
+        let z_vals: Vec<f64> = self
+            .window
+            .iter()
+            .filter_map(|v| v.to_f64())
+            .map(|v| (v - mean) / std_dev)
+            .collect();
+        if z_vals.len() < 2 {
+            return None;
+        }
+        let n_f = z_vals.len() as f64;
+        let x_mean = (n_f - 1.0) / 2.0;
+        let z_mean = z_vals.iter().sum::<f64>() / n_f;
+        let num: f64 = z_vals.iter().enumerate().map(|(i, &z)| (i as f64 - x_mean) * (z - z_mean)).sum();
+        let den: f64 = (0..z_vals.len()).map(|i| (i as f64 - x_mean).powi(2)).sum();
+        if den == 0.0 { return None; }
+        Some(num / den)
+    }
+
 }
 
 #[cfg(test)]
@@ -3073,6 +3138,41 @@ mod tests {
         let slope = n.linear_trend_slope().unwrap();
         assert!(slope.abs() < 1e-9, "flat window → slope=0, got {}", slope);
     }
+
+    // ── MinMaxNormalizer::variance_ratio ─────────────────────────────────────
+
+    #[test]
+    fn test_minmax_variance_ratio_none_for_few_values() {
+        let mut n = norm(3);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        assert!(n.variance_ratio().is_none());
+    }
+
+    #[test]
+    fn test_minmax_variance_ratio_gt_one_for_decreasing_vol() {
+        let mut n = norm(6);
+        // first half: high variance [1, 10, 1]; second half: low variance [5, 6, 5]
+        for v in [dec!(1), dec!(10), dec!(1), dec!(5), dec!(6), dec!(5)] { n.update(v); }
+        let r = n.variance_ratio().unwrap();
+        assert!(r > 1.0, "first half more volatile → ratio > 1, got {}", r);
+    }
+
+    // ── MinMaxNormalizer::z_score_trend_slope ────────────────────────────────
+
+    #[test]
+    fn test_minmax_z_score_trend_slope_none_for_single_value() {
+        let mut n = norm(4);
+        n.update(dec!(10));
+        assert!(n.z_score_trend_slope().is_none());
+    }
+
+    #[test]
+    fn test_minmax_z_score_trend_slope_positive_for_rising() {
+        let mut n = norm(5);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4), dec!(5)] { n.update(v); }
+        let slope = n.z_score_trend_slope().unwrap();
+        assert!(slope > 0.0, "rising window → positive z-score slope, got {}", slope);
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -4339,6 +4439,71 @@ impl ZScoreNormalizer {
             return None;
         }
         Some(numerator / denominator)
+    }
+
+    // ── round-81 ─────────────────────────────────────────────────────────────
+
+    /// Ratio of first-half to second-half window variance.
+    ///
+    /// Values above 1.0 indicate decreasing volatility; below 1.0 indicate
+    /// increasing volatility. Returns `None` if fewer than 4 observations or
+    /// second-half variance is zero.
+    pub fn variance_ratio(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let n = self.window.len();
+        if n < 4 {
+            return None;
+        }
+        let mid = n / 2;
+        let first: Vec<f64> = self.window.iter().take(mid).filter_map(|v| v.to_f64()).collect();
+        let second: Vec<f64> = self.window.iter().skip(mid).filter_map(|v| v.to_f64()).collect();
+        let var = |vals: &[f64]| -> Option<f64> {
+            let n_f = vals.len() as f64;
+            if n_f < 2.0 { return None; }
+            let mean = vals.iter().sum::<f64>() / n_f;
+            Some(vals.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / (n_f - 1.0))
+        };
+        let v1 = var(&first)?;
+        let v2 = var(&second)?;
+        if v2 == 0.0 {
+            return None;
+        }
+        Some(v1 / v2)
+    }
+
+    /// Linear trend slope of the z-scores of window values.
+    ///
+    /// Computes the z-score of each window value then fits an OLS line over
+    /// the sequence. Positive slope means z-scores are trending upward.
+    /// Returns `None` if fewer than 2 observations or std-dev is zero.
+    pub fn z_score_trend_slope(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let n = self.window.len();
+        if n < 2 {
+            return None;
+        }
+        let mean_dec = self.mean()?;
+        let std_dev = self.std_dev()?;
+        if std_dev == 0.0 {
+            return None;
+        }
+        let mean_f = mean_dec.to_f64()?;
+        let z_vals: Vec<f64> = self
+            .window
+            .iter()
+            .filter_map(|v| v.to_f64())
+            .map(|v| (v - mean_f) / std_dev)
+            .collect();
+        if z_vals.len() < 2 {
+            return None;
+        }
+        let n_f = z_vals.len() as f64;
+        let x_mean = (n_f - 1.0) / 2.0;
+        let z_mean = z_vals.iter().sum::<f64>() / n_f;
+        let num: f64 = z_vals.iter().enumerate().map(|(i, &z)| (i as f64 - x_mean) * (z - z_mean)).sum();
+        let den: f64 = (0..z_vals.len()).map(|i| (i as f64 - x_mean).powi(2)).sum();
+        if den == 0.0 { return None; }
+        Some(num / den)
     }
 
 }
@@ -6261,5 +6426,40 @@ mod zscore_stability_tests {
         for v in [dec!(5), dec!(5), dec!(5), dec!(5)] { n.update(v); }
         let slope = n.linear_trend_slope().unwrap();
         assert!(slope.abs() < 1e-9, "flat window → slope=0, got {}", slope);
+    }
+
+    // ── ZScoreNormalizer::variance_ratio ─────────────────────────────────────
+
+    #[test]
+    fn test_zscore_variance_ratio_none_for_few_values() {
+        let mut n = znorm(3);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        assert!(n.variance_ratio().is_none());
+    }
+
+    #[test]
+    fn test_zscore_variance_ratio_gt_one_for_decreasing_vol() {
+        let mut n = znorm(6);
+        // first half: high variance [1, 10, 1]; second half: low variance [5, 6, 5]
+        for v in [dec!(1), dec!(10), dec!(1), dec!(5), dec!(6), dec!(5)] { n.update(v); }
+        let r = n.variance_ratio().unwrap();
+        assert!(r > 1.0, "first half more volatile → ratio > 1, got {}", r);
+    }
+
+    // ── ZScoreNormalizer::z_score_trend_slope ────────────────────────────────
+
+    #[test]
+    fn test_zscore_z_score_trend_slope_none_for_single_value() {
+        let mut n = znorm(4);
+        n.update(dec!(10));
+        assert!(n.z_score_trend_slope().is_none());
+    }
+
+    #[test]
+    fn test_zscore_z_score_trend_slope_positive_for_rising() {
+        let mut n = znorm(5);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4), dec!(5)] { n.update(v); }
+        let slope = n.z_score_trend_slope().unwrap();
+        assert!(slope > 0.0, "rising window → positive z-score slope, got {}", slope);
     }
 }
