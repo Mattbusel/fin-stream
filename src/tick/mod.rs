@@ -10387,6 +10387,57 @@ impl NormalizedTick {
         Some(total)
     }
 
+    /// Highest price seen on buy-side trades relative to overall max price.
+    pub fn tick_buy_high_price(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() { return None; }
+        let buy_max: f64 = ticks.iter()
+            .filter(|t| t.side == Some(TradeSide::Buy))
+            .filter_map(|t| t.price.to_f64())
+            .fold(f64::NEG_INFINITY, f64::max);
+        let overall_max: f64 = ticks.iter().filter_map(|t| t.price.to_f64())
+            .fold(f64::NEG_INFINITY, f64::max);
+        if buy_max == f64::NEG_INFINITY || overall_max == f64::NEG_INFINITY || overall_max == 0.0 { return None; }
+        Some(buy_max / overall_max)
+    }
+
+    /// Price density: number of distinct price levels as fraction of total ticks.
+    pub fn tick_price_density(ticks: &[NormalizedTick]) -> Option<f64> {
+        if ticks.is_empty() { return None; }
+        let distinct: std::collections::HashSet<_> = ticks.iter().map(|t| t.price).collect();
+        Some(distinct.len() as f64 / ticks.len() as f64)
+    }
+
+    /// Fraction of ticks where price is above median price in the window.
+    pub fn tick_price_above_median(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() { return None; }
+        let mut prices: Vec<f64> = ticks.iter().filter_map(|t| t.price.to_f64()).collect();
+        if prices.is_empty() { return None; }
+        prices.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let median = if prices.len() % 2 == 0 {
+            (prices[prices.len() / 2 - 1] + prices[prices.len() / 2]) / 2.0
+        } else {
+            prices[prices.len() / 2]
+        };
+        let above = ticks.iter().filter_map(|t| t.price.to_f64()).filter(|&p| p > median).count();
+        Some(above as f64 / ticks.len() as f64)
+    }
+
+    /// Ratio of total volume to the price range (liquidity density).
+    pub fn tick_vwap_vol_ratio(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() { return None; }
+        let total_vol: f64 = ticks.iter().filter_map(|t| t.quantity.to_f64()).sum();
+        let prices: Vec<f64> = ticks.iter().filter_map(|t| t.price.to_f64()).collect();
+        if prices.is_empty() { return None; }
+        let min = prices.iter().cloned().fold(f64::INFINITY, f64::min);
+        let max = prices.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        let range = max - min;
+        if range == 0.0 { return None; }
+        Some(total_vol / range)
+    }
+
     /// Fraction of ticks where price is higher than the previous tick (close-above-prev rate).
     pub fn tick_close_above_prev(ticks: &[NormalizedTick]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
@@ -25922,5 +25973,71 @@ mod tests {
         s2.side = Some(TradeSide::Sell);
         let r = NormalizedTick::tick_sell_price_min(&[s1, s2]).unwrap();
         assert!((r - 95.0).abs() < 1e-6, "expected 95.0 got {}", r);
+    }
+
+    #[test]
+    fn test_tick_buy_high_price_empty_none() {
+        assert!(NormalizedTick::tick_buy_high_price(&[]).is_none());
+    }
+
+    #[test]
+    fn test_tick_buy_high_price_returns_bounded() {
+        use rust_decimal_macros::dec;
+        use crate::tick::TradeSide;
+        let mut b = make_tick_pq(dec!(100), dec!(1));
+        b.side = Some(TradeSide::Buy);
+        let ticks = vec![make_tick_pq(dec!(120), dec!(1)), b];
+        let r = NormalizedTick::tick_buy_high_price(&ticks).unwrap();
+        assert!(r >= 0.0 && r <= 1.0, "expected [0,1] got {}", r);
+    }
+
+    #[test]
+    fn test_tick_price_density_empty_none() {
+        assert!(NormalizedTick::tick_price_density(&[]).is_none());
+    }
+
+    #[test]
+    fn test_tick_price_density_all_distinct() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(101), dec!(1)),
+            make_tick_pq(dec!(102), dec!(1)),
+        ];
+        let r = NormalizedTick::tick_price_density(&ticks).unwrap();
+        assert!((r - 1.0).abs() < 1e-6, "expected 1.0 got {}", r);
+    }
+
+    #[test]
+    fn test_tick_price_above_median_empty_none() {
+        assert!(NormalizedTick::tick_price_above_median(&[]).is_none());
+    }
+
+    #[test]
+    fn test_tick_price_above_median_returns_bounded() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(102), dec!(1)),
+            make_tick_pq(dec!(104), dec!(1)),
+        ];
+        let r = NormalizedTick::tick_price_above_median(&ticks).unwrap();
+        assert!(r >= 0.0 && r <= 1.0);
+    }
+
+    #[test]
+    fn test_tick_vwap_vol_ratio_empty_none() {
+        assert!(NormalizedTick::tick_vwap_vol_ratio(&[]).is_none());
+    }
+
+    #[test]
+    fn test_tick_vwap_vol_ratio_returns_nonneg() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(10)),
+            make_tick_pq(dec!(110), dec!(10)),
+        ];
+        let r = NormalizedTick::tick_vwap_vol_ratio(&ticks).unwrap();
+        assert!(r >= 0.0, "expected nonneg got {}", r);
     }
 }

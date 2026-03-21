@@ -8293,6 +8293,47 @@ impl MinMaxNormalizer {
         Some(max_run as f64 / vals.len() as f64)
     }
 
+    /// Inertia score: sum of |change_i * change_{i+1}| / (n-1) — consecutive motion strength.
+    pub fn window_inertia_score(&self) -> Option<f64> {
+        if self.window.len() < 3 { return None; }
+        use rust_decimal::prelude::ToPrimitive;
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.len() < 3 { return None; }
+        let changes: Vec<f64> = vals.windows(2).map(|w| w[1] - w[0]).collect();
+        let n = (changes.len() - 1) as f64;
+        if n == 0.0 { return None; }
+        let score: f64 = changes.windows(2).map(|w| (w[0] * w[1]).abs()).sum();
+        Some(score / n)
+    }
+
+    /// Fraction of consecutive pairs with same sign of change (momentum persistence).
+    pub fn window_change_sign_pct(&self) -> Option<f64> {
+        if self.window.len() < 3 { return None; }
+        use rust_decimal::prelude::ToPrimitive;
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.len() < 3 { return None; }
+        let changes: Vec<f64> = vals.windows(2).map(|w| w[1] - w[0]).collect();
+        let n = (changes.len() - 1) as f64;
+        if n == 0.0 { return None; }
+        let same_sign = changes.windows(2).filter(|w| w[0] * w[1] > 0.0).count();
+        Some(same_sign as f64 / n)
+    }
+
+    /// Fraction of values in the upper quartile of the window range.
+    pub fn window_upper_vol_ratio(&self) -> Option<f64> {
+        if self.window.len() < 4 { return None; }
+        use rust_decimal::prelude::ToPrimitive;
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.len() < 4 { return None; }
+        let min = vals.iter().cloned().fold(f64::INFINITY, f64::min);
+        let max = vals.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        let range = max - min;
+        if range == 0.0 { return None; }
+        let threshold = min + 0.75 * range;
+        let upper = vals.iter().filter(|&&v| v >= threshold).count();
+        Some(upper as f64 / vals.len() as f64)
+    }
+
 }
 
 #[cfg(test)]
@@ -17918,6 +17959,52 @@ mod tests {
         let r = n.window_consecutive_flat().unwrap();
         assert!((r - 1.0).abs() < 1e-9, "expected 1.0 got {}", r);
     }
+
+    #[test]
+    fn test_minmax_window_inertia_score_too_few_none() {
+        let mut n = norm(5);
+        for v in [dec!(1), dec!(2)] { n.update(v); }
+        assert!(n.window_inertia_score().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_inertia_score_returns_nonneg() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(3), dec!(5), dec!(7)] { n.update(v); }
+        let r = n.window_inertia_score().unwrap();
+        assert!(r >= 0.0);
+    }
+
+    #[test]
+    fn test_minmax_window_change_sign_pct_too_few_none() {
+        let mut n = norm(5);
+        for v in [dec!(1), dec!(2)] { n.update(v); }
+        assert!(n.window_change_sign_pct().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_change_sign_pct_all_same_dir() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        // all up → same sign pairs = 2/2 = 1.0
+        let r = n.window_change_sign_pct().unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "expected 1.0 got {}", r);
+    }
+
+    #[test]
+    fn test_minmax_window_upper_vol_ratio_too_few_none() {
+        let mut n = norm(5);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        assert!(n.window_upper_vol_ratio().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_upper_vol_ratio_returns_bounded() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let r = n.window_upper_vol_ratio().unwrap();
+        assert!(r >= 0.0 && r <= 1.0);
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -26156,6 +26243,47 @@ impl ZScoreNormalizer {
             }
         }
         Some(max_run as f64 / vals.len() as f64)
+    }
+
+    /// Inertia score: sum of |change_i * change_{i+1}| / (n-1) — consecutive motion strength.
+    pub fn window_inertia_score(&self) -> Option<f64> {
+        if self.window.len() < 3 { return None; }
+        use rust_decimal::prelude::ToPrimitive;
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.len() < 3 { return None; }
+        let changes: Vec<f64> = vals.windows(2).map(|w| w[1] - w[0]).collect();
+        let n = (changes.len() - 1) as f64;
+        if n == 0.0 { return None; }
+        let score: f64 = changes.windows(2).map(|w| (w[0] * w[1]).abs()).sum();
+        Some(score / n)
+    }
+
+    /// Fraction of consecutive pairs with same sign of change (momentum persistence).
+    pub fn window_change_sign_pct(&self) -> Option<f64> {
+        if self.window.len() < 3 { return None; }
+        use rust_decimal::prelude::ToPrimitive;
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.len() < 3 { return None; }
+        let changes: Vec<f64> = vals.windows(2).map(|w| w[1] - w[0]).collect();
+        let n = (changes.len() - 1) as f64;
+        if n == 0.0 { return None; }
+        let same_sign = changes.windows(2).filter(|w| w[0] * w[1] > 0.0).count();
+        Some(same_sign as f64 / n)
+    }
+
+    /// Fraction of values in the upper quartile of the window range.
+    pub fn window_upper_vol_ratio(&self) -> Option<f64> {
+        if self.window.len() < 4 { return None; }
+        use rust_decimal::prelude::ToPrimitive;
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.len() < 4 { return None; }
+        let min = vals.iter().cloned().fold(f64::INFINITY, f64::min);
+        let max = vals.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        let range = max - min;
+        if range == 0.0 { return None; }
+        let threshold = min + 0.75 * range;
+        let upper = vals.iter().filter(|&&v| v >= threshold).count();
+        Some(upper as f64 / vals.len() as f64)
     }
 
 }
@@ -35723,5 +35851,50 @@ mod zscore_stability_tests {
         for _ in 0..4 { n.update(dec!(7)); }
         let r = n.window_consecutive_flat().unwrap();
         assert!((r - 1.0).abs() < 1e-9, "expected 1.0 got {}", r);
+    }
+
+    #[test]
+    fn test_zscore_window_inertia_score_too_few_none() {
+        let mut n = znorm(5);
+        for v in [dec!(1), dec!(2)] { n.update(v); }
+        assert!(n.window_inertia_score().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_inertia_score_returns_nonneg() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(3), dec!(5), dec!(7)] { n.update(v); }
+        let r = n.window_inertia_score().unwrap();
+        assert!(r >= 0.0);
+    }
+
+    #[test]
+    fn test_zscore_window_change_sign_pct_too_few_none() {
+        let mut n = znorm(5);
+        for v in [dec!(1), dec!(2)] { n.update(v); }
+        assert!(n.window_change_sign_pct().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_change_sign_pct_all_same_dir() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let r = n.window_change_sign_pct().unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "expected 1.0 got {}", r);
+    }
+
+    #[test]
+    fn test_zscore_window_upper_vol_ratio_too_few_none() {
+        let mut n = znorm(5);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        assert!(n.window_upper_vol_ratio().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_upper_vol_ratio_returns_bounded() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let r = n.window_upper_vol_ratio().unwrap();
+        assert!(r >= 0.0 && r <= 1.0);
     }
 }

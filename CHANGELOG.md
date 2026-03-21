@@ -9,6 +9,28 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.10.75] - 2026-03-20
+
+### Added
+
+**`tick` module — `NormalizedTick` analytics (round 224)**
+- `NormalizedTick::tick_buy_high_price(ticks)` — highest buy-side price as fraction of overall max price.
+- `NormalizedTick::tick_price_density(ticks)` — distinct price levels as fraction of total tick count.
+- `NormalizedTick::tick_price_above_median(ticks)` — fraction of ticks with price above window median.
+- `NormalizedTick::tick_vwap_vol_ratio(ticks)` — total volume divided by price range (liquidity density).
+
+**`ohlcv` module — `OhlcvBar` analytics (round 224)**
+- `OhlcvBar::bar_vol_decay(bars)` — mean normalized volume change between consecutive bars.
+- `OhlcvBar::bar_open_wick_pct(bars)` — mean smaller of open-to-high/open-to-low distance as fraction of range.
+- `OhlcvBar::bar_hl_vs_body(bars)` — mean (high - low) / body size ratio.
+
+**`norm` module — `MinMaxNormalizer` + `ZScoreNormalizer` analytics (round 224)**
+- `window_inertia_score()` — mean product of consecutive change magnitudes (motion strength).
+- `window_change_sign_pct()` — fraction of consecutive change pairs with the same sign.
+- `window_upper_vol_ratio()` — fraction of values in the upper quartile of the window range.
+
+---
+
 ## [2.10.74] - 2026-03-20
 
 ### Added
