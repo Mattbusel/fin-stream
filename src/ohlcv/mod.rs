@@ -9856,6 +9856,61 @@ impl OhlcvBar {
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
+    /// Volume-weighted mean of high prices (vol-weighted high).
+    pub fn bar_vol_weighted_high(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let total_vol: f64 = bars.iter().filter_map(|b| b.volume.to_f64()).sum();
+        if total_vol == 0.0 { return None; }
+        let weighted: f64 = bars.iter().filter_map(|b| {
+            Some(b.high.to_f64()? * b.volume.to_f64()?)
+        }).sum();
+        Some(weighted / total_vol)
+    }
+
+    /// Volume-weighted mean of low prices (vol-weighted low).
+    pub fn bar_vol_weighted_low(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let total_vol: f64 = bars.iter().filter_map(|b| b.volume.to_f64()).sum();
+        if total_vol == 0.0 { return None; }
+        let weighted: f64 = bars.iter().filter_map(|b| {
+            Some(b.low.to_f64()? * b.volume.to_f64()?)
+        }).sum();
+        Some(weighted / total_vol)
+    }
+
+    /// Mean reversion of close: fraction of bars where close reverts toward prior open.
+    pub fn bar_close_reversion(bars: &[OhlcvBar]) -> Option<f64> {
+        if bars.len() < 2 { return None; }
+        let n = bars.len() - 1;
+        let reversions = bars.windows(2).filter(|w| {
+            // Close moved toward the prior bar's open (opposite direction)
+            let prior_dir = w[0].close > w[0].open;
+            let curr_dir = w[1].close > w[1].open;
+            prior_dir != curr_dir
+        }).count();
+        Some(reversions as f64 / n as f64)
+    }
+
+    /// Mean ratio of body to total wick: |close - open| / (upper_wick + lower_wick).
+    pub fn bar_body_vs_wick(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let vals: Vec<f64> = bars.iter().filter_map(|b| {
+            let top = b.open.max(b.close);
+            let bottom = b.open.min(b.close);
+            let body = (b.close - b.open).abs().to_f64()?;
+            let upper = (b.high - top).to_f64()?;
+            let lower = (bottom - b.low).to_f64()?;
+            let total_wick = upper + lower;
+            if total_wick == 0.0 { return None; }
+            Some(body / total_wick)
+        }).collect();
+        if vals.is_empty() { return None; }
+        Some(vals.iter().sum::<f64>() / vals.len() as f64)
+    }
+
     /// Number of bars with volume > mean + std (volume spike count) as fraction of total.
     pub fn bar_vol_spike_count(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
@@ -24086,5 +24141,64 @@ mod tests {
         // return = (110-100)/100 = 0.1
         let r = OhlcvBar::bar_return_mean(&[b1, b2]).unwrap();
         assert!((r - 0.1).abs() < 1e-9, "expected 0.1 got {}", r);
+    }
+
+    #[test]
+    fn test_bar_vol_weighted_high_empty_none() {
+        assert!(OhlcvBar::bar_vol_weighted_high(&[]).is_none());
+    }
+
+    #[test]
+    fn test_bar_vol_weighted_high_equal_vol_returns_mean() {
+        let mut b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        b1.volume = dec!(1);
+        let mut b2 = make_ohlcv_bar(dec!(105), dec!(115), dec!(95), dec!(110));
+        b2.volume = dec!(1);
+        // equal vol: vwh = (110+115)/2 = 112.5
+        let r = OhlcvBar::bar_vol_weighted_high(&[b1, b2]).unwrap();
+        assert!((r - 112.5).abs() < 1e-9, "expected 112.5 got {}", r);
+    }
+
+    #[test]
+    fn test_bar_vol_weighted_low_empty_none() {
+        assert!(OhlcvBar::bar_vol_weighted_low(&[]).is_none());
+    }
+
+    #[test]
+    fn test_bar_vol_weighted_low_equal_vol_returns_mean() {
+        let mut b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        b1.volume = dec!(1);
+        let mut b2 = make_ohlcv_bar(dec!(105), dec!(115), dec!(95), dec!(110));
+        b2.volume = dec!(1);
+        // equal vol: vwl = (90+95)/2 = 92.5
+        let r = OhlcvBar::bar_vol_weighted_low(&[b1, b2]).unwrap();
+        assert!((r - 92.5).abs() < 1e-9, "expected 92.5 got {}", r);
+    }
+
+    #[test]
+    fn test_bar_close_reversion_too_few_none() {
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        assert!(OhlcvBar::bar_close_reversion(&[b]).is_none());
+    }
+
+    #[test]
+    fn test_bar_close_reversion_returns_bounded() {
+        let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105)); // bull
+        let b2 = make_ohlcv_bar(dec!(105), dec!(115), dec!(95), dec!(100)); // bear
+        let r = OhlcvBar::bar_close_reversion(&[b1, b2]).unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "expected 1.0 got {}", r);
+    }
+
+    #[test]
+    fn test_bar_body_vs_wick_empty_none() {
+        assert!(OhlcvBar::bar_body_vs_wick(&[]).is_none());
+    }
+
+    #[test]
+    fn test_bar_body_vs_wick_returns_nonneg() {
+        // open=100, close=105, high=110, low=90 → body=5, upper=5, lower=10, total_wick=15
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let r = OhlcvBar::bar_body_vs_wick(&[b]).unwrap();
+        assert!((r - 5.0 / 15.0).abs() < 1e-9, "expected 1/3 got {}", r);
     }
 }

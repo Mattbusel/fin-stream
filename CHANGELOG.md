@@ -9,6 +9,29 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.10.74] - 2026-03-20
+
+### Added
+
+**`tick` module — `NormalizedTick` analytics (round 223)**
+- `NormalizedTick::tick_close_above_prev(ticks)` — fraction of ticks with price above the prior tick.
+- `NormalizedTick::tick_qty_change_rate(ticks)` — mean absolute change in quantity between consecutive ticks.
+- `NormalizedTick::tick_price_reversal_pct(ticks)` — fraction of direction reversals in the price sequence.
+- `NormalizedTick::tick_sell_price_min(ticks)` — minimum price seen on sell-side trades.
+
+**`ohlcv` module — `OhlcvBar` analytics (round 223)**
+- `OhlcvBar::bar_vol_weighted_high(bars)` — volume-weighted mean of bar high prices.
+- `OhlcvBar::bar_vol_weighted_low(bars)` — volume-weighted mean of bar low prices.
+- `OhlcvBar::bar_close_reversion(bars)` — fraction of bars where close direction reverses vs prior bar.
+- `OhlcvBar::bar_body_vs_wick(bars)` — mean ratio of body size to total wick length.
+
+**`norm` module — `MinMaxNormalizer` + `ZScoreNormalizer` analytics (round 223)**
+- `window_above_ema_pct()` — fraction of values above their local EMA.
+- `window_overshoot_pct()` — fraction of values deviating more than 0.5 std from the mean.
+- `window_consecutive_flat()` — longest run of identical values as fraction of window size.
+
+---
+
 ## [2.10.73] - 2026-03-20
 
 ### Added

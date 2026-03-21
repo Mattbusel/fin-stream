@@ -10387,6 +10387,49 @@ impl NormalizedTick {
         Some(total)
     }
 
+    /// Fraction of ticks where price is higher than the previous tick (close-above-prev rate).
+    pub fn tick_close_above_prev(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 2 { return None; }
+        let prices: Vec<f64> = ticks.iter().filter_map(|t| t.price.to_f64()).collect();
+        if prices.len() < 2 { return None; }
+        let above = prices.windows(2).filter(|w| w[1] > w[0]).count();
+        Some(above as f64 / (prices.len() - 1) as f64)
+    }
+
+    /// Mean absolute change in quantity between consecutive ticks (qty change rate).
+    pub fn tick_qty_change_rate(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 2 { return None; }
+        let vols: Vec<f64> = ticks.iter().filter_map(|t| t.quantity.to_f64()).collect();
+        if vols.len() < 2 { return None; }
+        let mean_change = vols.windows(2).map(|w| (w[1] - w[0]).abs()).sum::<f64>() / (vols.len() - 1) as f64;
+        Some(mean_change)
+    }
+
+    /// Fraction of price reversals (prev up then down, or prev down then up).
+    pub fn tick_price_reversal_pct(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 3 { return None; }
+        let prices: Vec<f64> = ticks.iter().filter_map(|t| t.price.to_f64()).collect();
+        if prices.len() < 3 { return None; }
+        let changes: Vec<f64> = prices.windows(2).map(|w| w[1] - w[0]).collect();
+        let n = (changes.len() - 1) as f64;
+        if n == 0.0 { return None; }
+        let reversals = changes.windows(2).filter(|w| w[0] * w[1] < 0.0).count();
+        Some(reversals as f64 / n)
+    }
+
+    /// Minimum price seen on sell-side trades.
+    pub fn tick_sell_price_min(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() { return None; }
+        ticks.iter()
+            .filter(|t| t.side == Some(TradeSide::Sell))
+            .filter_map(|t| t.price.to_f64())
+            .reduce(f64::min)
+    }
+
     /// Volume classified as aggressive (market orders, i.e., side = Buy or Sell).
     pub fn tick_aggressive_vol(ticks: &[NormalizedTick]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
@@ -25801,5 +25844,83 @@ mod tests {
         // roc = (110-100)/100 = 0.1
         let r = NormalizedTick::tick_price_roc_mean(&ticks).unwrap();
         assert!((r - 0.1).abs() < 1e-6, "expected 0.1 got {}", r);
+    }
+
+    #[test]
+    fn test_tick_close_above_prev_too_few_none() {
+        use rust_decimal_macros::dec;
+        let t = make_tick_pq(dec!(100), dec!(1));
+        assert!(NormalizedTick::tick_close_above_prev(&[t]).is_none());
+    }
+
+    #[test]
+    fn test_tick_close_above_prev_all_rising() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(102), dec!(1)),
+            make_tick_pq(dec!(104), dec!(1)),
+        ];
+        let r = NormalizedTick::tick_close_above_prev(&ticks).unwrap();
+        assert!((r - 1.0).abs() < 1e-6, "expected 1.0 got {}", r);
+    }
+
+    #[test]
+    fn test_tick_qty_change_rate_too_few_none() {
+        use rust_decimal_macros::dec;
+        let t = make_tick_pq(dec!(100), dec!(5));
+        assert!(NormalizedTick::tick_qty_change_rate(&[t]).is_none());
+    }
+
+    #[test]
+    fn test_tick_qty_change_rate_returns_nonneg() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(2)),
+            make_tick_pq(dec!(101), dec!(4)),
+            make_tick_pq(dec!(102), dec!(2)),
+        ];
+        let r = NormalizedTick::tick_qty_change_rate(&ticks).unwrap();
+        assert!(r >= 0.0, "expected nonneg got {}", r);
+    }
+
+    #[test]
+    fn test_tick_price_reversal_pct_too_few_none() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(102), dec!(1)),
+        ];
+        assert!(NormalizedTick::tick_price_reversal_pct(&ticks).is_none());
+    }
+
+    #[test]
+    fn test_tick_price_reversal_pct_returns_bounded() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(102), dec!(1)),
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(102), dec!(1)),
+        ];
+        let r = NormalizedTick::tick_price_reversal_pct(&ticks).unwrap();
+        assert!(r >= 0.0 && r <= 1.0);
+    }
+
+    #[test]
+    fn test_tick_sell_price_min_empty_none() {
+        assert!(NormalizedTick::tick_sell_price_min(&[]).is_none());
+    }
+
+    #[test]
+    fn test_tick_sell_price_min_returns_value() {
+        use rust_decimal_macros::dec;
+        use crate::tick::TradeSide;
+        let mut s1 = make_tick_pq(dec!(100), dec!(1));
+        s1.side = Some(TradeSide::Sell);
+        let mut s2 = make_tick_pq(dec!(95), dec!(1));
+        s2.side = Some(TradeSide::Sell);
+        let r = NormalizedTick::tick_sell_price_min(&[s1, s2]).unwrap();
+        assert!((r - 95.0).abs() < 1e-6, "expected 95.0 got {}", r);
     }
 }

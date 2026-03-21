@@ -8241,6 +8241,58 @@ impl MinMaxNormalizer {
         Some(m3 / m2.powf(1.5))
     }
 
+    /// Fraction of values above their local EMA (computed incrementally).
+    pub fn window_above_ema_pct(&self) -> Option<f64> {
+        if self.window.len() < 2 { return None; }
+        use rust_decimal::prelude::ToPrimitive;
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.len() < 2 { return None; }
+        let alpha = 2.0 / (vals.len() as f64 + 1.0);
+        let mut ema = vals[0];
+        let mut above = 0usize;
+        for &v in &vals[1..] {
+            ema = alpha * v + (1.0 - alpha) * ema;
+            if v > ema { above += 1; }
+        }
+        Some(above as f64 / (vals.len() - 1) as f64)
+    }
+
+    /// Fraction of consecutive pairs where value overshoots mean by more than half a std.
+    pub fn window_overshoot_pct(&self) -> Option<f64> {
+        if self.window.len() < 2 { return None; }
+        use rust_decimal::prelude::ToPrimitive;
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.len() < 2 { return None; }
+        let mean = vals.iter().sum::<f64>() / vals.len() as f64;
+        let std = {
+            let var = vals.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / vals.len() as f64;
+            var.sqrt()
+        };
+        if std == 0.0 { return Some(0.0); }
+        let threshold = std * 0.5;
+        let overshoots = vals.iter().filter(|&&v| (v - mean).abs() > threshold).count();
+        Some(overshoots as f64 / vals.len() as f64)
+    }
+
+    /// Longest run of consecutive identical values as fraction of window.
+    pub fn window_consecutive_flat(&self) -> Option<f64> {
+        if self.window.len() < 2 { return None; }
+        use rust_decimal::prelude::ToPrimitive;
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.len() < 2 { return None; }
+        let mut max_run = 1usize;
+        let mut cur_run = 1usize;
+        for i in 1..vals.len() {
+            if (vals[i] - vals[i - 1]).abs() < 1e-12 {
+                cur_run += 1;
+                max_run = max_run.max(cur_run);
+            } else {
+                cur_run = 1;
+            }
+        }
+        Some(max_run as f64 / vals.len() as f64)
+    }
+
 }
 
 #[cfg(test)]
@@ -17819,6 +17871,53 @@ mod tests {
         for _ in 0..4 { n.update(dec!(5)); }
         assert!(n.window_signed_skew().is_none());
     }
+
+    #[test]
+    fn test_minmax_window_above_ema_pct_none_single() {
+        let mut n = norm(5);
+        n.update(dec!(10));
+        assert!(n.window_above_ema_pct().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_above_ema_pct_returns_bounded() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let r = n.window_above_ema_pct().unwrap();
+        assert!(r >= 0.0 && r <= 1.0);
+    }
+
+    #[test]
+    fn test_minmax_window_overshoot_pct_none_single() {
+        let mut n = norm(5);
+        n.update(dec!(5));
+        assert!(n.window_overshoot_pct().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_overshoot_pct_uniform_zero() {
+        let mut n = norm(4);
+        for _ in 0..4 { n.update(dec!(5)); }
+        // std=0 → returns 0.0
+        let r = n.window_overshoot_pct().unwrap();
+        assert!(r.abs() < 1e-9, "expected 0 got {}", r);
+    }
+
+    #[test]
+    fn test_minmax_window_consecutive_flat_none_single() {
+        let mut n = norm(5);
+        n.update(dec!(5));
+        assert!(n.window_consecutive_flat().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_consecutive_flat_all_same() {
+        let mut n = norm(4);
+        for _ in 0..4 { n.update(dec!(7)); }
+        // longest flat run = 4, window = 4 → 1.0
+        let r = n.window_consecutive_flat().unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "expected 1.0 got {}", r);
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -26005,6 +26104,58 @@ impl ZScoreNormalizer {
         if m2 == 0.0 { return None; }
         let m3 = vals.iter().map(|v| (v - mean).powi(3)).sum::<f64>() / n;
         Some(m3 / m2.powf(1.5))
+    }
+
+    /// Fraction of values above their local EMA (computed incrementally).
+    pub fn window_above_ema_pct(&self) -> Option<f64> {
+        if self.window.len() < 2 { return None; }
+        use rust_decimal::prelude::ToPrimitive;
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.len() < 2 { return None; }
+        let alpha = 2.0 / (vals.len() as f64 + 1.0);
+        let mut ema = vals[0];
+        let mut above = 0usize;
+        for &v in &vals[1..] {
+            ema = alpha * v + (1.0 - alpha) * ema;
+            if v > ema { above += 1; }
+        }
+        Some(above as f64 / (vals.len() - 1) as f64)
+    }
+
+    /// Fraction of consecutive pairs where value overshoots mean by more than half a std.
+    pub fn window_overshoot_pct(&self) -> Option<f64> {
+        if self.window.len() < 2 { return None; }
+        use rust_decimal::prelude::ToPrimitive;
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.len() < 2 { return None; }
+        let mean = vals.iter().sum::<f64>() / vals.len() as f64;
+        let std = {
+            let var = vals.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / vals.len() as f64;
+            var.sqrt()
+        };
+        if std == 0.0 { return Some(0.0); }
+        let threshold = std * 0.5;
+        let overshoots = vals.iter().filter(|&&v| (v - mean).abs() > threshold).count();
+        Some(overshoots as f64 / vals.len() as f64)
+    }
+
+    /// Longest run of consecutive identical values as fraction of window.
+    pub fn window_consecutive_flat(&self) -> Option<f64> {
+        if self.window.len() < 2 { return None; }
+        use rust_decimal::prelude::ToPrimitive;
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.len() < 2 { return None; }
+        let mut max_run = 1usize;
+        let mut cur_run = 1usize;
+        for i in 1..vals.len() {
+            if (vals[i] - vals[i - 1]).abs() < 1e-12 {
+                cur_run += 1;
+                max_run = max_run.max(cur_run);
+            } else {
+                cur_run = 1;
+            }
+        }
+        Some(max_run as f64 / vals.len() as f64)
     }
 
 }
@@ -35527,5 +35678,50 @@ mod zscore_stability_tests {
         let mut n = znorm(4);
         for _ in 0..4 { n.update(dec!(5)); }
         assert!(n.window_signed_skew().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_above_ema_pct_none_single() {
+        let mut n = znorm(5);
+        n.update(dec!(10));
+        assert!(n.window_above_ema_pct().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_above_ema_pct_returns_bounded() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let r = n.window_above_ema_pct().unwrap();
+        assert!(r >= 0.0 && r <= 1.0);
+    }
+
+    #[test]
+    fn test_zscore_window_overshoot_pct_none_single() {
+        let mut n = znorm(5);
+        n.update(dec!(5));
+        assert!(n.window_overshoot_pct().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_overshoot_pct_uniform_zero() {
+        let mut n = znorm(4);
+        for _ in 0..4 { n.update(dec!(5)); }
+        let r = n.window_overshoot_pct().unwrap();
+        assert!(r.abs() < 1e-9, "expected 0 got {}", r);
+    }
+
+    #[test]
+    fn test_zscore_window_consecutive_flat_none_single() {
+        let mut n = znorm(5);
+        n.update(dec!(5));
+        assert!(n.window_consecutive_flat().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_consecutive_flat_all_same() {
+        let mut n = znorm(4);
+        for _ in 0..4 { n.update(dec!(7)); }
+        let r = n.window_consecutive_flat().unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "expected 1.0 got {}", r);
     }
 }
