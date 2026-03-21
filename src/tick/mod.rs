@@ -8736,6 +8736,70 @@ impl NormalizedTick {
         Some((last - first) / first / n)
     }
 
+    /// Mean price weighted by inverse rank distance from mean: gravity toward mean.
+    pub fn tick_price_gravity(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() { return None; }
+        let prices: Vec<f64> = ticks.iter().filter_map(|t| t.price.to_f64()).collect();
+        if prices.is_empty() { return None; }
+        let mean = prices.iter().sum::<f64>() / prices.len() as f64;
+        let total_dist: f64 = prices.iter().map(|p| (p - mean).abs()).sum();
+        if total_dist == 0.0 { return Some(0.0); }
+        // fraction of ticks within 1 std dev of mean
+        let std = (prices.iter().map(|p| (p - mean).powi(2)).sum::<f64>() / prices.len() as f64).sqrt();
+        let near_count = prices.iter().filter(|&&p| (p - mean).abs() <= std).count();
+        Some(near_count as f64 / prices.len() as f64)
+    }
+
+    /// Ratio of upward volatility to downward volatility: std(up_moves) / std(down_moves).
+    pub fn price_vol_skew_ratio(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 2 { return None; }
+        let prices: Vec<f64> = ticks.iter().filter_map(|t| t.price.to_f64()).collect();
+        if prices.len() < 2 { return None; }
+        let moves: Vec<f64> = prices.windows(2).map(|w| w[1] - w[0]).collect();
+        let ups: Vec<f64> = moves.iter().cloned().filter(|&m| m > 0.0).collect();
+        let downs: Vec<f64> = moves.iter().cloned().filter(|&m| m < 0.0).collect();
+        if ups.is_empty() || downs.is_empty() { return None; }
+        let std_fn = |v: &[f64]| {
+            let m = v.iter().sum::<f64>() / v.len() as f64;
+            (v.iter().map(|x| (x - m).powi(2)).sum::<f64>() / v.len() as f64).sqrt()
+        };
+        let su = std_fn(&ups);
+        let sd = std_fn(&downs.iter().map(|x| x.abs()).collect::<Vec<_>>());
+        if sd == 0.0 { return None; }
+        Some(su / sd)
+    }
+
+    /// Z-score of tick volume relative to slice: (qty - mean_qty) / std_qty for last tick.
+    pub fn tick_volume_zscore(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 2 { return None; }
+        let qtys: Vec<f64> = ticks.iter().filter_map(|t| t.quantity.to_f64()).collect();
+        if qtys.len() < 2 { return None; }
+        let mean = qtys.iter().sum::<f64>() / qtys.len() as f64;
+        let std = (qtys.iter().map(|q| (q - mean).powi(2)).sum::<f64>() / qtys.len() as f64).sqrt();
+        if std == 0.0 { return Some(0.0); }
+        let last = *qtys.last()?;
+        Some((last - mean) / std)
+    }
+
+    /// Maximum upward run from any trough: max(price) - min(price before that max).
+    pub fn price_max_drawup(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() { return None; }
+        let prices: Vec<f64> = ticks.iter().filter_map(|t| t.price.to_f64()).collect();
+        if prices.is_empty() { return None; }
+        let mut min_so_far = prices[0];
+        let mut max_drawup = 0.0_f64;
+        for &p in &prices {
+            let drawup = p - min_so_far;
+            if drawup > max_drawup { max_drawup = drawup; }
+            if p < min_so_far { min_so_far = p; }
+        }
+        Some(max_drawup)
+    }
+
 }
 
 
@@ -19884,6 +19948,81 @@ mod tests {
             make_tick_pq(dec!(100), dec!(1)),
         ];
         let r = NormalizedTick::price_range_change_rate(&ticks).unwrap();
+        assert!(r.abs() < 1e-9, "expected 0.0, got {}", r);
+    }
+
+    // --- round-177 ---
+
+    #[test]
+    fn test_tick_price_gravity_none_for_empty() {
+        assert!(NormalizedTick::tick_price_gravity(&[]).is_none());
+    }
+
+    #[test]
+    fn test_tick_price_gravity_constant_zero_spread() {
+        use rust_decimal_macros::dec;
+        // All same price → total_dist=0 → returns 0.0 (no spread to measure)
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(100), dec!(1)),
+        ];
+        let r = NormalizedTick::tick_price_gravity(&ticks).unwrap();
+        assert!(r.abs() < 1e-9, "expected 0.0, got {}", r);
+    }
+
+    #[test]
+    fn test_price_vol_skew_ratio_none_for_empty() {
+        assert!(NormalizedTick::price_vol_skew_ratio(&[]).is_none());
+    }
+
+    #[test]
+    fn test_price_vol_skew_ratio_no_down_none() {
+        use rust_decimal_macros::dec;
+        // All up moves → no downs → None
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(101), dec!(1)),
+            make_tick_pq(dec!(102), dec!(1)),
+        ];
+        assert!(NormalizedTick::price_vol_skew_ratio(&ticks).is_none());
+    }
+
+    #[test]
+    fn test_tick_volume_zscore_none_for_single() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![make_tick_pq(dec!(100), dec!(1))];
+        assert!(NormalizedTick::tick_volume_zscore(&ticks).is_none());
+    }
+
+    #[test]
+    fn test_tick_volume_zscore_constant_zero() {
+        use rust_decimal_macros::dec;
+        // All same qty → std=0 → zscore=0
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(5)),
+            make_tick_pq(dec!(101), dec!(5)),
+            make_tick_pq(dec!(102), dec!(5)),
+        ];
+        let r = NormalizedTick::tick_volume_zscore(&ticks).unwrap();
+        assert!(r.abs() < 1e-9, "expected 0.0, got {}", r);
+    }
+
+    #[test]
+    fn test_price_max_drawup_none_for_empty() {
+        assert!(NormalizedTick::price_max_drawup(&[]).is_none());
+    }
+
+    #[test]
+    fn test_price_max_drawup_monotone_decreasing_zero() {
+        use rust_decimal_macros::dec;
+        // Decreasing → no drawup
+        let ticks = vec![
+            make_tick_pq(dec!(110), dec!(1)),
+            make_tick_pq(dec!(105), dec!(1)),
+            make_tick_pq(dec!(100), dec!(1)),
+        ];
+        let r = NormalizedTick::price_max_drawup(&ticks).unwrap();
         assert!(r.abs() < 1e-9, "expected 0.0, got {}", r);
     }
 }

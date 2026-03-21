@@ -8435,6 +8435,62 @@ impl OhlcvBar {
         Some(wsum / wt)
     }
 
+    /// Exponentially weighted moving average of close (alpha=2/(n+1)).
+    pub fn bar_ewma_close(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let alpha = 2.0 / (bars.len() as f64 + 1.0);
+        let mut ema = bars.first()?.close.to_f64()?;
+        for b in bars.iter().skip(1) {
+            let c = b.close.to_f64()?;
+            ema = alpha * c + (1.0 - alpha) * ema;
+        }
+        Some(ema)
+    }
+
+    /// Position of open within [low, high]: (open - low) / (high - low).
+    pub fn bar_open_range_pos(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let vals: Vec<f64> = bars.iter().filter_map(|b| {
+            let h = b.high.to_f64()?;
+            let l = b.low.to_f64()?;
+            let o = b.open.to_f64()?;
+            let range = h - l;
+            if range == 0.0 { return None; }
+            Some((o - l) / range)
+        }).collect();
+        if vals.is_empty() { return None; }
+        Some(vals.iter().sum::<f64>() / vals.len() as f64)
+    }
+
+    /// Fraction of bars with volume > mean volume of the slice.
+    pub fn bar_volume_above_mean_pct(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let vols: Vec<f64> = bars.iter().filter_map(|b| b.volume.to_f64()).collect();
+        if vols.is_empty() { return None; }
+        let mean = vols.iter().sum::<f64>() / vols.len() as f64;
+        let above = vols.iter().filter(|&&v| v > mean).count();
+        Some(above as f64 / vols.len() as f64)
+    }
+
+    /// Mean (close - low) / (high - low) per bar — close position in range.
+    pub fn bar_close_minus_low_pct(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let vals: Vec<f64> = bars.iter().filter_map(|b| {
+            let h = b.high.to_f64()?;
+            let l = b.low.to_f64()?;
+            let c = b.close.to_f64()?;
+            let range = h - l;
+            if range == 0.0 { return None; }
+            Some((c - l) / range)
+        }).collect();
+        if vals.is_empty() { return None; }
+        Some(vals.iter().sum::<f64>() / vals.len() as f64)
+    }
+
 }
 
 impl std::fmt::Display for OhlcvBar {
@@ -19138,5 +19194,60 @@ mod tests {
         let bar = make_ohlcv_bar(dec!(95), dec!(110), dec!(90), dec!(100));
         let r = OhlcvBar::bar_wma_close(&[bar]).unwrap();
         assert!((r - 100.0).abs() < 1e-9, "expected 100.0, got {}", r);
+    }
+
+    // --- round-177 ---
+
+    #[test]
+    fn test_bar_ewma_close_none_for_empty() {
+        assert!(OhlcvBar::bar_ewma_close(&[]).is_none());
+    }
+
+    #[test]
+    fn test_bar_ewma_close_single_bar() {
+        // Single bar → ema = close
+        let bar = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let r = OhlcvBar::bar_ewma_close(&[bar]).unwrap();
+        assert!((r - 105.0).abs() < 1e-9, "expected 105.0, got {}", r);
+    }
+
+    #[test]
+    fn test_bar_open_range_pos_none_for_empty() {
+        assert!(OhlcvBar::bar_open_range_pos(&[]).is_none());
+    }
+
+    #[test]
+    fn test_bar_open_range_pos_open_at_low() {
+        // O=L=90, H=110 → position = (90-90)/(110-90) = 0.0
+        let bar = make_ohlcv_bar(dec!(90), dec!(110), dec!(90), dec!(100));
+        let r = OhlcvBar::bar_open_range_pos(&[bar]).unwrap();
+        assert!(r.abs() < 1e-9, "expected 0.0, got {}", r);
+    }
+
+    #[test]
+    fn test_bar_volume_above_mean_pct_none_for_empty() {
+        assert!(OhlcvBar::bar_volume_above_mean_pct(&[]).is_none());
+    }
+
+    #[test]
+    fn test_bar_volume_above_mean_pct_all_equal_zero() {
+        // All same volume → none above mean → 0.0
+        let b0 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100));
+        let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100));
+        let r = OhlcvBar::bar_volume_above_mean_pct(&[b0, b1]).unwrap();
+        assert!(r.abs() < 1e-9, "expected 0.0, got {}", r);
+    }
+
+    #[test]
+    fn test_bar_close_minus_low_pct_none_for_empty() {
+        assert!(OhlcvBar::bar_close_minus_low_pct(&[]).is_none());
+    }
+
+    #[test]
+    fn test_bar_close_minus_low_pct_close_at_low_zero() {
+        // C=L=90, H=110 → pct = (90-90)/(110-90) = 0.0
+        let bar = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(90));
+        let r = OhlcvBar::bar_close_minus_low_pct(&[bar]).unwrap();
+        assert!(r.abs() < 1e-9, "expected 0.0, got {}", r);
     }
 }

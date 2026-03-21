@@ -9,6 +9,30 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.10.28] - 2026-03-20
+
+### Added
+
+**`tick` module — `NormalizedTick` analytics (round 177)**
+- `NormalizedTick::tick_price_gravity(ticks)` — fraction of ticks within 1 std dev of mean price.
+- `NormalizedTick::price_vol_skew_ratio(ticks)` — std(up moves) / std(|down moves|).
+- `NormalizedTick::tick_volume_zscore(ticks)` — z-score of last tick quantity.
+- `NormalizedTick::price_max_drawup(ticks)` — maximum upward run from any trough.
+
+**`ohlcv` module — `OhlcvBar` analytics (round 177)**
+- `OhlcvBar::bar_ewma_close(bars)` — exponentially weighted moving average of close (alpha=2/(n+1)).
+- `OhlcvBar::bar_open_range_pos(bars)` — mean (open - low) / (high - low) per bar.
+- `OhlcvBar::bar_volume_above_mean_pct(bars)` — fraction of bars with volume above slice mean.
+- `OhlcvBar::bar_close_minus_low_pct(bars)` — mean (close - low) / (high - low) per bar.
+
+**`norm` module — `MinMaxNormalizer` + `ZScoreNormalizer` analytics (round 177)**
+- `window_signed_sum()` — sum of all signed values in the window.
+- `window_positive_streak()` — longest consecutive run of positive values.
+- `window_negative_streak()` — longest consecutive run of negative values.
+- `window_decay_midpoint()` — normalized index where cumulative |value| crosses 50%.
+
+---
+
 ## [2.10.27] - 2026-03-20
 
 ### Added
