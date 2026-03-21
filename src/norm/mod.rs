@@ -1655,6 +1655,51 @@ impl MinMaxNormalizer {
         Some(var)
     }
 
+    // ── round-88 ─────────────────────────────────────────────────────────────
+
+    /// Number of times the window reaches a new running maximum (from index 0).
+    pub fn new_max_count(&self) -> usize {
+        if self.window.is_empty() {
+            return 0;
+        }
+        let vals: Vec<Decimal> = self.window.iter().copied().collect();
+        let mut running = vals[0];
+        let mut count = 1usize;
+        for &v in vals.iter().skip(1) {
+            if v > running {
+                running = v;
+                count += 1;
+            }
+        }
+        count
+    }
+
+    /// Number of times the window reaches a new running minimum (from index 0).
+    pub fn new_min_count(&self) -> usize {
+        if self.window.is_empty() {
+            return 0;
+        }
+        let vals: Vec<Decimal> = self.window.iter().copied().collect();
+        let mut running = vals[0];
+        let mut count = 1usize;
+        for &v in vals.iter().skip(1) {
+            if v < running {
+                running = v;
+                count += 1;
+            }
+        }
+        count
+    }
+
+    /// Fraction of window values strictly equal to zero.
+    pub fn zero_fraction(&self) -> Option<f64> {
+        if self.window.is_empty() {
+            return None;
+        }
+        let count = self.window.iter().filter(|&&v| v == Decimal::ZERO).count();
+        Some(count as f64 / self.window.len() as f64)
+    }
+
 }
 
 #[cfg(test)]
@@ -3747,6 +3792,48 @@ mod tests {
         let tv = n.tail_variance().unwrap();
         assert!(tv >= 0.0, "tail variance should be non-negative, got {}", tv);
     }
+
+    // ── round-88 tests ─────────────────────────────────────────────────────
+
+    #[test]
+    fn test_minmax_new_max_count_zero_for_empty() {
+        let n = norm(4);
+        assert_eq!(n.new_max_count(), 0);
+    }
+
+    #[test]
+    fn test_minmax_new_max_count_all_rising() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        assert_eq!(n.new_max_count(), 4, "each value is a new high");
+    }
+
+    #[test]
+    fn test_minmax_new_min_count_zero_for_empty() {
+        let n = norm(4);
+        assert_eq!(n.new_min_count(), 0);
+    }
+
+    #[test]
+    fn test_minmax_new_min_count_all_falling() {
+        let mut n = norm(4);
+        for v in [dec!(4), dec!(3), dec!(2), dec!(1)] { n.update(v); }
+        assert_eq!(n.new_min_count(), 4, "each value is a new low");
+    }
+
+    #[test]
+    fn test_minmax_zero_fraction_none_for_empty() {
+        let n = norm(4);
+        assert!(n.zero_fraction().is_none());
+    }
+
+    #[test]
+    fn test_minmax_zero_fraction_zero_when_no_zeros() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        let f = n.zero_fraction().unwrap();
+        assert!(f.abs() < 1e-9, "no zeros → fraction=0, got {}", f);
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -5366,6 +5453,51 @@ impl ZScoreNormalizer {
         let mean = tails.iter().sum::<f64>() / nt;
         let var = tails.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / (nt - 1.0);
         Some(var)
+    }
+
+    // ── round-88 ─────────────────────────────────────────────────────────────
+
+    /// Number of times the window reaches a new running maximum (from index 0).
+    pub fn new_max_count(&self) -> usize {
+        if self.window.is_empty() {
+            return 0;
+        }
+        let vals: Vec<Decimal> = self.window.iter().copied().collect();
+        let mut running = vals[0];
+        let mut count = 1usize;
+        for &v in vals.iter().skip(1) {
+            if v > running {
+                running = v;
+                count += 1;
+            }
+        }
+        count
+    }
+
+    /// Number of times the window reaches a new running minimum (from index 0).
+    pub fn new_min_count(&self) -> usize {
+        if self.window.is_empty() {
+            return 0;
+        }
+        let vals: Vec<Decimal> = self.window.iter().copied().collect();
+        let mut running = vals[0];
+        let mut count = 1usize;
+        for &v in vals.iter().skip(1) {
+            if v < running {
+                running = v;
+                count += 1;
+            }
+        }
+        count
+    }
+
+    /// Fraction of window values strictly equal to zero.
+    pub fn zero_fraction(&self) -> Option<f64> {
+        if self.window.is_empty() {
+            return None;
+        }
+        let count = self.window.iter().filter(|&&v| v == Decimal::ZERO).count();
+        Some(count as f64 / self.window.len() as f64)
     }
 
 }
@@ -7601,5 +7733,47 @@ mod zscore_stability_tests {
         for v in [dec!(1), dec!(2), dec!(5), dec!(6), dec!(9), dec!(10)] { n.update(v); }
         let tv = n.tail_variance().unwrap();
         assert!(tv >= 0.0, "tail variance should be non-negative, got {}", tv);
+    }
+
+    // ── round-88 tests ─────────────────────────────────────────────────────
+
+    #[test]
+    fn test_zscore_new_max_count_zero_for_empty() {
+        let n = znorm(4);
+        assert_eq!(n.new_max_count(), 0);
+    }
+
+    #[test]
+    fn test_zscore_new_max_count_all_rising() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        assert_eq!(n.new_max_count(), 4, "each value is a new high");
+    }
+
+    #[test]
+    fn test_zscore_new_min_count_zero_for_empty() {
+        let n = znorm(4);
+        assert_eq!(n.new_min_count(), 0);
+    }
+
+    #[test]
+    fn test_zscore_new_min_count_all_falling() {
+        let mut n = znorm(4);
+        for v in [dec!(4), dec!(3), dec!(2), dec!(1)] { n.update(v); }
+        assert_eq!(n.new_min_count(), 4, "each value is a new low");
+    }
+
+    #[test]
+    fn test_zscore_zero_fraction_none_for_empty() {
+        let n = znorm(4);
+        assert!(n.zero_fraction().is_none());
+    }
+
+    #[test]
+    fn test_zscore_zero_fraction_zero_when_no_zeros() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        let f = n.zero_fraction().unwrap();
+        assert!(f.abs() < 1e-9, "no zeros → fraction=0, got {}", f);
     }
 }

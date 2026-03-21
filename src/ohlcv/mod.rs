@@ -3395,6 +3395,90 @@ impl OhlcvBar {
         Some(ratios.iter().sum::<f64>() / ratios.len() as f64)
     }
 
+    // ── round-88 ─────────────────────────────────────────────────────────────
+
+    /// Price range of a single bar expressed as a fraction of open price.
+    ///
+    /// Returns `None` if open is zero or the slice is empty.
+    pub fn avg_range_pct_of_open(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                if b.open.is_zero() { return None; }
+                ((b.high - b.low) / b.open).to_f64()
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
+        Some(vals.iter().sum::<f64>() / vals.len() as f64)
+    }
+
+    /// Fraction of bars where volume is in the upper half of the volume range.
+    ///
+    /// Returns `None` for empty slices or when all volumes are equal.
+    pub fn high_volume_fraction(bars: &[OhlcvBar]) -> Option<f64> {
+        if bars.is_empty() {
+            return None;
+        }
+        let max_vol = bars.iter().map(|b| b.volume).max()?;
+        let min_vol = bars.iter().map(|b| b.volume).min()?;
+        let mid = (max_vol + min_vol) / Decimal::from(2);
+        if max_vol == min_vol {
+            return None;
+        }
+        let count = bars.iter().filter(|b| b.volume > mid).count();
+        Some(count as f64 / bars.len() as f64)
+    }
+
+    /// Count of bars where close is within 1% of the prior bar's close.
+    ///
+    /// Returns 0 for slices with fewer than 2 bars.
+    pub fn close_cluster_count(bars: &[OhlcvBar]) -> usize {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.len() < 2 {
+            return 0;
+        }
+        bars.windows(2)
+            .filter(|w| {
+                if w[0].close.is_zero() {
+                    return false;
+                }
+                let pct_diff = ((w[1].close - w[0].close) / w[0].close).abs();
+                pct_diff <= rust_decimal::Decimal::new(1, 2)
+            })
+            .count()
+    }
+
+    /// Mean of `vwap` values across bars that have a VWAP computed.
+    ///
+    /// Returns `None` for empty slices or when no bars have a VWAP.
+    pub fn mean_vwap(bars: &[OhlcvBar]) -> Option<Decimal> {
+        let vals: Vec<Decimal> = bars.iter().filter_map(|b| b.vwap).collect();
+        if vals.is_empty() {
+            return None;
+        }
+        let sum: Decimal = vals.iter().copied().sum();
+        Some(sum / Decimal::from(vals.len() as i64))
+    }
+
+    /// Fraction of bars that are complete (is_complete == true).
+    ///
+    /// Returns `None` for empty slices.
+    pub fn complete_fraction(bars: &[OhlcvBar]) -> Option<f64> {
+        if bars.is_empty() {
+            return None;
+        }
+        let count = bars.iter().filter(|b| b.is_complete).count();
+        Some(count as f64 / bars.len() as f64)
+    }
+
+    /// Sum of `(close − open).abs()` across all bars; total body movement.
+    pub fn total_body_movement(bars: &[OhlcvBar]) -> Decimal {
+        bars.iter().map(|b| (b.close - b.open).abs()).sum()
+    }
+
 }
 
 impl std::fmt::Display for OhlcvBar {
@@ -8915,5 +8999,62 @@ mod tests {
         // upper wick = 10, lower wick = 10 → perfectly symmetric → ratio = 1
         let s = OhlcvBar::avg_wick_symmetry(&[b]).unwrap();
         assert!(s >= 0.0 && s <= 1.0, "symmetry in [0,1], got {}", s);
+    }
+
+    // ── round-88 tests ────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_avg_range_pct_of_open_none_for_empty() {
+        assert!(OhlcvBar::avg_range_pct_of_open(&[]).is_none());
+    }
+
+    #[test]
+    fn test_avg_range_pct_of_open_correct() {
+        // range = 20 (110 - 90), open = 100 → 20%
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let r = OhlcvBar::avg_range_pct_of_open(&[b]).unwrap();
+        assert!((r - 0.2).abs() < 1e-9, "range/open = 0.2, got {}", r);
+    }
+
+    #[test]
+    fn test_high_volume_fraction_none_for_empty() {
+        assert!(OhlcvBar::high_volume_fraction(&[]).is_none());
+    }
+
+    #[test]
+    fn test_close_cluster_count_zero_for_single_bar() {
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        assert_eq!(OhlcvBar::close_cluster_count(&[b]), 0);
+    }
+
+    #[test]
+    fn test_mean_vwap_none_for_bars_without_vwap() {
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        assert!(OhlcvBar::mean_vwap(&[b]).is_none());
+    }
+
+    #[test]
+    fn test_complete_fraction_none_for_empty() {
+        assert!(OhlcvBar::complete_fraction(&[]).is_none());
+    }
+
+    #[test]
+    fn test_complete_fraction_zero_when_none_complete() {
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        // make_ohlcv_bar sets is_complete=false by default
+        let f = OhlcvBar::complete_fraction(&[b]).unwrap();
+        assert!(f.abs() < 1e-9, "no complete bars → fraction=0, got {}", f);
+    }
+
+    #[test]
+    fn test_total_body_movement_zero_for_empty() {
+        assert_eq!(OhlcvBar::total_body_movement(&[]), rust_decimal::Decimal::ZERO);
+    }
+
+    #[test]
+    fn test_total_body_movement_correct() {
+        let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105)); // body = 5
+        let b2 = make_ohlcv_bar(dec!(110), dec!(120), dec!(100), dec!(100)); // body = 10
+        assert_eq!(OhlcvBar::total_body_movement(&[b1, b2]), dec!(15));
     }
 }

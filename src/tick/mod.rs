@@ -3148,6 +3148,132 @@ impl NormalizedTick {
         Some(total_notional / elapsed_sec)
     }
 
+    // ── round-88 ─────────────────────────────────────────────────────────────
+
+    /// Net order-flow imbalance: `(buy_qty − sell_qty) / total_qty`.
+    ///
+    /// Returns a value in `[−1, 1]`: +1 = all buys, −1 = all sells.
+    /// Returns `None` for empty slices or zero total quantity.
+    pub fn order_flow_imbalance(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() {
+            return None;
+        }
+        let buy_qty: Decimal = ticks
+            .iter()
+            .filter(|t| t.side == Some(crate::tick::TradeSide::Buy))
+            .map(|t| t.quantity)
+            .sum();
+        let sell_qty: Decimal = ticks
+            .iter()
+            .filter(|t| t.side == Some(crate::tick::TradeSide::Sell))
+            .map(|t| t.quantity)
+            .sum();
+        let total: Decimal = ticks.iter().map(|t| t.quantity).sum();
+        if total.is_zero() {
+            return None;
+        }
+        (buy_qty - sell_qty).to_f64().zip(total.to_f64()).map(|(n, d)| n / d)
+    }
+
+    /// Fraction of consecutive tick pairs where both price and quantity increased.
+    ///
+    /// Returns `None` for fewer than 2 ticks.
+    pub fn price_qty_up_fraction(ticks: &[NormalizedTick]) -> Option<f64> {
+        if ticks.len() < 2 {
+            return None;
+        }
+        let count = ticks
+            .windows(2)
+            .filter(|w| w[1].price > w[0].price && w[1].quantity > w[0].quantity)
+            .count();
+        Some(count as f64 / (ticks.len() - 1) as f64)
+    }
+
+    /// Count of ticks where price is at an all-time high within the slice (including first tick).
+    pub fn running_high_count(ticks: &[NormalizedTick]) -> usize {
+        if ticks.is_empty() {
+            return 0;
+        }
+        let mut hi = ticks[0].price;
+        let mut count = 1usize;
+        for t in ticks.iter().skip(1) {
+            if t.price >= hi {
+                hi = t.price;
+                count += 1;
+            }
+        }
+        count
+    }
+
+    /// Count of ticks where price is at an all-time low within the slice (including first tick).
+    pub fn running_low_count(ticks: &[NormalizedTick]) -> usize {
+        if ticks.is_empty() {
+            return 0;
+        }
+        let mut lo = ticks[0].price;
+        let mut count = 1usize;
+        for t in ticks.iter().skip(1) {
+            if t.price <= lo {
+                lo = t.price;
+                count += 1;
+            }
+        }
+        count
+    }
+
+    /// Mean quantity of buy ticks divided by mean quantity of sell ticks.
+    ///
+    /// Returns `None` if no buy or sell ticks, or if sell mean is zero.
+    pub fn buy_sell_avg_qty_ratio(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let buys: Vec<Decimal> = ticks
+            .iter()
+            .filter(|t| t.side == Some(crate::tick::TradeSide::Buy))
+            .map(|t| t.quantity)
+            .collect();
+        let sells: Vec<Decimal> = ticks
+            .iter()
+            .filter(|t| t.side == Some(crate::tick::TradeSide::Sell))
+            .map(|t| t.quantity)
+            .collect();
+        if buys.is_empty() || sells.is_empty() {
+            return None;
+        }
+        let buy_mean = buys.iter().copied().sum::<Decimal>() / Decimal::from(buys.len() as i64);
+        let sell_mean = sells.iter().copied().sum::<Decimal>() / Decimal::from(sells.len() as i64);
+        if sell_mean.is_zero() {
+            return None;
+        }
+        (buy_mean / sell_mean).to_f64()
+    }
+
+    /// Largest price drop between any two consecutive ticks (always ≥ 0).
+    ///
+    /// Returns `None` for fewer than 2 ticks.
+    pub fn max_price_drop(ticks: &[NormalizedTick]) -> Option<Decimal> {
+        if ticks.len() < 2 {
+            return None;
+        }
+        ticks
+            .windows(2)
+            .map(|w| (w[0].price - w[1].price).max(Decimal::ZERO))
+            .max()
+    }
+
+    /// Largest price rise between any two consecutive ticks (always ≥ 0).
+    ///
+    /// Returns `None` for fewer than 2 ticks.
+    pub fn max_price_rise(ticks: &[NormalizedTick]) -> Option<Decimal> {
+        if ticks.len() < 2 {
+            return None;
+        }
+        ticks
+            .windows(2)
+            .map(|w| (w[1].price - w[0].price).max(Decimal::ZERO))
+            .max()
+    }
+
 }
 
 
@@ -7934,5 +8060,95 @@ mod tests {
         // 100 + 100 = 200 notional in 1s
         let r = NormalizedTick::notional_per_second(&[t1, t2]).unwrap();
         assert!((r - 200.0).abs() < 1e-9, "expected 200, got {}", r);
+    }
+
+    // ── round-88 tests ────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_order_flow_imbalance_none_for_empty() {
+        assert!(NormalizedTick::order_flow_imbalance(&[]).is_none());
+    }
+
+    #[test]
+    fn test_order_flow_imbalance_pos_one_for_all_buys() {
+        use rust_decimal_macros::dec;
+        let mut t = make_tick_pq(dec!(100), dec!(5));
+        t.side = Some(crate::tick::TradeSide::Buy);
+        let r = NormalizedTick::order_flow_imbalance(&[t]).unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "all buys → OFI=+1, got {}", r);
+    }
+
+    #[test]
+    fn test_order_flow_imbalance_neg_one_for_all_sells() {
+        use rust_decimal_macros::dec;
+        let mut t = make_tick_pq(dec!(100), dec!(5));
+        t.side = Some(crate::tick::TradeSide::Sell);
+        let r = NormalizedTick::order_flow_imbalance(&[t]).unwrap();
+        assert!((r + 1.0).abs() < 1e-9, "all sells → OFI=-1, got {}", r);
+    }
+
+    #[test]
+    fn test_price_qty_up_fraction_none_for_single() {
+        use rust_decimal_macros::dec;
+        let t = make_tick_pq(dec!(100), dec!(1));
+        assert!(NormalizedTick::price_qty_up_fraction(&[t]).is_none());
+    }
+
+    #[test]
+    fn test_running_high_count_single_tick() {
+        use rust_decimal_macros::dec;
+        let t = make_tick_pq(dec!(100), dec!(1));
+        assert_eq!(NormalizedTick::running_high_count(&[t]), 1);
+    }
+
+    #[test]
+    fn test_running_low_count_single_tick() {
+        use rust_decimal_macros::dec;
+        let t = make_tick_pq(dec!(100), dec!(1));
+        assert_eq!(NormalizedTick::running_low_count(&[t]), 1);
+    }
+
+    #[test]
+    fn test_buy_sell_avg_qty_ratio_none_for_no_sells() {
+        use rust_decimal_macros::dec;
+        let mut t = make_tick_pq(dec!(100), dec!(5));
+        t.side = Some(crate::tick::TradeSide::Buy);
+        assert!(NormalizedTick::buy_sell_avg_qty_ratio(&[t]).is_none());
+    }
+
+    #[test]
+    fn test_max_price_drop_none_for_single() {
+        use rust_decimal_macros::dec;
+        let t = make_tick_pq(dec!(100), dec!(1));
+        assert!(NormalizedTick::max_price_drop(&[t]).is_none());
+    }
+
+    #[test]
+    fn test_max_price_rise_none_for_single() {
+        use rust_decimal_macros::dec;
+        let t = make_tick_pq(dec!(100), dec!(1));
+        assert!(NormalizedTick::max_price_rise(&[t]).is_none());
+    }
+
+    #[test]
+    fn test_max_price_drop_correct() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(90), dec!(1)),  // drop = 10
+            make_tick_pq(dec!(95), dec!(1)),  // rise
+        ];
+        assert_eq!(NormalizedTick::max_price_drop(&ticks).unwrap(), dec!(10));
+    }
+
+    #[test]
+    fn test_max_price_rise_correct() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(90), dec!(1)),
+            make_tick_pq(dec!(105), dec!(1)),  // rise = 15
+            make_tick_pq(dec!(100), dec!(1)),
+        ];
+        assert_eq!(NormalizedTick::max_price_rise(&ticks).unwrap(), dec!(15));
     }
 }
