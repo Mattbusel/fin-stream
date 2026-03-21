@@ -10099,6 +10099,50 @@ impl NormalizedTick {
         Some(num / (dp * dq))
     }
 
+    /// First-lag autocorrelation of tick quantities.
+    pub fn tick_qty_autocorr(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 3 { return None; }
+        let qtys: Vec<f64> = ticks.iter().filter_map(|t| t.quantity.to_f64()).collect();
+        if qtys.len() < 3 { return None; }
+        let n = qtys.len() as f64;
+        let mean = qtys.iter().sum::<f64>() / n;
+        let num: f64 = qtys.windows(2).map(|w| (w[0] - mean) * (w[1] - mean)).sum();
+        let denom: f64 = qtys.iter().map(|q| (q - mean).powi(2)).sum();
+        if denom == 0.0 { return None; }
+        Some(num / denom)
+    }
+
+    /// Ratio of volume in last third to volume in first third of ticks.
+    pub fn tick_vol_decay_ratio(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 3 { return None; }
+        let third = ticks.len() / 3;
+        let first: f64 = ticks[..third].iter().filter_map(|t| t.quantity.to_f64()).sum();
+        let last: f64 = ticks[ticks.len()-third..].iter().filter_map(|t| t.quantity.to_f64()).sum();
+        if first == 0.0 { return None; }
+        Some(last / first)
+    }
+
+    /// Ratio of last tick quantity to first tick quantity.
+    pub fn tick_first_last_qty(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 2 { return None; }
+        let first = ticks.first()?.quantity.to_f64()?;
+        let last = ticks.last()?.quantity.to_f64()?;
+        if first == 0.0 { return None; }
+        Some(last / first)
+    }
+
+    /// Average inter-tick volume rate (volume per tick as fraction of total).
+    pub fn tick_avg_trade_interval(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() { return None; }
+        let total: f64 = ticks.iter().filter_map(|t| t.quantity.to_f64()).sum();
+        if total == 0.0 { return None; }
+        Some(total / ticks.len() as f64)
+    }
+
     /// Count of price reversals (direction changes in tick-to-tick moves).
     pub fn tick_price_reversal_count(ticks: &[NormalizedTick]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
@@ -23223,5 +23267,78 @@ mod tests {
         ];
         let r = NormalizedTick::tick_mid_price_vol(&ticks).unwrap();
         assert!((r - 150.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_tick_qty_autocorr_too_few_none() {
+        use rust_decimal_macros::dec;
+        let t = make_tick_pq(dec!(100), dec!(1));
+        assert!(NormalizedTick::tick_qty_autocorr(&[t]).is_none());
+    }
+
+    #[test]
+    fn test_tick_qty_autocorr_returns_bounded() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(100), dec!(2)),
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(100), dec!(2)),
+        ];
+        let r = NormalizedTick::tick_qty_autocorr(&ticks).unwrap();
+        assert!(r >= -1.0 && r <= 1.0);
+    }
+
+    #[test]
+    fn test_tick_vol_decay_ratio_too_few_none() {
+        use rust_decimal_macros::dec;
+        let t = make_tick_pq(dec!(100), dec!(1));
+        assert!(NormalizedTick::tick_vol_decay_ratio(&[t]).is_none());
+    }
+
+    #[test]
+    fn test_tick_vol_decay_ratio_returns_positive() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(5)),
+            make_tick_pq(dec!(100), dec!(3)),
+            make_tick_pq(dec!(100), dec!(1)),
+        ];
+        let r = NormalizedTick::tick_vol_decay_ratio(&ticks).unwrap();
+        assert!(r > 0.0);
+    }
+
+    #[test]
+    fn test_tick_first_last_qty_too_few_none() {
+        use rust_decimal_macros::dec;
+        let t = make_tick_pq(dec!(100), dec!(1));
+        assert!(NormalizedTick::tick_first_last_qty(&[t]).is_none());
+    }
+
+    #[test]
+    fn test_tick_first_last_qty_equal_returns_one() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(3)),
+            make_tick_pq(dec!(100), dec!(3)),
+        ];
+        let r = NormalizedTick::tick_first_last_qty(&ticks).unwrap();
+        assert!((r - 1.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_tick_avg_trade_interval_empty_none() {
+        assert!(NormalizedTick::tick_avg_trade_interval(&[]).is_none());
+    }
+
+    #[test]
+    fn test_tick_avg_trade_interval_returns_positive() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(2)),
+            make_tick_pq(dec!(100), dec!(4)),
+        ];
+        let r = NormalizedTick::tick_avg_trade_interval(&ticks).unwrap();
+        assert!((r - 3.0).abs() < 1e-9);
     }
 }

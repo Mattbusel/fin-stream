@@ -7391,6 +7391,49 @@ impl MinMaxNormalizer {
         Some(var)
     }
 
+    /// Variance of the lower half of window values (below median).
+    pub fn window_lower_half_var(&self) -> Option<f64> {
+        if self.window.len() < 2 { return None; }
+        let mut vals: Vec<f64> = self.window.iter().filter_map(|v| {
+            use rust_decimal::prelude::ToPrimitive;
+            v.to_f64()
+        }).collect();
+        if vals.len() < 2 { return None; }
+        vals.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let med_idx = vals.len() / 2;
+        let lower = &vals[..med_idx];
+        if lower.len() < 2 { return None; }
+        let mean = lower.iter().sum::<f64>() / lower.len() as f64;
+        let var = lower.iter().map(|x| (x - mean).powi(2)).sum::<f64>() / (lower.len() - 1) as f64;
+        Some(var)
+    }
+
+    /// Asymmetry: (max - median) - (median - min) normalized by range.
+    pub fn window_range_skew(&self) -> Option<f64> {
+        if self.window.len() < 2 { return None; }
+        let mut vals: Vec<f64> = self.window.iter().filter_map(|v| {
+            use rust_decimal::prelude::ToPrimitive;
+            v.to_f64()
+        }).collect();
+        if vals.len() < 2 { return None; }
+        vals.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let min = vals[0];
+        let max = *vals.last()?;
+        let range = max - min;
+        if range == 0.0 { return Some(0.0); }
+        let n = vals.len();
+        let median = if n % 2 == 0 { (vals[n/2-1] + vals[n/2]) / 2.0 } else { vals[n/2] };
+        Some(((max - median) - (median - min)) / range)
+    }
+
+    /// Sign of the cumulative sum of window values.
+    pub fn window_cumsum_sign(&self) -> Option<f64> {
+        if self.window.is_empty() { return None; }
+        use rust_decimal::prelude::ToPrimitive;
+        let sum: f64 = self.window.iter().filter_map(|v| v.to_f64()).sum();
+        if sum > 1e-12 { Some(1.0) } else if sum < -1e-12 { Some(-1.0) } else { Some(0.0) }
+    }
+
 }
 
 #[cfg(test)]
@@ -16008,6 +16051,49 @@ mod tests {
         let r = n.window_upper_half_var().unwrap();
         assert!(r >= 0.0);
     }
+
+    #[test]
+    fn test_minmax_window_lower_half_var_too_few_none() {
+        let mut n = norm(4);
+        n.update(dec!(1));
+        assert!(n.window_lower_half_var().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_lower_half_var_returns_nonneg() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let r = n.window_lower_half_var().unwrap();
+        assert!(r >= 0.0);
+    }
+
+    #[test]
+    fn test_minmax_window_range_skew_too_few_none() {
+        let mut n = norm(4);
+        n.update(dec!(1));
+        assert!(n.window_range_skew().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_range_skew_symmetric_zero() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        let r = n.window_range_skew().unwrap();
+        assert!(r.abs() < 1e-9); // symmetric
+    }
+
+    #[test]
+    fn test_minmax_window_cumsum_sign_empty_none() {
+        assert!(norm(4).window_cumsum_sign().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_cumsum_sign_positive() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        let r = n.window_cumsum_sign().unwrap();
+        assert_eq!(r, 1.0);
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -23344,6 +23430,49 @@ impl ZScoreNormalizer {
         let mean = upper.iter().sum::<f64>() / upper.len() as f64;
         let var = upper.iter().map(|x| (x - mean).powi(2)).sum::<f64>() / (upper.len() - 1) as f64;
         Some(var)
+    }
+
+    /// Variance of the lower half of window values (below median).
+    pub fn window_lower_half_var(&self) -> Option<f64> {
+        if self.window.len() < 2 { return None; }
+        let mut vals: Vec<f64> = self.window.iter().filter_map(|v| {
+            use rust_decimal::prelude::ToPrimitive;
+            v.to_f64()
+        }).collect();
+        if vals.len() < 2 { return None; }
+        vals.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let med_idx = vals.len() / 2;
+        let lower = &vals[..med_idx];
+        if lower.len() < 2 { return None; }
+        let mean = lower.iter().sum::<f64>() / lower.len() as f64;
+        let var = lower.iter().map(|x| (x - mean).powi(2)).sum::<f64>() / (lower.len() - 1) as f64;
+        Some(var)
+    }
+
+    /// Asymmetry: (max - median) - (median - min) normalized by range.
+    pub fn window_range_skew(&self) -> Option<f64> {
+        if self.window.len() < 2 { return None; }
+        let mut vals: Vec<f64> = self.window.iter().filter_map(|v| {
+            use rust_decimal::prelude::ToPrimitive;
+            v.to_f64()
+        }).collect();
+        if vals.len() < 2 { return None; }
+        vals.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let min = vals[0];
+        let max = *vals.last()?;
+        let range = max - min;
+        if range == 0.0 { return Some(0.0); }
+        let n = vals.len();
+        let median = if n % 2 == 0 { (vals[n/2-1] + vals[n/2]) / 2.0 } else { vals[n/2] };
+        Some(((max - median) - (median - min)) / range)
+    }
+
+    /// Sign of the cumulative sum of window values.
+    pub fn window_cumsum_sign(&self) -> Option<f64> {
+        if self.window.is_empty() { return None; }
+        use rust_decimal::prelude::ToPrimitive;
+        let sum: f64 = self.window.iter().filter_map(|v| v.to_f64()).sum();
+        if sum > 1e-12 { Some(1.0) } else if sum < -1e-12 { Some(-1.0) } else { Some(0.0) }
     }
 
 }
@@ -31911,5 +32040,48 @@ mod zscore_stability_tests {
         for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
         let r = n.window_upper_half_var().unwrap();
         assert!(r >= 0.0);
+    }
+
+    #[test]
+    fn test_zscore_window_lower_half_var_too_few_none() {
+        let mut n = znorm(4);
+        n.update(dec!(1));
+        assert!(n.window_lower_half_var().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_lower_half_var_returns_nonneg() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let r = n.window_lower_half_var().unwrap();
+        assert!(r >= 0.0);
+    }
+
+    #[test]
+    fn test_zscore_window_range_skew_too_few_none() {
+        let mut n = znorm(4);
+        n.update(dec!(1));
+        assert!(n.window_range_skew().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_range_skew_symmetric_zero() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        let r = n.window_range_skew().unwrap();
+        assert!(r.abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_zscore_window_cumsum_sign_empty_none() {
+        assert!(znorm(4).window_cumsum_sign().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_cumsum_sign_positive() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        let r = n.window_cumsum_sign().unwrap();
+        assert_eq!(r, 1.0);
     }
 }

@@ -9746,6 +9746,66 @@ impl OhlcvBar {
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
+    /// Mean percentile rank of volume across bars (volume rank / n_bars).
+    pub fn bar_vol_rank_pct(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let vols: Vec<f64> = bars.iter().filter_map(|b| b.volume.to_f64()).collect();
+        if vols.is_empty() { return None; }
+        let mut sorted = vols.clone();
+        sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let rank_sum: f64 = vols.iter().map(|v| sorted.partition_point(|&s| s <= *v) as f64).sum();
+        Some(rank_sum / (vols.len() * vols.len()) as f64)
+    }
+
+    /// Fraction of bars where close equals or exceeds all previous closes (consistency).
+    pub fn bar_close_consistency(bars: &[OhlcvBar]) -> Option<f64> {
+        if bars.len() < 2 { return None; }
+        let mut max_close = bars[0].close;
+        let mut count = 0usize;
+        for b in &bars[1..] {
+            if b.close >= max_close { count += 1; max_close = b.close; }
+        }
+        Some(count as f64 / (bars.len() - 1) as f64)
+    }
+
+    /// High/Low price range as percentage of the mean close across bars.
+    pub fn bar_high_low_pct_range(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let highs: Vec<f64> = bars.iter().filter_map(|b| b.high.to_f64()).collect();
+        let lows: Vec<f64> = bars.iter().filter_map(|b| b.low.to_f64()).collect();
+        let closes: Vec<f64> = bars.iter().filter_map(|b| b.close.to_f64()).collect();
+        if highs.is_empty() || lows.is_empty() || closes.is_empty() { return None; }
+        let max_high = highs.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        let min_low = lows.iter().cloned().fold(f64::INFINITY, f64::min);
+        let mean_close = closes.iter().sum::<f64>() / closes.len() as f64;
+        if mean_close == 0.0 { return None; }
+        Some((max_high - min_low) / mean_close)
+    }
+
+    /// Fraction of total wick height concentrated in wicks above the body.
+    pub fn bar_shadow_concentration(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let mut total_upper = 0.0f64;
+        let mut total_lower = 0.0f64;
+        for b in bars {
+            let body_top = if b.close > b.open { b.close } else { b.open };
+            let body_bot = if b.close < b.open { b.close } else { b.open };
+            if let (Some(upper), Some(lower)) = (
+                (b.high - body_top).to_f64(),
+                (body_bot - b.low).to_f64(),
+            ) {
+                total_upper += upper;
+                total_lower += lower;
+            }
+        }
+        let total = total_upper + total_lower;
+        if total == 0.0 { return None; }
+        Some(total_upper / total)
+    }
+
     /// Rank of each bar's close relative to all closes (returns mean rank / n).
     pub fn bar_close_vol_rank(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
@@ -21941,5 +22001,59 @@ mod tests {
         let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
         let r = OhlcvBar::bar_vol_close_spread(&[b]).unwrap();
         assert!(r > 0.0);
+    }
+
+    #[test]
+    fn test_bar_vol_rank_pct_empty_none() {
+        assert!(OhlcvBar::bar_vol_rank_pct(&[]).is_none());
+    }
+
+    #[test]
+    fn test_bar_vol_rank_pct_returns_bounded() {
+        let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let b2 = make_ohlcv_bar(dec!(100), dec!(115), dec!(85), dec!(110));
+        let r = OhlcvBar::bar_vol_rank_pct(&[b1, b2]).unwrap();
+        assert!(r >= 0.0 && r <= 1.0);
+    }
+
+    #[test]
+    fn test_bar_close_consistency_too_few_none() {
+        assert!(OhlcvBar::bar_close_consistency(&[]).is_none());
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        assert!(OhlcvBar::bar_close_consistency(&[b]).is_none());
+    }
+
+    #[test]
+    fn test_bar_close_consistency_monotone_rising_one() {
+        let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let b2 = make_ohlcv_bar(dec!(100), dec!(115), dec!(85), dec!(110));
+        let b3 = make_ohlcv_bar(dec!(100), dec!(120), dec!(95), dec!(118));
+        let r = OhlcvBar::bar_close_consistency(&[b1, b2, b3]).unwrap();
+        assert!((r - 1.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_bar_high_low_pct_range_empty_none() {
+        assert!(OhlcvBar::bar_high_low_pct_range(&[]).is_none());
+    }
+
+    #[test]
+    fn test_bar_high_low_pct_range_returns_positive() {
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let r = OhlcvBar::bar_high_low_pct_range(&[b]).unwrap();
+        assert!(r > 0.0);
+    }
+
+    #[test]
+    fn test_bar_shadow_concentration_empty_none() {
+        assert!(OhlcvBar::bar_shadow_concentration(&[]).is_none());
+    }
+
+    #[test]
+    fn test_bar_shadow_concentration_returns_bounded() {
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let r = OhlcvBar::bar_shadow_concentration(&[b]);
+        assert!(r.is_some());
+        assert!(r.unwrap() >= 0.0 && r.unwrap() <= 1.0);
     }
 }

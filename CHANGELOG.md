@@ -9,6 +9,29 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.10.53] - 2026-03-20
+
+### Added
+
+**`tick` module — `NormalizedTick` analytics (round 202)**
+- `NormalizedTick::tick_qty_autocorr(ticks)` — first-lag autocorrelation of tick quantities.
+- `NormalizedTick::tick_vol_decay_ratio(ticks)` — ratio of last-third volume to first-third volume.
+- `NormalizedTick::tick_first_last_qty(ticks)` — ratio of last tick quantity to first tick quantity.
+- `NormalizedTick::tick_avg_trade_interval(ticks)` — average volume per tick (total vol / n_ticks).
+
+**`ohlcv` module — `OhlcvBar` analytics (round 202)**
+- `OhlcvBar::bar_vol_rank_pct(bars)` — mean percentile rank of volume across bars.
+- `OhlcvBar::bar_close_consistency(bars)` — fraction of bars where close >= all previous closes.
+- `OhlcvBar::bar_high_low_pct_range(bars)` — overall high/low range as a percentage of mean close.
+- `OhlcvBar::bar_shadow_concentration(bars)` — fraction of total wick height in upper wicks.
+
+**`norm` module — `MinMaxNormalizer` + `ZScoreNormalizer` analytics (round 202)**
+- `window_lower_half_var()` — variance of the lower half of window values (below median).
+- `window_range_skew()` — (max - median) - (median - min), normalized by range.
+- `window_cumsum_sign()` — sign of the cumulative sum of window values.
+
+---
+
 ## [2.10.52] - 2026-03-20
 
 ### Added
