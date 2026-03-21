@@ -7423,4 +7423,64 @@ mod tests {
         let mid = NormalizedTick::volume_weighted_mid_price(&[t]).unwrap();
         assert_eq!(mid, dec!(123));
     }
+
+    // ── round-85 tests ────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_neutral_count_zero_when_all_sided() {
+        use rust_decimal_macros::dec;
+        let mut t = make_tick_pq(dec!(100), dec!(1));
+        t.side = Some(crate::tick::TradeSide::Buy);
+        assert_eq!(NormalizedTick::neutral_count(&[t]), 0);
+    }
+
+    #[test]
+    fn test_neutral_count_all_when_no_side() {
+        use rust_decimal_macros::dec;
+        let t1 = make_tick_pq(dec!(100), dec!(1));
+        let t2 = make_tick_pq(dec!(101), dec!(1));
+        assert_eq!(NormalizedTick::neutral_count(&[t1, t2]), 2);
+    }
+
+    #[test]
+    fn test_price_dispersion_none_for_empty() {
+        assert!(NormalizedTick::price_dispersion(&[]).is_none());
+    }
+
+    #[test]
+    fn test_price_dispersion_zero_for_single() {
+        use rust_decimal_macros::dec;
+        let t = make_tick_pq(dec!(100), dec!(1));
+        assert_eq!(NormalizedTick::price_dispersion(&[t]).unwrap(), dec!(0));
+    }
+
+    #[test]
+    fn test_max_notional_none_for_empty() {
+        assert!(NormalizedTick::max_notional(&[]).is_none());
+    }
+
+    #[test]
+    fn test_max_notional_selects_largest() {
+        use rust_decimal_macros::dec;
+        let t1 = make_tick_pq(dec!(100), dec!(2)); // 200
+        let t2 = make_tick_pq(dec!(50), dec!(5));  // 250
+        assert_eq!(NormalizedTick::max_notional(&[t1, t2]).unwrap(), dec!(250));
+    }
+
+    #[test]
+    fn test_min_notional_none_for_empty() {
+        assert!(NormalizedTick::min_notional(&[]).is_none());
+    }
+
+    #[test]
+    fn test_below_vwap_fraction_none_for_empty() {
+        assert!(NormalizedTick::below_vwap_fraction(&[]).is_none());
+    }
+
+    #[test]
+    fn test_trade_notional_std_none_for_single() {
+        use rust_decimal_macros::dec;
+        let t = make_tick_pq(dec!(100), dec!(1));
+        assert!(NormalizedTick::trade_notional_std(&[t]).is_none());
+    }
 }

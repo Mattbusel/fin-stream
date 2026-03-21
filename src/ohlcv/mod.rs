@@ -3205,6 +3205,60 @@ impl OhlcvBar {
         Some(count as f64 / bars.len() as f64)
     }
 
+    /// Fraction of bars where the close is strictly equal to the low (bearish exhaustion bar).
+    pub fn close_at_low_fraction(bars: &[OhlcvBar]) -> Option<f64> {
+        if bars.is_empty() {
+            return None;
+        }
+        let count = bars.iter().filter(|b| b.close == b.low).count();
+        Some(count as f64 / bars.len() as f64)
+    }
+
+    /// Mean of `(high - open) / range` across non-doji bars; how far price moved above the open.
+    pub fn avg_high_above_open_ratio(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let range = b.high - b.low;
+                if range.is_zero() {
+                    return None;
+                }
+                ((b.high - b.open) / range).to_f64()
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
+        Some(vals.iter().sum::<f64>() / vals.len() as f64)
+    }
+
+    /// Count of bars with `high == previous_bar.close` (gap-free continuation bars).
+    pub fn continuation_bar_count(bars: &[OhlcvBar]) -> usize {
+        if bars.len() < 2 {
+            return 0;
+        }
+        bars.windows(2)
+            .filter(|w| w[1].open == w[0].close)
+            .count()
+    }
+
+    /// Sum of bar volumes where the bar was a down-close.
+    pub fn down_close_volume(bars: &[OhlcvBar]) -> Decimal {
+        bars.iter()
+            .filter(|b| b.close < b.open)
+            .map(|b| b.volume)
+            .sum()
+    }
+
+    /// Sum of bar volumes where the bar was an up-close.
+    pub fn up_close_volume(bars: &[OhlcvBar]) -> Decimal {
+        bars.iter()
+            .filter(|b| b.close > b.open)
+            .map(|b| b.volume)
+            .sum()
+    }
+
 }
 
 impl std::fmt::Display for OhlcvBar {
@@ -8529,5 +8583,31 @@ mod tests {
         let b = make_ohlcv_bar(dec!(90), dec!(110), dec!(90), dec!(105));
         let r = OhlcvBar::avg_lower_wick_to_range(&[b]).unwrap();
         assert!(r.abs() < 1e-9, "open=low → lower wick=0, got {}", r);
+    }
+
+    // ── round-85 extra tests ──────────────────────────────────────────────────
+
+    #[test]
+    fn test_total_range_zero_for_empty() {
+        assert_eq!(OhlcvBar::total_range(&[]), dec!(0));
+    }
+
+    #[test]
+    fn test_total_range_sum_of_ranges() {
+        let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105)); // range=20
+        let b2 = make_ohlcv_bar(dec!(100), dec!(115), dec!(95), dec!(110)); // range=20
+        assert_eq!(OhlcvBar::total_range(&[b1, b2]), dec!(40));
+    }
+
+    #[test]
+    fn test_close_at_high_fraction_none_for_empty() {
+        assert!(OhlcvBar::close_at_high_fraction(&[]).is_none());
+    }
+
+    #[test]
+    fn test_close_at_high_fraction_one_when_all_close_at_high() {
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(110));
+        let f = OhlcvBar::close_at_high_fraction(&[b]).unwrap();
+        assert!((f - 1.0).abs() < 1e-9, "close=high → fraction=1, got {}", f);
     }
 }

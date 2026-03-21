@@ -1544,6 +1544,30 @@ impl MinMaxNormalizer {
         Some(count as f64 / self.window.len() as f64)
     }
 
+    /// Count of sign changes (transitions across zero) in the window.
+    pub fn sign_flip_count(&self) -> Option<usize> {
+        if self.window.len() < 2 {
+            return None;
+        }
+        let count = self.window
+            .iter()
+            .collect::<Vec<_>>()
+            .windows(2)
+            .filter(|w| w[0].is_sign_negative() != w[1].is_sign_negative())
+            .count();
+        Some(count)
+    }
+
+    /// Root mean square of window values.
+    pub fn rms(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() {
+            return None;
+        }
+        let sum_sq: f64 = self.window.iter().filter_map(|v| v.to_f64()).map(|v| v * v).sum();
+        Some((sum_sq / self.window.len() as f64).sqrt())
+    }
+
 }
 
 #[cfg(test)]
@@ -3504,6 +3528,28 @@ mod tests {
         let f = n.above_median_fraction().unwrap();
         assert!(f >= 0.0 && f <= 1.0, "fraction in [0,1], got {}", f);
     }
+
+    // ── round-85 tests ─────────────────────────────────────────────────────
+
+    #[test]
+    fn test_minmax_interquartile_mean_none_for_empty() {
+        let n = norm(4);
+        assert!(n.interquartile_mean().is_none());
+    }
+
+    #[test]
+    fn test_minmax_outlier_fraction_none_for_empty() {
+        let n = norm(4);
+        assert!(n.outlier_fraction(2.0).is_none());
+    }
+
+    #[test]
+    fn test_minmax_outlier_fraction_zero_for_constant() {
+        let mut n = norm(4);
+        for _ in 0..4 { n.update(dec!(5)); }
+        let f = n.outlier_fraction(1.0).unwrap();
+        assert!(f.abs() < 1e-9, "constant window → no outliers, got {}", f);
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -4970,6 +5016,72 @@ impl ZScoreNormalizer {
         };
         let count = self.window.iter().filter(|&&v| v > median).count();
         Some(count as f64 / self.window.len() as f64)
+    }
+
+    // ── round-85 ─────────────────────────────────────────────────────────────
+
+    /// Mean of values strictly between Q1 and Q3 (the interquartile mean).
+    pub fn interquartile_mean(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() {
+            return None;
+        }
+        let mut sorted: Vec<Decimal> = self.window.iter().copied().collect();
+        sorted.sort();
+        let n = sorted.len();
+        let q1_idx = n / 4;
+        let q3_idx = (3 * n) / 4;
+        let iqr_vals: Vec<f64> = sorted[q1_idx..q3_idx]
+            .iter()
+            .filter_map(|v| v.to_f64())
+            .collect();
+        if iqr_vals.is_empty() {
+            return None;
+        }
+        Some(iqr_vals.iter().sum::<f64>() / iqr_vals.len() as f64)
+    }
+
+    /// Fraction of window values beyond `threshold` standard deviations from the mean.
+    pub fn outlier_fraction(&self, threshold: f64) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() {
+            return None;
+        }
+        let std_dev = self.std_dev()?;
+        let mean = self.mean()?.to_f64()?;
+        if std_dev == 0.0 {
+            return Some(0.0);
+        }
+        let count = self.window
+            .iter()
+            .filter_map(|v| v.to_f64())
+            .filter(|&v| ((v - mean) / std_dev).abs() > threshold)
+            .count();
+        Some(count as f64 / self.window.len() as f64)
+    }
+
+    /// Count of sign changes (transitions across zero) in the window.
+    pub fn sign_flip_count(&self) -> Option<usize> {
+        if self.window.len() < 2 {
+            return None;
+        }
+        let count = self.window
+            .iter()
+            .collect::<Vec<_>>()
+            .windows(2)
+            .filter(|w| w[0].is_sign_negative() != w[1].is_sign_negative())
+            .count();
+        Some(count)
+    }
+
+    /// Root mean square of window values.
+    pub fn rms(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() {
+            return None;
+        }
+        let sum_sq: f64 = self.window.iter().filter_map(|v| v.to_f64()).map(|v| v * v).sum();
+        Some((sum_sq / self.window.len() as f64).sqrt())
     }
 
 }
@@ -7074,5 +7186,27 @@ mod zscore_stability_tests {
         for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
         let f = n.above_median_fraction().unwrap();
         assert!(f >= 0.0 && f <= 1.0, "fraction in [0,1], got {}", f);
+    }
+
+    // ── round-85 tests ─────────────────────────────────────────────────────
+
+    #[test]
+    fn test_zscore_interquartile_mean_none_for_empty() {
+        let n = znorm(4);
+        assert!(n.interquartile_mean().is_none());
+    }
+
+    #[test]
+    fn test_zscore_outlier_fraction_none_for_empty() {
+        let n = znorm(4);
+        assert!(n.outlier_fraction(2.0).is_none());
+    }
+
+    #[test]
+    fn test_zscore_outlier_fraction_zero_for_constant() {
+        let mut n = znorm(4);
+        for _ in 0..4 { n.update(dec!(5)); }
+        let f = n.outlier_fraction(1.0).unwrap();
+        assert!(f.abs() < 1e-9, "constant window → no outliers, got {}", f);
     }
 }

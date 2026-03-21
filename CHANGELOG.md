@@ -9,6 +9,28 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.3.7] - 2026-03-21
+
+### Added
+
+**`tick` module — `NormalizedTick` analytics (round 85)**
+- `NormalizedTick::neutral_count(ticks)` — count of ticks with no aggressor side (`side == None`).
+- `NormalizedTick::price_dispersion(ticks)` — `max_price − min_price`; raw price spread across the slice.
+- `NormalizedTick::max_notional(ticks)` — maximum per-tick notional (`price × quantity`) in the slice.
+- `NormalizedTick::min_notional(ticks)` — minimum per-tick notional in the slice.
+- `NormalizedTick::below_vwap_fraction(ticks)` — fraction of ticks with price below the slice VWAP.
+- `NormalizedTick::trade_notional_std(ticks)` — std dev of per-tick `price × quantity`; requires ≥ 2 ticks.
+
+**`ohlcv` module — `OhlcvBar` analytics (round 85)**
+- `OhlcvBar::total_range(bars)` — sum of `high − low` across all bars; total accumulated range.
+- `OhlcvBar::close_at_high_fraction(bars)` — fraction of bars where close equals the high.
+
+**`norm` module — `MinMaxNormalizer` and `ZScoreNormalizer` analytics (round 85)**
+- `interquartile_mean() -> Option<f64>` — mean of values strictly between Q1 and Q3.
+- `outlier_fraction(threshold) -> Option<f64>` — fraction of window values beyond `threshold` std devs from the mean.
+
+---
+
 ## [2.3.6] - 2026-03-21
 
 ### Added
