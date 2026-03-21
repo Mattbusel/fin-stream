@@ -4787,6 +4787,62 @@ impl OhlcvBar {
         Some(ratios.iter().sum::<f64>() / ratios.len() as f64)
     }
 
+    // ── round-108 ────────────────────────────────────────────────────────────
+
+    /// Mean of `close - prev_open` across consecutive bars.
+    /// Returns `None` for fewer than 2 bars.
+    pub fn close_to_prev_open(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.len() < 2 { return None; }
+        let diffs: Vec<f64> = bars.windows(2)
+            .filter_map(|w| (w[1].close - w[0].open).to_f64())
+            .collect();
+        if diffs.is_empty() { return None; }
+        Some(diffs.iter().sum::<f64>() / diffs.len() as f64)
+    }
+
+    /// Mean of `|close - prev_close| / prev_close` across consecutive bars.
+    /// Returns `None` for fewer than 2 bars or zero prior close.
+    pub fn momentum_ratio(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.len() < 2 { return None; }
+        let ratios: Vec<f64> = bars.windows(2).filter_map(|w| {
+            if w[0].close.is_zero() { None }
+            else { Some(((w[1].close - w[0].close).abs() / w[0].close).to_f64().unwrap_or(0.0)) }
+        }).collect();
+        if ratios.is_empty() { return None; }
+        Some(ratios.iter().sum::<f64>() / ratios.len() as f64)
+    }
+
+    /// Ratio of volume range `(max - min)` to mean volume across bars.
+    /// Returns `None` for an empty slice or zero mean volume.
+    pub fn volume_range_ratio(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let max_v = bars.iter().map(|b| b.volume).max()?;
+        let min_v = bars.iter().map(|b| b.volume).min()?;
+        let total: Decimal = bars.iter().map(|b| b.volume).sum();
+        let mean = total / Decimal::from(bars.len());
+        if mean.is_zero() { return None; }
+        Some(((max_v - min_v) / mean).to_f64().unwrap_or(0.0))
+    }
+
+    /// Fraction of bar body that lies in the upper half of the bar's range.
+    /// `body_upper = max(open, close) - midpoint` / range, averaged across bars.
+    /// Returns `None` for an empty slice or no bars with non-zero range.
+    pub fn body_upper_fraction(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let vals: Vec<f64> = bars.iter().filter_map(|b| {
+            let range = b.high - b.low;
+            if range.is_zero() { return None; }
+            let midpoint = (b.high + b.low) / Decimal::TWO;
+            let body_upper = (b.open.max(b.close) - midpoint).max(Decimal::ZERO);
+            Some((body_upper / range).to_f64().unwrap_or(0.0))
+        }).collect();
+        if vals.is_empty() { return None; }
+        Some(vals.iter().sum::<f64>() / vals.len() as f64)
+    }
+
 }
 
 impl std::fmt::Display for OhlcvBar {
@@ -11405,5 +11461,67 @@ mod tests {
         let curr = make_ohlcv_bar(dec!(100), dec!(110), dec!(95), dec!(108));
         let r = OhlcvBar::high_to_prev_close(&[prev, curr]).unwrap();
         assert!((r - 0.1).abs() < 1e-9, "expected 0.1, got {}", r);
+    }
+
+    // ── round-108 tests ───────────────────────────────────────────────────────
+
+    #[test]
+    fn test_close_to_prev_open_none_for_single() {
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        assert!(OhlcvBar::close_to_prev_open(&[b]).is_none());
+    }
+
+    #[test]
+    fn test_close_to_prev_open_basic() {
+        // prev open=100; curr close=110 → diff=10
+        let prev = make_ohlcv_bar(dec!(100), dec!(115), dec!(90), dec!(108));
+        let curr = make_ohlcv_bar(dec!(105), dec!(120), dec!(95), dec!(110));
+        let d = OhlcvBar::close_to_prev_open(&[prev, curr]).unwrap();
+        assert!((d - 10.0).abs() < 1e-9, "expected 10.0, got {}", d);
+    }
+
+    #[test]
+    fn test_momentum_ratio_none_for_single() {
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        assert!(OhlcvBar::momentum_ratio(&[b]).is_none());
+    }
+
+    #[test]
+    fn test_momentum_ratio_basic() {
+        // prev close=100; curr close=110 → |110-100|/100 = 0.1
+        let prev = make_ohlcv_bar(dec!(95), dec!(105), dec!(90), dec!(100));
+        let curr = make_ohlcv_bar(dec!(100), dec!(115), dec!(95), dec!(110));
+        let m = OhlcvBar::momentum_ratio(&[prev, curr]).unwrap();
+        assert!((m - 0.1).abs() < 1e-9, "expected 0.1, got {}", m);
+    }
+
+    #[test]
+    fn test_volume_range_ratio_none_for_empty() {
+        assert!(OhlcvBar::volume_range_ratio(&[]).is_none());
+    }
+
+    #[test]
+    fn test_volume_range_ratio_basic() {
+        // volumes [100, 200]: range=100, mean=150 → ratio=2/3
+        let mut b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        b1.volume = dec!(100);
+        let mut b2 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        b2.volume = dec!(200);
+        let r = OhlcvBar::volume_range_ratio(&[b1, b2]).unwrap();
+        assert!((r - 100.0 / 150.0).abs() < 1e-9, "expected ~0.667, got {}", r);
+    }
+
+    #[test]
+    fn test_body_upper_fraction_none_for_empty() {
+        assert!(OhlcvBar::body_upper_fraction(&[]).is_none());
+    }
+
+    #[test]
+    fn test_body_upper_fraction_basic() {
+        // open=100, close=110, high=120, low=100
+        // midpoint=110, max(open,close)=110; body_upper=(110-110)=0 → fraction=0/20=0
+        let b = make_ohlcv_bar(dec!(100), dec!(120), dec!(100), dec!(110));
+        let f = OhlcvBar::body_upper_fraction(&[b]).unwrap();
+        assert!(f.abs() < 1e-9, "expected ~0.0, got {}", f);
     }
 }

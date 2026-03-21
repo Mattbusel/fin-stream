@@ -9,6 +9,36 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.5.9] - 2026-03-20
+
+### Added
+
+**`tick` module — `NormalizedTick` analytics (round 108)**
+- `NormalizedTick::last_price_change(ticks)` — price change between the last two ticks.
+- `NormalizedTick::buy_tick_rate(ticks)` — buy tick count per millisecond of time span.
+- `NormalizedTick::qty_median_absolute_deviation(ticks)` — median absolute deviation of trade quantities.
+- `NormalizedTick::price_percentile_25(ticks)` — 25th-percentile price across the slice.
+
+**`ohlcv` module — `OhlcvBar` analytics (round 108)**
+- `OhlcvBar::close_to_prev_open(bars)` — mean `close - prev_open` across consecutive bars.
+- `OhlcvBar::momentum_ratio(bars)` — mean `|close - prev_close| / prev_close` across bars.
+- `OhlcvBar::volume_range_ratio(bars)` — volume range `(max - min) / mean` across bars.
+- `OhlcvBar::body_upper_fraction(bars)` — mean fraction of body lying above the bar midpoint.
+
+**`norm` module — `MinMaxNormalizer` analytics (round 108)**
+- `MinMaxNormalizer::window_root_mean_square()` — root mean square of window values.
+- `MinMaxNormalizer::window_first_derivative_mean()` — mean of first differences across the window.
+- `MinMaxNormalizer::window_l1_norm()` — L1 norm (sum of absolute values) of the window.
+- `MinMaxNormalizer::window_percentile_10()` — 10th-percentile value of the window.
+
+**`norm` module — `ZScoreNormalizer` analytics (round 108)**
+- `ZScoreNormalizer::window_root_mean_square()` — root mean square of window values.
+- `ZScoreNormalizer::window_first_derivative_mean()` — mean of first differences across the window.
+- `ZScoreNormalizer::window_l1_norm()` — L1 norm (sum of absolute values) of the window.
+- `ZScoreNormalizer::window_percentile_10()` — 10th-percentile value of the window.
+
+---
+
 ## [2.5.8] - 2026-03-20
 
 ### Added

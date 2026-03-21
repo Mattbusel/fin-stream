@@ -4827,6 +4827,56 @@ impl NormalizedTick {
         total.to_f64()
     }
 
+    // ── round-108 ────────────────────────────────────────────────────────────
+
+    /// Price change between the last two ticks. Returns `None` for fewer than 2 ticks.
+    pub fn last_price_change(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 2 { return None; }
+        let last = ticks[ticks.len() - 1].price;
+        let prev = ticks[ticks.len() - 2].price;
+        (last - prev).to_f64()
+    }
+
+    /// Buy ticks per millisecond: buy tick count divided by total time span.
+    /// Returns `None` for fewer than 2 ticks or zero time span.
+    pub fn buy_tick_rate(ticks: &[NormalizedTick]) -> Option<f64> {
+        if ticks.len() < 2 { return None; }
+        let t_start = ticks.iter().map(|t| t.received_at_ms).min()?;
+        let t_end = ticks.iter().map(|t| t.received_at_ms).max()?;
+        let span_ms = t_end.saturating_sub(t_start);
+        if span_ms == 0 { return None; }
+        let buy_count = ticks.iter().filter(|t| matches!(t.side, Some(TradeSide::Buy))).count();
+        Some(buy_count as f64 / span_ms as f64)
+    }
+
+    /// Median absolute deviation of trade quantities.
+    /// Returns `None` for an empty slice.
+    pub fn qty_median_absolute_deviation(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() { return None; }
+        let mut sorted: Vec<Decimal> = ticks.iter().map(|t| t.quantity).collect();
+        sorted.sort();
+        let n = sorted.len();
+        let median = if n % 2 == 1 { sorted[n / 2] } else { (sorted[n / 2 - 1] + sorted[n / 2]) / Decimal::TWO };
+        let mut diffs: Vec<Decimal> = sorted.iter().map(|&q| (q - median).abs()).collect();
+        diffs.sort();
+        let mad = if diffs.len() % 2 == 1 { diffs[diffs.len() / 2] }
+                  else { (diffs[diffs.len() / 2 - 1] + diffs[diffs.len() / 2]) / Decimal::TWO };
+        mad.to_f64()
+    }
+
+    /// 25th-percentile price across the slice.
+    /// Returns `None` for an empty slice.
+    pub fn price_percentile_25(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() { return None; }
+        let mut sorted: Vec<Decimal> = ticks.iter().map(|t| t.price).collect();
+        sorted.sort();
+        let idx = ((sorted.len() as f64 * 0.25).ceil() as usize).saturating_sub(1);
+        sorted[idx.min(sorted.len() - 1)].to_f64()
+    }
+
 }
 
 
@@ -11130,5 +11180,81 @@ mod tests {
         let t2 = make_tick_pq(dec!(110), dec!(5));
         let w = NormalizedTick::qty_weighted_price_change(&[t1, t2]).unwrap();
         assert!((w - 50.0).abs() < 1e-9, "expected 50.0, got {}", w);
+    }
+
+    // ── round-108 tests ───────────────────────────────────────────────────────
+
+    #[test]
+    fn test_last_price_change_none_for_single() {
+        use rust_decimal_macros::dec;
+        let t = make_tick_pq(dec!(100), dec!(1));
+        assert!(NormalizedTick::last_price_change(&[t]).is_none());
+    }
+
+    #[test]
+    fn test_last_price_change_basic() {
+        use rust_decimal_macros::dec;
+        let t1 = make_tick_pq(dec!(100), dec!(1));
+        let t2 = make_tick_pq(dec!(115), dec!(1));
+        let c = NormalizedTick::last_price_change(&[t1, t2]).unwrap();
+        assert!((c - 15.0).abs() < 1e-9, "expected 15.0, got {}", c);
+    }
+
+    #[test]
+    fn test_buy_tick_rate_none_for_single() {
+        use rust_decimal_macros::dec;
+        let t = make_tick_pq(dec!(100), dec!(1));
+        assert!(NormalizedTick::buy_tick_rate(&[t]).is_none());
+    }
+
+    #[test]
+    fn test_buy_tick_rate_basic() {
+        use rust_decimal_macros::dec;
+        let mut t1 = make_tick_pq(dec!(100), dec!(1));
+        t1.received_at_ms = 0;
+        t1.side = Some(TradeSide::Buy);
+        let mut t2 = make_tick_pq(dec!(100), dec!(1));
+        t2.received_at_ms = 100;
+        t2.side = Some(TradeSide::Buy);
+        // 2 buys over 100ms → rate = 0.02
+        let r = NormalizedTick::buy_tick_rate(&[t1, t2]).unwrap();
+        assert!((r - 0.02).abs() < 1e-9, "expected 0.02, got {}", r);
+    }
+
+    #[test]
+    fn test_qty_median_absolute_deviation_none_for_empty() {
+        assert!(NormalizedTick::qty_median_absolute_deviation(&[]).is_none());
+    }
+
+    #[test]
+    fn test_qty_median_absolute_deviation_basic() {
+        use rust_decimal_macros::dec;
+        // qtys [1,2,3]: median=2; deviations [1,0,1]; median of [0,1,1] = 1
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(100), dec!(2)),
+            make_tick_pq(dec!(100), dec!(3)),
+        ];
+        let m = NormalizedTick::qty_median_absolute_deviation(&ticks).unwrap();
+        assert!((m - 1.0).abs() < 1e-9, "expected 1.0, got {}", m);
+    }
+
+    #[test]
+    fn test_price_percentile_25_none_for_empty() {
+        assert!(NormalizedTick::price_percentile_25(&[]).is_none());
+    }
+
+    #[test]
+    fn test_price_percentile_25_basic() {
+        use rust_decimal_macros::dec;
+        // sorted: [10,20,30,40], p25 index = ceil(4*0.25)-1 = 1-1=0 → val=10
+        let ticks = vec![
+            make_tick_pq(dec!(30), dec!(1)),
+            make_tick_pq(dec!(10), dec!(1)),
+            make_tick_pq(dec!(40), dec!(1)),
+            make_tick_pq(dec!(20), dec!(1)),
+        ];
+        let p = NormalizedTick::price_percentile_25(&ticks).unwrap();
+        assert!((p - 10.0).abs() < 1e-9, "expected 10.0, got {}", p);
     }
 }

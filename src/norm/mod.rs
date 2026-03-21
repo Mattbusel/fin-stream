@@ -2762,6 +2762,45 @@ impl MinMaxNormalizer {
         Some(0.5 * (2.0 * std::f64::consts::PI * std::f64::consts::E * var).ln())
     }
 
+    // ── round-108 ────────────────────────────────────────────────────────────
+
+    /// Root mean square of the window values.
+    pub fn window_root_mean_square(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let sum_sq: Decimal = self.window.iter().map(|&v| v * v).sum();
+        let mean_sq = sum_sq / Decimal::from(self.window.len());
+        mean_sq.to_f64().map(f64::sqrt)
+    }
+
+    /// Mean of the first differences `v[i+1] - v[i]` across the window.
+    /// Returns `None` for fewer than 2 values.
+    pub fn window_first_derivative_mean(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<Decimal> = self.window.iter().copied().collect();
+        let diffs: Vec<Decimal> = vals.windows(2).map(|w| w[1] - w[0]).collect();
+        let n = diffs.len();
+        let mean: Decimal = diffs.iter().copied().sum::<Decimal>() / Decimal::from(n);
+        mean.to_f64()
+    }
+
+    /// L1 norm (sum of absolute values) of the window.
+    pub fn window_l1_norm(&self) -> Decimal {
+        self.window.iter().map(|&v| v.abs()).sum()
+    }
+
+    /// 10th-percentile value of the window.
+    /// Returns `None` for an empty window.
+    pub fn window_percentile_10(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let mut sorted: Vec<Decimal> = self.window.iter().copied().collect();
+        sorted.sort();
+        let idx = ((sorted.len() as f64 * 0.10).ceil() as usize).saturating_sub(1);
+        sorted[idx.min(sorted.len() - 1)].to_f64()
+    }
+
 }
 
 #[cfg(test)]
@@ -5697,6 +5736,56 @@ mod tests {
         // Should return Some without panic
         assert!(n.window_diff_entropy().is_some());
     }
+
+    // ── round-108 tests ───────────────────────────────────────────────────────
+
+    #[test]
+    fn test_minmax_window_root_mean_square_basic() {
+        let mut n = norm(5);
+        for v in [dec!(3), dec!(4)] { n.update(v); }
+        // rms = sqrt((9+16)/2) = sqrt(12.5)
+        let rms = n.window_root_mean_square().unwrap();
+        assert!((rms - 12.5_f64.sqrt()).abs() < 1e-9, "expected sqrt(12.5), got {}", rms);
+    }
+
+    #[test]
+    fn test_minmax_window_first_derivative_mean_none_for_single() {
+        let mut n = norm(5);
+        n.update(dec!(10));
+        assert!(n.window_first_derivative_mean().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_first_derivative_mean_basic() {
+        let mut n = norm(5);
+        for v in [dec!(10), dec!(20), dec!(30)] { n.update(v); }
+        // diffs: [10, 10]; mean=10
+        let d = n.window_first_derivative_mean().unwrap();
+        assert!((d - 10.0).abs() < 1e-9, "expected 10.0, got {}", d);
+    }
+
+    #[test]
+    fn test_minmax_window_l1_norm_basic() {
+        let mut n = norm(5);
+        for v in [dec!(3), dec!(-4), dec!(5)] { n.update(v); }
+        assert_eq!(n.window_l1_norm(), dec!(12));
+    }
+
+    #[test]
+    fn test_minmax_window_percentile_10_none_for_empty() {
+        let n = norm(5);
+        assert!(n.window_percentile_10().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_percentile_10_basic() {
+        let mut n = norm(10);
+        for v in [dec!(10), dec!(20), dec!(30), dec!(40), dec!(50),
+                  dec!(60), dec!(70), dec!(80), dec!(90), dec!(100)] { n.update(v); }
+        // 10th pct of 10 vals: idx = ceil(10*0.1)-1 = 1-1=0 → val=10
+        let p = n.window_percentile_10().unwrap();
+        assert!((p - 10.0).abs() < 1e-9, "expected 10.0, got {}", p);
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -8405,6 +8494,45 @@ impl ZScoreNormalizer {
         let var = vals.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / (n - 1.0);
         if var <= 0.0 { return None; }
         Some(0.5 * (2.0 * std::f64::consts::PI * std::f64::consts::E * var).ln())
+    }
+
+    // ── round-108 ────────────────────────────────────────────────────────────
+
+    /// Root mean square of the window values.
+    pub fn window_root_mean_square(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let sum_sq: Decimal = self.window.iter().map(|&v| v * v).sum();
+        let mean_sq = sum_sq / Decimal::from(self.window.len());
+        mean_sq.to_f64().map(f64::sqrt)
+    }
+
+    /// Mean of the first differences `v[i+1] - v[i]` across the window.
+    /// Returns `None` for fewer than 2 values.
+    pub fn window_first_derivative_mean(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<Decimal> = self.window.iter().copied().collect();
+        let diffs: Vec<Decimal> = vals.windows(2).map(|w| w[1] - w[0]).collect();
+        let n = diffs.len();
+        let mean: Decimal = diffs.iter().copied().sum::<Decimal>() / Decimal::from(n);
+        mean.to_f64()
+    }
+
+    /// L1 norm (sum of absolute values) of the window.
+    pub fn window_l1_norm(&self) -> Decimal {
+        self.window.iter().map(|&v| v.abs()).sum()
+    }
+
+    /// 10th-percentile value of the window.
+    /// Returns `None` for an empty window.
+    pub fn window_percentile_10(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let mut sorted: Vec<Decimal> = self.window.iter().copied().collect();
+        sorted.sort();
+        let idx = ((sorted.len() as f64 * 0.10).ceil() as usize).saturating_sub(1);
+        sorted[idx.min(sorted.len() - 1)].to_f64()
     }
 
 }
@@ -11466,5 +11594,52 @@ mod zscore_stability_tests {
         let mut n = znorm(5);
         for v in [dec!(10), dec!(20), dec!(30)] { n.update(v); }
         assert!(n.window_diff_entropy().is_some());
+    }
+
+    // ── round-108 tests ───────────────────────────────────────────────────────
+
+    #[test]
+    fn test_zscore_window_root_mean_square_basic() {
+        let mut n = znorm(5);
+        for v in [dec!(3), dec!(4)] { n.update(v); }
+        let rms = n.window_root_mean_square().unwrap();
+        assert!((rms - 12.5_f64.sqrt()).abs() < 1e-9, "expected sqrt(12.5), got {}", rms);
+    }
+
+    #[test]
+    fn test_zscore_window_first_derivative_mean_none_for_single() {
+        let mut n = znorm(5);
+        n.update(dec!(10));
+        assert!(n.window_first_derivative_mean().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_first_derivative_mean_basic() {
+        let mut n = znorm(5);
+        for v in [dec!(10), dec!(20), dec!(30)] { n.update(v); }
+        let d = n.window_first_derivative_mean().unwrap();
+        assert!((d - 10.0).abs() < 1e-9, "expected 10.0, got {}", d);
+    }
+
+    #[test]
+    fn test_zscore_window_l1_norm_basic() {
+        let mut n = znorm(5);
+        for v in [dec!(3), dec!(-4), dec!(5)] { n.update(v); }
+        assert_eq!(n.window_l1_norm(), dec!(12));
+    }
+
+    #[test]
+    fn test_zscore_window_percentile_10_none_for_empty() {
+        let n = znorm(5);
+        assert!(n.window_percentile_10().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_percentile_10_basic() {
+        let mut n = znorm(10);
+        for v in [dec!(10), dec!(20), dec!(30), dec!(40), dec!(50),
+                  dec!(60), dec!(70), dec!(80), dec!(90), dec!(100)] { n.update(v); }
+        let p = n.window_percentile_10().unwrap();
+        assert!((p - 10.0).abs() < 1e-9, "expected 10.0, got {}", p);
     }
 }
