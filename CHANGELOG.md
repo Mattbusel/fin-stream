@@ -9,6 +9,36 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.7.3] - 2026-03-20
+
+### Added
+
+**`tick` module — `NormalizedTick` analytics (round 122)**
+- `NormalizedTick::price_range_ema(ticks)` — EMA (α=0.2) of absolute price changes between consecutive ticks.
+- `NormalizedTick::qty_trend_ema(ticks)` — EMA (α=0.2) of quantity values across ticks.
+- `NormalizedTick::weighted_mid_price(ticks)` — volume-weighted mean price across ticks.
+- `NormalizedTick::tick_buy_qty_fraction(ticks)` — fraction of total quantity on the buy side.
+
+**`ohlcv` module — `OhlcvBar` analytics (round 122)**
+- `OhlcvBar::body_to_range_pct(bars)` — mean of body size as fraction of bar range.
+- `OhlcvBar::avg_open_close_gap(bars)` — mean absolute gap between consecutive bar open and prior close.
+- `OhlcvBar::high_low_body_ratio(bars)` — mean of upper shadow as fraction of bar range.
+- `OhlcvBar::close_above_prior_high(bars)` — fraction of bars where close exceeds the prior bar's high.
+
+**`norm` module — `MinMaxNormalizer` analytics (round 122)**
+- `MinMaxNormalizer::window_last_rank()` — rank of the last value within the window (0.0 = min, 1.0 = max).
+- `MinMaxNormalizer::window_momentum_score()` — mean of sign of successive differences.
+- `MinMaxNormalizer::window_oscillation_count()` — count of local maxima in the window.
+- `MinMaxNormalizer::window_skew_direction()` — direction of skew relative to median.
+
+**`norm` module — `ZScoreNormalizer` analytics (round 122)**
+- `ZScoreNormalizer::window_last_rank()` — rank of the last value within the window.
+- `ZScoreNormalizer::window_momentum_score()` — mean of sign of successive differences.
+- `ZScoreNormalizer::window_oscillation_count()` — count of local maxima in the window.
+- `ZScoreNormalizer::window_skew_direction()` — direction of skew relative to median.
+
+---
+
 ## [2.7.2] - 2026-03-20
 
 ### Added

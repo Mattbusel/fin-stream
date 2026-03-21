@@ -5589,6 +5589,60 @@ impl NormalizedTick {
         if total == 0.0 { None } else { Some((buy_qty - sell_qty) / total) }
     }
 
+    // ── round-122 ────────────────────────────────────────────────────────────
+
+    /// Exponential moving average of absolute price changes (alpha=0.2).
+    pub fn price_range_ema(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 2 { return None; }
+        let alpha = 0.2f64;
+        let mut ema = (ticks[1].price - ticks[0].price).abs().to_f64().unwrap_or(0.0);
+        for w in ticks.windows(2).skip(1) {
+            let diff = (w[1].price - w[0].price).abs().to_f64().unwrap_or(0.0);
+            ema = alpha * diff + (1.0 - alpha) * ema;
+        }
+        Some(ema)
+    }
+
+    /// Exponential moving average of quantity values (alpha=0.2).
+    pub fn qty_trend_ema(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() { return None; }
+        let alpha = 0.2f64;
+        let mut ema = ticks[0].quantity.to_f64().unwrap_or(0.0);
+        for t in ticks.iter().skip(1) {
+            ema = alpha * t.quantity.to_f64().unwrap_or(0.0) + (1.0 - alpha) * ema;
+        }
+        Some(ema)
+    }
+
+    /// Volume-weighted mid price across ticks using (price * quantity) / total_qty.
+    pub fn weighted_mid_price(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() { return None; }
+        let mut wsum = 0f64;
+        let mut qty_total = 0f64;
+        for t in ticks {
+            let q = t.quantity.to_f64().unwrap_or(0.0);
+            wsum += t.price.to_f64().unwrap_or(0.0) * q;
+            qty_total += q;
+        }
+        if qty_total == 0.0 { None } else { Some(wsum / qty_total) }
+    }
+
+    /// Fraction of total quantity that is on the buy side.
+    pub fn tick_buy_qty_fraction(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let mut buy_qty = 0f64;
+        let mut total = 0f64;
+        for t in ticks {
+            let q = t.quantity.to_f64().unwrap_or(0.0);
+            total += q;
+            if matches!(t.side, Some(TradeSide::Buy)) { buy_qty += q; }
+        }
+        if total == 0.0 { None } else { Some(buy_qty / total) }
+    }
+
 }
 
 
@@ -12771,5 +12825,65 @@ mod tests {
         sell.side = Some(TradeSide::Sell);
         let s = NormalizedTick::tick_imbalance_score(&[buy, sell]).unwrap();
         assert!(s.abs() < 1e-9, "expected 0.0, got {}", s);
+    }
+
+    // ── round-122 ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_price_range_ema_none_for_single() {
+        use rust_decimal_macros::dec;
+        assert!(NormalizedTick::price_range_ema(&[make_tick_pq(dec!(100), dec!(1))]).is_none());
+    }
+
+    #[test]
+    fn test_price_range_ema_basic() {
+        use rust_decimal_macros::dec;
+        let ticks = [
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(105), dec!(1)),
+        ];
+        let e = NormalizedTick::price_range_ema(&ticks).unwrap();
+        assert!(e > 0.0, "expected positive ema, got {}", e);
+    }
+
+    #[test]
+    fn test_qty_trend_ema_none_for_empty() {
+        assert!(NormalizedTick::qty_trend_ema(&[]).is_none());
+    }
+
+    #[test]
+    fn test_qty_trend_ema_single() {
+        use rust_decimal_macros::dec;
+        let e = NormalizedTick::qty_trend_ema(&[make_tick_pq(dec!(100), dec!(5))]).unwrap();
+        assert!((e - 5.0).abs() < 1e-9, "expected 5.0, got {}", e);
+    }
+
+    #[test]
+    fn test_weighted_mid_price_none_for_empty() {
+        assert!(NormalizedTick::weighted_mid_price(&[]).is_none());
+    }
+
+    #[test]
+    fn test_weighted_mid_price_equal_weight() {
+        use rust_decimal_macros::dec;
+        let t1 = make_tick_pq(dec!(100), dec!(1));
+        let t2 = make_tick_pq(dec!(200), dec!(1));
+        let w = NormalizedTick::weighted_mid_price(&[t1, t2]).unwrap();
+        assert!((w - 150.0).abs() < 1e-9, "expected 150.0, got {}", w);
+    }
+
+    #[test]
+    fn test_tick_buy_qty_fraction_none_for_empty() {
+        assert!(NormalizedTick::tick_buy_qty_fraction(&[]).is_none());
+    }
+
+    #[test]
+    fn test_tick_buy_qty_fraction_all_buy() {
+        use rust_decimal_macros::dec;
+        let mut t = make_tick_pq(dec!(100), dec!(3));
+        t.side = Some(TradeSide::Buy);
+        // all qty is buy → fraction = 1.0
+        let f = NormalizedTick::tick_buy_qty_fraction(&[t]).unwrap();
+        assert!((f - 1.0).abs() < 1e-9, "expected 1.0, got {}", f);
     }
 }

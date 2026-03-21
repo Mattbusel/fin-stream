@@ -5527,6 +5527,49 @@ impl OhlcvBar {
         if total_body == 0.0 { None } else { Some(total_shadow / total_body) }
     }
 
+    // ── round-122 ────────────────────────────────────────────────────────────
+
+    /// Mean of body size as fraction of range: |close-open| / (high-low) per bar.
+    pub fn body_to_range_pct(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let sum: f64 = bars.iter().map(|b| {
+            let range = (b.high - b.low).to_f64().unwrap_or(0.0);
+            if range == 0.0 { 0.0 } else { (b.close - b.open).abs().to_f64().unwrap_or(0.0) / range }
+        }).sum();
+        Some(sum / bars.len() as f64)
+    }
+
+    /// Mean absolute gap between consecutive bars: |open[i] - close[i-1]|.
+    pub fn avg_open_close_gap(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.len() < 2 { return None; }
+        let sum: f64 = bars.windows(2)
+            .map(|w| (w[1].open - w[0].close).abs().to_f64().unwrap_or(0.0))
+            .sum();
+        Some(sum / (bars.len() - 1) as f64)
+    }
+
+    /// Mean of high / (high - low) per bar (high position within range).
+    pub fn high_low_body_ratio(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let sum: f64 = bars.iter().map(|b| {
+            let range = (b.high - b.low).to_f64().unwrap_or(0.0);
+            if range == 0.0 { 0.5 } else {
+                (b.high - b.open.min(b.close)).to_f64().unwrap_or(0.0) / range
+            }
+        }).sum();
+        Some(sum / bars.len() as f64)
+    }
+
+    /// Fraction of bars where close exceeds the prior bar's high.
+    pub fn close_above_prior_high(bars: &[OhlcvBar]) -> Option<f64> {
+        if bars.len() < 2 { return None; }
+        let count = bars.windows(2).filter(|w| w[1].close > w[0].high).count();
+        Some(count as f64 / (bars.len() - 1) as f64)
+    }
+
 }
 
 impl std::fmt::Display for OhlcvBar {
@@ -12957,5 +13000,61 @@ mod tests {
         // open=close → body=0 → None
         let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100));
         assert!(OhlcvBar::shadow_body_ratio(&[b]).is_none());
+    }
+
+    // ── round-122 ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_body_to_range_pct_none_for_empty() {
+        assert!(OhlcvBar::body_to_range_pct(&[]).is_none());
+    }
+
+    #[test]
+    fn test_body_to_range_pct_full_body() {
+        // open=90, high=110, low=90, close=110 → body=range → 1.0
+        let b = make_ohlcv_bar(dec!(90), dec!(110), dec!(90), dec!(110));
+        let r = OhlcvBar::body_to_range_pct(&[b]).unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "expected 1.0, got {}", r);
+    }
+
+    #[test]
+    fn test_avg_open_close_gap_none_for_single() {
+        assert!(OhlcvBar::avg_open_close_gap(&[make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105))]).is_none());
+    }
+
+    #[test]
+    fn test_avg_open_close_gap_zero() {
+        // open[1] = close[0] → gap = 0
+        let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let b2 = make_ohlcv_bar(dec!(105), dec!(115), dec!(100), dec!(110));
+        let g = OhlcvBar::avg_open_close_gap(&[b1, b2]).unwrap();
+        assert!(g.abs() < 1e-9, "expected 0.0, got {}", g);
+    }
+
+    #[test]
+    fn test_high_low_body_ratio_none_for_empty() {
+        assert!(OhlcvBar::high_low_body_ratio(&[]).is_none());
+    }
+
+    #[test]
+    fn test_high_low_body_ratio_basic() {
+        // high=110, low=90, open=100, close=105 → upper shadow = 110-105=5, range=20 → 5/20=0.25
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let r = OhlcvBar::high_low_body_ratio(&[b]).unwrap();
+        assert!(r >= 0.0 && r <= 1.0, "expected [0,1], got {}", r);
+    }
+
+    #[test]
+    fn test_close_above_prior_high_none_for_single() {
+        assert!(OhlcvBar::close_above_prior_high(&[make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105))]).is_none());
+    }
+
+    #[test]
+    fn test_close_above_prior_high_always() {
+        // close[1]=120 > high[0]=110 → 1.0
+        let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let b2 = make_ohlcv_bar(dec!(111), dec!(125), dec!(108), dec!(120));
+        let f = OhlcvBar::close_above_prior_high(&[b1, b2]).unwrap();
+        assert!((f - 1.0).abs() < 1e-9, "expected 1.0, got {}", f);
     }
 }

@@ -3459,6 +3459,51 @@ impl MinMaxNormalizer {
         Some(changes)
     }
 
+    // ── round-122 ────────────────────────────────────────────────────────────
+
+    /// Rank of the last value within the window (0.0 = min, 1.0 = max).
+    pub fn window_last_rank(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let last = self.window.back()?.to_f64()?;
+        let mut sorted: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let pos = sorted.iter().position(|&x| (x - last).abs() < 1e-12).unwrap_or(0);
+        Some(pos as f64 / (sorted.len() - 1).max(1) as f64)
+    }
+
+    /// Momentum score: mean of sign(diff) across successive window values.
+    pub fn window_momentum_score(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let score: f64 = vals.windows(2)
+            .map(|w| if w[1] > w[0] { 1.0 } else if w[1] < w[0] { -1.0 } else { 0.0 })
+            .sum::<f64>() / (vals.len() - 1) as f64;
+        Some(score)
+    }
+
+    /// Count of local maxima in the window.
+    pub fn window_oscillation_count(&self) -> Option<usize> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 3 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let count = vals.windows(3).filter(|w| w[1] > w[0] && w[1] > w[2]).count();
+        Some(count)
+    }
+
+    /// Direction of skew: 1.0 if mean > median, -1.0 if mean < median, 0.0 if equal.
+    pub fn window_skew_direction(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let mut sorted: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let n = sorted.len();
+        let median = if n % 2 == 0 { (sorted[n/2 - 1] + sorted[n/2]) / 2.0 } else { sorted[n/2] };
+        let mean = sorted.iter().sum::<f64>() / n as f64;
+        Some(if mean > median { 1.0 } else if mean < median { -1.0 } else { 0.0 })
+    }
+
 }
 
 #[cfg(test)]
@@ -7236,6 +7281,68 @@ mod tests {
         let c = n.window_sign_change_count().unwrap();
         assert_eq!(c, 3);
     }
+
+    // ── round-122 ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_minmax_window_last_rank_none_for_empty() {
+        let n = norm(3);
+        assert!(n.window_last_rank().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_last_rank_max() {
+        let mut n = norm(3);
+        for v in [dec!(1), dec!(2), dec!(5)] { n.update(v); }
+        let r = n.window_last_rank().unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "expected 1.0 (max rank), got {}", r);
+    }
+
+    #[test]
+    fn test_minmax_window_momentum_score_none_for_single() {
+        let mut n = norm(3);
+        n.update(dec!(5));
+        assert!(n.window_momentum_score().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_momentum_score_trending_up() {
+        let mut n = norm(3);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        let s = n.window_momentum_score().unwrap();
+        assert!((s - 1.0).abs() < 1e-9, "expected 1.0, got {}", s);
+    }
+
+    #[test]
+    fn test_minmax_window_oscillation_count_none_for_two() {
+        let mut n = norm(3);
+        for v in [dec!(1), dec!(2)] { n.update(v); }
+        assert!(n.window_oscillation_count().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_oscillation_count_basic() {
+        let mut n = norm(5);
+        // 1,3,1,3,1 → local maxima at positions 1 and 3 → 2
+        for v in [dec!(1), dec!(3), dec!(1), dec!(3), dec!(1)] { n.update(v); }
+        let c = n.window_oscillation_count().unwrap();
+        assert_eq!(c, 2);
+    }
+
+    #[test]
+    fn test_minmax_window_skew_direction_none_for_empty() {
+        let n = norm(3);
+        assert!(n.window_skew_direction().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_skew_direction_positive() {
+        let mut n = norm(3);
+        // 1, 2, 10 → mean=13/3≈4.33, median=2 → mean > median → 1.0
+        for v in [dec!(1), dec!(2), dec!(10)] { n.update(v); }
+        let d = n.window_skew_direction().unwrap();
+        assert!((d - 1.0).abs() < 1e-9, "expected 1.0, got {}", d);
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -10640,6 +10747,51 @@ impl ZScoreNormalizer {
             .filter(|w| w[0] * w[1] < 0.0)
             .count();
         Some(changes)
+    }
+
+    // ── round-122 ────────────────────────────────────────────────────────────
+
+    /// Rank of the last value within the window (0.0 = min, 1.0 = max).
+    pub fn window_last_rank(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let last = self.window.back()?.to_f64()?;
+        let mut sorted: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let pos = sorted.iter().position(|&x| (x - last).abs() < 1e-12).unwrap_or(0);
+        Some(pos as f64 / (sorted.len() - 1).max(1) as f64)
+    }
+
+    /// Momentum score: mean of sign(diff) across successive window values.
+    pub fn window_momentum_score(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let score: f64 = vals.windows(2)
+            .map(|w| if w[1] > w[0] { 1.0 } else if w[1] < w[0] { -1.0 } else { 0.0 })
+            .sum::<f64>() / (vals.len() - 1) as f64;
+        Some(score)
+    }
+
+    /// Count of local maxima in the window.
+    pub fn window_oscillation_count(&self) -> Option<usize> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 3 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let count = vals.windows(3).filter(|w| w[1] > w[0] && w[1] > w[2]).count();
+        Some(count)
+    }
+
+    /// Direction of skew: 1.0 if mean > median, -1.0 if mean < median, 0.0 if equal.
+    pub fn window_skew_direction(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let mut sorted: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let n = sorted.len();
+        let median = if n % 2 == 0 { (sorted[n/2 - 1] + sorted[n/2]) / 2.0 } else { sorted[n/2] };
+        let mean = sorted.iter().sum::<f64>() / n as f64;
+        Some(if mean > median { 1.0 } else if mean < median { -1.0 } else { 0.0 })
     }
 
 }
@@ -14497,5 +14649,65 @@ mod zscore_stability_tests {
         for v in [dec!(1), dec!(3), dec!(1), dec!(3), dec!(1)] { n.update(v); }
         let c = n.window_sign_change_count().unwrap();
         assert_eq!(c, 3);
+    }
+
+    // ── round-122 ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_zscore_window_last_rank_none_for_empty() {
+        let n = znorm(3);
+        assert!(n.window_last_rank().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_last_rank_max() {
+        let mut n = znorm(3);
+        for v in [dec!(1), dec!(2), dec!(5)] { n.update(v); }
+        let r = n.window_last_rank().unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "expected 1.0 (max rank), got {}", r);
+    }
+
+    #[test]
+    fn test_zscore_window_momentum_score_none_for_single() {
+        let mut n = znorm(3);
+        n.update(dec!(5));
+        assert!(n.window_momentum_score().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_momentum_score_trending_up() {
+        let mut n = znorm(3);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        let s = n.window_momentum_score().unwrap();
+        assert!((s - 1.0).abs() < 1e-9, "expected 1.0, got {}", s);
+    }
+
+    #[test]
+    fn test_zscore_window_oscillation_count_none_for_two() {
+        let mut n = znorm(3);
+        for v in [dec!(1), dec!(2)] { n.update(v); }
+        assert!(n.window_oscillation_count().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_oscillation_count_basic() {
+        let mut n = znorm(5);
+        for v in [dec!(1), dec!(3), dec!(1), dec!(3), dec!(1)] { n.update(v); }
+        let c = n.window_oscillation_count().unwrap();
+        assert_eq!(c, 2);
+    }
+
+    #[test]
+    fn test_zscore_window_skew_direction_none_for_empty() {
+        let n = znorm(3);
+        assert!(n.window_skew_direction().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_skew_direction_positive() {
+        let mut n = znorm(3);
+        for v in [dec!(1), dec!(2), dec!(10)] { n.update(v); }
+        let d = n.window_skew_direction().unwrap();
+        assert!((d - 1.0).abs() < 1e-9, "expected 1.0, got {}", d);
     }
 }
