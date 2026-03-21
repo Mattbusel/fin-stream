@@ -9856,6 +9856,40 @@ impl OhlcvBar {
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
+    /// Volume trend acceleration: change in volume growth rate between halves.
+    pub fn bar_vol_trend_acc(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.len() < 4 { return None; }
+        let vols: Vec<f64> = bars.iter().filter_map(|b| b.volume.to_f64()).collect();
+        if vols.len() < 4 { return None; }
+        let half = vols.len() / 2;
+        let first_growth: f64 = vols[..half].windows(2).map(|w| w[1] - w[0]).sum::<f64>() / (half - 1) as f64;
+        let second_growth: f64 = vols[half..].windows(2).map(|w| w[1] - w[0]).sum::<f64>() / (vols.len() - half - 1).max(1) as f64;
+        Some(second_growth - first_growth)
+    }
+
+    /// Std dev of bar body sizes (|close - open|) across bars.
+    pub fn bar_body_size_std(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.len() < 2 { return None; }
+        let bodies: Vec<f64> = bars.iter().filter_map(|b| (b.close - b.open).abs().to_f64()).collect();
+        if bodies.len() < 2 { return None; }
+        let mean = bodies.iter().sum::<f64>() / bodies.len() as f64;
+        let var = bodies.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / (bodies.len() - 1) as f64;
+        Some(var.sqrt())
+    }
+
+    /// Std dev of (high - low) range values across bars.
+    pub fn bar_high_low_std(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.len() < 2 { return None; }
+        let ranges: Vec<f64> = bars.iter().filter_map(|b| (b.high - b.low).to_f64()).collect();
+        if ranges.len() < 2 { return None; }
+        let mean = ranges.iter().sum::<f64>() / ranges.len() as f64;
+        let var = ranges.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / (ranges.len() - 1) as f64;
+        Some(var.sqrt())
+    }
+
     /// Std dev of bar volume normalized by mean volume (volume consistency score).
     pub fn bar_vol_consistency(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
@@ -23828,5 +23862,56 @@ mod tests {
         let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(108));
         let r = OhlcvBar::bar_upper_body_pct(&[b]).unwrap();
         assert!(r >= 0.0 && r <= 1.0, "expected [0,1] got {}", r);
+    }
+
+    #[test]
+    fn test_bar_vol_trend_acc_too_few_none() {
+        let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let b2 = make_ohlcv_bar(dec!(105), dec!(115), dec!(95), dec!(110));
+        assert!(OhlcvBar::bar_vol_trend_acc(&[b1, b2]).is_none());
+    }
+
+    #[test]
+    fn test_bar_vol_trend_acc_returns_value() {
+        let mut b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        b1.volume = dec!(2);
+        let mut b2 = make_ohlcv_bar(dec!(105), dec!(115), dec!(95), dec!(108));
+        b2.volume = dec!(4);
+        let mut b3 = make_ohlcv_bar(dec!(108), dec!(118), dec!(98), dec!(112));
+        b3.volume = dec!(8);
+        let mut b4 = make_ohlcv_bar(dec!(112), dec!(122), dec!(102), dec!(115));
+        b4.volume = dec!(16);
+        let r = OhlcvBar::bar_vol_trend_acc(&[b1, b2, b3, b4]);
+        assert!(r.is_some());
+    }
+
+    #[test]
+    fn test_bar_body_size_std_too_few_none() {
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        assert!(OhlcvBar::bar_body_size_std(&[b]).is_none());
+    }
+
+    #[test]
+    fn test_bar_body_size_std_equal_bodies_zero() {
+        let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let b2 = make_ohlcv_bar(dec!(105), dec!(115), dec!(95), dec!(110));
+        // both have |close-open|=5
+        let r = OhlcvBar::bar_body_size_std(&[b1, b2]).unwrap();
+        assert!(r.abs() < 1e-9, "expected 0 got {}", r);
+    }
+
+    #[test]
+    fn test_bar_high_low_std_too_few_none() {
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        assert!(OhlcvBar::bar_high_low_std(&[b]).is_none());
+    }
+
+    #[test]
+    fn test_bar_high_low_std_equal_ranges_zero() {
+        // both have high-low=20
+        let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let b2 = make_ohlcv_bar(dec!(105), dec!(115), dec!(95), dec!(110));
+        let r = OhlcvBar::bar_high_low_std(&[b1, b2]).unwrap();
+        assert!(r.abs() < 1e-9, "expected 0 got {}", r);
     }
 }

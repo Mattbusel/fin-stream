@@ -8101,6 +8101,56 @@ impl MinMaxNormalizer {
         Some(m4 / m2.powi(2) - 3.0)
     }
 
+    /// Exponentially weighted variance (recency-weighted dispersion).
+    pub fn window_exp_weighted_var(&self) -> Option<f64> {
+        if self.window.len() < 2 { return None; }
+        use rust_decimal::prelude::ToPrimitive;
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.len() < 2 { return None; }
+        let alpha = 2.0 / (vals.len() as f64 + 1.0);
+        let mut ema = vals[0];
+        for &v in &vals[1..] { ema = alpha * v + (1.0 - alpha) * ema; }
+        let var: f64 = vals.iter().enumerate().map(|(i, &v)| {
+            let w = alpha * (1.0 - alpha).powi(i as i32);
+            w * (v - ema).powi(2)
+        }).sum();
+        Some(var)
+    }
+
+    /// Rate of change of the window range (current range vs prior range ratio).
+    pub fn window_range_momentum(&self) -> Option<f64> {
+        if self.window.len() < 4 { return None; }
+        use rust_decimal::prelude::ToPrimitive;
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.len() < 4 { return None; }
+        let half = vals.len() / 2;
+        let early_range = {
+            let min = vals[..half].iter().cloned().fold(f64::INFINITY, f64::min);
+            let max = vals[..half].iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+            max - min
+        };
+        let late_range = {
+            let min = vals[half..].iter().cloned().fold(f64::INFINITY, f64::min);
+            let max = vals[half..].iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+            max - min
+        };
+        if early_range == 0.0 { return None; }
+        Some(late_range / early_range)
+    }
+
+    /// Window range normalized by mean: (max - min) / mean.
+    pub fn window_norm_range(&self) -> Option<f64> {
+        if self.window.is_empty() { return None; }
+        use rust_decimal::prelude::ToPrimitive;
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.is_empty() { return None; }
+        let mean = vals.iter().sum::<f64>() / vals.len() as f64;
+        if mean == 0.0 { return None; }
+        let min = vals.iter().cloned().fold(f64::INFINITY, f64::min);
+        let max = vals.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        Some((max - min) / mean)
+    }
+
 }
 
 #[cfg(test)]
@@ -17543,6 +17593,50 @@ mod tests {
         let r = n.window_kurtosis_excess();
         assert!(r.is_some());
     }
+
+    #[test]
+    fn test_minmax_window_exp_weighted_var_none_single() {
+        let mut n = norm(5);
+        n.update(dec!(5));
+        assert!(n.window_exp_weighted_var().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_exp_weighted_var_uniform_zero() {
+        let mut n = norm(3);
+        for _ in 0..3 { n.update(dec!(10)); }
+        let r = n.window_exp_weighted_var().unwrap();
+        assert!(r.abs() < 1e-9, "expected ~0 got {}", r);
+    }
+
+    #[test]
+    fn test_minmax_window_range_momentum_too_few_none() {
+        let mut n = norm(5);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        assert!(n.window_range_momentum().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_range_momentum_returns_value() {
+        let mut n = norm(6);
+        for v in [dec!(1), dec!(2), dec!(5), dec!(6), dec!(10), dec!(20)] { n.update(v); }
+        let r = n.window_range_momentum();
+        assert!(r.is_some());
+    }
+
+    #[test]
+    fn test_minmax_window_norm_range_empty_none() {
+        let n = norm(5);
+        assert!(n.window_norm_range().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_norm_range_uniform_zero() {
+        let mut n = norm(3);
+        for _ in 0..3 { n.update(dec!(10)); }
+        let r = n.window_norm_range().unwrap();
+        assert!(r.abs() < 1e-9, "expected 0 got {}", r);
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -25589,6 +25683,56 @@ impl ZScoreNormalizer {
         if m2 == 0.0 { return None; }
         let m4 = vals.iter().map(|v| (v - mean).powi(4)).sum::<f64>() / n;
         Some(m4 / m2.powi(2) - 3.0)
+    }
+
+    /// Exponentially weighted variance (recency-weighted dispersion).
+    pub fn window_exp_weighted_var(&self) -> Option<f64> {
+        if self.window.len() < 2 { return None; }
+        use rust_decimal::prelude::ToPrimitive;
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.len() < 2 { return None; }
+        let alpha = 2.0 / (vals.len() as f64 + 1.0);
+        let mut ema = vals[0];
+        for &v in &vals[1..] { ema = alpha * v + (1.0 - alpha) * ema; }
+        let var: f64 = vals.iter().enumerate().map(|(i, &v)| {
+            let w = alpha * (1.0 - alpha).powi(i as i32);
+            w * (v - ema).powi(2)
+        }).sum();
+        Some(var)
+    }
+
+    /// Rate of change of the window range (current range vs prior range ratio).
+    pub fn window_range_momentum(&self) -> Option<f64> {
+        if self.window.len() < 4 { return None; }
+        use rust_decimal::prelude::ToPrimitive;
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.len() < 4 { return None; }
+        let half = vals.len() / 2;
+        let early_range = {
+            let min = vals[..half].iter().cloned().fold(f64::INFINITY, f64::min);
+            let max = vals[..half].iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+            max - min
+        };
+        let late_range = {
+            let min = vals[half..].iter().cloned().fold(f64::INFINITY, f64::min);
+            let max = vals[half..].iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+            max - min
+        };
+        if early_range == 0.0 { return None; }
+        Some(late_range / early_range)
+    }
+
+    /// Window range normalized by mean: (max - min) / mean.
+    pub fn window_norm_range(&self) -> Option<f64> {
+        if self.window.is_empty() { return None; }
+        use rust_decimal::prelude::ToPrimitive;
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.is_empty() { return None; }
+        let mean = vals.iter().sum::<f64>() / vals.len() as f64;
+        if mean == 0.0 { return None; }
+        let min = vals.iter().cloned().fold(f64::INFINITY, f64::min);
+        let max = vals.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        Some((max - min) / mean)
     }
 
 }
@@ -34977,5 +35121,49 @@ mod zscore_stability_tests {
         for v in [dec!(1), dec!(2), dec!(3), dec!(4), dec!(5), dec!(6)] { n.update(v); }
         let r = n.window_kurtosis_excess();
         assert!(r.is_some());
+    }
+
+    #[test]
+    fn test_zscore_window_exp_weighted_var_none_single() {
+        let mut n = znorm(5);
+        n.update(dec!(5));
+        assert!(n.window_exp_weighted_var().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_exp_weighted_var_uniform_zero() {
+        let mut n = znorm(3);
+        for _ in 0..3 { n.update(dec!(10)); }
+        let r = n.window_exp_weighted_var().unwrap();
+        assert!(r.abs() < 1e-9, "expected ~0 got {}", r);
+    }
+
+    #[test]
+    fn test_zscore_window_range_momentum_too_few_none() {
+        let mut n = znorm(5);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        assert!(n.window_range_momentum().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_range_momentum_returns_value() {
+        let mut n = znorm(6);
+        for v in [dec!(1), dec!(2), dec!(5), dec!(6), dec!(10), dec!(20)] { n.update(v); }
+        let r = n.window_range_momentum();
+        assert!(r.is_some());
+    }
+
+    #[test]
+    fn test_zscore_window_norm_range_empty_none() {
+        let n = znorm(5);
+        assert!(n.window_norm_range().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_norm_range_uniform_zero() {
+        let mut n = znorm(3);
+        for _ in 0..3 { n.update(dec!(10)); }
+        let r = n.window_norm_range().unwrap();
+        assert!(r.abs() < 1e-9, "expected 0 got {}", r);
     }
 }

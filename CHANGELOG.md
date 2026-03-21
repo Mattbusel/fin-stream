@@ -9,6 +9,28 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.10.71] - 2026-03-20
+
+### Added
+
+**`tick` module — `NormalizedTick` analytics (round 220)**
+- `NormalizedTick::tick_vol_concentration(ticks)` — Herfindahl index of volume concentration.
+- `NormalizedTick::tick_recent_price_std(ticks)` — std dev of prices in the second half of the sequence.
+- `NormalizedTick::tick_vol_above_median(ticks)` — fraction of ticks with quantity above median.
+- `NormalizedTick::tick_price_above_vwap_pct(ticks)` — fraction of ticks where price exceeds VWAP.
+
+**`ohlcv` module — `OhlcvBar` analytics (round 220)**
+- `OhlcvBar::bar_vol_trend_acc(bars)` — volume trend acceleration (change in growth rate between halves).
+- `OhlcvBar::bar_body_size_std(bars)` — std dev of bar body sizes (|close - open|).
+- `OhlcvBar::bar_high_low_std(bars)` — std dev of high-low range values across bars.
+
+**`norm` module — `MinMaxNormalizer` + `ZScoreNormalizer` analytics (round 220)**
+- `window_exp_weighted_var()` — exponentially weighted variance (recency-weighted dispersion).
+- `window_range_momentum()` — ratio of late-half range to early-half range.
+- `window_norm_range()` — (max - min) / mean (normalized range).
+
+---
+
 ## [2.10.70] - 2026-03-20
 
 ### Added
