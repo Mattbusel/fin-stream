@@ -1617,6 +1617,44 @@ impl MinMaxNormalizer {
         (latest / mean).to_f64()
     }
 
+    // ── round-87 ─────────────────────────────────────────────────────────────
+
+    /// Fraction of window values strictly below the mean.
+    pub fn below_mean_fraction(&self) -> Option<f64> {
+        if self.window.is_empty() {
+            return None;
+        }
+        let mean = self.mean()?;
+        let count = self.window.iter().filter(|&&v| v < mean).count();
+        Some(count as f64 / self.window.len() as f64)
+    }
+
+    /// Variance of values lying outside the interquartile range.
+    /// Returns `None` if fewer than 4 values or no tail values.
+    pub fn tail_variance(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 4 {
+            return None;
+        }
+        let mut sorted: Vec<Decimal> = self.window.iter().copied().collect();
+        sorted.sort();
+        let n = sorted.len();
+        let q1 = sorted[n / 4];
+        let q3 = sorted[(3 * n) / 4];
+        let tails: Vec<f64> = sorted
+            .iter()
+            .filter(|&&v| v < q1 || v > q3)
+            .filter_map(|v| v.to_f64())
+            .collect();
+        if tails.len() < 2 {
+            return None;
+        }
+        let nt = tails.len() as f64;
+        let mean = tails.iter().sum::<f64>() / nt;
+        let var = tails.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / (nt - 1.0);
+        Some(var)
+    }
+
 }
 
 #[cfg(test)]
@@ -3678,6 +3716,37 @@ mod tests {
         let r = n.latest_to_mean_ratio().unwrap();
         assert!((r - 1.0).abs() < 1e-9, "latest=mean → ratio=1, got {}", r);
     }
+
+    // ── round-87 tests ────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_minmax_below_mean_fraction_none_for_empty() {
+        assert!(norm(4).below_mean_fraction().is_none());
+    }
+
+    #[test]
+    fn test_minmax_below_mean_fraction_symmetric_data() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        // mean=2.5; values strictly below: 1, 2 → 2/4 = 0.5
+        let f = n.below_mean_fraction().unwrap();
+        assert!((f - 0.5).abs() < 1e-9, "expected 0.5, got {}", f);
+    }
+
+    #[test]
+    fn test_minmax_tail_variance_none_for_small_window() {
+        let mut n = norm(3);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        assert!(n.tail_variance().is_none());
+    }
+
+    #[test]
+    fn test_minmax_tail_variance_nonneg_for_varied_data() {
+        let mut n = norm(6);
+        for v in [dec!(1), dec!(2), dec!(5), dec!(6), dec!(9), dec!(10)] { n.update(v); }
+        let tv = n.tail_variance().unwrap();
+        assert!(tv >= 0.0, "tail variance should be non-negative, got {}", tv);
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -5259,6 +5328,44 @@ impl ZScoreNormalizer {
             return None;
         }
         (latest / mean).to_f64()
+    }
+
+    // ── round-87 ─────────────────────────────────────────────────────────────
+
+    /// Fraction of window values strictly below the mean.
+    pub fn below_mean_fraction(&self) -> Option<f64> {
+        if self.window.is_empty() {
+            return None;
+        }
+        let mean = self.mean()?;
+        let count = self.window.iter().filter(|&&v| v < mean).count();
+        Some(count as f64 / self.window.len() as f64)
+    }
+
+    /// Variance of values lying outside the interquartile range.
+    /// Returns `None` if fewer than 4 values or fewer than 2 tail values.
+    pub fn tail_variance(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 4 {
+            return None;
+        }
+        let mut sorted: Vec<Decimal> = self.window.iter().copied().collect();
+        sorted.sort();
+        let n = sorted.len();
+        let q1 = sorted[n / 4];
+        let q3 = sorted[(3 * n) / 4];
+        let tails: Vec<f64> = sorted
+            .iter()
+            .filter(|&&v| v < q1 || v > q3)
+            .filter_map(|v| v.to_f64())
+            .collect();
+        if tails.len() < 2 {
+            return None;
+        }
+        let nt = tails.len() as f64;
+        let mean = tails.iter().sum::<f64>() / nt;
+        let var = tails.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / (nt - 1.0);
+        Some(var)
     }
 
 }
@@ -7463,5 +7570,36 @@ mod zscore_stability_tests {
         for _ in 0..4 { n.update(dec!(5)); }
         let r = n.latest_to_mean_ratio().unwrap();
         assert!((r - 1.0).abs() < 1e-9, "latest=mean → ratio=1, got {}", r);
+    }
+
+    // ── round-87 tests ────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_zscore_below_mean_fraction_none_for_empty() {
+        assert!(znorm(4).below_mean_fraction().is_none());
+    }
+
+    #[test]
+    fn test_zscore_below_mean_fraction_symmetric_data() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        // mean=2.5; values strictly below: 1, 2 → 2/4 = 0.5
+        let f = n.below_mean_fraction().unwrap();
+        assert!((f - 0.5).abs() < 1e-9, "expected 0.5, got {}", f);
+    }
+
+    #[test]
+    fn test_zscore_tail_variance_none_for_small_window() {
+        let mut n = znorm(3);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        assert!(n.tail_variance().is_none());
+    }
+
+    #[test]
+    fn test_zscore_tail_variance_nonneg_for_varied_data() {
+        let mut n = znorm(6);
+        for v in [dec!(1), dec!(2), dec!(5), dec!(6), dec!(9), dec!(10)] { n.update(v); }
+        let tv = n.tail_variance().unwrap();
+        assert!(tv >= 0.0, "tail variance should be non-negative, got {}", tv);
     }
 }

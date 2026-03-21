@@ -7821,4 +7821,118 @@ mod tests {
         let s = NormalizedTick::quantity_std(&ticks).unwrap();
         assert!(s.abs() < 1e-9, "constant quantity → std=0, got {}", s);
     }
+
+    // ── round-87 tests ────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_vwap_deviation_std_none_for_single() {
+        use rust_decimal_macros::dec;
+        let t = make_tick_pq(dec!(100), dec!(1));
+        assert!(NormalizedTick::vwap_deviation_std(&[t]).is_none());
+    }
+
+    #[test]
+    fn test_vwap_deviation_std_zero_for_single_price() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(100), dec!(2)),
+        ];
+        // All prices equal VWAP, so deviation std = 0
+        let s = NormalizedTick::vwap_deviation_std(&ticks).unwrap();
+        assert!(s.abs() < 1e-9, "all at VWAP → std=0, got {}", s);
+    }
+
+    #[test]
+    fn test_vwap_deviation_std_positive_for_varied_prices() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(110), dec!(1)),
+            make_tick_pq(dec!(90), dec!(1)),
+        ];
+        let s = NormalizedTick::vwap_deviation_std(&ticks).unwrap();
+        assert!(s > 0.0, "varied prices → std > 0, got {}", s);
+    }
+
+    #[test]
+    fn test_max_consecutive_side_run_zero_for_no_side() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(101), dec!(1)),
+        ];
+        assert_eq!(NormalizedTick::max_consecutive_side_run(&ticks), 0);
+    }
+
+    #[test]
+    fn test_max_consecutive_side_run_with_sides() {
+        use rust_decimal_macros::dec;
+        let mut t1 = make_tick_pq(dec!(100), dec!(1));
+        t1.side = Some(TradeSide::Buy);
+        let mut t2 = make_tick_pq(dec!(101), dec!(1));
+        t2.side = Some(TradeSide::Buy);
+        let mut t3 = make_tick_pq(dec!(102), dec!(1));
+        t3.side = Some(TradeSide::Sell);
+        assert_eq!(NormalizedTick::max_consecutive_side_run(&[t1, t2, t3]), 2);
+    }
+
+    #[test]
+    fn test_inter_arrival_cv_none_for_single() {
+        use rust_decimal_macros::dec;
+        let t = make_tick_pq(dec!(100), dec!(1));
+        assert!(NormalizedTick::inter_arrival_cv(&[t]).is_none());
+    }
+
+    #[test]
+    fn test_inter_arrival_cv_zero_for_uniform_spacing() {
+        use rust_decimal_macros::dec;
+        let mut t1 = make_tick_pq(dec!(100), dec!(1));
+        t1.received_at_ms = 1000;
+        let mut t2 = make_tick_pq(dec!(101), dec!(1));
+        t2.received_at_ms = 2000;
+        let mut t3 = make_tick_pq(dec!(102), dec!(1));
+        t3.received_at_ms = 3000;
+        // All intervals = 1000ms → std=0, cv=0
+        let cv = NormalizedTick::inter_arrival_cv(&[t1, t2, t3]).unwrap();
+        assert!(cv.abs() < 1e-9, "uniform spacing → cv=0, got {}", cv);
+    }
+
+    #[test]
+    fn test_volume_per_ms_none_for_single() {
+        use rust_decimal_macros::dec;
+        let t = make_tick_pq(dec!(100), dec!(5));
+        assert!(NormalizedTick::volume_per_ms(&[t]).is_none());
+    }
+
+    #[test]
+    fn test_volume_per_ms_correct() {
+        use rust_decimal_macros::dec;
+        let mut t1 = make_tick_pq(dec!(100), dec!(5));
+        t1.received_at_ms = 1000;
+        let mut t2 = make_tick_pq(dec!(101), dec!(5));
+        t2.received_at_ms = 2000;
+        // 10 qty / 1000 ms = 0.01
+        let r = NormalizedTick::volume_per_ms(&[t1, t2]).unwrap();
+        assert!((r - 0.01).abs() < 1e-9, "expected 0.01, got {}", r);
+    }
+
+    #[test]
+    fn test_notional_per_second_none_for_single() {
+        use rust_decimal_macros::dec;
+        let t = make_tick_pq(dec!(100), dec!(1));
+        assert!(NormalizedTick::notional_per_second(&[t]).is_none());
+    }
+
+    #[test]
+    fn test_notional_per_second_positive() {
+        use rust_decimal_macros::dec;
+        let mut t1 = make_tick_pq(dec!(100), dec!(1));
+        t1.received_at_ms = 0;
+        let mut t2 = make_tick_pq(dec!(100), dec!(1));
+        t2.received_at_ms = 1000; // 1 second
+        // 100 + 100 = 200 notional in 1s
+        let r = NormalizedTick::notional_per_second(&[t1, t2]).unwrap();
+        assert!((r - 200.0).abs() < 1e-9, "expected 200, got {}", r);
+    }
 }

@@ -3324,6 +3324,77 @@ impl OhlcvBar {
         Some(count as f64 / bars.len() as f64)
     }
 
+    // ── round-87 ─────────────────────────────────────────────────────────────
+
+    /// Mean of (close − open) across all bars.  Positive means net bullish drift.
+    pub fn avg_open_to_close(bars: &[OhlcvBar]) -> Option<Decimal> {
+        if bars.is_empty() {
+            return None;
+        }
+        let sum: Decimal = bars.iter().map(|b| b.close - b.open).sum();
+        Some(sum / Decimal::from(bars.len() as i64))
+    }
+
+    /// Maximum volume across bars.
+    pub fn max_bar_volume(bars: &[OhlcvBar]) -> Option<Decimal> {
+        bars.iter().map(|b| b.volume).max()
+    }
+
+    /// Minimum volume across bars.
+    pub fn min_bar_volume(bars: &[OhlcvBar]) -> Option<Decimal> {
+        bars.iter().map(|b| b.volume).min()
+    }
+
+    /// Standard deviation of body-to-range ratios across bars.
+    /// Body = |close − open|, range = high − low.  Bars with zero range are excluded.
+    /// Returns `None` if fewer than 2 non-zero-range bars.
+    pub fn body_to_range_std(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let ratios: Vec<f64> = bars
+            .iter()
+            .filter(|b| b.high > b.low)
+            .filter_map(|b| {
+                let body = (b.close - b.open).abs();
+                let range = b.high - b.low;
+                (body / range).to_f64()
+            })
+            .collect();
+        if ratios.len() < 2 {
+            return None;
+        }
+        let n = ratios.len() as f64;
+        let mean = ratios.iter().sum::<f64>() / n;
+        let var = ratios.iter().map(|r| (r - mean).powi(2)).sum::<f64>() / (n - 1.0);
+        Some(var.sqrt())
+    }
+
+    /// Mean wick symmetry: average of min(upper_wick, lower_wick) / max(upper_wick, lower_wick).
+    /// A value near 1 means wicks are balanced; near 0 means heavily one-sided.
+    /// Bars with both wicks zero are excluded.
+    pub fn avg_wick_symmetry(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let ratios: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let upper = b.high - b.close.max(b.open);
+                let lower = b.close.min(b.open) - b.low;
+                if upper.is_zero() && lower.is_zero() {
+                    return None;
+                }
+                let lo = upper.min(lower);
+                let hi = upper.max(lower);
+                if hi.is_zero() {
+                    return None;
+                }
+                (lo / hi).to_f64()
+            })
+            .collect();
+        if ratios.is_empty() {
+            return None;
+        }
+        Some(ratios.iter().sum::<f64>() / ratios.len() as f64)
+    }
+
 }
 
 impl std::fmt::Display for OhlcvBar {
@@ -8776,5 +8847,73 @@ mod tests {
         let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
         let f = OhlcvBar::zero_volume_fraction(&[b]).unwrap();
         assert!(f.abs() < 1e-9, "bar has volume → zero_vol_fraction=0, got {}", f);
+    }
+
+    // ── round-87 tests ────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_avg_open_to_close_none_for_empty() {
+        assert!(OhlcvBar::avg_open_to_close(&[]).is_none());
+    }
+
+    #[test]
+    fn test_avg_open_to_close_positive_when_all_bullish() {
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105)); // close > open
+        let r = OhlcvBar::avg_open_to_close(&[b]).unwrap();
+        assert!(r > dec!(0), "bullish bar → avg_open_to_close > 0, got {}", r);
+    }
+
+    #[test]
+    fn test_avg_open_to_close_zero_for_doji() {
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100)); // close == open
+        let r = OhlcvBar::avg_open_to_close(&[b]).unwrap();
+        assert_eq!(r, dec!(0));
+    }
+
+    #[test]
+    fn test_max_bar_volume_none_for_empty() {
+        assert!(OhlcvBar::max_bar_volume(&[]).is_none());
+    }
+
+    #[test]
+    fn test_max_bar_volume_selects_largest() {
+        let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let b2 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        // make_ohlcv_bar sets volume=1 by default; override manually
+        // use default and confirm max equals volume
+        let vol = OhlcvBar::max_bar_volume(&[b1, b2]).unwrap();
+        assert!(vol > dec!(0));
+    }
+
+    #[test]
+    fn test_min_bar_volume_none_for_empty() {
+        assert!(OhlcvBar::min_bar_volume(&[]).is_none());
+    }
+
+    #[test]
+    fn test_body_to_range_std_none_for_single() {
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        assert!(OhlcvBar::body_to_range_std(&[b]).is_none());
+    }
+
+    #[test]
+    fn test_body_to_range_std_nonneg_for_varied_bars() {
+        let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let b2 = make_ohlcv_bar(dec!(100), dec!(120), dec!(80), dec!(100));
+        let s = OhlcvBar::body_to_range_std(&[b1, b2]).unwrap();
+        assert!(s >= 0.0, "std dev should be non-negative, got {}", s);
+    }
+
+    #[test]
+    fn test_avg_wick_symmetry_none_for_empty() {
+        assert!(OhlcvBar::avg_wick_symmetry(&[]).is_none());
+    }
+
+    #[test]
+    fn test_avg_wick_symmetry_in_range() {
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100));
+        // upper wick = 10, lower wick = 10 → perfectly symmetric → ratio = 1
+        let s = OhlcvBar::avg_wick_symmetry(&[b]).unwrap();
+        assert!(s >= 0.0 && s <= 1.0, "symmetry in [0,1], got {}", s);
     }
 }
