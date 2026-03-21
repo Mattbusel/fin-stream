@@ -6087,6 +6087,48 @@ impl MinMaxNormalizer {
         Some(std / range)
     }
 
+    /// Sign of (last - first) in the window: 1.0, -1.0, or 0.0.
+    pub fn window_momentum_sign(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let first = self.window.front()?.to_f64()?;
+        let last = self.window.back()?.to_f64()?;
+        let diff = last - first;
+        Some(if diff > 0.0 { 1.0 } else if diff < 0.0 { -1.0 } else { 0.0 })
+    }
+
+    /// last_value / first_value — end-to-start ratio of the window.
+    pub fn window_end_to_start_ratio(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let first = self.window.front()?.to_f64()?;
+        let last = self.window.back()?.to_f64()?;
+        if first == 0.0 { return None; }
+        Some(last / first)
+    }
+
+    /// Mean of squared consecutive differences (mean-square-diff).
+    pub fn window_mean_sq_diff(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let sq_diffs: Vec<f64> = vals.windows(2).map(|w| (w[1] - w[0]).powi(2)).collect();
+        Some(sq_diffs.iter().sum::<f64>() / sq_diffs.len() as f64)
+    }
+
+    /// Maximum of the cumulative sum of window values.
+    pub fn window_cumsum_max(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let mut cumsum = 0.0_f64;
+        let mut max = f64::NEG_INFINITY;
+        for v in &self.window {
+            cumsum += v.to_f64().unwrap_or(0.0);
+            if cumsum > max { max = cumsum; }
+        }
+        Some(max)
+    }
+
 }
 
 #[cfg(test)]
@@ -13197,6 +13239,68 @@ mod tests {
         for v in [dec!(5), dec!(5), dec!(5)] { n.update(v); }
         assert!(n.window_std_over_range().is_none());
     }
+
+    // ── round-176 tests ──────────────────────────────────────────────────────
+
+    #[test]
+    fn test_minmax_window_momentum_sign_none_for_single() {
+        let mut n = norm(4);
+        n.update(dec!(5));
+        assert!(n.window_momentum_sign().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_momentum_sign_increasing_one() {
+        let mut n = norm(3);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        let r = n.window_momentum_sign().unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "expected 1.0, got {}", r);
+    }
+
+    #[test]
+    fn test_minmax_window_end_to_start_ratio_none_for_single() {
+        let mut n = norm(4);
+        n.update(dec!(5));
+        assert!(n.window_end_to_start_ratio().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_end_to_start_ratio_constant_one() {
+        let mut n = norm(3);
+        for v in [dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        let r = n.window_end_to_start_ratio().unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "expected 1.0, got {}", r);
+    }
+
+    #[test]
+    fn test_minmax_window_mean_sq_diff_none_for_single() {
+        let mut n = norm(4);
+        n.update(dec!(5));
+        assert!(n.window_mean_sq_diff().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_mean_sq_diff_constant_zero() {
+        let mut n = norm(3);
+        for v in [dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        let r = n.window_mean_sq_diff().unwrap();
+        assert!(r.abs() < 1e-9, "expected 0.0, got {}", r);
+    }
+
+    #[test]
+    fn test_minmax_window_cumsum_max_none_for_empty() {
+        let n = norm(4);
+        assert!(n.window_cumsum_max().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_cumsum_max_positive_values() {
+        let mut n = norm(3);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        // cumsum: 1, 3, 6 → max = 6
+        let r = n.window_cumsum_max().unwrap();
+        assert!((r - 6.0).abs() < 1e-9, "expected 6.0, got {}", r);
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -19232,6 +19336,48 @@ impl ZScoreNormalizer {
         let mean = vals.iter().sum::<f64>() / vals.len() as f64;
         let std = (vals.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / vals.len() as f64).sqrt();
         Some(std / range)
+    }
+
+    /// Sign of (last - first) in the window: 1.0, -1.0, or 0.0.
+    pub fn window_momentum_sign(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let first = self.window.front()?.to_f64()?;
+        let last = self.window.back()?.to_f64()?;
+        let diff = last - first;
+        Some(if diff > 0.0 { 1.0 } else if diff < 0.0 { -1.0 } else { 0.0 })
+    }
+
+    /// last_value / first_value — end-to-start ratio of the window.
+    pub fn window_end_to_start_ratio(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let first = self.window.front()?.to_f64()?;
+        let last = self.window.back()?.to_f64()?;
+        if first == 0.0 { return None; }
+        Some(last / first)
+    }
+
+    /// Mean of squared consecutive differences (mean-square-diff).
+    pub fn window_mean_sq_diff(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let sq_diffs: Vec<f64> = vals.windows(2).map(|w| (w[1] - w[0]).powi(2)).collect();
+        Some(sq_diffs.iter().sum::<f64>() / sq_diffs.len() as f64)
+    }
+
+    /// Maximum of the cumulative sum of window values.
+    pub fn window_cumsum_max(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let mut cumsum = 0.0_f64;
+        let mut max = f64::NEG_INFINITY;
+        for v in &self.window {
+            cumsum += v.to_f64().unwrap_or(0.0);
+            if cumsum > max { max = cumsum; }
+        }
+        Some(max)
     }
 
 }
@@ -26310,5 +26456,66 @@ mod zscore_stability_tests {
         let mut n = znorm(3);
         for v in [dec!(5), dec!(5), dec!(5)] { n.update(v); }
         assert!(n.window_std_over_range().is_none());
+    }
+
+    // ── round-176 tests ──────────────────────────────────────────────────────
+
+    #[test]
+    fn test_zscore_window_momentum_sign_none_for_single() {
+        let mut n = znorm(4);
+        n.update(dec!(5));
+        assert!(n.window_momentum_sign().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_momentum_sign_increasing_one() {
+        let mut n = znorm(3);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        let r = n.window_momentum_sign().unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "expected 1.0, got {}", r);
+    }
+
+    #[test]
+    fn test_zscore_window_end_to_start_ratio_none_for_single() {
+        let mut n = znorm(4);
+        n.update(dec!(5));
+        assert!(n.window_end_to_start_ratio().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_end_to_start_ratio_constant_one() {
+        let mut n = znorm(3);
+        for v in [dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        let r = n.window_end_to_start_ratio().unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "expected 1.0, got {}", r);
+    }
+
+    #[test]
+    fn test_zscore_window_mean_sq_diff_none_for_single() {
+        let mut n = znorm(4);
+        n.update(dec!(5));
+        assert!(n.window_mean_sq_diff().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_mean_sq_diff_constant_zero() {
+        let mut n = znorm(3);
+        for v in [dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        let r = n.window_mean_sq_diff().unwrap();
+        assert!(r.abs() < 1e-9, "expected 0.0, got {}", r);
+    }
+
+    #[test]
+    fn test_zscore_window_cumsum_max_none_for_empty() {
+        let n = znorm(4);
+        assert!(n.window_cumsum_max().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_cumsum_max_positive_values() {
+        let mut n = znorm(3);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        let r = n.window_cumsum_max().unwrap();
+        assert!((r - 6.0).abs() < 1e-9, "expected 6.0, got {}", r);
     }
 }

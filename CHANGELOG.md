@@ -9,6 +9,30 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.10.27] - 2026-03-20
+
+### Added
+
+**`tick` module — `NormalizedTick` analytics (round 176)**
+- `NormalizedTick::tick_price_reversion_count(ticks)` — fraction of consecutive diff pairs that reverse direction.
+- `NormalizedTick::price_skew_from_mean(ticks)` — (mean - median) / std dev.
+- `NormalizedTick::tick_qty_dispersion_ratio(ticks)` — std(qty) / mean(qty).
+- `NormalizedTick::price_range_change_rate(ticks)` — (last - first) / first / (n-1).
+
+**`ohlcv` module — `OhlcvBar` analytics (round 176)**
+- `OhlcvBar::bar_net_return_mean(bars)` — mean (close - open) / open * 100 per bar.
+- `OhlcvBar::bar_up_down_vol_ratio(bars)` — up-bar volume / down-bar volume.
+- `OhlcvBar::bar_close_prev_open_gap(bars)` — mean (open[i] - close[i-1]) gap.
+- `OhlcvBar::bar_wma_close(bars)` — linearly weighted moving average of close prices.
+
+**`norm` module — `MinMaxNormalizer` + `ZScoreNormalizer` analytics (round 176)**
+- `window_momentum_sign()` — sign of (last - first): +1, -1, or 0.
+- `window_end_to_start_ratio()` — last / first value of the window.
+- `window_mean_sq_diff()` — mean of squared consecutive differences.
+- `window_cumsum_max()` — maximum of the running cumulative sum.
+
+---
+
 ## [2.10.26] - 2026-03-20
 
 ### Added

@@ -8687,6 +8687,55 @@ impl NormalizedTick {
         Some(buy_q / total_q)
     }
 
+    /// Number of ticks where price reverses direction (sign change in price diff).
+    pub fn tick_price_reversion_count(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 3 { return None; }
+        let prices: Vec<f64> = ticks.iter().filter_map(|t| t.price.to_f64()).collect();
+        if prices.len() < 3 { return None; }
+        let diffs: Vec<f64> = prices.windows(2).map(|w| w[1] - w[0]).collect();
+        let reversions = diffs.windows(2).filter(|w| w[0] * w[1] < 0.0).count();
+        Some(reversions as f64 / (diffs.len() - 1) as f64)
+    }
+
+    /// (mean_price - median_price) / std_dev — skewness-like measure.
+    pub fn price_skew_from_mean(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 2 { return None; }
+        let mut prices: Vec<f64> = ticks.iter().filter_map(|t| t.price.to_f64()).collect();
+        if prices.len() < 2 { return None; }
+        let mean = prices.iter().sum::<f64>() / prices.len() as f64;
+        let std = (prices.iter().map(|p| (p - mean).powi(2)).sum::<f64>() / prices.len() as f64).sqrt();
+        if std == 0.0 { return Some(0.0); }
+        prices.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let n = prices.len();
+        let median = if n % 2 == 0 { (prices[n / 2 - 1] + prices[n / 2]) / 2.0 } else { prices[n / 2] };
+        Some((mean - median) / std)
+    }
+
+    /// std(quantity) / mean(quantity): coefficient of variation of tick sizes.
+    pub fn tick_qty_dispersion_ratio(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 2 { return None; }
+        let qtys: Vec<f64> = ticks.iter().filter_map(|t| t.quantity.to_f64()).collect();
+        if qtys.len() < 2 { return None; }
+        let mean = qtys.iter().sum::<f64>() / qtys.len() as f64;
+        if mean == 0.0 { return None; }
+        let std = (qtys.iter().map(|q| (q - mean).powi(2)).sum::<f64>() / qtys.len() as f64).sqrt();
+        Some(std / mean)
+    }
+
+    /// (last_price - first_price) / (n_ticks - 1): mean rate of range change.
+    pub fn price_range_change_rate(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 2 { return None; }
+        let first = ticks.first()?.price.to_f64()?;
+        let last = ticks.last()?.price.to_f64()?;
+        let n = ticks.len() as f64 - 1.0;
+        if first == 0.0 { return None; }
+        Some((last - first) / first / n)
+    }
+
 }
 
 
@@ -19749,6 +19798,92 @@ mod tests {
             make_tick_pq(dec!(101), dec!(5)),
         ];
         let r = NormalizedTick::tick_side_weighted_price(&ticks).unwrap();
+        assert!(r.abs() < 1e-9, "expected 0.0, got {}", r);
+    }
+
+    // --- round-176 ---
+
+    #[test]
+    fn test_tick_price_reversion_count_none_for_short() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(101), dec!(1)),
+        ];
+        assert!(NormalizedTick::tick_price_reversion_count(&ticks).is_none());
+    }
+
+    #[test]
+    fn test_tick_price_reversion_count_monotone_zero() {
+        use rust_decimal_macros::dec;
+        // Monotone → no reversions
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(101), dec!(1)),
+            make_tick_pq(dec!(102), dec!(1)),
+            make_tick_pq(dec!(103), dec!(1)),
+        ];
+        let r = NormalizedTick::tick_price_reversion_count(&ticks).unwrap();
+        assert!(r.abs() < 1e-9, "expected 0.0, got {}", r);
+    }
+
+    #[test]
+    fn test_price_skew_from_mean_none_for_single() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![make_tick_pq(dec!(100), dec!(1))];
+        assert!(NormalizedTick::price_skew_from_mean(&ticks).is_none());
+    }
+
+    #[test]
+    fn test_price_skew_from_mean_symmetric_zero() {
+        use rust_decimal_macros::dec;
+        // Symmetric: [90, 100, 110] → mean=median=100 → skew=0
+        let ticks = vec![
+            make_tick_pq(dec!(90), dec!(1)),
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(110), dec!(1)),
+        ];
+        let r = NormalizedTick::price_skew_from_mean(&ticks).unwrap();
+        assert!(r.abs() < 1e-9, "expected 0.0, got {}", r);
+    }
+
+    #[test]
+    fn test_tick_qty_dispersion_ratio_none_for_single() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![make_tick_pq(dec!(100), dec!(1))];
+        assert!(NormalizedTick::tick_qty_dispersion_ratio(&ticks).is_none());
+    }
+
+    #[test]
+    fn test_tick_qty_dispersion_ratio_constant_zero() {
+        use rust_decimal_macros::dec;
+        // All same qty → std=0 → ratio=0
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(5)),
+            make_tick_pq(dec!(101), dec!(5)),
+            make_tick_pq(dec!(102), dec!(5)),
+        ];
+        let r = NormalizedTick::tick_qty_dispersion_ratio(&ticks).unwrap();
+        assert!(r.abs() < 1e-9, "expected 0.0, got {}", r);
+    }
+
+    #[test]
+    fn test_price_range_change_rate_none_for_single() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![make_tick_pq(dec!(100), dec!(1))];
+        assert!(NormalizedTick::price_range_change_rate(&ticks).is_none());
+    }
+
+    #[test]
+    fn test_price_range_change_rate_constant_zero() {
+        use rust_decimal_macros::dec;
+        // First=last → rate=0
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(100), dec!(1)),
+        ];
+        let r = NormalizedTick::price_range_change_rate(&ticks).unwrap();
         assert!(r.abs() < 1e-9, "expected 0.0, got {}", r);
     }
 }

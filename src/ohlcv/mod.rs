@@ -8378,6 +8378,63 @@ impl OhlcvBar {
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
+    /// Mean (close - open) / open * 100 net return across bars.
+    pub fn bar_net_return_mean(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let vals: Vec<f64> = bars.iter().filter_map(|b| {
+            let o = b.open.to_f64()?;
+            let c = b.close.to_f64()?;
+            if o == 0.0 { return None; }
+            Some((c - o) / o * 100.0)
+        }).collect();
+        if vals.is_empty() { return None; }
+        Some(vals.iter().sum::<f64>() / vals.len() as f64)
+    }
+
+    /// Ratio of up-bar volume to down-bar volume.
+    pub fn bar_up_down_vol_ratio(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let mut up_vol = 0.0_f64; let mut down_vol = 0.0_f64;
+        for b in bars {
+            let o = b.open.to_f64()?;
+            let c = b.close.to_f64()?;
+            let v = b.volume.to_f64()?;
+            if c > o { up_vol += v; } else if c < o { down_vol += v; }
+        }
+        if down_vol == 0.0 { return None; }
+        Some(up_vol / down_vol)
+    }
+
+    /// Mean gap between current open and previous close.
+    pub fn bar_close_prev_open_gap(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.len() < 2 { return None; }
+        let vals: Vec<f64> = bars.windows(2).filter_map(|w| {
+            let prev_c = w[0].close.to_f64()?;
+            let curr_o = w[1].open.to_f64()?;
+            Some(curr_o - prev_c)
+        }).collect();
+        if vals.is_empty() { return None; }
+        Some(vals.iter().sum::<f64>() / vals.len() as f64)
+    }
+
+    /// Weighted moving average of close prices (linearly weighted, recent = higher).
+    pub fn bar_wma_close(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let mut wsum = 0.0_f64; let mut wt = 0.0_f64;
+        for (i, b) in bars.iter().enumerate() {
+            let c = b.close.to_f64()?;
+            let w = (i + 1) as f64;
+            wsum += c * w;
+            wt += w;
+        }
+        if wt == 0.0 { return None; }
+        Some(wsum / wt)
+    }
+
 }
 
 impl std::fmt::Display for OhlcvBar {
@@ -19021,5 +19078,65 @@ mod tests {
         let bar = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100));
         let r = OhlcvBar::bar_body_speed(&[bar]).unwrap();
         assert!((r - 0.2).abs() < 1e-9, "expected 0.2, got {}", r);
+    }
+
+    // --- round-176 ---
+
+    #[test]
+    fn test_bar_net_return_mean_none_for_empty() {
+        assert!(OhlcvBar::bar_net_return_mean(&[]).is_none());
+    }
+
+    #[test]
+    fn test_bar_net_return_mean_flat_zero() {
+        // open=close=100 → return=0
+        let bar = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100));
+        let r = OhlcvBar::bar_net_return_mean(&[bar]).unwrap();
+        assert!(r.abs() < 1e-9, "expected 0.0, got {}", r);
+    }
+
+    #[test]
+    fn test_bar_up_down_vol_ratio_none_for_empty() {
+        assert!(OhlcvBar::bar_up_down_vol_ratio(&[]).is_none());
+    }
+
+    #[test]
+    fn test_bar_up_down_vol_ratio_no_down_none() {
+        // All bullish → down_vol=0 → None
+        let bar = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        assert!(OhlcvBar::bar_up_down_vol_ratio(&[bar]).is_none());
+    }
+
+    #[test]
+    fn test_bar_close_prev_open_gap_none_for_empty() {
+        assert!(OhlcvBar::bar_close_prev_open_gap(&[]).is_none());
+    }
+
+    #[test]
+    fn test_bar_close_prev_open_gap_none_for_single() {
+        let bar = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100));
+        assert!(OhlcvBar::bar_close_prev_open_gap(&[bar]).is_none());
+    }
+
+    #[test]
+    fn test_bar_close_prev_open_gap_no_gap() {
+        // bar0 close=100, bar1 open=100 → gap=0
+        let b0 = make_ohlcv_bar(dec!(95), dec!(110), dec!(90), dec!(100));
+        let b1 = make_ohlcv_bar(dec!(100), dec!(115), dec!(95), dec!(105));
+        let r = OhlcvBar::bar_close_prev_open_gap(&[b0, b1]).unwrap();
+        assert!(r.abs() < 1e-9, "expected 0.0, got {}", r);
+    }
+
+    #[test]
+    fn test_bar_wma_close_none_for_empty() {
+        assert!(OhlcvBar::bar_wma_close(&[]).is_none());
+    }
+
+    #[test]
+    fn test_bar_wma_close_single_bar() {
+        // Single bar with close=100 → wma=100
+        let bar = make_ohlcv_bar(dec!(95), dec!(110), dec!(90), dec!(100));
+        let r = OhlcvBar::bar_wma_close(&[bar]).unwrap();
+        assert!((r - 100.0).abs() < 1e-9, "expected 100.0, got {}", r);
     }
 }
