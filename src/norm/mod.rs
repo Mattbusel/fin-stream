@@ -7724,6 +7724,48 @@ impl MinMaxNormalizer {
         Some(mac / mean.abs())
     }
 
+    /// Count of runs above the window median as fraction of window length.
+    pub fn window_above_median_run(&self) -> Option<f64> {
+        if self.window.len() < 2 { return None; }
+        use rust_decimal::prelude::ToPrimitive;
+        let mut vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.len() < 2 { return None; }
+        let n = vals.len();
+        vals.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let median = if n % 2 == 0 {
+            (vals[n / 2 - 1] + vals[n / 2]) / 2.0
+        } else {
+            vals[n / 2]
+        };
+        let ordered: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        let runs = ordered.windows(2).filter(|w| w[0] <= median && w[1] > median).count();
+        Some(runs as f64 / (ordered.len() - 1) as f64)
+    }
+
+    /// 10th percentile value of the window (lower decile).
+    pub fn window_last_decile(&self) -> Option<f64> {
+        if self.window.len() < 2 { return None; }
+        use rust_decimal::prelude::ToPrimitive;
+        let mut vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.len() < 2 { return None; }
+        vals.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let idx = ((vals.len() as f64 - 1.0) * 0.1) as usize;
+        Some(vals[idx])
+    }
+
+    /// Lower fence: Q1 - 1.5 * IQR (Tukey outlier bound).
+    pub fn window_lower_fence(&self) -> Option<f64> {
+        if self.window.len() < 4 { return None; }
+        use rust_decimal::prelude::ToPrimitive;
+        let mut vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.len() < 4 { return None; }
+        vals.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let n = vals.len();
+        let q1 = vals[n / 4];
+        let q3 = vals[3 * n / 4];
+        Some(q1 - 1.5 * (q3 - q1))
+    }
+
 }
 
 #[cfg(test)]
@@ -16695,6 +16737,51 @@ mod tests {
         let r = n.window_mean_abs_change_pct().unwrap();
         assert!(r >= 0.0);
     }
+
+    #[test]
+    fn test_minmax_window_above_median_run_too_few_none() {
+        let mut n = norm(5);
+        n.update(dec!(1));
+        assert!(n.window_above_median_run().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_above_median_run_bounded() {
+        let mut n = norm(5);
+        for v in [dec!(1), dec!(3), dec!(2), dec!(5), dec!(4)] { n.update(v); }
+        let r = n.window_above_median_run().unwrap();
+        assert!(r >= 0.0 && r <= 1.0);
+    }
+
+    #[test]
+    fn test_minmax_window_last_decile_too_few_none() {
+        let mut n = norm(5);
+        n.update(dec!(5));
+        assert!(n.window_last_decile().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_last_decile_returns_value() {
+        let mut n = norm(5);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4), dec!(5)] { n.update(v); }
+        let r = n.window_last_decile().unwrap();
+        assert!(r >= 1.0 && r <= 5.0);
+    }
+
+    #[test]
+    fn test_minmax_window_lower_fence_too_few_none() {
+        let mut n = norm(5);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        assert!(n.window_lower_fence().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_lower_fence_returns_value() {
+        let mut n = norm(6);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4), dec!(5), dec!(6)] { n.update(v); }
+        let r = n.window_lower_fence();
+        assert!(r.is_some());
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -24364,6 +24451,48 @@ impl ZScoreNormalizer {
         if mean == 0.0 { return None; }
         let mac = vals.windows(2).map(|w| (w[1] - w[0]).abs()).sum::<f64>() / (vals.len() - 1) as f64;
         Some(mac / mean.abs())
+    }
+
+    /// Count of runs above the window median as fraction of window length.
+    pub fn window_above_median_run(&self) -> Option<f64> {
+        if self.window.len() < 2 { return None; }
+        use rust_decimal::prelude::ToPrimitive;
+        let mut vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.len() < 2 { return None; }
+        let n = vals.len();
+        vals.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let median = if n % 2 == 0 {
+            (vals[n / 2 - 1] + vals[n / 2]) / 2.0
+        } else {
+            vals[n / 2]
+        };
+        let ordered: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        let runs = ordered.windows(2).filter(|w| w[0] <= median && w[1] > median).count();
+        Some(runs as f64 / (ordered.len() - 1) as f64)
+    }
+
+    /// 10th percentile value of the window (lower decile).
+    pub fn window_last_decile(&self) -> Option<f64> {
+        if self.window.len() < 2 { return None; }
+        use rust_decimal::prelude::ToPrimitive;
+        let mut vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.len() < 2 { return None; }
+        vals.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let idx = ((vals.len() as f64 - 1.0) * 0.1) as usize;
+        Some(vals[idx])
+    }
+
+    /// Lower fence: Q1 - 1.5 * IQR (Tukey outlier bound).
+    pub fn window_lower_fence(&self) -> Option<f64> {
+        if self.window.len() < 4 { return None; }
+        use rust_decimal::prelude::ToPrimitive;
+        let mut vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.len() < 4 { return None; }
+        vals.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let n = vals.len();
+        let q1 = vals[n / 4];
+        let q3 = vals[3 * n / 4];
+        Some(q1 - 1.5 * (q3 - q1))
     }
 
 }
@@ -33285,5 +33414,50 @@ mod zscore_stability_tests {
         for v in [dec!(2), dec!(5), dec!(3), dec!(6)] { n.update(v); }
         let r = n.window_mean_abs_change_pct().unwrap();
         assert!(r >= 0.0);
+    }
+
+    #[test]
+    fn test_zscore_window_above_median_run_too_few_none() {
+        let mut n = znorm(5);
+        n.update(dec!(1));
+        assert!(n.window_above_median_run().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_above_median_run_bounded() {
+        let mut n = znorm(5);
+        for v in [dec!(1), dec!(4), dec!(2), dec!(5), dec!(3)] { n.update(v); }
+        let r = n.window_above_median_run().unwrap();
+        assert!(r >= 0.0 && r <= 1.0);
+    }
+
+    #[test]
+    fn test_zscore_window_last_decile_too_few_none() {
+        let mut n = znorm(5);
+        n.update(dec!(5));
+        assert!(n.window_last_decile().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_last_decile_returns_value() {
+        let mut n = znorm(5);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4), dec!(5)] { n.update(v); }
+        let r = n.window_last_decile().unwrap();
+        assert!(r >= 1.0 && r <= 5.0);
+    }
+
+    #[test]
+    fn test_zscore_window_lower_fence_too_few_none() {
+        let mut n = znorm(5);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        assert!(n.window_lower_fence().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_lower_fence_returns_value() {
+        let mut n = znorm(6);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4), dec!(5), dec!(6)] { n.update(v); }
+        let r = n.window_lower_fence();
+        assert!(r.is_some());
     }
 }

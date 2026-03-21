@@ -9,6 +9,29 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.10.60] - 2026-03-20
+
+### Added
+
+**`tick` module — `NormalizedTick` analytics (round 209)**
+- `NormalizedTick::tick_price_impact_ratio(ticks)` — total price move divided by total volume.
+- `NormalizedTick::tick_qty_imbalance(ticks)` — fraction of volume in the largest single tick.
+- `NormalizedTick::tick_vol_spike(ticks)` — ratio of max tick volume to mean tick volume.
+- `NormalizedTick::tick_side_vol_diff(ticks)` — buy volume minus sell volume (signed imbalance).
+
+**`ohlcv` module — `OhlcvBar` analytics (round 209)**
+- `OhlcvBar::bar_body_high_pct(bars)` — mean body size as fraction of high price.
+- `OhlcvBar::bar_vol_trend_sign(bars)` — fraction of consecutive bar pairs where volume increases.
+- `OhlcvBar::bar_range_vol_ratio(bars)` — mean (high - low) / volume (range per unit volume).
+- `OhlcvBar::bar_open_close_return(bars)` — mean (close - open) / open return per bar.
+
+**`norm` module — `MinMaxNormalizer` + `ZScoreNormalizer` analytics (round 209)**
+- `window_above_median_run()` — fraction of pairs where value crosses above the median.
+- `window_last_decile()` — 10th percentile value of the window (lower decile).
+- `window_lower_fence()` — Tukey lower outlier bound: Q1 - 1.5 * IQR.
+
+---
+
 ## [2.10.59] - 2026-03-20
 
 ### Added

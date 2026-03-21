@@ -10099,6 +10099,57 @@ impl NormalizedTick {
         Some(num / (dp * dq))
     }
 
+    /// Ratio of total price move to total quantity (price impact per unit volume).
+    pub fn tick_price_impact_ratio(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 2 { return None; }
+        let prices: Vec<f64> = ticks.iter().filter_map(|t| t.price.to_f64()).collect();
+        let qtys: Vec<f64> = ticks.iter().filter_map(|t| t.quantity.to_f64()).collect();
+        if prices.len() < 2 || qtys.is_empty() { return None; }
+        let price_move = (prices.last()? - prices[0]).abs();
+        let total_qty: f64 = qtys.iter().sum();
+        if total_qty == 0.0 { return None; }
+        Some(price_move / total_qty)
+    }
+
+    /// Fraction of total volume in the largest single tick (qty imbalance proxy).
+    pub fn tick_qty_imbalance(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() { return None; }
+        let qtys: Vec<f64> = ticks.iter().filter_map(|t| t.quantity.to_f64()).collect();
+        if qtys.is_empty() { return None; }
+        let total: f64 = qtys.iter().sum();
+        if total == 0.0 { return None; }
+        let max = qtys.iter().cloned().fold(0.0f64, f64::max);
+        Some(max / total)
+    }
+
+    /// Ratio of max volume tick to mean volume (volume spike indicator).
+    pub fn tick_vol_spike(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() { return None; }
+        let qtys: Vec<f64> = ticks.iter().filter_map(|t| t.quantity.to_f64()).collect();
+        if qtys.is_empty() { return None; }
+        let mean = qtys.iter().sum::<f64>() / qtys.len() as f64;
+        if mean == 0.0 { return None; }
+        let max = qtys.iter().cloned().fold(0.0f64, f64::max);
+        Some(max / mean)
+    }
+
+    /// Buy volume minus sell volume (signed volume imbalance).
+    pub fn tick_side_vol_diff(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() { return None; }
+        let buy: f64 = ticks.iter().filter_map(|t| {
+            if t.side == Some(TradeSide::Buy) { t.quantity.to_f64() } else { None }
+        }).sum();
+        let sell: f64 = ticks.iter().filter_map(|t| {
+            if t.side == Some(TradeSide::Sell) { t.quantity.to_f64() } else { None }
+        }).sum();
+        if buy == 0.0 && sell == 0.0 { return None; }
+        Some(buy - sell)
+    }
+
     /// Ratio of largest single trade to mean trade size.
     pub fn tick_order_size_ratio(ticks: &[NormalizedTick]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
@@ -24089,5 +24140,73 @@ mod tests {
         ];
         let r = NormalizedTick::tick_ema_divergence(&ticks).unwrap();
         assert!(r.abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_tick_price_impact_ratio_empty_none() {
+        assert!(NormalizedTick::tick_price_impact_ratio(&[]).is_none());
+    }
+
+    #[test]
+    fn test_tick_price_impact_ratio_nonneg() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(101), dec!(2)),
+            make_tick_pq(dec!(102), dec!(1)),
+        ];
+        let r = NormalizedTick::tick_price_impact_ratio(&ticks).unwrap();
+        assert!(r >= 0.0);
+    }
+
+    #[test]
+    fn test_tick_qty_imbalance_empty_none() {
+        assert!(NormalizedTick::tick_qty_imbalance(&[]).is_none());
+    }
+
+    #[test]
+    fn test_tick_qty_imbalance_bounded() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(3)),
+            make_tick_pq(dec!(101), dec!(1)),
+            make_tick_pq(dec!(102), dec!(2)),
+        ];
+        let r = NormalizedTick::tick_qty_imbalance(&ticks).unwrap();
+        assert!(r >= 0.0 && r <= 1.0);
+    }
+
+    #[test]
+    fn test_tick_vol_spike_empty_none() {
+        assert!(NormalizedTick::tick_vol_spike(&[]).is_none());
+    }
+
+    #[test]
+    fn test_tick_vol_spike_returns_value() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(101), dec!(1)),
+            make_tick_pq(dec!(102), dec!(10)),
+        ];
+        let r = NormalizedTick::tick_vol_spike(&ticks).unwrap();
+        assert!(r >= 0.0);
+    }
+
+    #[test]
+    fn test_tick_side_vol_diff_empty_none() {
+        assert!(NormalizedTick::tick_side_vol_diff(&[]).is_none());
+    }
+
+    #[test]
+    fn test_tick_side_vol_diff_all_buys() {
+        use rust_decimal_macros::dec;
+        use crate::tick::TradeSide;
+        let mut t = make_tick_pq(dec!(100), dec!(5));
+        t.side = Some(TradeSide::Buy);
+        let mut t2 = make_tick_pq(dec!(101), dec!(3));
+        t2.side = Some(TradeSide::Buy);
+        let r = NormalizedTick::tick_side_vol_diff(&[t, t2]).unwrap();
+        assert!(r > 0.0);
     }
 }
