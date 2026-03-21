@@ -9746,6 +9746,63 @@ impl OhlcvBar {
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
+    /// Mean (close - open) / (open - low) — open-to-close efficiency relative to lower wick.
+    pub fn bar_open_close_efficiency(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let vals: Vec<f64> = bars.iter().filter_map(|b| {
+            let ol = (b.open - b.low).to_f64()?;
+            if ol == 0.0 { return None; }
+            let oc = (b.close - b.open).to_f64()?;
+            Some(oc / ol)
+        }).collect();
+        if vals.is_empty() { return None; }
+        Some(vals.iter().sum::<f64>() / vals.len() as f64)
+    }
+
+    /// Std dev of volumes across bars as a concentration measure.
+    pub fn bar_vol_concentration(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.len() < 2 { return None; }
+        let vols: Vec<f64> = bars.iter().filter_map(|b| b.volume.to_f64()).collect();
+        if vols.len() < 2 { return None; }
+        let mean = vols.iter().sum::<f64>() / vols.len() as f64;
+        let var = vols.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / (vols.len() - 1) as f64;
+        Some(var.sqrt())
+    }
+
+    /// Std dev of per-bar (wick / body) ratios across bars.
+    pub fn bar_wick_to_body_std(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.len() < 2 { return None; }
+        let ratios: Vec<f64> = bars.iter().filter_map(|b| {
+            let body = (b.close - b.open).abs().to_f64()?;
+            if body == 0.0 { return None; }
+            let body_top = if b.close > b.open { b.close } else { b.open };
+            let body_bot = if b.close < b.open { b.close } else { b.open };
+            let wicks = ((b.high - body_top) + (body_bot - b.low)).to_f64()?;
+            Some(wicks / body)
+        }).collect();
+        if ratios.len() < 2 { return None; }
+        let mean = ratios.iter().sum::<f64>() / ratios.len() as f64;
+        let var = ratios.iter().map(|r| (r - mean).powi(2)).sum::<f64>() / (ratios.len() - 1) as f64;
+        Some(var.sqrt())
+    }
+
+    /// Mean volume per unit of close price change between consecutive bars.
+    pub fn bar_close_vol_speed(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.len() < 2 { return None; }
+        let vals: Vec<f64> = bars.windows(2).filter_map(|w| {
+            let close_diff = (w[1].close - w[0].close).abs().to_f64()?;
+            if close_diff == 0.0 { return None; }
+            let vol = w[1].volume.to_f64()?;
+            Some(vol / close_diff)
+        }).collect();
+        if vals.is_empty() { return None; }
+        Some(vals.iter().sum::<f64>() / vals.len() as f64)
+    }
+
     /// Fraction of bars with directional reversal (close direction flips).
     pub fn bar_trend_reversal_pct(bars: &[OhlcvBar]) -> Option<f64> {
         if bars.len() < 3 { return None; }
@@ -22487,5 +22544,61 @@ mod tests {
         let b2 = make_ohlcv_bar(dec!(107), dec!(115), dec!(95), dec!(112));
         let r = OhlcvBar::bar_gap_direction(&[b1, b2]);
         assert!(r.is_some());
+    }
+
+    #[test]
+    fn test_bar_open_close_efficiency_empty_none() {
+        assert!(OhlcvBar::bar_open_close_efficiency(&[]).is_none());
+    }
+
+    #[test]
+    fn test_bar_open_close_efficiency_returns_value() {
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let r = OhlcvBar::bar_open_close_efficiency(&[b]);
+        assert!(r.is_some());
+    }
+
+    #[test]
+    fn test_bar_vol_concentration_too_few_none() {
+        assert!(OhlcvBar::bar_vol_concentration(&[]).is_none());
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        assert!(OhlcvBar::bar_vol_concentration(&[b]).is_none());
+    }
+
+    #[test]
+    fn test_bar_vol_concentration_same_vol_zero() {
+        let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let b2 = make_ohlcv_bar(dec!(100), dec!(115), dec!(85), dec!(110));
+        let r = OhlcvBar::bar_vol_concentration(&[b1, b2]).unwrap();
+        assert_eq!(r, 0.0);
+    }
+
+    #[test]
+    fn test_bar_wick_to_body_std_too_few_none() {
+        assert!(OhlcvBar::bar_wick_to_body_std(&[]).is_none());
+    }
+
+    #[test]
+    fn test_bar_wick_to_body_std_returns_nonneg() {
+        let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let b2 = make_ohlcv_bar(dec!(100), dec!(115), dec!(85), dec!(110));
+        let r = OhlcvBar::bar_wick_to_body_std(&[b1, b2]);
+        // may return None if body is 0 for some bars
+        if let Some(v) = r { assert!(v >= 0.0); }
+    }
+
+    #[test]
+    fn test_bar_close_vol_speed_too_few_none() {
+        assert!(OhlcvBar::bar_close_vol_speed(&[]).is_none());
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        assert!(OhlcvBar::bar_close_vol_speed(&[b]).is_none());
+    }
+
+    #[test]
+    fn test_bar_close_vol_speed_returns_positive() {
+        let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let b2 = make_ohlcv_bar(dec!(100), dec!(115), dec!(85), dec!(110));
+        let r = OhlcvBar::bar_close_vol_speed(&[b1, b2]).unwrap();
+        assert!(r > 0.0);
     }
 }

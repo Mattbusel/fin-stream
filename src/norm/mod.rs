@@ -7646,6 +7646,43 @@ impl MinMaxNormalizer {
         Some(last - median)
     }
 
+    /// Skewness of the pairwise differences (second-order volatility skew).
+    pub fn window_volatility_skew(&self) -> Option<f64> {
+        if self.window.len() < 3 { return None; }
+        use rust_decimal::prelude::ToPrimitive;
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.len() < 3 { return None; }
+        let diffs: Vec<f64> = vals.windows(2).map(|w| (w[1] - w[0]).abs()).collect();
+        let n = diffs.len() as f64;
+        let mean = diffs.iter().sum::<f64>() / n;
+        let std = (diffs.iter().map(|d| (d - mean).powi(2)).sum::<f64>() / n).sqrt();
+        if std == 0.0 { return Some(0.0); }
+        Some(diffs.iter().map(|d| ((d - mean) / std).powi(3)).sum::<f64>() / n)
+    }
+
+    /// Last value minus first value in the window.
+    pub fn window_last_minus_first(&self) -> Option<f64> {
+        if self.window.len() < 2 { return None; }
+        use rust_decimal::prelude::ToPrimitive;
+        let first = self.window.front()?.to_f64()?;
+        let last = self.window.back()?.to_f64()?;
+        Some(last - first)
+    }
+
+    /// Fraction of values within 1 std dev of the mean (density at peak).
+    pub fn window_density_peak_score(&self) -> Option<f64> {
+        if self.window.len() < 2 { return None; }
+        use rust_decimal::prelude::ToPrimitive;
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.len() < 2 { return None; }
+        let n = vals.len() as f64;
+        let mean = vals.iter().sum::<f64>() / n;
+        let std = (vals.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / n).sqrt();
+        if std == 0.0 { return Some(1.0); }
+        let count = vals.iter().filter(|&&v| (v - mean).abs() <= std).count();
+        Some(count as f64 / n)
+    }
+
 }
 
 #[cfg(test)]
@@ -16502,6 +16539,52 @@ mod tests {
         let r = n.window_median_shift().unwrap();
         assert!(r.is_finite());
     }
+
+    #[test]
+    fn test_minmax_window_volatility_skew_too_few_none() {
+        let mut n = norm(4);
+        n.update(dec!(1));
+        assert!(n.window_volatility_skew().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_volatility_skew_returns_value() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let r = n.window_volatility_skew();
+        assert!(r.is_some());
+        assert!(r.unwrap().is_finite());
+    }
+
+    #[test]
+    fn test_minmax_window_last_minus_first_too_few_none() {
+        let mut n = norm(4);
+        n.update(dec!(1));
+        assert!(n.window_last_minus_first().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_last_minus_first_returns_value() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(4)] { n.update(v); }
+        let r = n.window_last_minus_first().unwrap();
+        assert!((r - 3.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_minmax_window_density_peak_score_too_few_none() {
+        let mut n = norm(4);
+        n.update(dec!(1));
+        assert!(n.window_density_peak_score().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_density_peak_score_returns_bounded() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let r = n.window_density_peak_score().unwrap();
+        assert!(r >= 0.0 && r <= 1.0);
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -24093,6 +24176,43 @@ impl ZScoreNormalizer {
         let n = vals.len();
         let median = if n % 2 == 0 { (vals[n/2-1] + vals[n/2]) / 2.0 } else { vals[n/2] };
         Some(last - median)
+    }
+
+    /// Skewness of the pairwise differences (second-order volatility skew).
+    pub fn window_volatility_skew(&self) -> Option<f64> {
+        if self.window.len() < 3 { return None; }
+        use rust_decimal::prelude::ToPrimitive;
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.len() < 3 { return None; }
+        let diffs: Vec<f64> = vals.windows(2).map(|w| (w[1] - w[0]).abs()).collect();
+        let n = diffs.len() as f64;
+        let mean = diffs.iter().sum::<f64>() / n;
+        let std = (diffs.iter().map(|d| (d - mean).powi(2)).sum::<f64>() / n).sqrt();
+        if std == 0.0 { return Some(0.0); }
+        Some(diffs.iter().map(|d| ((d - mean) / std).powi(3)).sum::<f64>() / n)
+    }
+
+    /// Last value minus first value in the window.
+    pub fn window_last_minus_first(&self) -> Option<f64> {
+        if self.window.len() < 2 { return None; }
+        use rust_decimal::prelude::ToPrimitive;
+        let first = self.window.front()?.to_f64()?;
+        let last = self.window.back()?.to_f64()?;
+        Some(last - first)
+    }
+
+    /// Fraction of values within 1 std dev of the mean (density at peak).
+    pub fn window_density_peak_score(&self) -> Option<f64> {
+        if self.window.len() < 2 { return None; }
+        use rust_decimal::prelude::ToPrimitive;
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.len() < 2 { return None; }
+        let n = vals.len() as f64;
+        let mean = vals.iter().sum::<f64>() / n;
+        let std = (vals.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / n).sqrt();
+        if std == 0.0 { return Some(1.0); }
+        let count = vals.iter().filter(|&&v| (v - mean).abs() <= std).count();
+        Some(count as f64 / n)
     }
 
 }
@@ -32899,5 +33019,51 @@ mod zscore_stability_tests {
         for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
         let r = n.window_median_shift().unwrap();
         assert!(r.is_finite());
+    }
+
+    #[test]
+    fn test_zscore_window_volatility_skew_too_few_none() {
+        let mut n = znorm(4);
+        n.update(dec!(1));
+        assert!(n.window_volatility_skew().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_volatility_skew_returns_value() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let r = n.window_volatility_skew();
+        assert!(r.is_some());
+        assert!(r.unwrap().is_finite());
+    }
+
+    #[test]
+    fn test_zscore_window_last_minus_first_too_few_none() {
+        let mut n = znorm(4);
+        n.update(dec!(1));
+        assert!(n.window_last_minus_first().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_last_minus_first_returns_value() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(4)] { n.update(v); }
+        let r = n.window_last_minus_first().unwrap();
+        assert!((r - 3.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_zscore_window_density_peak_score_too_few_none() {
+        let mut n = znorm(4);
+        n.update(dec!(1));
+        assert!(n.window_density_peak_score().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_density_peak_score_returns_bounded() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let r = n.window_density_peak_score().unwrap();
+        assert!(r >= 0.0 && r <= 1.0);
     }
 }

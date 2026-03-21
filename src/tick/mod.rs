@@ -10099,6 +10099,61 @@ impl NormalizedTick {
         Some(num / (dp * dq))
     }
 
+    /// Asymmetry of price*vol: buy side minus sell side weighted price.
+    pub fn tick_price_vol_asymmetry(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() { return None; }
+        let buy_pv: f64 = ticks.iter().filter_map(|t| {
+            if t.side == Some(TradeSide::Buy) {
+                Some(t.price.to_f64()? * t.quantity.to_f64()?)
+            } else { None }
+        }).sum();
+        let sell_pv: f64 = ticks.iter().filter_map(|t| {
+            if t.side == Some(TradeSide::Sell) {
+                Some(t.price.to_f64()? * t.quantity.to_f64()?)
+            } else { None }
+        }).sum();
+        if buy_pv == 0.0 && sell_pv == 0.0 { return None; }
+        Some(buy_pv - sell_pv)
+    }
+
+    /// Ratio of price momentum (last half) to flow momentum (volume).
+    pub fn tick_price_flow_ratio(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 2 { return None; }
+        let prices: Vec<f64> = ticks.iter().filter_map(|t| t.price.to_f64()).collect();
+        let half = prices.len() / 2;
+        if half == 0 { return None; }
+        let m1 = prices[..half].iter().sum::<f64>() / half as f64;
+        let m2 = prices[half..].iter().sum::<f64>() / (prices.len() - half) as f64;
+        let price_mom = m2 - m1;
+        let total_qty: f64 = ticks.iter().filter_map(|t| t.quantity.to_f64()).sum();
+        if total_qty == 0.0 { return None; }
+        Some(price_mom / total_qty)
+    }
+
+    /// Ratio of second-half tick rate to first-half (number of ticks as proxy for velocity).
+    pub fn tick_velocity_ratio(ticks: &[NormalizedTick]) -> Option<f64> {
+        if ticks.len() < 2 { return None; }
+        let half = ticks.len() / 2;
+        let first_count = half as f64;
+        let second_count = (ticks.len() - half) as f64;
+        if first_count == 0.0 { return None; }
+        Some(second_count / first_count)
+    }
+
+    /// Microstructure noise: std dev of tick-to-tick price changes.
+    pub fn tick_microstructure_noise(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 3 { return None; }
+        let prices: Vec<f64> = ticks.iter().filter_map(|t| t.price.to_f64()).collect();
+        if prices.len() < 3 { return None; }
+        let diffs: Vec<f64> = prices.windows(2).map(|w| w[1] - w[0]).collect();
+        let mean = diffs.iter().sum::<f64>() / diffs.len() as f64;
+        let var = diffs.iter().map(|d| (d - mean).powi(2)).sum::<f64>() / (diffs.len() - 1) as f64;
+        Some(var.sqrt())
+    }
+
     /// Dispersion of prices: std dev of prices (absolute spread).
     pub fn tick_price_dispersion(ticks: &[NormalizedTick]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
@@ -23843,5 +23898,74 @@ mod tests {
         ];
         let r = NormalizedTick::tick_qty_entropy_approx(&ticks).unwrap();
         assert!(r >= 0.0);
+    }
+
+    #[test]
+    fn test_tick_price_vol_asymmetry_empty_none() {
+        assert!(NormalizedTick::tick_price_vol_asymmetry(&[]).is_none());
+    }
+
+    #[test]
+    fn test_tick_price_vol_asymmetry_buy_positive() {
+        use rust_decimal_macros::dec;
+        let mut t = make_tick_pq(dec!(100), dec!(5));
+        t.side = Some(TradeSide::Buy);
+        let r = NormalizedTick::tick_price_vol_asymmetry(&[t]).unwrap();
+        assert!(r > 0.0);
+    }
+
+    #[test]
+    fn test_tick_price_flow_ratio_too_few_none() {
+        use rust_decimal_macros::dec;
+        let t = make_tick_pq(dec!(100), dec!(1));
+        assert!(NormalizedTick::tick_price_flow_ratio(&[t]).is_none());
+    }
+
+    #[test]
+    fn test_tick_price_flow_ratio_returns_value() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(2)),
+            make_tick_pq(dec!(110), dec!(3)),
+        ];
+        let r = NormalizedTick::tick_price_flow_ratio(&ticks);
+        assert!(r.is_some());
+    }
+
+    #[test]
+    fn test_tick_velocity_ratio_too_few_none() {
+        use rust_decimal_macros::dec;
+        let t = make_tick_pq(dec!(100), dec!(1));
+        assert!(NormalizedTick::tick_velocity_ratio(&[t]).is_none());
+    }
+
+    #[test]
+    fn test_tick_velocity_ratio_returns_positive() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(100), dec!(1)),
+        ];
+        let r = NormalizedTick::tick_velocity_ratio(&ticks).unwrap();
+        assert!(r > 0.0);
+    }
+
+    #[test]
+    fn test_tick_microstructure_noise_too_few_none() {
+        use rust_decimal_macros::dec;
+        let t = make_tick_pq(dec!(100), dec!(1));
+        assert!(NormalizedTick::tick_microstructure_noise(&[t]).is_none());
+    }
+
+    #[test]
+    fn test_tick_microstructure_noise_same_price_zero() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(100), dec!(1)),
+        ];
+        let r = NormalizedTick::tick_microstructure_noise(&ticks).unwrap();
+        assert_eq!(r, 0.0);
     }
 }

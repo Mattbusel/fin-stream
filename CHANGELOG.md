@@ -9,6 +9,29 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.10.58] - 2026-03-20
+
+### Added
+
+**`tick` module — `NormalizedTick` analytics (round 207)**
+- `NormalizedTick::tick_price_vol_asymmetry(ticks)` — buy side minus sell side price*volume.
+- `NormalizedTick::tick_price_flow_ratio(ticks)` — price momentum per unit of total volume.
+- `NormalizedTick::tick_velocity_ratio(ticks)` — ratio of second-half to first-half tick count.
+- `NormalizedTick::tick_microstructure_noise(ticks)` — std dev of tick-to-tick price changes.
+
+**`ohlcv` module — `OhlcvBar` analytics (round 207)**
+- `OhlcvBar::bar_open_close_efficiency(bars)` — mean (close - open) / (open - low) ratio.
+- `OhlcvBar::bar_vol_concentration(bars)` — std dev of volumes (volume concentration measure).
+- `OhlcvBar::bar_wick_to_body_std(bars)` — std dev of per-bar wick/body ratios.
+- `OhlcvBar::bar_close_vol_speed(bars)` — mean volume per unit of close price change.
+
+**`norm` module — `MinMaxNormalizer` + `ZScoreNormalizer` analytics (round 207)**
+- `window_volatility_skew()` — skewness of absolute pairwise differences.
+- `window_last_minus_first()` — last value minus first value in the window.
+- `window_density_peak_score()` — fraction of values within 1 std dev of the mean.
+
+---
+
 ## [2.10.57] - 2026-03-20
 
 ### Added
