@@ -5308,6 +5308,69 @@ impl OhlcvBar {
         Some(bars.iter().filter(|b| b.volume.to_f64().unwrap_or(0.0) > mean_vol).count())
     }
 
+    // ── round-118 ────────────────────────────────────────────────────────────
+
+    /// Mean of `(close - low) / (high - low)` close-range position across bars.
+    /// Bars with zero range are skipped. Returns `None` if no eligible bars.
+    pub fn avg_close_range_pct(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let mut sum = 0f64;
+        let mut cnt = 0usize;
+        for b in bars {
+            let range = b.high - b.low;
+            if range.is_zero() { continue; }
+            sum += ((b.close - b.low) / range).to_f64().unwrap_or(0.0);
+            cnt += 1;
+        }
+        if cnt == 0 { None } else { Some(sum / cnt as f64) }
+    }
+
+    /// Mean ratio of each bar's volume to the maximum volume in the slice.
+    /// Returns `None` for empty input or zero max volume.
+    pub fn volume_ratio_to_max(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let max_vol = bars.iter().map(|b| b.volume).fold(bars[0].volume, |a, b| a.max(b));
+        if max_vol.is_zero() { return None; }
+        let sum: f64 = bars.iter().map(|b| (b.volume / max_vol).to_f64().unwrap_or(0.0)).sum();
+        Some(sum / bars.len() as f64)
+    }
+
+    /// Bar consolidation score: mean ratio of body size to ATR-style range.
+    /// Lower values indicate consolidation. Bars with zero range are skipped.
+    /// Returns `None` if no eligible bars.
+    pub fn bar_consolidation_score(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let mut sum = 0f64;
+        let mut cnt = 0usize;
+        for b in bars {
+            let range = b.high - b.low;
+            if range.is_zero() { continue; }
+            let body = (b.close - b.open).abs();
+            sum += (body / range).to_f64().unwrap_or(0.0);
+            cnt += 1;
+        }
+        if cnt == 0 { None } else { Some(1.0 - sum / cnt as f64) }
+    }
+
+    /// Shadow asymmetry: mean of `(upper_shadow - lower_shadow) / range`.
+    /// Positive → upper wicks dominate. Bars with zero range are skipped.
+    /// Returns `None` if no eligible bars.
+    pub fn shadow_asymmetry(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let mut sum = 0f64;
+        let mut cnt = 0usize;
+        for b in bars {
+            let range = b.high - b.low;
+            if range.is_zero() { continue; }
+            let upper = b.high - b.open.max(b.close);
+            let lower = b.open.min(b.close) - b.low;
+            sum += ((upper - lower) / range).to_f64().unwrap_or(0.0);
+            cnt += 1;
+        }
+        if cnt == 0 { None } else { Some(sum / cnt as f64) }
+    }
+
 }
 
 impl std::fmt::Display for OhlcvBar {
@@ -12516,5 +12579,61 @@ mod tests {
         let b2 = make_ohlcv_bar(dec!(100), dec!(115), dec!(95), dec!(110));
         let c = OhlcvBar::volume_above_avg_count(&[b1, b2]).unwrap();
         assert_eq!(c, 0);
+    }
+
+    #[test]
+    fn test_avg_close_range_pct_none_for_zero_range() {
+        let b = make_ohlcv_bar(dec!(100), dec!(100), dec!(100), dec!(100));
+        assert!(OhlcvBar::avg_close_range_pct(&[b]).is_none());
+    }
+
+    #[test]
+    fn test_avg_close_range_pct_basic() {
+        // low=90, high=110 → range=20, close=100 → (100-90)/20=0.5
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100));
+        let p = OhlcvBar::avg_close_range_pct(&[b]).unwrap();
+        assert!((p - 0.5).abs() < 1e-9, "expected 0.5, got {}", p);
+    }
+
+    #[test]
+    fn test_volume_ratio_to_max_none_for_empty() {
+        assert!(OhlcvBar::volume_ratio_to_max(&[]).is_none());
+    }
+
+    #[test]
+    fn test_volume_ratio_to_max_basic() {
+        // all same volume → all ratio=1.0 → mean=1.0
+        let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let b2 = make_ohlcv_bar(dec!(100), dec!(115), dec!(95), dec!(110));
+        let r = OhlcvBar::volume_ratio_to_max(&[b1, b2]).unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "expected 1.0, got {}", r);
+    }
+
+    #[test]
+    fn test_bar_consolidation_score_none_for_zero_range() {
+        let b = make_ohlcv_bar(dec!(100), dec!(100), dec!(100), dec!(100));
+        assert!(OhlcvBar::bar_consolidation_score(&[b]).is_none());
+    }
+
+    #[test]
+    fn test_bar_consolidation_score_low_for_full_body() {
+        // open=100, close=110, high=110, low=100 → body/range=1 → score=1-1=0 (no consolidation)
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(100), dec!(110));
+        let s = OhlcvBar::bar_consolidation_score(&[b]).unwrap();
+        assert!(s.abs() < 1e-9, "expected 0.0, got {}", s);
+    }
+
+    #[test]
+    fn test_shadow_asymmetry_none_for_zero_range() {
+        let b = make_ohlcv_bar(dec!(100), dec!(100), dec!(100), dec!(100));
+        assert!(OhlcvBar::shadow_asymmetry(&[b]).is_none());
+    }
+
+    #[test]
+    fn test_shadow_asymmetry_basic() {
+        // open=100, close=100 (doji), high=110, low=90 → upper=10, lower=10 → asymmetry=0
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100));
+        let a = OhlcvBar::shadow_asymmetry(&[b]).unwrap();
+        assert!(a.abs() < 1e-9, "expected 0.0, got {}", a);
     }
 }

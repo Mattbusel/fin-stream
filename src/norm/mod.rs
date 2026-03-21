@@ -3286,6 +3286,43 @@ impl MinMaxNormalizer {
         self.window.iter().map(|v| v.to_f64().unwrap_or(f64::NEG_INFINITY)).reduce(f64::max)
     }
 
+    // ── round-118 ────────────────────────────────────────────────────────────
+
+    /// Minimum value in the window. Returns `None` for empty window.
+    pub fn window_rolling_min(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        self.window.iter().map(|v| v.to_f64().unwrap_or(f64::INFINITY)).reduce(f64::min)
+    }
+
+    /// Fraction of window values that are strictly negative.
+    /// Returns `None` for empty window.
+    pub fn window_negative_fraction(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let neg = self.window.iter().filter(|&&v| v < rust_decimal::Decimal::ZERO).count();
+        Some(neg as f64 / self.window.len() as f64)
+    }
+
+    /// Fraction of window values that are strictly positive.
+    /// Returns `None` for empty window.
+    pub fn window_positive_fraction(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let pos = self.window.iter().filter(|&&v| v > rust_decimal::Decimal::ZERO).count();
+        Some(pos as f64 / self.window.len() as f64)
+    }
+
+    /// Last window value minus the window minimum.
+    /// Returns `None` for empty window.
+    pub fn window_last_minus_min(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let last = self.window.back()?.to_f64()?;
+        let min = self.window.iter().map(|v| v.to_f64().unwrap_or(f64::INFINITY)).fold(f64::INFINITY, f64::min);
+        Some(last - min)
+    }
+
 }
 
 #[cfg(test)]
@@ -6817,6 +6854,65 @@ mod tests {
         let m = n.window_rolling_max().unwrap();
         assert!((m - 5.0).abs() < 1e-9, "expected 5.0, got {}", m);
     }
+
+    #[test]
+    fn test_minmax_window_rolling_min_none_for_empty() {
+        let n = norm(3);
+        assert!(n.window_rolling_min().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_rolling_min_basic() {
+        let mut n = norm(3);
+        for v in [dec!(1), dec!(5), dec!(3)] { n.update(v); }
+        let m = n.window_rolling_min().unwrap();
+        assert!((m - 1.0).abs() < 1e-9, "expected 1.0, got {}", m);
+    }
+
+    #[test]
+    fn test_minmax_window_negative_fraction_none_for_empty() {
+        let n = norm(3);
+        assert!(n.window_negative_fraction().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_negative_fraction_basic() {
+        let mut n = norm(3);
+        // all positive → 0 negative
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        let f = n.window_negative_fraction().unwrap();
+        assert!(f.abs() < 1e-9, "expected 0.0, got {}", f);
+    }
+
+    #[test]
+    fn test_minmax_window_positive_fraction_none_for_empty() {
+        let n = norm(3);
+        assert!(n.window_positive_fraction().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_positive_fraction_basic() {
+        let mut n = norm(3);
+        // all positive → 1.0
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        let f = n.window_positive_fraction().unwrap();
+        assert!((f - 1.0).abs() < 1e-9, "expected 1.0, got {}", f);
+    }
+
+    #[test]
+    fn test_minmax_window_last_minus_min_none_for_empty() {
+        let n = norm(3);
+        assert!(n.window_last_minus_min().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_last_minus_min_basic() {
+        let mut n = norm(3);
+        // 1, 5, 3 → last=3, min=1 → 3-1=2
+        for v in [dec!(1), dec!(5), dec!(3)] { n.update(v); }
+        let d = n.window_last_minus_min().unwrap();
+        assert!((d - 2.0).abs() < 1e-9, "expected 2.0, got {}", d);
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -10048,6 +10144,43 @@ impl ZScoreNormalizer {
         use rust_decimal::prelude::ToPrimitive;
         if self.window.is_empty() { return None; }
         self.window.iter().map(|v| v.to_f64().unwrap_or(f64::NEG_INFINITY)).reduce(f64::max)
+    }
+
+    // ── round-118 ────────────────────────────────────────────────────────────
+
+    /// Minimum value in the window. Returns `None` for empty window.
+    pub fn window_rolling_min(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        self.window.iter().map(|v| v.to_f64().unwrap_or(f64::INFINITY)).reduce(f64::min)
+    }
+
+    /// Fraction of window values that are strictly negative.
+    /// Returns `None` for empty window.
+    pub fn window_negative_fraction(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let neg = self.window.iter().filter(|&&v| v < rust_decimal::Decimal::ZERO).count();
+        Some(neg as f64 / self.window.len() as f64)
+    }
+
+    /// Fraction of window values that are strictly positive.
+    /// Returns `None` for empty window.
+    pub fn window_positive_fraction(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let pos = self.window.iter().filter(|&&v| v > rust_decimal::Decimal::ZERO).count();
+        Some(pos as f64 / self.window.len() as f64)
+    }
+
+    /// Last window value minus the window minimum.
+    /// Returns `None` for empty window.
+    pub fn window_last_minus_min(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let last = self.window.back()?.to_f64()?;
+        let min = self.window.iter().map(|v| v.to_f64().unwrap_or(f64::INFINITY)).fold(f64::INFINITY, f64::min);
+        Some(last - min)
     }
 
 }
@@ -13673,5 +13806,61 @@ mod zscore_stability_tests {
         for v in [dec!(1), dec!(5), dec!(3)] { n.update(v); }
         let m = n.window_rolling_max().unwrap();
         assert!((m - 5.0).abs() < 1e-9, "expected 5.0, got {}", m);
+    }
+
+    #[test]
+    fn test_zscore_window_rolling_min_none_for_empty() {
+        let n = znorm(3);
+        assert!(n.window_rolling_min().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_rolling_min_basic() {
+        let mut n = znorm(3);
+        for v in [dec!(1), dec!(5), dec!(3)] { n.update(v); }
+        let m = n.window_rolling_min().unwrap();
+        assert!((m - 1.0).abs() < 1e-9, "expected 1.0, got {}", m);
+    }
+
+    #[test]
+    fn test_zscore_window_negative_fraction_none_for_empty() {
+        let n = znorm(3);
+        assert!(n.window_negative_fraction().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_negative_fraction_basic() {
+        let mut n = znorm(3);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        let f = n.window_negative_fraction().unwrap();
+        assert!(f.abs() < 1e-9, "expected 0.0, got {}", f);
+    }
+
+    #[test]
+    fn test_zscore_window_positive_fraction_none_for_empty() {
+        let n = znorm(3);
+        assert!(n.window_positive_fraction().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_positive_fraction_basic() {
+        let mut n = znorm(3);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        let f = n.window_positive_fraction().unwrap();
+        assert!((f - 1.0).abs() < 1e-9, "expected 1.0, got {}", f);
+    }
+
+    #[test]
+    fn test_zscore_window_last_minus_min_none_for_empty() {
+        let n = znorm(3);
+        assert!(n.window_last_minus_min().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_last_minus_min_basic() {
+        let mut n = znorm(3);
+        for v in [dec!(1), dec!(5), dec!(3)] { n.update(v); }
+        let d = n.window_last_minus_min().unwrap();
+        assert!((d - 2.0).abs() < 1e-9, "expected 2.0, got {}", d);
     }
 }

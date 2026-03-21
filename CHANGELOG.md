@@ -9,6 +9,36 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.6.9] - 2026-03-20
+
+### Added
+
+**`tick` module — `NormalizedTick` analytics (round 118)**
+- `NormalizedTick::price_entropy_rate(ticks)` — mean absolute log-return as an entropy proxy.
+- `NormalizedTick::qty_lag1_corr(ticks)` — lag-1 autocorrelation of tick quantities.
+- `NormalizedTick::tick_side_transition_rate(ticks)` — fraction of consecutive sided pairs that change side.
+- `NormalizedTick::avg_price_per_unit(ticks)` — mean price divided by mean quantity.
+
+**`ohlcv` module — `OhlcvBar` analytics (round 118)**
+- `OhlcvBar::avg_close_range_pct(bars)` — mean `(close - low) / (high - low)` position per bar.
+- `OhlcvBar::volume_ratio_to_max(bars)` — mean ratio of each bar's volume to the slice maximum.
+- `OhlcvBar::bar_consolidation_score(bars)` — `1 - avg_body_efficiency`; higher means tighter consolidation.
+- `OhlcvBar::shadow_asymmetry(bars)` — mean `(upper_shadow - lower_shadow) / range` per bar.
+
+**`norm` module — `MinMaxNormalizer` analytics (round 118)**
+- `MinMaxNormalizer::window_rolling_min()` — minimum value in the window.
+- `MinMaxNormalizer::window_negative_fraction()` — fraction of strictly negative window values.
+- `MinMaxNormalizer::window_positive_fraction()` — fraction of strictly positive window values.
+- `MinMaxNormalizer::window_last_minus_min()` — last window value minus the window minimum.
+
+**`norm` module — `ZScoreNormalizer` analytics (round 118)**
+- `ZScoreNormalizer::window_rolling_min()` — minimum value in the window.
+- `ZScoreNormalizer::window_negative_fraction()` — fraction of strictly negative window values.
+- `ZScoreNormalizer::window_positive_fraction()` — fraction of strictly positive window values.
+- `ZScoreNormalizer::window_last_minus_min()` — last window value minus the window minimum.
+
+---
+
 ## [2.6.8] - 2026-03-20
 
 ### Added

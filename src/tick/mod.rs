@@ -5352,6 +5352,57 @@ impl NormalizedTick {
         Some(max_run)
     }
 
+    // ── round-118 ────────────────────────────────────────────────────────────
+
+    /// Entropy rate of prices: mean absolute log-return between consecutive ticks.
+    /// Returns `None` for fewer than 2 ticks or any non-positive price.
+    pub fn price_entropy_rate(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 2 { return None; }
+        let prices: Vec<f64> = ticks.iter().map(|t| {
+            let p = t.price.to_f64()?;
+            if p <= 0.0 { None } else { Some(p) }
+        }).collect::<Option<Vec<_>>>()?;
+        let sum: f64 = prices.windows(2).map(|w| (w[1] / w[0]).ln().abs()).sum();
+        Some(sum / (prices.len() - 1) as f64)
+    }
+
+    /// Lag-1 autocorrelation of tick quantities.
+    /// Returns `None` for fewer than 3 ticks or zero variance.
+    pub fn qty_lag1_corr(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 3 { return None; }
+        let vals: Vec<f64> = ticks.iter().map(|t| t.quantity.to_f64().unwrap_or(0.0)).collect();
+        let n = vals.len() as f64;
+        let mean = vals.iter().sum::<f64>() / n;
+        let var = vals.iter().map(|&x| (x - mean).powi(2)).sum::<f64>() / n;
+        if var == 0.0 { return None; }
+        let cov: f64 = vals.windows(2).map(|w| (w[0] - mean) * (w[1] - mean)).sum::<f64>()
+            / (vals.len() - 1) as f64;
+        Some(cov / var)
+    }
+
+    /// Fraction of consecutive sided-tick pairs where the side changes.
+    /// Returns `None` if fewer than 2 sided ticks.
+    pub fn tick_side_transition_rate(ticks: &[NormalizedTick]) -> Option<f64> {
+        let sided: Vec<&NormalizedTick> = ticks.iter().filter(|t| t.side.is_some()).collect();
+        if sided.len() < 2 { return None; }
+        let transitions = sided.windows(2).filter(|w| w[0].side != w[1].side).count();
+        Some(transitions as f64 / (sided.len() - 1) as f64)
+    }
+
+    /// Mean price divided by mean quantity — a rough price-per-unit measure.
+    /// Returns `None` for empty input or zero mean quantity.
+    pub fn avg_price_per_unit(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() { return None; }
+        let n = ticks.len() as f64;
+        let mean_p = ticks.iter().map(|t| t.price.to_f64().unwrap_or(0.0)).sum::<f64>() / n;
+        let mean_q = ticks.iter().map(|t| t.quantity.to_f64().unwrap_or(0.0)).sum::<f64>() / n;
+        if mean_q == 0.0 { return None; }
+        Some(mean_p / mean_q)
+    }
+
 }
 
 
@@ -12283,5 +12334,64 @@ mod tests {
         let t3 = make_tick_pq(dec!(110), dec!(1));
         let r = NormalizedTick::consecutive_price_rise(&[t1, t2, t3]).unwrap();
         assert_eq!(r, 2);
+    }
+
+    #[test]
+    fn test_price_entropy_rate_none_for_single() {
+        use rust_decimal_macros::dec;
+        let t = make_tick_pq(dec!(100), dec!(1));
+        assert!(NormalizedTick::price_entropy_rate(&[t]).is_none());
+    }
+
+    #[test]
+    fn test_price_entropy_rate_zero_for_flat() {
+        use rust_decimal_macros::dec;
+        // same price → log(1)=0
+        let t1 = make_tick_pq(dec!(100), dec!(1));
+        let t2 = make_tick_pq(dec!(100), dec!(1));
+        let e = NormalizedTick::price_entropy_rate(&[t1, t2]).unwrap();
+        assert!(e.abs() < 1e-9, "expected 0, got {}", e);
+    }
+
+    #[test]
+    fn test_qty_lag1_corr_none_for_two() {
+        use rust_decimal_macros::dec;
+        let t1 = make_tick_pq(dec!(100), dec!(1));
+        let t2 = make_tick_pq(dec!(101), dec!(2));
+        assert!(NormalizedTick::qty_lag1_corr(&[t1, t2]).is_none());
+    }
+
+    #[test]
+    fn test_qty_lag1_corr_positive_for_trending() {
+        use rust_decimal_macros::dec;
+        let t1 = make_tick_pq(dec!(100), dec!(1));
+        let t2 = make_tick_pq(dec!(101), dec!(2));
+        let t3 = make_tick_pq(dec!(102), dec!(3));
+        let t4 = make_tick_pq(dec!(103), dec!(4));
+        let t5 = make_tick_pq(dec!(104), dec!(5));
+        let c = NormalizedTick::qty_lag1_corr(&[t1, t2, t3, t4, t5]).unwrap();
+        assert!(c > 0.0, "expected positive autocorrelation, got {}", c);
+    }
+
+    #[test]
+    fn test_tick_side_transition_rate_none_for_no_sides() {
+        use rust_decimal_macros::dec;
+        let t = make_tick_pq(dec!(100), dec!(1));
+        assert!(NormalizedTick::tick_side_transition_rate(&[t]).is_none());
+    }
+
+    #[test]
+    fn test_avg_price_per_unit_none_for_empty() {
+        assert!(NormalizedTick::avg_price_per_unit(&[]).is_none());
+    }
+
+    #[test]
+    fn test_avg_price_per_unit_basic() {
+        use rust_decimal_macros::dec;
+        // mean_price=100, mean_qty=2 → price_per_unit=50
+        let t1 = make_tick_pq(dec!(100), dec!(2));
+        let t2 = make_tick_pq(dec!(100), dec!(2));
+        let v = NormalizedTick::avg_price_per_unit(&[t1, t2]).unwrap();
+        assert!((v - 50.0).abs() < 1e-9, "expected 50.0, got {}", v);
     }
 }
