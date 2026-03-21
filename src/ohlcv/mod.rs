@@ -3613,6 +3613,48 @@ impl OhlcvBar {
         Some(up_count as f64 / (bars.len() - 1) as f64)
     }
 
+    // ── round-91 ─────────────────────────────────────────────────────────────
+
+    /// Count of bars where `open` is higher than the previous bar's `close` (gap-up).
+    ///
+    /// Returns `0` for fewer than 2 bars.
+    pub fn gap_up_count(bars: &[OhlcvBar]) -> usize {
+        if bars.len() < 2 {
+            return 0;
+        }
+        bars.windows(2).filter(|w| w[1].open > w[0].close).count()
+    }
+
+    /// Count of bars where `open` is lower than the previous bar's `close` (gap-down).
+    ///
+    /// Returns `0` for fewer than 2 bars.
+    pub fn gap_down_count(bars: &[OhlcvBar]) -> usize {
+        if bars.len() < 2 {
+            return 0;
+        }
+        bars.windows(2).filter(|w| w[1].open < w[0].close).count()
+    }
+
+    /// Mean body-to-range ratio: `mean(|close − open| / (high − low))`.
+    ///
+    /// Bars with zero range are excluded. Returns `None` if no valid bars exist.
+    pub fn mean_bar_efficiency(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter(|b| b.high > b.low)
+            .filter_map(|b| {
+                let body = (b.close - b.open).abs();
+                let range = b.high - b.low;
+                (body / range).to_f64()
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
+        Some(vals.iter().sum::<f64>() / vals.len() as f64)
+    }
+
 }
 
 impl std::fmt::Display for OhlcvBar {
@@ -9317,5 +9359,65 @@ mod tests {
         // all closes increasing: 100 → 105 → 110
         let s = OhlcvBar::bar_trend_strength(&[b1, b2, b3]).unwrap();
         assert!((s - 1.0).abs() < 1e-9, "monotone up → 1.0, got {}", s);
+    }
+
+    // ── round-91 tests ────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_gap_up_count_zero_for_single_bar() {
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        assert_eq!(OhlcvBar::gap_up_count(&[b]), 0);
+    }
+
+    #[test]
+    fn test_gap_up_count_one_for_gap() {
+        // bar1 closes at 105, bar2 opens at 110 → gap up
+        let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let b2 = make_ohlcv_bar(dec!(110), dec!(120), dec!(105), dec!(115));
+        assert_eq!(OhlcvBar::gap_up_count(&[b1, b2]), 1);
+    }
+
+    #[test]
+    fn test_gap_down_count_zero_for_single_bar() {
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        assert_eq!(OhlcvBar::gap_down_count(&[b]), 0);
+    }
+
+    #[test]
+    fn test_gap_down_count_one_for_gap() {
+        // bar1 closes at 105, bar2 opens at 95 → gap down
+        let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let b2 = make_ohlcv_bar(dec!(95), dec!(100), dec!(85), dec!(90));
+        assert_eq!(OhlcvBar::gap_down_count(&[b1, b2]), 1);
+    }
+
+    #[test]
+    fn test_mean_bar_efficiency_none_for_empty() {
+        assert!(OhlcvBar::mean_bar_efficiency(&[]).is_none());
+    }
+
+    #[test]
+    fn test_mean_bar_efficiency_one_for_full_body() {
+        // open=low, close=high → body = range → efficiency = 1.0
+        let b = make_ohlcv_bar(dec!(90), dec!(110), dec!(90), dec!(110));
+        let e = OhlcvBar::mean_bar_efficiency(&[b]).unwrap();
+        assert!((e - 1.0).abs() < 1e-9, "full body → 1.0, got {}", e);
+    }
+
+    #[test]
+    fn test_volume_trend_slope_none_for_single_bar() {
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        assert!(OhlcvBar::volume_trend_slope(&[b]).is_none());
+    }
+
+    #[test]
+    fn test_volume_trend_slope_positive_for_rising_volume() {
+        // volumes: 100, 200 → slope > 0
+        let mut b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        b1.volume = dec!(100);
+        let mut b2 = make_ohlcv_bar(dec!(105), dec!(115), dec!(95), dec!(110));
+        b2.volume = dec!(200);
+        let s = OhlcvBar::volume_trend_slope(&[b1, b2]).unwrap();
+        assert!(s > 0.0, "rising volume → positive slope, got {}", s);
     }
 }

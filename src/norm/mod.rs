@@ -1764,6 +1764,45 @@ impl MinMaxNormalizer {
         Some(count as f64 / self.window.len() as f64)
     }
 
+    // ── round-91 ─────────────────────────────────────────────────────────────
+
+    /// Interquartile range of the window: `Q3 − Q1`.
+    ///
+    /// Returns `None` for an empty window.
+    pub fn window_iqr(&self) -> Option<Decimal> {
+        if self.window.is_empty() {
+            return None;
+        }
+        let mut sorted: Vec<Decimal> = self.window.iter().copied().collect();
+        sorted.sort();
+        let n = sorted.len();
+        let q1 = sorted[n / 4];
+        let q3 = sorted[(3 * n) / 4];
+        Some(q3 - q1)
+    }
+
+    /// Mean run length of monotone non-decreasing segments.
+    ///
+    /// Returns `None` for fewer than 2 values in the window.
+    pub fn run_length_mean(&self) -> Option<f64> {
+        if self.window.len() < 2 {
+            return None;
+        }
+        let vals: Vec<Decimal> = self.window.iter().copied().collect();
+        let mut runs: Vec<usize> = Vec::new();
+        let mut run_len = 1usize;
+        for w in vals.windows(2) {
+            if w[1] >= w[0] {
+                run_len += 1;
+            } else {
+                runs.push(run_len);
+                run_len = 1;
+            }
+        }
+        runs.push(run_len);
+        Some(runs.iter().sum::<usize>() as f64 / runs.len() as f64)
+    }
+
 }
 
 #[cfg(test)]
@@ -3970,6 +4009,49 @@ mod tests {
         let f = n.positive_fraction().unwrap();
         assert!((f - 0.5).abs() < 1e-9, "expected 0.5, got {}", f);
     }
+
+    // ── round-91 tests ────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_minmax_window_iqr_none_for_empty() {
+        assert!(norm(4).window_iqr().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_iqr_zero_for_constant() {
+        let mut n = norm(4);
+        for _ in 0..4 { n.update(dec!(5)); }
+        assert_eq!(n.window_iqr().unwrap(), dec!(0));
+    }
+
+    #[test]
+    fn test_minmax_mean_absolute_deviation_none_for_empty() {
+        assert!(norm(4).mean_absolute_deviation().is_none());
+    }
+
+    #[test]
+    fn test_minmax_mean_absolute_deviation_zero_for_constant() {
+        let mut n = norm(4);
+        for _ in 0..4 { n.update(dec!(7)); }
+        let mad = n.mean_absolute_deviation().unwrap();
+        assert!(mad.abs() < 1e-9, "constant window → MAD=0, got {}", mad);
+    }
+
+    #[test]
+    fn test_minmax_run_length_mean_none_for_single_value() {
+        let mut n = norm(4);
+        n.update(dec!(1));
+        assert!(n.run_length_mean().is_none());
+    }
+
+    #[test]
+    fn test_minmax_run_length_mean_all_increasing() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        // one monotone run of length 4 → mean = 4.0
+        let r = n.run_length_mean().unwrap();
+        assert!((r - 4.0).abs() < 1e-9, "monotone up → run_len=4, got {}", r);
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -5694,6 +5776,45 @@ impl ZScoreNormalizer {
         let mean = self.window.iter().copied().sum::<Decimal>() / Decimal::from(n);
         let count = self.window.iter().filter(|&&v| v > mean).count();
         Some(count as f64 / self.window.len() as f64)
+    }
+
+    // ── round-91 ─────────────────────────────────────────────────────────────
+
+    /// Interquartile range of the window: `Q3 − Q1`.
+    ///
+    /// Returns `None` for an empty window.
+    pub fn window_iqr(&self) -> Option<Decimal> {
+        if self.window.is_empty() {
+            return None;
+        }
+        let mut sorted: Vec<Decimal> = self.window.iter().copied().collect();
+        sorted.sort();
+        let n = sorted.len();
+        let q1 = sorted[n / 4];
+        let q3 = sorted[(3 * n) / 4];
+        Some(q3 - q1)
+    }
+
+    /// Mean run length of monotone non-decreasing segments.
+    ///
+    /// Returns `None` for fewer than 2 values in the window.
+    pub fn run_length_mean(&self) -> Option<f64> {
+        if self.window.len() < 2 {
+            return None;
+        }
+        let vals: Vec<Decimal> = self.window.iter().copied().collect();
+        let mut runs: Vec<usize> = Vec::new();
+        let mut run_len = 1usize;
+        for w in vals.windows(2) {
+            if w[1] >= w[0] {
+                run_len += 1;
+            } else {
+                runs.push(run_len);
+                run_len = 1;
+            }
+        }
+        runs.push(run_len);
+        Some(runs.iter().sum::<usize>() as f64 / runs.len() as f64)
     }
 
 }
@@ -8042,5 +8163,48 @@ mod zscore_stability_tests {
         // mean = 2.5; values above: 3 and 4 → 0.5
         let f = n.above_mean_fraction().unwrap();
         assert!((f - 0.5).abs() < 1e-9, "expected 0.5, got {}", f);
+    }
+
+    // ── round-91 tests ────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_zscore_window_iqr_none_for_empty() {
+        assert!(znorm(4).window_iqr().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_iqr_zero_for_constant() {
+        let mut n = znorm(4);
+        for _ in 0..4 { n.update(dec!(5)); }
+        assert_eq!(n.window_iqr().unwrap(), dec!(0));
+    }
+
+    #[test]
+    fn test_zscore_mean_absolute_deviation_none_for_empty() {
+        assert!(znorm(4).mean_absolute_deviation().is_none());
+    }
+
+    #[test]
+    fn test_zscore_mean_absolute_deviation_zero_for_constant() {
+        let mut n = znorm(4);
+        for _ in 0..4 { n.update(dec!(7)); }
+        let mad = n.mean_absolute_deviation().unwrap();
+        assert!(mad.abs() < 1e-9, "constant window → MAD=0, got {}", mad);
+    }
+
+    #[test]
+    fn test_zscore_run_length_mean_none_for_single_value() {
+        let mut n = znorm(4);
+        n.update(dec!(1));
+        assert!(n.run_length_mean().is_none());
+    }
+
+    #[test]
+    fn test_zscore_run_length_mean_all_increasing() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        // one monotone run of length 4 → mean = 4.0
+        let r = n.run_length_mean().unwrap();
+        assert!((r - 4.0).abs() < 1e-9, "monotone up → run_len=4, got {}", r);
     }
 }

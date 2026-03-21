@@ -9,6 +9,27 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.4.2] - 2026-03-21
+
+### Added
+
+**`tick` module — `NormalizedTick` analytics (round 91)**
+- `NormalizedTick::above_mean_qty_fraction(ticks)` — fraction of ticks where quantity exceeds the mean quantity.
+- `NormalizedTick::side_alternation_rate(ticks)` — fraction of consecutive tick pairs where the trade side flips.
+- `NormalizedTick::price_range_per_tick(ticks)` — `(max_price − min_price) / tick_count`; range per tick.
+- `NormalizedTick::qty_weighted_price_std(ticks)` — quantity-weighted standard deviation of trade prices.
+
+**`ohlcv` module — `OhlcvBar` analytics (round 91)**
+- `OhlcvBar::gap_up_count(bars)` — count of bars whose open is strictly above the previous bar's close.
+- `OhlcvBar::gap_down_count(bars)` — count of bars whose open is strictly below the previous bar's close.
+- `OhlcvBar::mean_bar_efficiency(bars)` — mean of `|close − open| / (high − low)` (body-to-range efficiency).
+
+**`norm` module — `MinMaxNormalizer` and `ZScoreNormalizer` analytics (round 91)**
+- `window_iqr() -> Option<Decimal>` — interquartile range `Q3 − Q1` of the rolling window.
+- `run_length_mean() -> Option<f64>` — mean length of monotone non-decreasing runs within the window.
+
+---
+
 ## [2.4.1] - 2026-03-21
 
 ### Added
