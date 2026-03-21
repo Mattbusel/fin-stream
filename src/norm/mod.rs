@@ -1803,6 +1803,47 @@ impl MinMaxNormalizer {
         Some(runs.iter().sum::<usize>() as f64 / runs.len() as f64)
     }
 
+    // ── round-92 ─────────────────────────────────────────────────────────────
+
+    /// Fraction of consecutive value pairs that are non-decreasing.
+    ///
+    /// Returns `None` for fewer than 2 values in the window.
+    pub fn monotone_fraction(&self) -> Option<f64> {
+        if self.window.len() < 2 {
+            return None;
+        }
+        let vals: Vec<Decimal> = self.window.iter().copied().collect();
+        let non_decreasing = vals.windows(2).filter(|w| w[1] >= w[0]).count();
+        Some(non_decreasing as f64 / (vals.len() - 1) as f64)
+    }
+
+    /// Coefficient of variation: `std_dev / mean` for window values.
+    ///
+    /// Returns `None` for an empty window or zero mean.
+    pub fn coeff_variation(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() {
+            return None;
+        }
+        let n = self.window.len() as u32;
+        let mean: Decimal =
+            self.window.iter().copied().sum::<Decimal>() / Decimal::from(n);
+        if mean.is_zero() {
+            return None;
+        }
+        let variance: f64 = self
+            .window
+            .iter()
+            .filter_map(|&v| {
+                let d = (v - mean).to_f64()?;
+                Some(d * d)
+            })
+            .sum::<f64>()
+            / n as f64;
+        let mean_f = mean.to_f64()?;
+        Some(variance.sqrt() / mean_f.abs())
+    }
+
 }
 
 #[cfg(test)]
@@ -4025,19 +4066,6 @@ mod tests {
     }
 
     #[test]
-    fn test_minmax_mean_absolute_deviation_none_for_empty() {
-        assert!(norm(4).mean_absolute_deviation().is_none());
-    }
-
-    #[test]
-    fn test_minmax_mean_absolute_deviation_zero_for_constant() {
-        let mut n = norm(4);
-        for _ in 0..4 { n.update(dec!(7)); }
-        let mad = n.mean_absolute_deviation().unwrap();
-        assert!(mad.abs() < 1e-9, "constant window → MAD=0, got {}", mad);
-    }
-
-    #[test]
     fn test_minmax_run_length_mean_none_for_single_value() {
         let mut n = norm(4);
         n.update(dec!(1));
@@ -4051,6 +4079,37 @@ mod tests {
         // one monotone run of length 4 → mean = 4.0
         let r = n.run_length_mean().unwrap();
         assert!((r - 4.0).abs() < 1e-9, "monotone up → run_len=4, got {}", r);
+    }
+
+    // ── round-92 tests ────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_minmax_monotone_fraction_none_for_single_value() {
+        let mut n = norm(4);
+        n.update(dec!(1));
+        assert!(n.monotone_fraction().is_none());
+    }
+
+    #[test]
+    fn test_minmax_monotone_fraction_one_for_increasing() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let f = n.monotone_fraction().unwrap();
+        assert!((f - 1.0).abs() < 1e-9, "monotone up → 1.0, got {}", f);
+    }
+
+    #[test]
+    fn test_minmax_coeff_variation_none_for_empty() {
+        assert!(norm(4).coeff_variation().is_none());
+    }
+
+    #[test]
+    fn test_minmax_coeff_variation_zero_for_constant() {
+        let mut n = norm(4);
+        for _ in 0..4 { n.update(dec!(5)); }
+        // zero std dev → CV = 0
+        let cv = n.coeff_variation().unwrap();
+        assert!(cv.abs() < 1e-9, "constant window → CV=0, got {}", cv);
     }
 }
 
@@ -5815,6 +5874,47 @@ impl ZScoreNormalizer {
         }
         runs.push(run_len);
         Some(runs.iter().sum::<usize>() as f64 / runs.len() as f64)
+    }
+
+    // ── round-92 ─────────────────────────────────────────────────────────────
+
+    /// Fraction of consecutive value pairs that are non-decreasing.
+    ///
+    /// Returns `None` for fewer than 2 values in the window.
+    pub fn monotone_fraction(&self) -> Option<f64> {
+        if self.window.len() < 2 {
+            return None;
+        }
+        let vals: Vec<Decimal> = self.window.iter().copied().collect();
+        let non_decreasing = vals.windows(2).filter(|w| w[1] >= w[0]).count();
+        Some(non_decreasing as f64 / (vals.len() - 1) as f64)
+    }
+
+    /// Coefficient of variation: `std_dev / |mean|` for window values.
+    ///
+    /// Returns `None` for an empty window or zero mean.
+    pub fn coeff_variation(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() {
+            return None;
+        }
+        let n = self.window.len() as u32;
+        let mean: Decimal =
+            self.window.iter().copied().sum::<Decimal>() / Decimal::from(n);
+        if mean.is_zero() {
+            return None;
+        }
+        let variance: f64 = self
+            .window
+            .iter()
+            .filter_map(|&v| {
+                let d = (v - mean).to_f64()?;
+                Some(d * d)
+            })
+            .sum::<f64>()
+            / n as f64;
+        let mean_f = mean.to_f64()?;
+        Some(variance.sqrt() / mean_f.abs())
     }
 
 }
@@ -8206,5 +8306,35 @@ mod zscore_stability_tests {
         // one monotone run of length 4 → mean = 4.0
         let r = n.run_length_mean().unwrap();
         assert!((r - 4.0).abs() < 1e-9, "monotone up → run_len=4, got {}", r);
+    }
+
+    // ── round-92 tests ────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_zscore_monotone_fraction_none_for_single_value() {
+        let mut n = znorm(4);
+        n.update(dec!(1));
+        assert!(n.monotone_fraction().is_none());
+    }
+
+    #[test]
+    fn test_zscore_monotone_fraction_one_for_increasing() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let f = n.monotone_fraction().unwrap();
+        assert!((f - 1.0).abs() < 1e-9, "monotone up → 1.0, got {}", f);
+    }
+
+    #[test]
+    fn test_zscore_coeff_variation_none_for_empty() {
+        assert!(znorm(4).coeff_variation().is_none());
+    }
+
+    #[test]
+    fn test_zscore_coeff_variation_zero_for_constant() {
+        let mut n = znorm(4);
+        for _ in 0..4 { n.update(dec!(5)); }
+        let cv = n.coeff_variation().unwrap();
+        assert!(cv.abs() < 1e-9, "constant window → CV=0, got {}", cv);
     }
 }

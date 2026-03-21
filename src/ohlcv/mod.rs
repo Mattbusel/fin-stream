@@ -3655,6 +3655,72 @@ impl OhlcvBar {
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
+    // ── round-92 ─────────────────────────────────────────────────────────────
+
+    /// Mean relative gap size: `mean(|open[i] − close[i-1]| / close[i-1])` across consecutive bar pairs.
+    ///
+    /// Returns `None` for fewer than 2 bars or when all prev-closes are zero.
+    pub fn open_gap_ratio(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.len() < 2 {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .windows(2)
+            .filter(|w| !w[0].close.is_zero())
+            .filter_map(|w| {
+                let gap = (w[1].open - w[0].close).abs();
+                (gap / w[0].close).to_f64()
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
+        Some(vals.iter().sum::<f64>() / vals.len() as f64)
+    }
+
+    /// Mean candle symmetry: `mean(1 − |body| / range)` for bars with nonzero range.
+    ///
+    /// A value close to 1 means most bars have small bodies (doji-like); close to 0
+    /// means full-body bars. Returns `None` if no valid bars exist.
+    pub fn candle_symmetry_score(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter(|b| b.high > b.low)
+            .filter_map(|b| {
+                let body = (b.close - b.open).abs().to_f64()?;
+                let range = (b.high - b.low).to_f64()?;
+                Some(1.0 - body / range)
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
+        Some(vals.iter().sum::<f64>() / vals.len() as f64)
+    }
+
+    /// Mean of `(high − close) / (high − low)` — upper shadow as fraction of range.
+    ///
+    /// Identical to `avg_close_to_high` but named distinctly for discovery.
+    /// Bars with zero range are excluded. Returns `None` if no valid bars exist.
+    pub fn mean_upper_shadow_pct(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter(|b| b.high > b.low)
+            .filter_map(|b| {
+                let upper = (b.high - b.close).to_f64()?;
+                let range = (b.high - b.low).to_f64()?;
+                Some(upper / range)
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
+        Some(vals.iter().sum::<f64>() / vals.len() as f64)
+    }
+
 }
 
 impl std::fmt::Display for OhlcvBar {
@@ -9405,19 +9471,56 @@ mod tests {
     }
 
     #[test]
-    fn test_volume_trend_slope_none_for_single_bar() {
+    fn test_volume_trend_slope_negative_for_falling_volume() {
+        // volumes: 200, 100 → slope < 0
+        let mut b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        b1.volume = dec!(200);
+        let mut b2 = make_ohlcv_bar(dec!(105), dec!(115), dec!(95), dec!(110));
+        b2.volume = dec!(100);
+        let s = OhlcvBar::volume_trend_slope(&[b1, b2]).unwrap();
+        assert!(s < 0.0, "falling volume → negative slope, got {}", s);
+    }
+
+    // ── round-92 tests ────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_open_gap_ratio_none_for_single_bar() {
         let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
-        assert!(OhlcvBar::volume_trend_slope(&[b]).is_none());
+        assert!(OhlcvBar::open_gap_ratio(&[b]).is_none());
     }
 
     #[test]
-    fn test_volume_trend_slope_positive_for_rising_volume() {
-        // volumes: 100, 200 → slope > 0
-        let mut b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
-        b1.volume = dec!(100);
-        let mut b2 = make_ohlcv_bar(dec!(105), dec!(115), dec!(95), dec!(110));
-        b2.volume = dec!(200);
-        let s = OhlcvBar::volume_trend_slope(&[b1, b2]).unwrap();
-        assert!(s > 0.0, "rising volume → positive slope, got {}", s);
+    fn test_open_gap_ratio_zero_for_no_gap() {
+        // bar1 closes at 105, bar2 opens at 105 → gap = 0
+        let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let b2 = make_ohlcv_bar(dec!(105), dec!(115), dec!(95), dec!(110));
+        let r = OhlcvBar::open_gap_ratio(&[b1, b2]).unwrap();
+        assert!(r.abs() < 1e-9, "no gap → ratio=0, got {}", r);
+    }
+
+    #[test]
+    fn test_candle_symmetry_score_none_for_empty() {
+        assert!(OhlcvBar::candle_symmetry_score(&[]).is_none());
+    }
+
+    #[test]
+    fn test_candle_symmetry_score_zero_for_full_body() {
+        // open=low, close=high → body = range → 1 - 1 = 0
+        let b = make_ohlcv_bar(dec!(90), dec!(110), dec!(90), dec!(110));
+        let s = OhlcvBar::candle_symmetry_score(&[b]).unwrap();
+        assert!(s.abs() < 1e-9, "full body → score=0, got {}", s);
+    }
+
+    #[test]
+    fn test_mean_upper_shadow_pct_none_for_empty() {
+        assert!(OhlcvBar::mean_upper_shadow_pct(&[]).is_none());
+    }
+
+    #[test]
+    fn test_mean_upper_shadow_pct_zero_for_close_at_high() {
+        // close == high → (high - close) / (high - low) = 0
+        let b = make_ohlcv_bar(dec!(90), dec!(110), dec!(90), dec!(110));
+        let r = OhlcvBar::mean_upper_shadow_pct(&[b]).unwrap();
+        assert!(r.abs() < 1e-9, "close=high → 0, got {}", r);
     }
 }

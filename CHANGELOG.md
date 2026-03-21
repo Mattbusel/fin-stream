@@ -9,6 +9,29 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.4.3] - 2026-03-20
+
+### Added
+
+**`tick` module — `NormalizedTick` analytics (round 92)**
+- `NormalizedTick::buy_pressure_ratio(ticks)` — fraction of sided volume that is buy-side.
+- `NormalizedTick::sell_pressure_ratio(ticks)` — complement of `buy_pressure_ratio`; fraction of sell-side volume.
+- `NormalizedTick::trade_interval_ratio(ticks)` — ratio of first-half mean inter-tick interval to second-half.
+- `NormalizedTick::weighted_price_change(ticks)` — quantity-weighted mean price change from the first tick.
+- `NormalizedTick::first_last_price_ratio(ticks)` — ratio of last price to first price in the slice.
+- `NormalizedTick::tick_price_variance(ticks)` — population variance of tick prices.
+
+**`ohlcv` module — `OhlcvBar` analytics (round 92)**
+- `OhlcvBar::open_gap_ratio(bars)` — mean `|open[i] − close[i-1]| / close[i-1]` across consecutive bar pairs.
+- `OhlcvBar::candle_symmetry_score(bars)` — mean `1 − |body| / range`; close to 1 = doji-like bars.
+- `OhlcvBar::mean_upper_shadow_pct(bars)` — mean `(high − close) / (high − low)` across valid bars.
+
+**`norm` module — `MinMaxNormalizer` and `ZScoreNormalizer` analytics (round 92)**
+- `monotone_fraction() -> Option<f64>` — fraction of consecutive window pairs that are non-decreasing.
+- `coeff_variation() -> Option<f64>` — coefficient of variation: `std_dev / |mean|`.
+
+---
+
 ## [2.4.2] - 2026-03-21
 
 ### Added
