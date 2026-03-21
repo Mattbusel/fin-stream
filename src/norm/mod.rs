@@ -7205,6 +7205,75 @@ impl MinMaxNormalizer {
         Some(vals[idx])
     }
 
+    /// IQR as a fraction of total window range.
+    pub fn window_iqr_fraction(&self) -> Option<f64> {
+        if self.window.len() < 4 { return None; }
+        let mut vals: Vec<f64> = self.window.iter().filter_map(|v| {
+            use rust_decimal::prelude::ToPrimitive;
+            v.to_f64()
+        }).collect();
+        vals.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let n = vals.len();
+        let q1 = vals[n / 4];
+        let q3 = vals[(3 * n) / 4];
+        let min = vals[0];
+        let max = *vals.last()?;
+        let range = max - min;
+        if range == 0.0 { return Some(0.0); }
+        Some((q3 - q1) / range)
+    }
+
+    /// Length of the longest run of consecutive values above the window mean.
+    pub fn window_above_mean_run(&self) -> Option<f64> {
+        if self.window.is_empty() { return None; }
+        use rust_decimal::prelude::ToPrimitive;
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.is_empty() { return None; }
+        let mean = vals.iter().sum::<f64>() / vals.len() as f64;
+        let mut max_run = 0usize;
+        let mut cur_run = 0usize;
+        for v in &vals {
+            if *v > mean { cur_run += 1; max_run = max_run.max(cur_run); }
+            else { cur_run = 0; }
+        }
+        Some(max_run as f64)
+    }
+
+    /// Fraction of values within the middle 50% of the window range.
+    pub fn window_range_concentration(&self) -> Option<f64> {
+        if self.window.is_empty() { return None; }
+        let mut vals: Vec<f64> = self.window.iter().filter_map(|v| {
+            use rust_decimal::prelude::ToPrimitive;
+            v.to_f64()
+        }).collect();
+        if vals.is_empty() { return None; }
+        vals.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let min = vals[0];
+        let max = *vals.last()?;
+        let range = max - min;
+        if range == 0.0 { return Some(1.0); }
+        let lo = min + 0.25 * range;
+        let hi = max - 0.25 * range;
+        let count = vals.iter().filter(|&&v| v >= lo && v <= hi).count();
+        Some(count as f64 / vals.len() as f64)
+    }
+
+    /// Ratio of max value to window range (position of peak relative to spread).
+    pub fn window_peak_ratio(&self) -> Option<f64> {
+        if self.window.is_empty() { return None; }
+        let mut vals: Vec<f64> = self.window.iter().filter_map(|v| {
+            use rust_decimal::prelude::ToPrimitive;
+            v.to_f64()
+        }).collect();
+        if vals.is_empty() { return None; }
+        vals.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let min = vals[0];
+        let max = *vals.last()?;
+        let range = max - min;
+        if range == 0.0 { return Some(0.0); }
+        Some(max / range)
+    }
+
 }
 
 #[cfg(test)]
@@ -15656,6 +15725,60 @@ mod tests {
         let r = n.window_percentile_90().unwrap();
         assert!(r >= 1.0 && r <= 4.0);
     }
+
+    #[test]
+    fn test_minmax_window_iqr_fraction_too_few_none() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        assert!(n.window_iqr_fraction().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_iqr_fraction_returns_bounded() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let r = n.window_iqr_fraction().unwrap();
+        assert!(r >= 0.0 && r <= 1.0);
+    }
+
+    #[test]
+    fn test_minmax_window_above_mean_run_empty_none() {
+        assert!(norm(4).window_above_mean_run().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_above_mean_run_returns_nonneg() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let r = n.window_above_mean_run().unwrap();
+        assert!(r >= 0.0);
+    }
+
+    #[test]
+    fn test_minmax_window_range_concentration_empty_none() {
+        assert!(norm(4).window_range_concentration().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_range_concentration_returns_bounded() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let r = n.window_range_concentration().unwrap();
+        assert!(r >= 0.0 && r <= 1.0);
+    }
+
+    #[test]
+    fn test_minmax_window_peak_ratio_empty_none() {
+        assert!(norm(4).window_peak_ratio().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_peak_ratio_returns_value() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let r = n.window_peak_ratio().unwrap();
+        assert!(r.is_finite());
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -22809,6 +22932,75 @@ impl ZScoreNormalizer {
         vals.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
         let idx = ((vals.len() as f64 * 0.9) as usize).min(vals.len() - 1);
         Some(vals[idx])
+    }
+
+    /// IQR as a fraction of total window range.
+    pub fn window_iqr_fraction(&self) -> Option<f64> {
+        if self.window.len() < 4 { return None; }
+        let mut vals: Vec<f64> = self.window.iter().filter_map(|v| {
+            use rust_decimal::prelude::ToPrimitive;
+            v.to_f64()
+        }).collect();
+        vals.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let n = vals.len();
+        let q1 = vals[n / 4];
+        let q3 = vals[(3 * n) / 4];
+        let min = vals[0];
+        let max = *vals.last()?;
+        let range = max - min;
+        if range == 0.0 { return Some(0.0); }
+        Some((q3 - q1) / range)
+    }
+
+    /// Length of the longest run of consecutive values above the window mean.
+    pub fn window_above_mean_run(&self) -> Option<f64> {
+        if self.window.is_empty() { return None; }
+        use rust_decimal::prelude::ToPrimitive;
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.is_empty() { return None; }
+        let mean = vals.iter().sum::<f64>() / vals.len() as f64;
+        let mut max_run = 0usize;
+        let mut cur_run = 0usize;
+        for v in &vals {
+            if *v > mean { cur_run += 1; max_run = max_run.max(cur_run); }
+            else { cur_run = 0; }
+        }
+        Some(max_run as f64)
+    }
+
+    /// Fraction of values within the middle 50% of the window range.
+    pub fn window_range_concentration(&self) -> Option<f64> {
+        if self.window.is_empty() { return None; }
+        let mut vals: Vec<f64> = self.window.iter().filter_map(|v| {
+            use rust_decimal::prelude::ToPrimitive;
+            v.to_f64()
+        }).collect();
+        if vals.is_empty() { return None; }
+        vals.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let min = vals[0];
+        let max = *vals.last()?;
+        let range = max - min;
+        if range == 0.0 { return Some(1.0); }
+        let lo = min + 0.25 * range;
+        let hi = max - 0.25 * range;
+        let count = vals.iter().filter(|&&v| v >= lo && v <= hi).count();
+        Some(count as f64 / vals.len() as f64)
+    }
+
+    /// Ratio of max value to window range (position of peak relative to spread).
+    pub fn window_peak_ratio(&self) -> Option<f64> {
+        if self.window.is_empty() { return None; }
+        let mut vals: Vec<f64> = self.window.iter().filter_map(|v| {
+            use rust_decimal::prelude::ToPrimitive;
+            v.to_f64()
+        }).collect();
+        if vals.is_empty() { return None; }
+        vals.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let min = vals[0];
+        let max = *vals.last()?;
+        let range = max - min;
+        if range == 0.0 { return Some(0.0); }
+        Some(max / range)
     }
 
 }
@@ -31210,5 +31402,59 @@ mod zscore_stability_tests {
         for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
         let r = n.window_percentile_90().unwrap();
         assert!(r >= 1.0 && r <= 4.0);
+    }
+
+    #[test]
+    fn test_zscore_window_iqr_fraction_too_few_none() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        assert!(n.window_iqr_fraction().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_iqr_fraction_returns_bounded() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let r = n.window_iqr_fraction().unwrap();
+        assert!(r >= 0.0 && r <= 1.0);
+    }
+
+    #[test]
+    fn test_zscore_window_above_mean_run_empty_none() {
+        assert!(znorm(4).window_above_mean_run().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_above_mean_run_returns_nonneg() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let r = n.window_above_mean_run().unwrap();
+        assert!(r >= 0.0);
+    }
+
+    #[test]
+    fn test_zscore_window_range_concentration_empty_none() {
+        assert!(znorm(4).window_range_concentration().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_range_concentration_returns_bounded() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let r = n.window_range_concentration().unwrap();
+        assert!(r >= 0.0 && r <= 1.0);
+    }
+
+    #[test]
+    fn test_zscore_window_peak_ratio_empty_none() {
+        assert!(znorm(4).window_peak_ratio().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_peak_ratio_returns_value() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let r = n.window_peak_ratio().unwrap();
+        assert!(r.is_finite());
     }
 }

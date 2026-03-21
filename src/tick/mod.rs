@@ -10020,6 +10020,73 @@ impl NormalizedTick {
         Some(cross_vol)
     }
 
+    /// Fraction of total volume that is buy-side.
+    pub fn tick_buy_vol_pct(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() { return None; }
+        let total: f64 = ticks.iter().filter_map(|t| t.quantity.to_f64()).sum();
+        if total == 0.0 { return None; }
+        let buy_vol: f64 = ticks.iter().filter_map(|t| {
+            if t.side == Some(TradeSide::Buy) { t.quantity.to_f64() } else { None }
+        }).sum();
+        Some(buy_vol / total)
+    }
+
+    /// Mean absolute deviation from mean price as a spread proxy.
+    pub fn tick_spread_proxy(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() { return None; }
+        let prices: Vec<f64> = ticks.iter().filter_map(|t| t.price.to_f64()).collect();
+        if prices.is_empty() { return None; }
+        let mean = prices.iter().sum::<f64>() / prices.len() as f64;
+        let mad = prices.iter().map(|p| (p - mean).abs()).sum::<f64>() / prices.len() as f64;
+        Some(mad)
+    }
+
+    /// Count of tick-to-tick price gaps exceeding one std dev of returns.
+    pub fn tick_price_gap_count(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 3 { return None; }
+        let prices: Vec<f64> = ticks.iter().filter_map(|t| t.price.to_f64()).collect();
+        if prices.len() < 3 { return None; }
+        let returns: Vec<f64> = prices.windows(2).map(|w| (w[1] - w[0]).abs()).collect();
+        let mean = returns.iter().sum::<f64>() / returns.len() as f64;
+        let var = returns.iter().map(|r| (r - mean).powi(2)).sum::<f64>() / returns.len() as f64;
+        let std = var.sqrt();
+        let count = returns.iter().filter(|&&r| r > mean + std).count();
+        Some(count as f64)
+    }
+
+    /// Entropy-like measure of volume distribution across price levels (8-bucket histogram).
+    pub fn tick_vol_entropy_change(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 4 { return None; }
+        let half = ticks.len() / 2;
+        let entropy_half = |slice: &[NormalizedTick]| -> Option<f64> {
+            let prices: Vec<f64> = slice.iter().filter_map(|t| t.price.to_f64()).collect();
+            let min = prices.iter().cloned().fold(f64::INFINITY, f64::min);
+            let max = prices.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+            if (max - min) < 1e-12 { return Some(0.0); }
+            let mut buckets = [0.0f64; 8];
+            let total_vol: f64 = slice.iter().filter_map(|t| t.quantity.to_f64()).sum();
+            if total_vol == 0.0 { return None; }
+            for (t, p) in slice.iter().zip(prices.iter()) {
+                let idx = (((p - min) / (max - min)) * 7.999) as usize;
+                if let Some(q) = t.quantity.to_f64() {
+                    buckets[idx] += q;
+                }
+            }
+            let ent = buckets.iter().map(|&b| {
+                let frac = b / total_vol;
+                if frac > 0.0 { -frac * frac.ln() } else { 0.0 }
+            }).sum();
+            Some(ent)
+        };
+        let e1 = entropy_half(&ticks[..half])?;
+        let e2 = entropy_half(&ticks[half..])?;
+        Some(e2 - e1)
+    }
+
 }
 
 
@@ -22828,5 +22895,77 @@ mod tests {
         ];
         let r = NormalizedTick::tick_cross_price_vol(&ticks).unwrap();
         assert!(r >= 0.0);
+    }
+
+    #[test]
+    fn test_tick_buy_vol_pct_empty_none() {
+        assert!(NormalizedTick::tick_buy_vol_pct(&[]).is_none());
+    }
+
+    #[test]
+    fn test_tick_buy_vol_pct_all_buys_one() {
+        use rust_decimal_macros::dec;
+        let mut t = make_tick_pq(dec!(100), dec!(5));
+        t.side = Some(TradeSide::Buy);
+        let r = NormalizedTick::tick_buy_vol_pct(&[t]).unwrap();
+        assert!((r - 1.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_tick_spread_proxy_empty_none() {
+        assert!(NormalizedTick::tick_spread_proxy(&[]).is_none());
+    }
+
+    #[test]
+    fn test_tick_spread_proxy_same_price_zero() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(100), dec!(1)),
+        ];
+        let r = NormalizedTick::tick_spread_proxy(&ticks).unwrap();
+        assert!(r.abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_tick_price_gap_count_too_few_none() {
+        use rust_decimal_macros::dec;
+        let t = make_tick_pq(dec!(100), dec!(1));
+        assert!(NormalizedTick::tick_price_gap_count(&[t]).is_none());
+    }
+
+    #[test]
+    fn test_tick_price_gap_count_returns_nonneg() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(110), dec!(1)),
+            make_tick_pq(dec!(101), dec!(1)),
+            make_tick_pq(dec!(200), dec!(1)),
+        ];
+        let r = NormalizedTick::tick_price_gap_count(&ticks).unwrap();
+        assert!(r >= 0.0);
+    }
+
+    #[test]
+    fn test_tick_vol_entropy_change_too_few_none() {
+        use rust_decimal_macros::dec;
+        let t = make_tick_pq(dec!(100), dec!(1));
+        assert!(NormalizedTick::tick_vol_entropy_change(&[t]).is_none());
+    }
+
+    #[test]
+    fn test_tick_vol_entropy_change_returns_value() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(110), dec!(2)),
+            make_tick_pq(dec!(120), dec!(1)),
+            make_tick_pq(dec!(105), dec!(3)),
+            make_tick_pq(dec!(115), dec!(2)),
+            make_tick_pq(dec!(108), dec!(1)),
+        ];
+        let r = NormalizedTick::tick_vol_entropy_change(&ticks);
+        assert!(r.is_some());
     }
 }

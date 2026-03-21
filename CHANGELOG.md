@@ -9,6 +9,29 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.10.50] - 2026-03-20
+
+### Added
+
+**`tick` module — `NormalizedTick` analytics (round 199)**
+- `NormalizedTick::tick_buy_vol_pct(ticks)` — fraction of total volume that is buy-side.
+- `NormalizedTick::tick_spread_proxy(ticks)` — mean absolute deviation from mean price as spread proxy.
+- `NormalizedTick::tick_price_gap_count(ticks)` — count of price gaps exceeding one std dev of returns.
+- `NormalizedTick::tick_vol_entropy_change(ticks)` — change in volume entropy from first to second half.
+
+**`ohlcv` module — `OhlcvBar` analytics (round 199)**
+- `OhlcvBar::bar_vol_close_corr(bars)` — Pearson correlation of volume to close price across bars.
+- `OhlcvBar::bar_candle_symmetry(bars)` — mean |upper_shadow - lower_shadow| / range.
+- `OhlcvBar::bar_vol_body_ratio(bars)` — mean volume per unit of body size across bars.
+
+**`norm` module — `MinMaxNormalizer` + `ZScoreNormalizer` analytics (round 199)**
+- `window_iqr_fraction()` — IQR as a fraction of total window range.
+- `window_above_mean_run()` — length of the longest run of consecutive values above the window mean.
+- `window_range_concentration()` — fraction of values within the middle 50% of the window range.
+- `window_peak_ratio()` — ratio of max value to window range.
+
+---
+
 ## [2.10.49] - 2026-03-20
 
 ### Added

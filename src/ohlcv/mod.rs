@@ -9687,6 +9687,54 @@ impl OhlcvBar {
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
+    /// Pearson correlation of volume to close price across bars.
+    pub fn bar_vol_close_corr(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.len() < 2 { return None; }
+        let vols: Vec<f64> = bars.iter().filter_map(|b| b.volume.to_f64()).collect();
+        let closes: Vec<f64> = bars.iter().filter_map(|b| b.close.to_f64()).collect();
+        if vols.len() != bars.len() || closes.len() != bars.len() { return None; }
+        let n = vols.len() as f64;
+        let mv = vols.iter().sum::<f64>() / n;
+        let mc = closes.iter().sum::<f64>() / n;
+        let num: f64 = vols.iter().zip(closes.iter()).map(|(v, c)| (v - mv) * (c - mc)).sum();
+        let dv: f64 = vols.iter().map(|v| (v - mv).powi(2)).sum::<f64>().sqrt();
+        let dc: f64 = closes.iter().map(|c| (c - mc).powi(2)).sum::<f64>().sqrt();
+        if dv == 0.0 || dc == 0.0 { return None; }
+        Some(num / (dv * dc))
+    }
+
+    /// Mean |upper_shadow - lower_shadow| / range — candle symmetry score.
+    pub fn bar_candle_symmetry(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let vals: Vec<f64> = bars.iter().filter_map(|b| {
+            let range = (b.high - b.low).to_f64()?;
+            if range == 0.0 { return Some(0.0); }
+            let body_top = if b.close > b.open { b.close } else { b.open };
+            let body_bot = if b.close < b.open { b.close } else { b.open };
+            let upper = (b.high - body_top).to_f64()?;
+            let lower = (body_bot - b.low).to_f64()?;
+            Some((upper - lower).abs() / range)
+        }).collect();
+        if vals.is_empty() { return None; }
+        Some(vals.iter().sum::<f64>() / vals.len() as f64)
+    }
+
+    /// Mean volume per unit of body size across bars.
+    pub fn bar_vol_body_ratio(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let vals: Vec<f64> = bars.iter().filter_map(|b| {
+            let body = (b.close - b.open).abs().to_f64()?;
+            if body == 0.0 { return None; }
+            let vol = b.volume.to_f64()?;
+            Some(vol / body)
+        }).collect();
+        if vals.is_empty() { return None; }
+        Some(vals.iter().sum::<f64>() / vals.len() as f64)
+    }
+
 }
 
 impl std::fmt::Display for OhlcvBar {
@@ -21667,5 +21715,45 @@ mod tests {
         let b = make_ohlcv_bar(dec!(110), dec!(120), dec!(90), dec!(90));
         let r = OhlcvBar::bar_trend_power(&[b]).unwrap();
         assert!(r < 0.0);
+    }
+
+    #[test]
+    fn test_bar_vol_close_corr_too_few_none() {
+        assert!(OhlcvBar::bar_vol_close_corr(&[]).is_none());
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        assert!(OhlcvBar::bar_vol_close_corr(&[b]).is_none());
+    }
+
+    #[test]
+    fn test_bar_vol_close_corr_returns_bounded() {
+        let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let b2 = make_ohlcv_bar(dec!(100), dec!(120), dec!(80), dec!(115));
+        let r = OhlcvBar::bar_vol_close_corr(&[b1, b2]);
+        // volume is same (dec!(1)) so std = 0 → None
+        assert!(r.is_none());
+    }
+
+    #[test]
+    fn test_bar_candle_symmetry_empty_none() {
+        assert!(OhlcvBar::bar_candle_symmetry(&[]).is_none());
+    }
+
+    #[test]
+    fn test_bar_candle_symmetry_returns_bounded() {
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let r = OhlcvBar::bar_candle_symmetry(&[b]).unwrap();
+        assert!(r >= 0.0 && r <= 1.0);
+    }
+
+    #[test]
+    fn test_bar_vol_body_ratio_empty_none() {
+        assert!(OhlcvBar::bar_vol_body_ratio(&[]).is_none());
+    }
+
+    #[test]
+    fn test_bar_vol_body_ratio_returns_positive() {
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let r = OhlcvBar::bar_vol_body_ratio(&[b]).unwrap();
+        assert!(r > 0.0);
     }
 }
