@@ -4694,6 +4694,51 @@ impl OhlcvBar {
         Some((sum / Decimal::from(bars.len())).to_f64().unwrap_or(0.0))
     }
 
+    // ── round-106 ────────────────────────────────────────────────────────────
+
+    /// Mean `(high - low) / close` — true range as a fraction of close price.
+    /// Returns `None` for an empty slice or any bar with zero close.
+    pub fn avg_true_range_pct(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let ratios: Vec<f64> = bars.iter().filter_map(|b| {
+            if b.close.is_zero() { None }
+            else { Some(((b.high - b.low) / b.close).to_f64().unwrap_or(0.0)) }
+        }).collect();
+        if ratios.is_empty() { return None; }
+        Some(ratios.iter().sum::<f64>() / ratios.len() as f64)
+    }
+
+    /// Count of bars where close is above the bar's own midpoint `(high + low) / 2`.
+    /// Returns `None` for an empty slice.
+    pub fn close_above_midpoint_count(bars: &[OhlcvBar]) -> Option<usize> {
+        if bars.is_empty() { return None; }
+        let count = bars.iter().filter(|b| {
+            b.close > (b.high + b.low) / Decimal::TWO
+        }).count();
+        Some(count)
+    }
+
+    /// Volume-weighted high price across all bars.
+    /// Returns `None` for an empty slice or zero total volume.
+    pub fn volume_weighted_high(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let total_vol: Decimal = bars.iter().map(|b| b.volume).sum();
+        if total_vol.is_zero() { return None; }
+        let wsum: Decimal = bars.iter().map(|b| b.high * b.volume).sum();
+        Some((wsum / total_vol).to_f64().unwrap_or(0.0))
+    }
+
+    /// Mean of `min(open, close) - low` (lower tail / lower wick) across all bars.
+    /// Returns `None` for an empty slice.
+    pub fn low_minus_close_mean(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let sum: Decimal = bars.iter().map(|b| b.open.min(b.close) - b.low).sum();
+        Some((sum / Decimal::from(bars.len())).to_f64().unwrap_or(0.0))
+    }
+
 }
 
 impl std::fmt::Display for OhlcvBar {
@@ -11197,5 +11242,62 @@ mod tests {
         let b = make_ohlcv_bar(dec!(100), dec!(115), dec!(90), dec!(110));
         let m = OhlcvBar::high_minus_open_mean(&[b]).unwrap();
         assert!((m - 15.0).abs() < 1e-9, "expected 15.0, got {}", m);
+    }
+
+    // ── round-106 tests ───────────────────────────────────────────────────────
+
+    #[test]
+    fn test_avg_true_range_pct_none_for_empty() {
+        assert!(OhlcvBar::avg_true_range_pct(&[]).is_none());
+    }
+
+    #[test]
+    fn test_avg_true_range_pct_basic() {
+        // high=110, low=90, close=100 → (110-90)/100 = 0.2
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100));
+        let r = OhlcvBar::avg_true_range_pct(&[b]).unwrap();
+        assert!((r - 0.2).abs() < 1e-9, "expected 0.2, got {}", r);
+    }
+
+    #[test]
+    fn test_close_above_midpoint_count_none_for_empty() {
+        assert!(OhlcvBar::close_above_midpoint_count(&[]).is_none());
+    }
+
+    #[test]
+    fn test_close_above_midpoint_count_basic() {
+        // midpoint=(110+90)/2=100; close=105>100 → count=1
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let c = OhlcvBar::close_above_midpoint_count(&[b]).unwrap();
+        assert_eq!(c, 1);
+    }
+
+    #[test]
+    fn test_volume_weighted_high_none_for_empty() {
+        assert!(OhlcvBar::volume_weighted_high(&[]).is_none());
+    }
+
+    #[test]
+    fn test_volume_weighted_high_basic() {
+        // both bars: high=110, volume=50 → vwh = (110*50+110*50)/(50+50)=110
+        let mut b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        b1.volume = dec!(50);
+        let mut b2 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        b2.volume = dec!(50);
+        let v = OhlcvBar::volume_weighted_high(&[b1, b2]).unwrap();
+        assert!((v - 110.0).abs() < 1e-9, "expected 110.0, got {}", v);
+    }
+
+    #[test]
+    fn test_low_minus_close_mean_none_for_empty() {
+        assert!(OhlcvBar::low_minus_close_mean(&[]).is_none());
+    }
+
+    #[test]
+    fn test_low_minus_close_mean_basic() {
+        // open=100, close=105, low=90 → lower wick = min(100,105)-90 = 100-90 = 10
+        let b = make_ohlcv_bar(dec!(100), dec!(115), dec!(90), dec!(105));
+        let m = OhlcvBar::low_minus_close_mean(&[b]).unwrap();
+        assert!((m - 10.0).abs() < 1e-9, "expected 10.0, got {}", m);
     }
 }

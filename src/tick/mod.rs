@@ -4727,6 +4727,56 @@ impl NormalizedTick {
         Some(ticks.iter().filter(|t| t.quantity > median).count())
     }
 
+    // ── round-106 ────────────────────────────────────────────────────────────
+
+    /// Z-score of the latest tick price relative to the slice.
+    /// Returns `None` for fewer than 2 ticks or zero standard deviation.
+    pub fn price_zscore(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 2 {
+            return None;
+        }
+        let prices: Vec<f64> = ticks.iter().filter_map(|t| t.price.to_f64()).collect();
+        if prices.len() != ticks.len() { return None; }
+        let n = prices.len() as f64;
+        let mean = prices.iter().sum::<f64>() / n;
+        let std_dev = (prices.iter().map(|p| (p - mean).powi(2)).sum::<f64>() / n).sqrt();
+        if std_dev == 0.0 { return None; }
+        let last = *prices.last()?;
+        Some((last - mean) / std_dev)
+    }
+
+    /// Fraction of total ticks that are on the buy side.
+    /// Returns `None` for an empty slice.
+    pub fn buy_side_fraction(ticks: &[NormalizedTick]) -> Option<f64> {
+        if ticks.is_empty() { return None; }
+        let buy_count = ticks.iter().filter(|t| matches!(t.side, Some(TradeSide::Buy))).count();
+        Some(buy_count as f64 / ticks.len() as f64)
+    }
+
+    /// Coefficient of variation of trade quantities: `std_dev / mean`.
+    /// Returns `None` for an empty slice or zero mean.
+    pub fn tick_qty_cv(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() { return None; }
+        let qtys: Vec<f64> = ticks.iter().filter_map(|t| t.quantity.to_f64()).collect();
+        if qtys.len() != ticks.len() { return None; }
+        let n = qtys.len() as f64;
+        let mean = qtys.iter().sum::<f64>() / n;
+        if mean == 0.0 { return None; }
+        let std_dev = (qtys.iter().map(|q| (q - mean).powi(2)).sum::<f64>() / n).sqrt();
+        Some(std_dev / mean)
+    }
+
+    /// Mean trade value: average of `price * quantity` across all ticks.
+    /// Returns `None` for an empty slice.
+    pub fn avg_trade_value(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() { return None; }
+        let total: Decimal = ticks.iter().map(|t| t.price * t.quantity).sum();
+        Some((total / Decimal::from(ticks.len())).to_f64().unwrap_or(0.0))
+    }
+
 }
 
 
@@ -10893,5 +10943,70 @@ mod tests {
         ];
         let c = NormalizedTick::qty_above_median(&ticks).unwrap();
         assert_eq!(c, 2);
+    }
+
+    // ── round-106 tests ───────────────────────────────────────────────────────
+
+    #[test]
+    fn test_price_zscore_none_for_single() {
+        use rust_decimal_macros::dec;
+        let t = make_tick_pq(dec!(100), dec!(1));
+        assert!(NormalizedTick::price_zscore(&[t]).is_none());
+    }
+
+    #[test]
+    fn test_price_zscore_basic() {
+        use rust_decimal_macros::dec;
+        // prices [100, 200]: mean=150, std=50; last=200 → zscore=1.0
+        let t1 = make_tick_pq(dec!(100), dec!(1));
+        let t2 = make_tick_pq(dec!(200), dec!(1));
+        let z = NormalizedTick::price_zscore(&[t1, t2]).unwrap();
+        assert!((z - 1.0).abs() < 1e-9, "expected 1.0, got {}", z);
+    }
+
+    #[test]
+    fn test_buy_side_fraction_none_for_empty() {
+        assert!(NormalizedTick::buy_side_fraction(&[]).is_none());
+    }
+
+    #[test]
+    fn test_buy_side_fraction_basic() {
+        use rust_decimal_macros::dec;
+        let mut buy = make_tick_pq(dec!(100), dec!(1));
+        buy.side = Some(TradeSide::Buy);
+        let mut sell = make_tick_pq(dec!(100), dec!(1));
+        sell.side = Some(TradeSide::Sell);
+        let f = NormalizedTick::buy_side_fraction(&[buy, sell]).unwrap();
+        assert!((f - 0.5).abs() < 1e-9, "expected 0.5, got {}", f);
+    }
+
+    #[test]
+    fn test_tick_qty_cv_none_for_empty() {
+        assert!(NormalizedTick::tick_qty_cv(&[]).is_none());
+    }
+
+    #[test]
+    fn test_tick_qty_cv_basic() {
+        use rust_decimal_macros::dec;
+        // qtys [1, 1]: std=0, mean=1, cv=0
+        let t1 = make_tick_pq(dec!(100), dec!(1));
+        let t2 = make_tick_pq(dec!(100), dec!(1));
+        let cv = NormalizedTick::tick_qty_cv(&[t1, t2]).unwrap();
+        assert!(cv.abs() < 1e-9, "expected ~0, got {}", cv);
+    }
+
+    #[test]
+    fn test_avg_trade_value_none_for_empty() {
+        assert!(NormalizedTick::avg_trade_value(&[]).is_none());
+    }
+
+    #[test]
+    fn test_avg_trade_value_basic() {
+        use rust_decimal_macros::dec;
+        // price=100, qty=5 → value=500 for both ticks → avg=500
+        let t1 = make_tick_pq(dec!(100), dec!(5));
+        let t2 = make_tick_pq(dec!(100), dec!(5));
+        let v = NormalizedTick::avg_trade_value(&[t1, t2]).unwrap();
+        assert!((v - 500.0).abs() < 1e-9, "expected 500.0, got {}", v);
     }
 }

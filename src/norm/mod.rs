@@ -2649,6 +2649,71 @@ impl MinMaxNormalizer {
         Some(max_run)
     }
 
+    // ── round-106 ────────────────────────────────────────────────────────────
+
+    /// Mean absolute deviation from the median of the window.
+    /// Returns `None` for an empty window.
+    pub fn window_median_deviation(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let mut sorted: Vec<Decimal> = self.window.iter().copied().collect();
+        sorted.sort();
+        let n = sorted.len();
+        let median = if n % 2 == 1 { sorted[n / 2] } else { (sorted[n / 2 - 1] + sorted[n / 2]) / Decimal::TWO };
+        let mad: Decimal = sorted.iter().map(|&v| (v - median).abs()).sum::<Decimal>() / Decimal::from(n);
+        mad.to_f64()
+    }
+
+    /// Length of the longest run of consecutive values above the window mean.
+    /// Returns `None` for an empty window.
+    pub fn longest_above_mean_run(&self) -> Option<usize> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.len() != self.window.len() { return None; }
+        let mean = vals.iter().sum::<f64>() / vals.len() as f64;
+        let mut max_run = 0usize;
+        let mut cur_run = 0usize;
+        for &v in &vals {
+            if v > mean { cur_run += 1; if cur_run > max_run { max_run = cur_run; } }
+            else { cur_run = 0; }
+        }
+        Some(max_run)
+    }
+
+    /// Bimodality coefficient: `(skewness^2 + 1) / kurtosis`.
+    /// Values > 5/9 suggest bimodality.
+    /// Returns `None` for fewer than 4 values or zero kurtosis.
+    pub fn window_bimodality(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 4 { return None; }
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.len() != self.window.len() { return None; }
+        let n = vals.len() as f64;
+        let mean = vals.iter().sum::<f64>() / n;
+        let var = vals.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / n;
+        if var == 0.0 { return None; }
+        let std_dev = var.sqrt();
+        let skew = vals.iter().map(|v| ((v - mean) / std_dev).powi(3)).sum::<f64>() / n;
+        let kurt = vals.iter().map(|v| ((v - mean) / std_dev).powi(4)).sum::<f64>() / n;
+        if kurt == 0.0 { return None; }
+        Some((skew.powi(2) + 1.0) / kurt)
+    }
+
+    /// Count of times adjacent values in the window change sign relative to zero.
+    /// Returns `None` for fewer than 2 values.
+    pub fn window_zero_crossings(&self) -> Option<usize> {
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<Decimal> = self.window.iter().copied().collect();
+        let count = vals.windows(2)
+            .filter(|w| {
+                (w[0].is_sign_positive() && w[1].is_sign_negative())
+                    || (w[0].is_sign_negative() && w[1].is_sign_positive())
+            })
+            .count();
+        Some(count)
+    }
+
 }
 
 #[cfg(test)]
@@ -5483,6 +5548,57 @@ mod tests {
         let r = n.window_max_run().unwrap();
         assert_eq!(r, 3);
     }
+
+    // ── round-106 tests ───────────────────────────────────────────────────────
+
+    #[test]
+    fn test_minmax_window_median_deviation_basic() {
+        let mut n = norm(5);
+        for v in [dec!(10), dec!(20), dec!(30)] { n.update(v); }
+        // median=20; deviations: |10-20|=10, |20-20|=0, |30-20|=10 → mad=20/3≈6.667
+        let m = n.window_median_deviation().unwrap();
+        assert!((m - 20.0 / 3.0).abs() < 1e-9, "expected 6.667, got {}", m);
+    }
+
+    #[test]
+    fn test_minmax_longest_above_mean_run_basic() {
+        let mut n = norm(10);
+        // mean of [5,10,15,3] = 8.25; above mean: 10,15 (run=2)
+        for v in [dec!(5), dec!(10), dec!(15), dec!(3)] { n.update(v); }
+        let r = n.longest_above_mean_run().unwrap();
+        assert_eq!(r, 2);
+    }
+
+    #[test]
+    fn test_minmax_window_bimodality_none_for_three() {
+        let mut n = norm(5);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        assert!(n.window_bimodality().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_bimodality_basic() {
+        let mut n = norm(10);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        // Should return Some without panicking
+        assert!(n.window_bimodality().is_some());
+    }
+
+    #[test]
+    fn test_minmax_window_zero_crossings_none_for_single() {
+        let mut n = norm(5);
+        n.update(dec!(1));
+        assert!(n.window_zero_crossings().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_zero_crossings_basic() {
+        let mut n = norm(5);
+        for v in [dec!(1), dec!(-1), dec!(1)] { n.update(v); }
+        // crossings: +→- and -→+ = 2
+        let c = n.window_zero_crossings().unwrap();
+        assert_eq!(c, 2);
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -8079,6 +8195,71 @@ impl ZScoreNormalizer {
             }
         }
         Some(max_run)
+    }
+
+    // ── round-106 ────────────────────────────────────────────────────────────
+
+    /// Mean absolute deviation from the median of the window.
+    /// Returns `None` for an empty window.
+    pub fn window_median_deviation(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let mut sorted: Vec<Decimal> = self.window.iter().copied().collect();
+        sorted.sort();
+        let n = sorted.len();
+        let median = if n % 2 == 1 { sorted[n / 2] } else { (sorted[n / 2 - 1] + sorted[n / 2]) / Decimal::TWO };
+        let mad: Decimal = sorted.iter().map(|&v| (v - median).abs()).sum::<Decimal>() / Decimal::from(n);
+        mad.to_f64()
+    }
+
+    /// Length of the longest run of consecutive values above the window mean.
+    /// Returns `None` for an empty window.
+    pub fn longest_above_mean_run(&self) -> Option<usize> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.len() != self.window.len() { return None; }
+        let mean = vals.iter().sum::<f64>() / vals.len() as f64;
+        let mut max_run = 0usize;
+        let mut cur_run = 0usize;
+        for &v in &vals {
+            if v > mean { cur_run += 1; if cur_run > max_run { max_run = cur_run; } }
+            else { cur_run = 0; }
+        }
+        Some(max_run)
+    }
+
+    /// Bimodality coefficient: `(skewness^2 + 1) / kurtosis`.
+    /// Values > 5/9 suggest bimodality.
+    /// Returns `None` for fewer than 4 values or zero kurtosis.
+    pub fn window_bimodality(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 4 { return None; }
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.len() != self.window.len() { return None; }
+        let n = vals.len() as f64;
+        let mean = vals.iter().sum::<f64>() / n;
+        let var = vals.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / n;
+        if var == 0.0 { return None; }
+        let std_dev = var.sqrt();
+        let skew = vals.iter().map(|v| ((v - mean) / std_dev).powi(3)).sum::<f64>() / n;
+        let kurt = vals.iter().map(|v| ((v - mean) / std_dev).powi(4)).sum::<f64>() / n;
+        if kurt == 0.0 { return None; }
+        Some((skew.powi(2) + 1.0) / kurt)
+    }
+
+    /// Count of times adjacent values in the window change sign relative to zero.
+    /// Returns `None` for fewer than 2 values.
+    pub fn window_zero_crossings(&self) -> Option<usize> {
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<Decimal> = self.window.iter().copied().collect();
+        let count = vals.windows(2)
+            .filter(|w| {
+                (w[0].is_sign_positive() && w[1].is_sign_negative())
+                    || (w[0].is_sign_negative() && w[1].is_sign_positive())
+            })
+            .count();
+        Some(count)
     }
 
 }
@@ -11047,5 +11228,52 @@ mod zscore_stability_tests {
         for v in [dec!(10), dec!(20), dec!(30), dec!(10)] { n.update(v); }
         let r = n.window_max_run().unwrap();
         assert_eq!(r, 3);
+    }
+
+    // ── round-106 tests ───────────────────────────────────────────────────────
+
+    #[test]
+    fn test_zscore_window_median_deviation_basic() {
+        let mut n = znorm(5);
+        for v in [dec!(10), dec!(20), dec!(30)] { n.update(v); }
+        let m = n.window_median_deviation().unwrap();
+        assert!((m - 20.0 / 3.0).abs() < 1e-9, "expected 6.667, got {}", m);
+    }
+
+    #[test]
+    fn test_zscore_longest_above_mean_run_basic() {
+        let mut n = znorm(10);
+        for v in [dec!(5), dec!(10), dec!(15), dec!(3)] { n.update(v); }
+        let r = n.longest_above_mean_run().unwrap();
+        assert_eq!(r, 2);
+    }
+
+    #[test]
+    fn test_zscore_window_bimodality_none_for_three() {
+        let mut n = znorm(5);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        assert!(n.window_bimodality().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_bimodality_basic() {
+        let mut n = znorm(10);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        assert!(n.window_bimodality().is_some());
+    }
+
+    #[test]
+    fn test_zscore_window_zero_crossings_none_for_single() {
+        let mut n = znorm(5);
+        n.update(dec!(1));
+        assert!(n.window_zero_crossings().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_zero_crossings_basic() {
+        let mut n = znorm(5);
+        for v in [dec!(1), dec!(-1), dec!(1)] { n.update(v); }
+        let c = n.window_zero_crossings().unwrap();
+        assert_eq!(c, 2);
     }
 }

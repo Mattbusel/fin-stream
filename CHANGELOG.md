@@ -9,6 +9,36 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.5.7] - 2026-03-20
+
+### Added
+
+**`tick` module — `NormalizedTick` analytics (round 106)**
+- `NormalizedTick::price_zscore(ticks)` — z-score of the latest tick price relative to the slice.
+- `NormalizedTick::buy_side_fraction(ticks)` — fraction of total ticks that are on the buy side.
+- `NormalizedTick::tick_qty_cv(ticks)` — coefficient of variation of trade quantities.
+- `NormalizedTick::avg_trade_value(ticks)` — mean of `price × quantity` across all ticks.
+
+**`ohlcv` module — `OhlcvBar` analytics (round 106)**
+- `OhlcvBar::avg_true_range_pct(bars)` — mean `(high - low) / close` normalised range fraction.
+- `OhlcvBar::close_above_midpoint_count(bars)` — count of bars where close is above `(high + low) / 2`.
+- `OhlcvBar::volume_weighted_high(bars)` — volume-weighted high price across all bars.
+- `OhlcvBar::low_minus_close_mean(bars)` — mean lower wick `min(open, close) - low` across bars.
+
+**`norm` module — `MinMaxNormalizer` analytics (round 106)**
+- `MinMaxNormalizer::window_median_deviation()` — mean absolute deviation from the window median.
+- `MinMaxNormalizer::longest_above_mean_run()` — longest consecutive run of values above the mean.
+- `MinMaxNormalizer::window_bimodality()` — bimodality coefficient `(skewness² + 1) / kurtosis`.
+- `MinMaxNormalizer::window_zero_crossings()` — count of sign changes relative to zero.
+
+**`norm` module — `ZScoreNormalizer` analytics (round 106)**
+- `ZScoreNormalizer::window_median_deviation()` — mean absolute deviation from the window median.
+- `ZScoreNormalizer::longest_above_mean_run()` — longest consecutive run of values above the mean.
+- `ZScoreNormalizer::window_bimodality()` — bimodality coefficient `(skewness² + 1) / kurtosis`.
+- `ZScoreNormalizer::window_zero_crossings()` — count of sign changes relative to zero.
+
+---
+
 ## [2.5.6] - 2026-03-20
 
 ### Added
