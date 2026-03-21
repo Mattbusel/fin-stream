@@ -9,6 +9,36 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.7.5] - 2026-03-20
+
+### Added
+
+**`tick` module — `NormalizedTick` analytics (round 124)**
+- `NormalizedTick::price_cross_zero(ticks)` — count of times price crosses its own mean.
+- `NormalizedTick::tick_momentum_score(ticks)` — mean of sign of price changes across consecutive ticks.
+- `NormalizedTick::sell_side_ratio(ticks)` — fraction of sided ticks that are sells.
+- `NormalizedTick::avg_qty_per_side(ticks)` — mean quantity per sided tick.
+
+**`ohlcv` module — `OhlcvBar` analytics (round 124)**
+- `OhlcvBar::close_oscillation_count(bars)` — count of close direction changes across bars.
+- `OhlcvBar::bar_consolidation_ratio(bars)` — fraction of bars with range below the median range.
+- `OhlcvBar::open_momentum_score(bars)` — fraction of bars where open exceeds the prior bar's open.
+- `OhlcvBar::avg_volume_change(bars)` — mean of absolute volume changes between consecutive bars.
+
+**`norm` module — `MinMaxNormalizer` analytics (round 124)**
+- `MinMaxNormalizer::window_percentile_75()` — 75th percentile of window values.
+- `MinMaxNormalizer::window_abs_slope()` — absolute slope: |last - first| / (n - 1).
+- `MinMaxNormalizer::window_gain_loss_ratio()` — ratio of sum of gains to sum of losses.
+- `MinMaxNormalizer::window_range_stability()` — 1 minus std of range-normalized values.
+
+**`norm` module — `ZScoreNormalizer` analytics (round 124)**
+- `ZScoreNormalizer::window_percentile_75()` — 75th percentile of window values.
+- `ZScoreNormalizer::window_abs_slope()` — absolute slope: |last - first| / (n - 1).
+- `ZScoreNormalizer::window_gain_loss_ratio()` — ratio of sum of gains to sum of losses.
+- `ZScoreNormalizer::window_range_stability()` — 1 minus std of range-normalized values.
+
+---
+
 ## [2.7.4] - 2026-03-20
 
 ### Added

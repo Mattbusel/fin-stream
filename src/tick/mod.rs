@@ -5686,6 +5686,47 @@ impl NormalizedTick {
         Some(var.sqrt())
     }
 
+    // ── round-124 ────────────────────────────────────────────────────────────
+
+    /// Count of times price crosses its own mean value.
+    pub fn price_cross_zero(ticks: &[NormalizedTick]) -> Option<usize> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 2 { return None; }
+        let prices: Vec<f64> = ticks.iter().map(|t| t.price.to_f64().unwrap_or(0.0)).collect();
+        let mean = prices.iter().sum::<f64>() / prices.len() as f64;
+        let centered: Vec<f64> = prices.iter().map(|&p| p - mean).collect();
+        let crosses = centered.windows(2).filter(|w| w[0] * w[1] < 0.0).count();
+        Some(crosses)
+    }
+
+    /// Momentum score: mean of sign of price changes across consecutive ticks.
+    pub fn tick_momentum_score(ticks: &[NormalizedTick]) -> Option<f64> {
+        if ticks.len() < 2 { return None; }
+        let score: f64 = ticks.windows(2).map(|w| {
+            if w[1].price > w[0].price { 1.0 } else if w[1].price < w[0].price { -1.0 } else { 0.0 }
+        }).sum::<f64>() / (ticks.len() - 1) as f64;
+        Some(score)
+    }
+
+    /// Fraction of sided ticks that are sells.
+    pub fn sell_side_ratio(ticks: &[NormalizedTick]) -> Option<f64> {
+        let sided: Vec<&NormalizedTick> = ticks.iter().filter(|t| t.side.is_some()).collect();
+        if sided.is_empty() { return None; }
+        let sells = sided.iter().filter(|t| matches!(t.side, Some(TradeSide::Sell))).count();
+        Some(sells as f64 / sided.len() as f64)
+    }
+
+    /// Mean quantity per buy side, or None if no sided ticks.
+    pub fn avg_qty_per_side(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let sided: Vec<f64> = ticks.iter()
+            .filter(|t| t.side.is_some())
+            .map(|t| t.quantity.to_f64().unwrap_or(0.0))
+            .collect();
+        if sided.is_empty() { return None; }
+        Some(sided.iter().sum::<f64>() / sided.len() as f64)
+    }
+
 }
 
 
@@ -12983,5 +13024,71 @@ mod tests {
         let ticks: Vec<_> = (0..3).map(|_| make_tick_pq(dec!(100), dec!(1))).collect();
         let s = NormalizedTick::price_range_std(&ticks).unwrap();
         assert!(s.abs() < 1e-9, "expected 0.0, got {}", s);
+    }
+
+    // ── round-124 ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_price_cross_zero_none_for_single() {
+        use rust_decimal_macros::dec;
+        assert!(NormalizedTick::price_cross_zero(&[make_tick_pq(dec!(100), dec!(1))]).is_none());
+    }
+
+    #[test]
+    fn test_price_cross_zero_no_crossing() {
+        use rust_decimal_macros::dec;
+        let ticks: Vec<_> = (0..3).map(|_| make_tick_pq(dec!(100), dec!(1))).collect();
+        let c = NormalizedTick::price_cross_zero(&ticks).unwrap();
+        assert_eq!(c, 0);
+    }
+
+    #[test]
+    fn test_tick_momentum_score_none_for_single() {
+        use rust_decimal_macros::dec;
+        assert!(NormalizedTick::tick_momentum_score(&[make_tick_pq(dec!(100), dec!(1))]).is_none());
+    }
+
+    #[test]
+    fn test_tick_momentum_score_all_rising() {
+        use rust_decimal_macros::dec;
+        let ticks = [
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(101), dec!(1)),
+            make_tick_pq(dec!(102), dec!(1)),
+        ];
+        let s = NormalizedTick::tick_momentum_score(&ticks).unwrap();
+        assert!((s - 1.0).abs() < 1e-9, "expected 1.0, got {}", s);
+    }
+
+    #[test]
+    fn test_sell_side_ratio_none_for_no_sides() {
+        use rust_decimal_macros::dec;
+        assert!(NormalizedTick::sell_side_ratio(&[make_tick_pq(dec!(100), dec!(1))]).is_none());
+    }
+
+    #[test]
+    fn test_sell_side_ratio_all_sells() {
+        use rust_decimal_macros::dec;
+        let mut t = make_tick_pq(dec!(100), dec!(1));
+        t.side = Some(TradeSide::Sell);
+        let r = NormalizedTick::sell_side_ratio(&[t]).unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "expected 1.0, got {}", r);
+    }
+
+    #[test]
+    fn test_avg_qty_per_side_none_for_no_sides() {
+        use rust_decimal_macros::dec;
+        assert!(NormalizedTick::avg_qty_per_side(&[make_tick_pq(dec!(100), dec!(1))]).is_none());
+    }
+
+    #[test]
+    fn test_avg_qty_per_side_basic() {
+        use rust_decimal_macros::dec;
+        let mut t1 = make_tick_pq(dec!(100), dec!(4));
+        t1.side = Some(TradeSide::Buy);
+        let mut t2 = make_tick_pq(dec!(100), dec!(6));
+        t2.side = Some(TradeSide::Sell);
+        let a = NormalizedTick::avg_qty_per_side(&[t1, t2]).unwrap();
+        assert!((a - 5.0).abs() < 1e-9, "expected 5.0, got {}", a);
     }
 }

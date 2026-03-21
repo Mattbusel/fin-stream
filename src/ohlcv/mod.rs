@@ -5616,6 +5616,50 @@ impl OhlcvBar {
         Some(pos as f64 / (closes.len() - 1).max(1) as f64)
     }
 
+    // ── round-124 ────────────────────────────────────────────────────────────
+
+    /// Count of times close oscillates (changes direction) across bars.
+    pub fn close_oscillation_count(bars: &[OhlcvBar]) -> Option<usize> {
+        if bars.len() < 3 { return None; }
+        let diffs: Vec<i8> = bars.windows(2).map(|w| {
+            if w[1].close > w[0].close { 1i8 } else if w[1].close < w[0].close { -1i8 } else { 0i8 }
+        }).collect();
+        Some(diffs.windows(2).filter(|w| w[0] != 0 && w[1] != 0 && w[0] != w[1]).count())
+    }
+
+    /// Fraction of bars with range below the median range (consolidating bars).
+    pub fn bar_consolidation_ratio(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let mut ranges: Vec<f64> = bars.iter()
+            .map(|b| (b.high - b.low).to_f64().unwrap_or(0.0))
+            .collect();
+        ranges.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let n = ranges.len();
+        let median = if n % 2 == 0 { (ranges[n/2-1] + ranges[n/2]) / 2.0 } else { ranges[n/2] };
+        let below = bars.iter().filter(|b| {
+            (b.high - b.low).to_f64().unwrap_or(0.0) < median
+        }).count();
+        Some(below as f64 / n as f64)
+    }
+
+    /// Momentum of open prices: fraction of bars where open[i] > open[i-1].
+    pub fn open_momentum_score(bars: &[OhlcvBar]) -> Option<f64> {
+        if bars.len() < 2 { return None; }
+        let rising = bars.windows(2).filter(|w| w[1].open > w[0].open).count();
+        Some(rising as f64 / (bars.len() - 1) as f64)
+    }
+
+    /// Mean of absolute volume changes between consecutive bars.
+    pub fn avg_volume_change(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.len() < 2 { return None; }
+        let sum: f64 = bars.windows(2)
+            .map(|w| (w[1].volume - w[0].volume).abs().to_f64().unwrap_or(0.0))
+            .sum();
+        Some(sum / (bars.len() - 1) as f64)
+    }
+
 }
 
 impl std::fmt::Display for OhlcvBar {
@@ -13159,5 +13203,66 @@ mod tests {
         ];
         let r = OhlcvBar::bar_close_rank(&bars).unwrap();
         assert!((r - 1.0).abs() < 1e-9, "expected 1.0, got {}", r);
+    }
+
+    // ── round-124 ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_close_oscillation_count_none_for_two() {
+        let bars = [
+            make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105)),
+            make_ohlcv_bar(dec!(105), dec!(115), dec!(100), dec!(110)),
+        ];
+        assert!(OhlcvBar::close_oscillation_count(&bars).is_none());
+    }
+
+    #[test]
+    fn test_close_oscillation_count_alternating() {
+        // close: 100, 110, 105, 112 → diffs: +,-, + → 2 direction changes
+        let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100));
+        let b2 = make_ohlcv_bar(dec!(100), dec!(115), dec!(98), dec!(110));
+        let b3 = make_ohlcv_bar(dec!(109), dec!(112), dec!(100), dec!(105));
+        let b4 = make_ohlcv_bar(dec!(105), dec!(118), dec!(102), dec!(112));
+        let c = OhlcvBar::close_oscillation_count(&[b1, b2, b3, b4]).unwrap();
+        assert_eq!(c, 2);
+    }
+
+    #[test]
+    fn test_bar_consolidation_ratio_none_for_empty() {
+        assert!(OhlcvBar::bar_consolidation_ratio(&[]).is_none());
+    }
+
+    #[test]
+    fn test_bar_consolidation_ratio_uniform() {
+        // all same range → half below median = 0
+        let bars: Vec<_> = (0..4).map(|_| make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105))).collect();
+        let r = OhlcvBar::bar_consolidation_ratio(&bars).unwrap();
+        assert!(r >= 0.0 && r <= 1.0, "expected [0,1], got {}", r);
+    }
+
+    #[test]
+    fn test_open_momentum_score_none_for_single() {
+        assert!(OhlcvBar::open_momentum_score(&[make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105))]).is_none());
+    }
+
+    #[test]
+    fn test_open_momentum_score_all_rising() {
+        let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let b2 = make_ohlcv_bar(dec!(105), dec!(115), dec!(100), dec!(110));
+        let s = OhlcvBar::open_momentum_score(&[b1, b2]).unwrap();
+        assert!((s - 1.0).abs() < 1e-9, "expected 1.0, got {}", s);
+    }
+
+    #[test]
+    fn test_avg_volume_change_none_for_single() {
+        assert!(OhlcvBar::avg_volume_change(&[make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105))]).is_none());
+    }
+
+    #[test]
+    fn test_avg_volume_change_zero_for_equal_volumes() {
+        let bars: Vec<_> = (0..3).map(|_| make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105))).collect();
+        // volume is always dec!(1) from make_ohlcv_bar → no change
+        let v = OhlcvBar::avg_volume_change(&bars).unwrap();
+        assert!(v.abs() < 1e-9, "expected 0.0, got {}", v);
     }
 }

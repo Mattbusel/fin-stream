@@ -3546,6 +3546,58 @@ impl MinMaxNormalizer {
         Some(vals.iter().filter(|&&v| v < mid).count())
     }
 
+    // ── round-124 ────────────────────────────────────────────────────────────
+
+    /// 75th percentile of window values.
+    pub fn window_percentile_75(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let mut sorted: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let idx = ((sorted.len() as f64 * 0.75) as usize).min(sorted.len() - 1);
+        Some(sorted[idx])
+    }
+
+    /// Absolute slope: |last - first| / (n - 1).
+    pub fn window_abs_slope(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let first = self.window.front()?.to_f64()?;
+        let last = self.window.back()?.to_f64()?;
+        Some((last - first).abs() / (self.window.len() - 1) as f64)
+    }
+
+    /// Ratio of sum of gains to sum of losses; None if no losses.
+    pub fn window_gain_loss_ratio(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let mut gains = 0f64;
+        let mut losses = 0f64;
+        for w in vals.windows(2) {
+            let d = w[1] - w[0];
+            if d > 0.0 { gains += d; } else { losses += d.abs(); }
+        }
+        if losses == 0.0 { return None; }
+        Some(gains / losses)
+    }
+
+    /// Stability of range: 1 - std(range_pct) where range_pct = (v - min) / (max - min).
+    pub fn window_range_stability(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let min = vals.iter().cloned().fold(f64::INFINITY, f64::min);
+        let max = vals.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        let range = max - min;
+        if range == 0.0 { return Some(1.0); }
+        let pcts: Vec<f64> = vals.iter().map(|&v| (v - min) / range).collect();
+        let n = pcts.len() as f64;
+        let mean = pcts.iter().sum::<f64>() / n;
+        let std = (pcts.iter().map(|&x| (x - mean).powi(2)).sum::<f64>() / n).sqrt();
+        Some(1.0 - std)
+    }
+
 }
 
 #[cfg(test)]
@@ -7448,6 +7500,68 @@ mod tests {
         let c = n.window_lower_half_count().unwrap();
         assert_eq!(c, 2);
     }
+
+    // ── round-124 ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_minmax_window_percentile_75_none_for_empty() {
+        let n = norm(3);
+        assert!(n.window_percentile_75().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_percentile_75_basic() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let p = n.window_percentile_75().unwrap();
+        assert!(p >= 3.0, "expected >=3.0, got {}", p);
+    }
+
+    #[test]
+    fn test_minmax_window_abs_slope_none_for_single() {
+        let mut n = norm(3);
+        n.update(dec!(5));
+        assert!(n.window_abs_slope().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_abs_slope_basic() {
+        let mut n = norm(3);
+        for v in [dec!(1), dec!(2), dec!(5)] { n.update(v); }
+        // |5-1| / 2 = 2.0
+        let s = n.window_abs_slope().unwrap();
+        assert!((s - 2.0).abs() < 1e-9, "expected 2.0, got {}", s);
+    }
+
+    #[test]
+    fn test_minmax_window_gain_loss_ratio_none_for_single() {
+        let mut n = norm(3);
+        n.update(dec!(5));
+        assert!(n.window_gain_loss_ratio().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_gain_loss_ratio_only_gains() {
+        let mut n = norm(3);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        // only gains → None (no losses)
+        assert!(n.window_gain_loss_ratio().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_range_stability_none_for_empty() {
+        let n = norm(3);
+        assert!(n.window_range_stability().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_range_stability_uniform() {
+        let mut n = norm(3);
+        for v in [dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        // all same → range=0 → 1.0
+        let s = n.window_range_stability().unwrap();
+        assert!((s - 1.0).abs() < 1e-9, "expected 1.0, got {}", s);
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -10939,6 +11053,58 @@ impl ZScoreNormalizer {
         let max = vals.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
         let mid = (min + max) / 2.0;
         Some(vals.iter().filter(|&&v| v < mid).count())
+    }
+
+    // ── round-124 ────────────────────────────────────────────────────────────
+
+    /// 75th percentile of window values.
+    pub fn window_percentile_75(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let mut sorted: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let idx = ((sorted.len() as f64 * 0.75) as usize).min(sorted.len() - 1);
+        Some(sorted[idx])
+    }
+
+    /// Absolute slope: |last - first| / (n - 1).
+    pub fn window_abs_slope(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let first = self.window.front()?.to_f64()?;
+        let last = self.window.back()?.to_f64()?;
+        Some((last - first).abs() / (self.window.len() - 1) as f64)
+    }
+
+    /// Ratio of sum of gains to sum of losses; None if no losses.
+    pub fn window_gain_loss_ratio(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let mut gains = 0f64;
+        let mut losses = 0f64;
+        for w in vals.windows(2) {
+            let d = w[1] - w[0];
+            if d > 0.0 { gains += d; } else { losses += d.abs(); }
+        }
+        if losses == 0.0 { return None; }
+        Some(gains / losses)
+    }
+
+    /// Stability of range: 1 - std(range_pct).
+    pub fn window_range_stability(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let min = vals.iter().cloned().fold(f64::INFINITY, f64::min);
+        let max = vals.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        let range = max - min;
+        if range == 0.0 { return Some(1.0); }
+        let pcts: Vec<f64> = vals.iter().map(|&v| (v - min) / range).collect();
+        let n = pcts.len() as f64;
+        let mean = pcts.iter().sum::<f64>() / n;
+        let std = (pcts.iter().map(|&x| (x - mean).powi(2)).sum::<f64>() / n).sqrt();
+        Some(1.0 - std)
     }
 
 }
@@ -14916,5 +15082,64 @@ mod zscore_stability_tests {
         for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
         let c = n.window_lower_half_count().unwrap();
         assert_eq!(c, 2);
+    }
+
+    // ── round-124 ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_zscore_window_percentile_75_none_for_empty() {
+        let n = znorm(3);
+        assert!(n.window_percentile_75().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_percentile_75_basic() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let p = n.window_percentile_75().unwrap();
+        assert!(p >= 3.0, "expected >=3.0, got {}", p);
+    }
+
+    #[test]
+    fn test_zscore_window_abs_slope_none_for_single() {
+        let mut n = znorm(3);
+        n.update(dec!(5));
+        assert!(n.window_abs_slope().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_abs_slope_basic() {
+        let mut n = znorm(3);
+        for v in [dec!(1), dec!(2), dec!(5)] { n.update(v); }
+        let s = n.window_abs_slope().unwrap();
+        assert!((s - 2.0).abs() < 1e-9, "expected 2.0, got {}", s);
+    }
+
+    #[test]
+    fn test_zscore_window_gain_loss_ratio_none_for_single() {
+        let mut n = znorm(3);
+        n.update(dec!(5));
+        assert!(n.window_gain_loss_ratio().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_gain_loss_ratio_only_gains() {
+        let mut n = znorm(3);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        assert!(n.window_gain_loss_ratio().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_range_stability_none_for_empty() {
+        let n = znorm(3);
+        assert!(n.window_range_stability().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_range_stability_uniform() {
+        let mut n = znorm(3);
+        for v in [dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        let s = n.window_range_stability().unwrap();
+        assert!((s - 1.0).abs() < 1e-9, "expected 1.0, got {}", s);
     }
 }
