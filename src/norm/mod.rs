@@ -4512,6 +4512,51 @@ impl MinMaxNormalizer {
         Some((max + min) / 2.0)
     }
 
+    // ── round-144 ────────────────────────────────────────────────────────────
+
+    /// Mean of the window after trimming the top and bottom 10% of values.
+    pub fn window_trim_mean(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let mut vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        vals.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let trim = (vals.len() / 10).max(0);
+        let trimmed = &vals[trim..vals.len() - trim];
+        if trimmed.is_empty() { return None; }
+        Some(trimmed.iter().sum::<f64>() / trimmed.len() as f64)
+    }
+
+    /// Difference between the maximum and minimum window values.
+    pub fn window_value_spread(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let max = vals.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        let min = vals.iter().cloned().fold(f64::INFINITY, f64::min);
+        Some(max - min)
+    }
+
+    /// Root mean square of the window values.
+    pub fn window_rms(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let sum_sq: f64 = self.window.iter()
+            .map(|v| { let x = v.to_f64().unwrap_or(0.0); x * x })
+            .sum();
+        Some((sum_sq / self.window.len() as f64).sqrt())
+    }
+
+    /// Fraction of window values that are above the window midpoint (min+max)/2.
+    pub fn window_above_mid_fraction(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let max = vals.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        let min = vals.iter().cloned().fold(f64::INFINITY, f64::min);
+        let mid = (max + min) / 2.0;
+        Some(vals.iter().filter(|&&v| v > mid).count() as f64 / vals.len() as f64)
+    }
+
 }
 
 #[cfg(test)]
@@ -9646,6 +9691,68 @@ mod tests {
         let mr = n.window_mid_range().unwrap();
         assert!((mr - 5.0).abs() < 1e-9, "expected 5.0, got {}", mr);
     }
+
+    // ── round-144 ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_minmax_window_trim_mean_none_for_empty() {
+        let n = norm(4);
+        assert!(n.window_trim_mean().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_trim_mean_basic() {
+        let mut n = norm(10);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4), dec!(5),
+                  dec!(6), dec!(7), dec!(8), dec!(9), dec!(10)] { n.update(v); }
+        // trim 1 from each end → [2..9], mean=5.5
+        let tm = n.window_trim_mean().unwrap();
+        assert!((tm - 5.5).abs() < 1e-9, "expected 5.5, got {}", tm);
+    }
+
+    #[test]
+    fn test_minmax_window_value_spread_none_for_empty() {
+        let n = norm(4);
+        assert!(n.window_value_spread().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_value_spread_basic() {
+        let mut n = norm(4);
+        for v in [dec!(2), dec!(5), dec!(3), dec!(9)] { n.update(v); }
+        let sp = n.window_value_spread().unwrap();
+        assert!((sp - 7.0).abs() < 1e-9, "expected 7.0, got {}", sp);
+    }
+
+    #[test]
+    fn test_minmax_window_rms_none_for_empty() {
+        let n = norm(4);
+        assert!(n.window_rms().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_rms_basic() {
+        let mut n = norm(2);
+        for v in [dec!(3), dec!(4)] { n.update(v); }
+        // rms = sqrt((9+16)/2) = sqrt(12.5)
+        let rms = n.window_rms().unwrap();
+        assert!((rms - 12.5f64.sqrt()).abs() < 1e-9, "expected sqrt(12.5), got {}", rms);
+    }
+
+    #[test]
+    fn test_minmax_window_above_mid_fraction_none_for_empty() {
+        let n = norm(4);
+        assert!(n.window_above_mid_fraction().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_above_mid_fraction_basic() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        // mid = (4+1)/2 = 2.5; values > 2.5: [3,4] → 2/4 = 0.5
+        let f = n.window_above_mid_fraction().unwrap();
+        assert!((f - 0.5).abs() < 1e-9, "expected 0.5, got {}", f);
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -14102,6 +14209,51 @@ impl ZScoreNormalizer {
         let max = vals.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
         let min = vals.iter().cloned().fold(f64::INFINITY, f64::min);
         Some((max + min) / 2.0)
+    }
+
+    // ── round-144 ────────────────────────────────────────────────────────────
+
+    /// Mean of the window after trimming the top and bottom 10% of values.
+    pub fn window_trim_mean(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let mut vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        vals.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let trim = (vals.len() / 10).max(0);
+        let trimmed = &vals[trim..vals.len() - trim];
+        if trimmed.is_empty() { return None; }
+        Some(trimmed.iter().sum::<f64>() / trimmed.len() as f64)
+    }
+
+    /// Difference between the maximum and minimum window values.
+    pub fn window_value_spread(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let max = vals.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        let min = vals.iter().cloned().fold(f64::INFINITY, f64::min);
+        Some(max - min)
+    }
+
+    /// Root mean square of the window values.
+    pub fn window_rms(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let sum_sq: f64 = self.window.iter()
+            .map(|v| { let x = v.to_f64().unwrap_or(0.0); x * x })
+            .sum();
+        Some((sum_sq / self.window.len() as f64).sqrt())
+    }
+
+    /// Fraction of window values that are above the window midpoint (min+max)/2.
+    pub fn window_above_mid_fraction(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let max = vals.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        let min = vals.iter().cloned().fold(f64::INFINITY, f64::min);
+        let mid = (max + min) / 2.0;
+        Some(vals.iter().filter(|&&v| v > mid).count() as f64 / vals.len() as f64)
     }
 
 }
@@ -19272,5 +19424,64 @@ mod zscore_stability_tests {
         for v in [dec!(2), dec!(4), dec!(6), dec!(8)] { n.update(v); }
         let mr = n.window_mid_range().unwrap();
         assert!((mr - 5.0).abs() < 1e-9, "expected 5.0, got {}", mr);
+    }
+
+    // ── round-144 ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_zscore_window_trim_mean_none_for_empty() {
+        let n = znorm(4);
+        assert!(n.window_trim_mean().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_trim_mean_basic() {
+        let mut n = znorm(10);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4), dec!(5),
+                  dec!(6), dec!(7), dec!(8), dec!(9), dec!(10)] { n.update(v); }
+        let tm = n.window_trim_mean().unwrap();
+        assert!((tm - 5.5).abs() < 1e-9, "expected 5.5, got {}", tm);
+    }
+
+    #[test]
+    fn test_zscore_window_value_spread_none_for_empty() {
+        let n = znorm(4);
+        assert!(n.window_value_spread().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_value_spread_basic() {
+        let mut n = znorm(4);
+        for v in [dec!(2), dec!(5), dec!(3), dec!(9)] { n.update(v); }
+        let sp = n.window_value_spread().unwrap();
+        assert!((sp - 7.0).abs() < 1e-9, "expected 7.0, got {}", sp);
+    }
+
+    #[test]
+    fn test_zscore_window_rms_none_for_empty() {
+        let n = znorm(4);
+        assert!(n.window_rms().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_rms_basic() {
+        let mut n = znorm(2);
+        for v in [dec!(3), dec!(4)] { n.update(v); }
+        let rms = n.window_rms().unwrap();
+        assert!((rms - 12.5f64.sqrt()).abs() < 1e-9, "expected sqrt(12.5), got {}", rms);
+    }
+
+    #[test]
+    fn test_zscore_window_above_mid_fraction_none_for_empty() {
+        let n = znorm(4);
+        assert!(n.window_above_mid_fraction().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_above_mid_fraction_basic() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let f = n.window_above_mid_fraction().unwrap();
+        assert!((f - 0.5).abs() < 1e-9, "expected 0.5, got {}", f);
     }
 }

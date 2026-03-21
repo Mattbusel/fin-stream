@@ -6603,6 +6603,52 @@ impl OhlcvBar {
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
+    // ── round-144 ────────────────────────────────────────────────────────────
+
+    /// Fraction of bars where close > open (bullish bars).
+    pub fn bar_close_above_open_ratio(bars: &[OhlcvBar]) -> Option<f64> {
+        if bars.is_empty() { return None; }
+        let bullish = bars.iter().filter(|b| b.close > b.open).count();
+        Some(bullish as f64 / bars.len() as f64)
+    }
+
+    /// Mean second-order change of bar highs (acceleration of highs).
+    pub fn bar_high_acceleration(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.len() < 3 { return None; }
+        let highs: Vec<f64> = bars.iter().filter_map(|b| b.high.to_f64()).collect();
+        if highs.len() < 3 { return None; }
+        let accels: Vec<f64> = highs.windows(3)
+            .map(|w| (w[2] - w[1]) - (w[1] - w[0]))
+            .collect();
+        Some(accels.iter().sum::<f64>() / accels.len() as f64)
+    }
+
+    /// Mean spread between low and open across bars.
+    pub fn low_open_spread(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let vals: Vec<f64> = bars.iter()
+            .filter_map(|b| (b.open - b.low).to_f64())
+            .collect();
+        if vals.is_empty() { return None; }
+        Some(vals.iter().sum::<f64>() / vals.len() as f64)
+    }
+
+    /// Mean ratio of close to open across bars (close/open).
+    pub fn close_over_open(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let vals: Vec<f64> = bars.iter().filter_map(|b| {
+            let o = b.open.to_f64()?;
+            if o == 0.0 { return None; }
+            let c = b.close.to_f64()?;
+            Some(c / o)
+        }).collect();
+        if vals.is_empty() { return None; }
+        Some(vals.iter().sum::<f64>() / vals.len() as f64)
+    }
+
 }
 
 impl std::fmt::Display for OhlcvBar {
@@ -15270,5 +15316,69 @@ mod tests {
         let bars = vec![make_ohlcv_bar(dec!(90), dec!(110), dec!(90), dec!(110))];
         let f = OhlcvBar::high_body_fraction(&bars).unwrap();
         assert!((f - 0.0).abs() < 1e-9, "expected 0.0, got {}", f);
+    }
+
+    // ── round-144 ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_bar_close_above_open_ratio_none_for_empty() {
+        assert!(OhlcvBar::bar_close_above_open_ratio(&[]).is_none());
+    }
+
+    #[test]
+    fn test_bar_close_above_open_ratio_all_bullish() {
+        let bars = vec![
+            make_ohlcv_bar(dec!(90), dec!(110), dec!(85), dec!(105)),
+            make_ohlcv_bar(dec!(100), dec!(120), dec!(95), dec!(115)),
+        ];
+        let r = OhlcvBar::bar_close_above_open_ratio(&bars).unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "expected 1.0, got {}", r);
+    }
+
+    #[test]
+    fn test_bar_high_acceleration_none_for_two_bars() {
+        let bars = vec![
+            make_ohlcv_bar(dec!(90), dec!(110), dec!(85), dec!(100)),
+            make_ohlcv_bar(dec!(100), dec!(120), dec!(95), dec!(110)),
+        ];
+        assert!(OhlcvBar::bar_high_acceleration(&bars).is_none());
+    }
+
+    #[test]
+    fn test_bar_high_acceleration_constant_rate() {
+        // highs: 10, 20, 30 → diffs: 10, 10 → accels: 0
+        let bars = vec![
+            make_ohlcv_bar(dec!(5), dec!(10), dec!(1), dec!(8)),
+            make_ohlcv_bar(dec!(15), dec!(20), dec!(11), dec!(18)),
+            make_ohlcv_bar(dec!(25), dec!(30), dec!(21), dec!(28)),
+        ];
+        let a = OhlcvBar::bar_high_acceleration(&bars).unwrap();
+        assert!((a - 0.0).abs() < 1e-9, "expected 0.0, got {}", a);
+    }
+
+    #[test]
+    fn test_low_open_spread_none_for_empty() {
+        assert!(OhlcvBar::low_open_spread(&[]).is_none());
+    }
+
+    #[test]
+    fn test_low_open_spread_basic() {
+        // open=100, low=90 → spread=10
+        let bars = vec![make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105))];
+        let s = OhlcvBar::low_open_spread(&bars).unwrap();
+        assert!((s - 10.0).abs() < 1e-9, "expected 10.0, got {}", s);
+    }
+
+    #[test]
+    fn test_close_over_open_none_for_empty() {
+        assert!(OhlcvBar::close_over_open(&[]).is_none());
+    }
+
+    #[test]
+    fn test_close_over_open_basic() {
+        // close=110, open=100 → ratio=1.1
+        let bars = vec![make_ohlcv_bar(dec!(100), dec!(115), dec!(95), dec!(110))];
+        let r = OhlcvBar::close_over_open(&bars).unwrap();
+        assert!((r - 1.1).abs() < 1e-9, "expected 1.1, got {}", r);
     }
 }

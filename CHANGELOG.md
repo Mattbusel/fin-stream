@@ -9,6 +9,36 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.9.5] - 2026-03-20
+
+### Added
+
+**`tick` module — `NormalizedTick` analytics (round 144)**
+- `NormalizedTick::price_spike_count(ticks)` — count of ticks whose price deviates from the mean by more than one std dev.
+- `NormalizedTick::tick_side_streak(ticks)` — length of the longest consecutive run of the same trade side.
+- `NormalizedTick::side_price_dispersion(ticks)` — average std dev of prices split by Buy vs Sell side.
+- `NormalizedTick::price_mean_above_median(ticks)` — fraction of ticks whose price is above the overall price mean.
+
+**`ohlcv` module — `OhlcvBar` analytics (round 144)**
+- `OhlcvBar::bar_close_above_open_ratio(bars)` — fraction of bars where close > open.
+- `OhlcvBar::bar_high_acceleration(bars)` — mean second-order change of bar highs.
+- `OhlcvBar::low_open_spread(bars)` — mean spread between open and low across bars.
+- `OhlcvBar::close_over_open(bars)` — mean ratio of close to open across bars.
+
+**`norm` module — `MinMaxNormalizer` analytics (round 144)**
+- `MinMaxNormalizer::window_trim_mean()` — mean after trimming top/bottom 10% of window values.
+- `MinMaxNormalizer::window_value_spread()` — difference between maximum and minimum window values.
+- `MinMaxNormalizer::window_rms()` — root mean square of window values.
+- `MinMaxNormalizer::window_above_mid_fraction()` — fraction of window values above the midpoint (min+max)/2.
+
+**`norm` module — `ZScoreNormalizer` analytics (round 144)**
+- `ZScoreNormalizer::window_trim_mean()` — mean after trimming top/bottom 10% of window values.
+- `ZScoreNormalizer::window_value_spread()` — difference between maximum and minimum window values.
+- `ZScoreNormalizer::window_rms()` — root mean square of window values.
+- `ZScoreNormalizer::window_above_mid_fraction()` — fraction of window values above the midpoint (min+max)/2.
+
+---
+
 ## [2.9.4] - 2026-03-20
 
 ### Added

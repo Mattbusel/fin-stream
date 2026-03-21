@@ -6745,6 +6745,72 @@ impl NormalizedTick {
         Some((buys as f64 - sells as f64).abs() / total as f64)
     }
 
+    // ── round-144 ────────────────────────────────────────────────────────────
+
+    /// Count ticks whose price deviates from the mean by more than one std dev.
+    pub fn price_spike_count(ticks: &[NormalizedTick]) -> Option<usize> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() { return None; }
+        let prices: Vec<f64> = ticks.iter().filter_map(|t| t.price.to_f64()).collect();
+        if prices.is_empty() { return None; }
+        let mean = prices.iter().sum::<f64>() / prices.len() as f64;
+        let var = prices.iter().map(|p| (p - mean).powi(2)).sum::<f64>() / prices.len() as f64;
+        let std = var.sqrt();
+        Some(prices.iter().filter(|&&p| (p - mean).abs() > std).count())
+    }
+
+    /// Length of the longest consecutive run of the same side.
+    pub fn tick_side_streak(ticks: &[NormalizedTick]) -> Option<usize> {
+        if ticks.is_empty() { return None; }
+        let sides: Vec<Option<TradeSide>> = ticks.iter().map(|t| t.side).collect();
+        let mut max_run = 1usize;
+        let mut run = 1usize;
+        for i in 1..sides.len() {
+            if sides[i] == sides[i - 1] && sides[i].is_some() {
+                run += 1;
+                if run > max_run { max_run = run; }
+            } else {
+                run = 1;
+            }
+        }
+        Some(max_run)
+    }
+
+    /// Standard deviation of prices split by side (Buy vs Sell), averaged.
+    pub fn side_price_dispersion(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let buy_prices: Vec<f64> = ticks.iter()
+            .filter(|t| matches!(t.side, Some(TradeSide::Buy)))
+            .filter_map(|t| t.price.to_f64()).collect();
+        let sell_prices: Vec<f64> = ticks.iter()
+            .filter(|t| matches!(t.side, Some(TradeSide::Sell)))
+            .filter_map(|t| t.price.to_f64()).collect();
+        let std_dev = |v: &[f64]| -> Option<f64> {
+            if v.len() < 2 { return None; }
+            let m = v.iter().sum::<f64>() / v.len() as f64;
+            let var = v.iter().map(|x| (x - m).powi(2)).sum::<f64>() / v.len() as f64;
+            Some(var.sqrt())
+        };
+        let bd = std_dev(&buy_prices);
+        let sd = std_dev(&sell_prices);
+        match (bd, sd) {
+            (Some(b), Some(s)) => Some((b + s) / 2.0),
+            (Some(b), None) => Some(b),
+            (None, Some(s)) => Some(s),
+            (None, None) => None,
+        }
+    }
+
+    /// Fraction of ticks whose price is above the overall price mean.
+    pub fn price_mean_above_median(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() { return None; }
+        let prices: Vec<f64> = ticks.iter().filter_map(|t| t.price.to_f64()).collect();
+        if prices.is_empty() { return None; }
+        let mean = prices.iter().sum::<f64>() / prices.len() as f64;
+        Some(prices.iter().filter(|&&p| p > mean).count() as f64 / prices.len() as f64)
+    }
+
 }
 
 
@@ -15463,5 +15529,84 @@ mod tests {
         t.side = Some(TradeSide::Buy);
         let s = NormalizedTick::side_dominance_score(&[t]).unwrap();
         assert!((s - 1.0).abs() < 1e-9, "expected 1.0, got {}", s);
+    }
+
+    // ── round-144 ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_price_spike_count_none_for_empty() {
+        assert!(NormalizedTick::price_spike_count(&[]).is_none());
+    }
+
+    #[test]
+    fn test_price_spike_count_basic() {
+        use rust_decimal_macros::dec;
+        // prices: 100, 100, 100, 200 — 200 is >1 std above mean
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(200), dec!(1)),
+        ];
+        let c = NormalizedTick::price_spike_count(&ticks).unwrap();
+        assert!(c >= 1, "expected at least 1 spike, got {}", c);
+    }
+
+    #[test]
+    fn test_tick_side_streak_none_for_empty() {
+        assert!(NormalizedTick::tick_side_streak(&[]).is_none());
+    }
+
+    #[test]
+    fn test_tick_side_streak_all_buy() {
+        use rust_decimal_macros::dec;
+        use crate::tick::TradeSide;
+        let mut ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(101), dec!(1)),
+            make_tick_pq(dec!(102), dec!(1)),
+        ];
+        for t in &mut ticks { t.side = Some(TradeSide::Buy); }
+        let streak = NormalizedTick::tick_side_streak(&ticks).unwrap();
+        assert_eq!(streak, 3);
+    }
+
+    #[test]
+    fn test_side_price_dispersion_none_for_empty() {
+        assert!(NormalizedTick::side_price_dispersion(&[]).is_none());
+    }
+
+    #[test]
+    fn test_side_price_dispersion_returns_some() {
+        use rust_decimal_macros::dec;
+        use crate::tick::TradeSide;
+        let mut t1 = make_tick_pq(dec!(100), dec!(1));
+        t1.side = Some(TradeSide::Buy);
+        let mut t2 = make_tick_pq(dec!(110), dec!(1));
+        t2.side = Some(TradeSide::Buy);
+        let mut t3 = make_tick_pq(dec!(200), dec!(1));
+        t3.side = Some(TradeSide::Sell);
+        let mut t4 = make_tick_pq(dec!(210), dec!(1));
+        t4.side = Some(TradeSide::Sell);
+        let d = NormalizedTick::side_price_dispersion(&[t1, t2, t3, t4]).unwrap();
+        assert!(d >= 0.0, "dispersion should be non-negative, got {}", d);
+    }
+
+    #[test]
+    fn test_price_mean_above_median_none_for_empty() {
+        assert!(NormalizedTick::price_mean_above_median(&[]).is_none());
+    }
+
+    #[test]
+    fn test_price_mean_above_median_uniform() {
+        use rust_decimal_macros::dec;
+        // all prices equal, none above mean → 0.0
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(100), dec!(1)),
+        ];
+        let f = NormalizedTick::price_mean_above_median(&ticks).unwrap();
+        assert!((f - 0.0).abs() < 1e-9, "expected 0.0, got {}", f);
     }
 }
