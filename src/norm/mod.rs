@@ -2428,6 +2428,67 @@ impl MinMaxNormalizer {
         }
     }
 
+    // ── round-103 ────────────────────────────────────────────────────────────
+
+    /// Maximum peak-to-trough drawdown within the window.
+    /// Returns `None` for fewer than 2 values or no decline found.
+    pub fn window_max_drawdown(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 {
+            return None;
+        }
+        let vals: Vec<Decimal> = self.window.iter().copied().collect();
+        let mut max_drawdown = Decimal::ZERO;
+        let mut peak = vals[0];
+        for &v in &vals[1..] {
+            if v > peak {
+                peak = v;
+            } else {
+                let dd = peak - v;
+                if dd > max_drawdown {
+                    max_drawdown = dd;
+                }
+            }
+        }
+        if max_drawdown.is_zero() {
+            return None;
+        }
+        max_drawdown.to_f64()
+    }
+
+    /// Fraction of window values that exceed their immediate predecessor.
+    /// Returns `None` for fewer than 2 values.
+    pub fn above_previous_fraction(&self) -> Option<f64> {
+        if self.window.len() < 2 {
+            return None;
+        }
+        let vals: Vec<Decimal> = self.window.iter().copied().collect();
+        let count = vals.windows(2).filter(|w| w[1] > w[0]).count();
+        Some(count as f64 / (vals.len() - 1) as f64)
+    }
+
+    /// Range efficiency: net move divided by sum of absolute step-wise moves.
+    /// A value near 1.0 means a monotone trend; near 0.0 means choppy.
+    /// Returns `None` for fewer than 2 values or zero total movement.
+    pub fn range_efficiency(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 {
+            return None;
+        }
+        let vals: Vec<Decimal> = self.window.iter().copied().collect();
+        let net_move = (vals.last()? - vals.first()?).abs();
+        let total_move: Decimal = vals.windows(2).map(|w| (w[1] - w[0]).abs()).sum();
+        if total_move.is_zero() {
+            return None;
+        }
+        Some((net_move / total_move).to_f64().unwrap_or(0.0))
+    }
+
+    /// Running total (sum) of all values in the window.
+    pub fn window_running_total(&self) -> Decimal {
+        self.window.iter().copied().sum()
+    }
+
 }
 
 #[cfg(test)]
@@ -5083,6 +5144,63 @@ mod tests {
         for v in [dec!(1), dec!(2)] { n.update(v); }
         assert!(n.valley_to_peak_ratio().is_none());
     }
+
+    // ── round-103 tests ───────────────────────────────────────────────────────
+
+    #[test]
+    fn test_minmax_window_max_drawdown_none_for_single() {
+        let mut n = norm(5);
+        n.update(dec!(10));
+        assert!(n.window_max_drawdown().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_max_drawdown_basic() {
+        let mut n = norm(5);
+        for v in [dec!(10), dec!(20), dec!(5), dec!(15), dec!(8)] { n.update(v); }
+        // peak=20, then trough=5, drawdown=15
+        let dd = n.window_max_drawdown().unwrap();
+        assert!((dd - 15.0).abs() < 1e-9, "expected 15.0, got {}", dd);
+    }
+
+    #[test]
+    fn test_minmax_above_previous_fraction_none_for_single() {
+        let mut n = norm(5);
+        n.update(dec!(10));
+        assert!(n.above_previous_fraction().is_none());
+    }
+
+    #[test]
+    fn test_minmax_above_previous_fraction_basic() {
+        let mut n = norm(5);
+        for v in [dec!(10), dec!(20), dec!(15), dec!(25)] { n.update(v); }
+        // pairs: (10→20 yes), (20→15 no), (15→25 yes) → 2/3
+        let f = n.above_previous_fraction().unwrap();
+        assert!((f - 2.0 / 3.0).abs() < 1e-9, "expected 0.667, got {}", f);
+    }
+
+    #[test]
+    fn test_minmax_range_efficiency_none_for_single() {
+        let mut n = norm(5);
+        n.update(dec!(10));
+        assert!(n.range_efficiency().is_none());
+    }
+
+    #[test]
+    fn test_minmax_range_efficiency_monotone() {
+        let mut n = norm(5);
+        for v in [dec!(10), dec!(20), dec!(30)] { n.update(v); }
+        // monotone up: net=20, total_move=20 → efficiency=1.0
+        let e = n.range_efficiency().unwrap();
+        assert!((e - 1.0).abs() < 1e-9, "expected 1.0, got {}", e);
+    }
+
+    #[test]
+    fn test_minmax_window_running_total_basic() {
+        let mut n = norm(5);
+        for v in [dec!(10), dec!(20), dec!(30)] { n.update(v); }
+        assert_eq!(n.window_running_total(), dec!(60));
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -7467,6 +7585,67 @@ impl ZScoreNormalizer {
             (Some(t), Some(p)) if !p.is_zero() => Some((t / p).to_f64().unwrap_or(0.0)),
             _ => None,
         }
+    }
+
+    // ── round-103 ────────────────────────────────────────────────────────────
+
+    /// Maximum peak-to-trough drawdown within the window.
+    /// Returns `None` for fewer than 2 values or no decline found.
+    pub fn window_max_drawdown(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 {
+            return None;
+        }
+        let vals: Vec<Decimal> = self.window.iter().copied().collect();
+        let mut max_drawdown = Decimal::ZERO;
+        let mut peak = vals[0];
+        for &v in &vals[1..] {
+            if v > peak {
+                peak = v;
+            } else {
+                let dd = peak - v;
+                if dd > max_drawdown {
+                    max_drawdown = dd;
+                }
+            }
+        }
+        if max_drawdown.is_zero() {
+            return None;
+        }
+        max_drawdown.to_f64()
+    }
+
+    /// Fraction of window values that exceed their immediate predecessor.
+    /// Returns `None` for fewer than 2 values.
+    pub fn above_previous_fraction(&self) -> Option<f64> {
+        if self.window.len() < 2 {
+            return None;
+        }
+        let vals: Vec<Decimal> = self.window.iter().copied().collect();
+        let count = vals.windows(2).filter(|w| w[1] > w[0]).count();
+        Some(count as f64 / (vals.len() - 1) as f64)
+    }
+
+    /// Range efficiency: net move divided by sum of absolute step-wise moves.
+    /// A value near 1.0 means a monotone trend; near 0.0 means choppy.
+    /// Returns `None` for fewer than 2 values or zero total movement.
+    pub fn range_efficiency(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 {
+            return None;
+        }
+        let vals: Vec<Decimal> = self.window.iter().copied().collect();
+        let net_move = (vals.last()? - vals.first()?).abs();
+        let total_move: Decimal = vals.windows(2).map(|w| (w[1] - w[0]).abs()).sum();
+        if total_move.is_zero() {
+            return None;
+        }
+        Some((net_move / total_move).to_f64().unwrap_or(0.0))
+    }
+
+    /// Running total (sum) of all values in the window.
+    pub fn window_running_total(&self) -> Decimal {
+        self.window.iter().copied().sum()
     }
 
 }
@@ -10266,5 +10445,59 @@ mod zscore_stability_tests {
         let mut n = znorm(4);
         for v in [dec!(1), dec!(2)] { n.update(v); }
         assert!(n.valley_to_peak_ratio().is_none());
+    }
+
+    // ── round-103 tests ───────────────────────────────────────────────────────
+
+    #[test]
+    fn test_zscore_window_max_drawdown_none_for_single() {
+        let mut n = znorm(5);
+        n.update(dec!(10));
+        assert!(n.window_max_drawdown().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_max_drawdown_basic() {
+        let mut n = znorm(5);
+        for v in [dec!(10), dec!(20), dec!(5), dec!(15), dec!(8)] { n.update(v); }
+        let dd = n.window_max_drawdown().unwrap();
+        assert!((dd - 15.0).abs() < 1e-9, "expected 15.0, got {}", dd);
+    }
+
+    #[test]
+    fn test_zscore_above_previous_fraction_none_for_single() {
+        let mut n = znorm(5);
+        n.update(dec!(10));
+        assert!(n.above_previous_fraction().is_none());
+    }
+
+    #[test]
+    fn test_zscore_above_previous_fraction_basic() {
+        let mut n = znorm(5);
+        for v in [dec!(10), dec!(20), dec!(15), dec!(25)] { n.update(v); }
+        let f = n.above_previous_fraction().unwrap();
+        assert!((f - 2.0 / 3.0).abs() < 1e-9, "expected 0.667, got {}", f);
+    }
+
+    #[test]
+    fn test_zscore_range_efficiency_none_for_single() {
+        let mut n = znorm(5);
+        n.update(dec!(10));
+        assert!(n.range_efficiency().is_none());
+    }
+
+    #[test]
+    fn test_zscore_range_efficiency_monotone() {
+        let mut n = znorm(5);
+        for v in [dec!(10), dec!(20), dec!(30)] { n.update(v); }
+        let e = n.range_efficiency().unwrap();
+        assert!((e - 1.0).abs() < 1e-9, "expected 1.0, got {}", e);
+    }
+
+    #[test]
+    fn test_zscore_window_running_total_basic() {
+        let mut n = znorm(5);
+        for v in [dec!(10), dec!(20), dec!(30)] { n.update(v); }
+        assert_eq!(n.window_running_total(), dec!(60));
     }
 }

@@ -9,6 +9,36 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.5.4] - 2026-03-20
+
+### Added
+
+**`tick` module — `NormalizedTick` analytics (round 103)**
+- `NormalizedTick::qty_range(ticks)` — difference between maximum and minimum trade quantity.
+- `NormalizedTick::time_weighted_qty(ticks)` — quantity weighted by inter-tick gap duration.
+- `NormalizedTick::above_vwap_fraction(ticks)` — fraction of ticks whose price exceeds the slice VWAP.
+- `NormalizedTick::tick_speed(ticks)` — price range divided by total time span in milliseconds.
+
+**`ohlcv` module — `OhlcvBar` analytics (round 103)**
+- `OhlcvBar::open_high_distance(bars)` — mean `(high - open) / (high - low)` across bars with non-zero range.
+- `OhlcvBar::max_close_minus_open(bars)` — maximum `close - open` across all bars.
+- `OhlcvBar::bullish_engulfing_count(bars)` — count of bullish engulfing candlestick patterns.
+- `OhlcvBar::shadow_ratio_score(bars)` — mean upper-to-lower shadow ratio across qualifying bars.
+
+**`norm` module — `MinMaxNormalizer` analytics (round 103)**
+- `MinMaxNormalizer::window_max_drawdown()` — maximum peak-to-trough drawdown within the window.
+- `MinMaxNormalizer::above_previous_fraction()` — fraction of values exceeding their immediate predecessor.
+- `MinMaxNormalizer::range_efficiency()` — net move divided by total absolute step-wise movement.
+- `MinMaxNormalizer::window_running_total()` — sum of all values currently in the window.
+
+**`norm` module — `ZScoreNormalizer` analytics (round 103)**
+- `ZScoreNormalizer::window_max_drawdown()` — maximum peak-to-trough drawdown within the window.
+- `ZScoreNormalizer::above_previous_fraction()` — fraction of values exceeding their immediate predecessor.
+- `ZScoreNormalizer::range_efficiency()` — net move divided by total absolute step-wise movement.
+- `ZScoreNormalizer::window_running_total()` — sum of all values currently in the window.
+
+---
+
 ## [2.5.3] - 2026-03-20
 
 ### Added

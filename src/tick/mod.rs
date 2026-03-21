@@ -4549,6 +4549,77 @@ impl NormalizedTick {
         Some(((high + low) / Decimal::TWO).to_f64().unwrap_or(0.0))
     }
 
+    // ── round-103 ────────────────────────────────────────────────────────────
+
+    /// Range of trade quantities: `max_qty - min_qty`.
+    /// Returns `None` for an empty slice.
+    pub fn qty_range(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() {
+            return None;
+        }
+        let max_q = ticks.iter().map(|t| t.quantity).max()?;
+        let min_q = ticks.iter().map(|t| t.quantity).min()?;
+        Some((max_q - min_q).to_f64().unwrap_or(0.0))
+    }
+
+    /// Time-weighted average quantity: each tick's quantity weighted by the
+    /// duration (ms) it was the "active" trade until the next tick arrives.
+    /// The last tick carries zero weight. Returns `None` for fewer than 2 ticks.
+    pub fn time_weighted_qty(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 2 {
+            return None;
+        }
+        let mut total_weight = 0u64;
+        let mut weighted_sum = Decimal::ZERO;
+        for i in 0..ticks.len() - 1 {
+            let gap = ticks[i + 1].received_at_ms.saturating_sub(ticks[i].received_at_ms);
+            let w = Decimal::from(gap);
+            weighted_sum += ticks[i].quantity * w;
+            total_weight += gap;
+        }
+        if total_weight == 0 {
+            return None;
+        }
+        Some((weighted_sum / Decimal::from(total_weight)).to_f64().unwrap_or(0.0))
+    }
+
+    /// Fraction of ticks whose price exceeds the VWAP of the slice.
+    /// Returns `None` for an empty slice or zero total quantity.
+    pub fn above_vwap_fraction(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() {
+            return None;
+        }
+        let total_qty: Decimal = ticks.iter().map(|t| t.quantity).sum();
+        if total_qty.is_zero() {
+            return None;
+        }
+        let vwap: Decimal = ticks.iter().map(|t| t.price * t.quantity).sum::<Decimal>() / total_qty;
+        let above = ticks.iter().filter(|t| t.price > vwap).count();
+        Some(above as f64 / ticks.len() as f64)
+    }
+
+    /// Tick speed: price range divided by the total time span in milliseconds.
+    /// Returns `None` for fewer than 2 ticks or zero time span.
+    pub fn tick_speed(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 2 {
+            return None;
+        }
+        let t_start = ticks.iter().map(|t| t.received_at_ms).min()?;
+        let t_end = ticks.iter().map(|t| t.received_at_ms).max()?;
+        let span_ms = t_end.saturating_sub(t_start);
+        if span_ms == 0 {
+            return None;
+        }
+        let high = ticks.iter().map(|t| t.price).max()?;
+        let low = ticks.iter().map(|t| t.price).min()?;
+        let range = (high - low).to_f64().unwrap_or(0.0);
+        Some(range / span_ms as f64)
+    }
+
 }
 
 
@@ -10488,5 +10559,82 @@ mod tests {
         ];
         let m = NormalizedTick::price_midpoint(&ticks).unwrap();
         assert!((m - 100.0).abs() < 1e-9, "expected 100.0, got {}", m);
+    }
+
+    // ── round-103 tests ───────────────────────────────────────────────────────
+
+    #[test]
+    fn test_qty_range_none_for_empty() {
+        assert!(NormalizedTick::qty_range(&[]).is_none());
+    }
+
+    #[test]
+    fn test_qty_range_basic() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(5)),
+            make_tick_pq(dec!(100), dec!(2)),
+            make_tick_pq(dec!(100), dec!(8)),
+        ];
+        let r = NormalizedTick::qty_range(&ticks).unwrap();
+        assert!((r - 6.0).abs() < 1e-9, "expected 6.0, got {}", r);
+    }
+
+    #[test]
+    fn test_time_weighted_qty_none_for_single() {
+        use rust_decimal_macros::dec;
+        let t = make_tick_pq(dec!(100), dec!(5));
+        assert!(NormalizedTick::time_weighted_qty(&[t]).is_none());
+    }
+
+    #[test]
+    fn test_time_weighted_qty_basic() {
+        use rust_decimal_macros::dec;
+        let mut t1 = make_tick_pq(dec!(100), dec!(10));
+        t1.received_at_ms = 0;
+        let mut t2 = make_tick_pq(dec!(100), dec!(20));
+        t2.received_at_ms = 100;
+        let mut t3 = make_tick_pq(dec!(100), dec!(5));
+        t3.received_at_ms = 200;
+        // t1 weighted 100ms, t2 weighted 100ms; t3 has zero weight
+        // result = (10*100 + 20*100) / 200 = 3000/200 = 15
+        let twq = NormalizedTick::time_weighted_qty(&[t1, t2, t3]).unwrap();
+        assert!((twq - 15.0).abs() < 1e-9, "expected 15.0, got {}", twq);
+    }
+
+    #[test]
+    fn test_above_vwap_fraction_none_for_empty() {
+        assert!(NormalizedTick::above_vwap_fraction(&[]).is_none());
+    }
+
+    #[test]
+    fn test_above_vwap_fraction_basic() {
+        use rust_decimal_macros::dec;
+        // VWAP = (100*1 + 200*1) / 2 = 150; only price=200 is above
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(200), dec!(1)),
+        ];
+        let f = NormalizedTick::above_vwap_fraction(&ticks).unwrap();
+        assert!((f - 0.5).abs() < 1e-9, "expected 0.5, got {}", f);
+    }
+
+    #[test]
+    fn test_tick_speed_none_for_single() {
+        use rust_decimal_macros::dec;
+        let t = make_tick_pq(dec!(100), dec!(1));
+        assert!(NormalizedTick::tick_speed(&[t]).is_none());
+    }
+
+    #[test]
+    fn test_tick_speed_basic() {
+        use rust_decimal_macros::dec;
+        let mut t1 = make_tick_pq(dec!(100), dec!(1));
+        t1.received_at_ms = 0;
+        let mut t2 = make_tick_pq(dec!(110), dec!(1));
+        t2.received_at_ms = 100;
+        // speed = (110-100) / 100ms = 0.1
+        let s = NormalizedTick::tick_speed(&[t1, t2]).unwrap();
+        assert!((s - 0.1).abs() < 1e-9, "expected 0.1, got {}", s);
     }
 }

@@ -4483,6 +4483,81 @@ impl OhlcvBar {
         Some(((second_mean - first_mean) / first_mean).to_f64().unwrap_or(0.0))
     }
 
+    // ── round-103 ────────────────────────────────────────────────────────────
+
+    /// Mean of `(high - open) / (high - low)` across bars with non-zero range.
+    /// Returns `None` for an empty slice or no bars with non-zero range.
+    pub fn open_high_distance(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let ratios: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let range = b.high - b.low;
+                if range.is_zero() {
+                    None
+                } else {
+                    Some(((b.high - b.open) / range).to_f64().unwrap_or(0.0))
+                }
+            })
+            .collect();
+        if ratios.is_empty() {
+            return None;
+        }
+        Some(ratios.iter().sum::<f64>() / ratios.len() as f64)
+    }
+
+    /// Maximum `close - open` value across all bars.
+    /// Returns `None` for an empty slice.
+    pub fn max_close_minus_open(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        bars.iter()
+            .map(|b| b.close - b.open)
+            .max()
+            .and_then(|v| v.to_f64())
+    }
+
+    /// Count of bullish engulfing candlestick patterns: a bearish bar followed
+    /// by a bullish bar whose body fully engulfs the prior bar's body.
+    /// Returns `None` for fewer than 2 bars.
+    pub fn bullish_engulfing_count(bars: &[OhlcvBar]) -> Option<usize> {
+        if bars.len() < 2 {
+            return None;
+        }
+        let count = bars.windows(2).filter(|w| {
+            let prev = &w[0];
+            let curr = &w[1];
+            // Prior bar: bearish (open > close), Current bar: bullish (close > open)
+            prev.open > prev.close
+                && curr.close > curr.open
+                && curr.open <= prev.close
+                && curr.close >= prev.open
+        }).count();
+        Some(count)
+    }
+
+    /// Mean upper-to-lower shadow ratio across bars where both shadows are non-zero.
+    /// Upper shadow = `high - max(open, close)`, lower shadow = `min(open, close) - low`.
+    /// Returns `None` for an empty slice or no qualifying bars.
+    pub fn shadow_ratio_score(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let ratios: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let upper = b.high - b.open.max(b.close);
+                let lower = b.open.min(b.close) - b.low;
+                if lower.is_zero() {
+                    None
+                } else {
+                    Some((upper / lower).to_f64().unwrap_or(0.0))
+                }
+            })
+            .collect();
+        if ratios.is_empty() {
+            return None;
+        }
+        Some(ratios.iter().sum::<f64>() / ratios.len() as f64)
+    }
+
 }
 
 impl std::fmt::Display for OhlcvBar {
@@ -10810,5 +10885,62 @@ mod tests {
     fn test_body_acceleration_none_for_three_bars() {
         let b = make_ohlcv_bar(dec!(90), dec!(110), dec!(85), dec!(100));
         assert!(OhlcvBar::body_acceleration(&[b.clone(), b.clone(), b]).is_none());
+    }
+
+    // ── round-103 tests ───────────────────────────────────────────────────────
+
+    #[test]
+    fn test_open_high_distance_none_for_empty() {
+        assert!(OhlcvBar::open_high_distance(&[]).is_none());
+    }
+
+    #[test]
+    fn test_open_high_distance_basic() {
+        // open=100, high=110, low=90 → range=20, high-open=10 → ratio=0.5
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let d = OhlcvBar::open_high_distance(&[b]).unwrap();
+        assert!((d - 0.5).abs() < 1e-9, "expected 0.5, got {}", d);
+    }
+
+    #[test]
+    fn test_max_close_minus_open_none_for_empty() {
+        assert!(OhlcvBar::max_close_minus_open(&[]).is_none());
+    }
+
+    #[test]
+    fn test_max_close_minus_open_basic() {
+        let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(108));
+        let b2 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(103));
+        let m = OhlcvBar::max_close_minus_open(&[b1, b2]).unwrap();
+        assert!((m - 8.0).abs() < 1e-9, "expected 8.0, got {}", m);
+    }
+
+    #[test]
+    fn test_bullish_engulfing_count_none_for_single() {
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(95));
+        assert!(OhlcvBar::bullish_engulfing_count(&[b]).is_none());
+    }
+
+    #[test]
+    fn test_bullish_engulfing_count_basic() {
+        // bearish bar: open=110, close=95; bullish engulfing: open=90, close=115
+        let bearish = make_ohlcv_bar(dec!(110), dec!(115), dec!(90), dec!(95));
+        let engulf = make_ohlcv_bar(dec!(90), dec!(120), dec!(85), dec!(115));
+        let count = OhlcvBar::bullish_engulfing_count(&[bearish, engulf]).unwrap();
+        assert_eq!(count, 1);
+    }
+
+    #[test]
+    fn test_shadow_ratio_score_none_for_empty() {
+        assert!(OhlcvBar::shadow_ratio_score(&[]).is_none());
+    }
+
+    #[test]
+    fn test_shadow_ratio_score_basic() {
+        // open=100, close=105, high=110, low=95
+        // upper = 110-105=5, lower = 100-95=5 → ratio = 1.0
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(95), dec!(105));
+        let s = OhlcvBar::shadow_ratio_score(&[b]).unwrap();
+        assert!((s - 1.0).abs() < 1e-9, "expected 1.0, got {}", s);
     }
 }
