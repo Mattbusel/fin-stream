@@ -5600,6 +5600,69 @@ impl MinMaxNormalizer {
         Some(crosses as f64)
     }
 
+    // ── round-166 ────────────────────────────────────────────────────────────
+
+    /// Lag-1 autocorrelation of window values.
+    pub fn window_autocorr_lag1(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let n = vals.len() as f64;
+        let mean = vals.iter().sum::<f64>() / n;
+        let num: f64 = vals.windows(2).map(|w| (w[0] - mean) * (w[1] - mean)).sum();
+        let den: f64 = vals.iter().map(|v| (v - mean).powi(2)).sum();
+        if den == 0.0 { return None; }
+        Some(num / den)
+    }
+
+    /// Slope of linear regression over window values (linear trend).
+    pub fn window_linear_trend(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let n = vals.len() as f64;
+        let xs: Vec<f64> = (0..vals.len()).map(|i| i as f64).collect();
+        let x_mean = xs.iter().sum::<f64>() / n;
+        let y_mean = vals.iter().sum::<f64>() / n;
+        let num: f64 = xs.iter().zip(vals.iter()).map(|(&x, &y)| (x - x_mean) * (y - y_mean)).sum();
+        let den: f64 = xs.iter().map(|&x| (x - x_mean).powi(2)).sum();
+        if den == 0.0 { return None; }
+        Some(num / den)
+    }
+
+    /// Fraction of consecutive pairs with a sign change (zero crossing rate).
+    pub fn window_zero_crossing_rate(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let crossings = vals.windows(2).filter(|w| w[0] * w[1] < 0.0).count();
+        Some(crossings as f64 / (vals.len() - 1) as f64)
+    }
+
+    /// Histogram-based entropy proxy (4 equal-width bins).
+    pub fn window_entropy_proxy(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let min = vals.iter().cloned().fold(f64::INFINITY, f64::min);
+        let max = vals.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        if (max - min).abs() < 1e-12 { return Some(0.0); }
+        let n_bins = 4usize;
+        let bin_width = (max - min) / n_bins as f64;
+        let mut counts = vec![0usize; n_bins];
+        for &v in &vals {
+            let idx = ((v - min) / bin_width) as usize;
+            let idx = idx.min(n_bins - 1);
+            counts[idx] += 1;
+        }
+        let total = vals.len() as f64;
+        let entropy: f64 = counts.iter()
+            .filter(|&&c| c > 0)
+            .map(|&c| { let p = c as f64 / total; -p * p.ln() })
+            .sum();
+        Some(entropy)
+    }
+
 }
 
 #[cfg(test)]
@@ -12103,6 +12166,67 @@ mod tests {
         let c = n.window_mean_crossing_count().unwrap();
         assert!((c - 0.0).abs() < 1e-9, "expected 0.0, got {}", c);
     }
+
+    // ── round-166 tests ──────────────────────────────────────────────────────
+
+    #[test]
+    fn test_minmax_window_autocorr_lag1_none_for_single() {
+        let mut n = norm(4);
+        n.update(dec!(5));
+        assert!(n.window_autocorr_lag1().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_autocorr_lag1_constant_none() {
+        let mut n = norm(3);
+        for v in [dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        // constant → zero variance → None
+        assert!(n.window_autocorr_lag1().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_linear_trend_none_for_single() {
+        let mut n = norm(4);
+        n.update(dec!(5));
+        assert!(n.window_linear_trend().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_linear_trend_constant_zero() {
+        let mut n = norm(3);
+        for v in [dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        let t = n.window_linear_trend().unwrap();
+        assert!((t - 0.0).abs() < 1e-9, "expected 0.0, got {}", t);
+    }
+
+    #[test]
+    fn test_minmax_window_zero_crossing_rate_none_for_single() {
+        let mut n = norm(4);
+        n.update(dec!(5));
+        assert!(n.window_zero_crossing_rate().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_zero_crossing_rate_all_positive_zero() {
+        let mut n = norm(3);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        let r = n.window_zero_crossing_rate().unwrap();
+        assert!((r - 0.0).abs() < 1e-9, "expected 0.0, got {}", r);
+    }
+
+    #[test]
+    fn test_minmax_window_entropy_proxy_none_for_empty() {
+        let n = norm(4);
+        assert!(n.window_entropy_proxy().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_entropy_proxy_constant_zero() {
+        let mut n = norm(3);
+        for v in [dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        let e = n.window_entropy_proxy().unwrap();
+        assert!((e - 0.0).abs() < 1e-9, "expected 0.0, got {}", e);
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -17651,6 +17775,69 @@ impl ZScoreNormalizer {
         let above: Vec<bool> = vals.iter().map(|&v| v > mean).collect();
         let crosses = above.windows(2).filter(|w| w[0] != w[1]).count();
         Some(crosses as f64)
+    }
+
+    // ── round-166 ────────────────────────────────────────────────────────────
+
+    /// Lag-1 autocorrelation of window values.
+    pub fn window_autocorr_lag1(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let n = vals.len() as f64;
+        let mean = vals.iter().sum::<f64>() / n;
+        let num: f64 = vals.windows(2).map(|w| (w[0] - mean) * (w[1] - mean)).sum();
+        let den: f64 = vals.iter().map(|v| (v - mean).powi(2)).sum();
+        if den == 0.0 { return None; }
+        Some(num / den)
+    }
+
+    /// Slope of linear regression over window values (linear trend).
+    pub fn window_linear_trend(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let n = vals.len() as f64;
+        let xs: Vec<f64> = (0..vals.len()).map(|i| i as f64).collect();
+        let x_mean = xs.iter().sum::<f64>() / n;
+        let y_mean = vals.iter().sum::<f64>() / n;
+        let num: f64 = xs.iter().zip(vals.iter()).map(|(&x, &y)| (x - x_mean) * (y - y_mean)).sum();
+        let den: f64 = xs.iter().map(|&x| (x - x_mean).powi(2)).sum();
+        if den == 0.0 { return None; }
+        Some(num / den)
+    }
+
+    /// Fraction of consecutive pairs with a sign change (zero crossing rate).
+    pub fn window_zero_crossing_rate(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let crossings = vals.windows(2).filter(|w| w[0] * w[1] < 0.0).count();
+        Some(crossings as f64 / (vals.len() - 1) as f64)
+    }
+
+    /// Histogram-based entropy proxy (4 equal-width bins).
+    pub fn window_entropy_proxy(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let min = vals.iter().cloned().fold(f64::INFINITY, f64::min);
+        let max = vals.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        if (max - min).abs() < 1e-12 { return Some(0.0); }
+        let n_bins = 4usize;
+        let bin_width = (max - min) / n_bins as f64;
+        let mut counts = vec![0usize; n_bins];
+        for &v in &vals {
+            let idx = ((v - min) / bin_width) as usize;
+            let idx = idx.min(n_bins - 1);
+            counts[idx] += 1;
+        }
+        let total = vals.len() as f64;
+        let entropy: f64 = counts.iter()
+            .filter(|&&c| c > 0)
+            .map(|&c| { let p = c as f64 / total; -p * p.ln() })
+            .sum();
+        Some(entropy)
     }
 
 }
@@ -24130,5 +24317,65 @@ mod zscore_stability_tests {
         for v in [dec!(5), dec!(5), dec!(5)] { n.update(v); }
         let c = n.window_mean_crossing_count().unwrap();
         assert!((c - 0.0).abs() < 1e-9, "expected 0.0, got {}", c);
+    }
+
+    // ── round-166 tests ──────────────────────────────────────────────────────
+
+    #[test]
+    fn test_zscore_window_autocorr_lag1_none_for_single() {
+        let mut n = znorm(4);
+        n.update(dec!(5));
+        assert!(n.window_autocorr_lag1().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_autocorr_lag1_constant_none() {
+        let mut n = znorm(3);
+        for v in [dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        assert!(n.window_autocorr_lag1().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_linear_trend_none_for_single() {
+        let mut n = znorm(4);
+        n.update(dec!(5));
+        assert!(n.window_linear_trend().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_linear_trend_constant_zero() {
+        let mut n = znorm(3);
+        for v in [dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        let t = n.window_linear_trend().unwrap();
+        assert!((t - 0.0).abs() < 1e-9, "expected 0.0, got {}", t);
+    }
+
+    #[test]
+    fn test_zscore_window_zero_crossing_rate_none_for_single() {
+        let mut n = znorm(4);
+        n.update(dec!(5));
+        assert!(n.window_zero_crossing_rate().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_zero_crossing_rate_all_positive_zero() {
+        let mut n = znorm(3);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        let r = n.window_zero_crossing_rate().unwrap();
+        assert!((r - 0.0).abs() < 1e-9, "expected 0.0, got {}", r);
+    }
+
+    #[test]
+    fn test_zscore_window_entropy_proxy_none_for_empty() {
+        let n = znorm(4);
+        assert!(n.window_entropy_proxy().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_entropy_proxy_constant_zero() {
+        let mut n = znorm(3);
+        for v in [dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        let e = n.window_entropy_proxy().unwrap();
+        assert!((e - 0.0).abs() < 1e-9, "expected 0.0, got {}", e);
     }
 }

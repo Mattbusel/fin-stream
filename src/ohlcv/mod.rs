@@ -7738,6 +7738,77 @@ impl OhlcvBar {
         Some(atr / mean_close)
     }
 
+    // ── round-166 ────────────────────────────────────────────────────────────
+
+    /// Mean of upper_wick / range symmetry: 1 - |upper_wick - lower_wick| / range per bar.
+    pub fn bar_wick_symmetry(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let vals: Vec<f64> = bars.iter().filter_map(|b| {
+            let o = b.open.to_f64()?;
+            let h = b.high.to_f64()?;
+            let l = b.low.to_f64()?;
+            let c = b.close.to_f64()?;
+            let range = h - l;
+            if range == 0.0 { return None; }
+            let body_top = o.max(c);
+            let body_bot = o.min(c);
+            let upper_wick = h - body_top;
+            let lower_wick = body_bot - l;
+            Some(1.0 - (upper_wick - lower_wick).abs() / range)
+        }).collect();
+        if vals.is_empty() { return None; }
+        Some(vals.iter().sum::<f64>() / vals.len() as f64)
+    }
+
+    /// Mean of open / range per bar (open position within bar range).
+    pub fn bar_open_range_ratio(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let vals: Vec<f64> = bars.iter().filter_map(|b| {
+            let o = b.open.to_f64()?;
+            let h = b.high.to_f64()?;
+            let l = b.low.to_f64()?;
+            let range = h - l;
+            if range == 0.0 { return None; }
+            Some((o - l) / range)
+        }).collect();
+        if vals.is_empty() { return None; }
+        Some(vals.iter().sum::<f64>() / vals.len() as f64)
+    }
+
+    /// Linear regression slope of (high + low) / 2 midpoints across bars.
+    pub fn bar_hl_midpoint_trend(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.len() < 2 { return None; }
+        let n = bars.len() as f64;
+        let xs: Vec<f64> = (0..bars.len()).map(|i| i as f64).collect();
+        let ys: Vec<f64> = bars.iter().filter_map(|b| {
+            let h = b.high.to_f64()?;
+            let l = b.low.to_f64()?;
+            Some((h + l) / 2.0)
+        }).collect();
+        if ys.len() != bars.len() { return None; }
+        let x_mean = xs.iter().sum::<f64>() / n;
+        let y_mean = ys.iter().sum::<f64>() / n;
+        let num: f64 = xs.iter().zip(ys.iter()).map(|(&x, &y)| (x - x_mean) * (y - y_mean)).sum();
+        let den: f64 = xs.iter().map(|&x| (x - x_mean).powi(2)).sum();
+        if den == 0.0 { return None; }
+        Some(num / den)
+    }
+
+    /// Mean of second differences of bar volumes (volume acceleration).
+    pub fn bar_volume_acceleration(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.len() < 3 { return None; }
+        let vols: Vec<f64> = bars.iter().filter_map(|b| b.volume.to_f64()).collect();
+        if vols.len() < 3 { return None; }
+        let diffs1: Vec<f64> = vols.windows(2).map(|w| w[1] - w[0]).collect();
+        let diffs2: Vec<f64> = diffs1.windows(2).map(|w| w[1] - w[0]).collect();
+        if diffs2.is_empty() { return None; }
+        Some(diffs2.iter().sum::<f64>() / diffs2.len() as f64)
+    }
+
 }
 
 impl std::fmt::Display for OhlcvBar {
@@ -17740,5 +17811,71 @@ mod tests {
         ];
         let r = OhlcvBar::bar_atr_normalized(&bars).unwrap();
         assert!((r - 0.0).abs() < 1e-9, "expected 0.0, got {}", r);
+    }
+
+    // ── round-166 tests ──────────────────────────────────────────────────────
+
+    #[test]
+    fn test_bar_wick_symmetry_none_for_empty() {
+        assert!(OhlcvBar::bar_wick_symmetry(&[]).is_none());
+    }
+
+    #[test]
+    fn test_bar_wick_symmetry_perfect() {
+        // equal upper and lower wicks → symmetry = 1.0
+        let bar = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100));
+        // open=close=100, h=110, l=90 → upper_wick=10, lower_wick=10 → symmetry=1.0
+        let s = OhlcvBar::bar_wick_symmetry(&[bar]).unwrap();
+        assert!((s - 1.0).abs() < 1e-9, "expected 1.0, got {}", s);
+    }
+
+    #[test]
+    fn test_bar_open_range_ratio_none_for_empty() {
+        assert!(OhlcvBar::bar_open_range_ratio(&[]).is_none());
+    }
+
+    #[test]
+    fn test_bar_open_range_ratio_open_at_low() {
+        // open=low → ratio=0.0
+        let bar = make_ohlcv_bar(dec!(90), dec!(110), dec!(90), dec!(100));
+        let r = OhlcvBar::bar_open_range_ratio(&[bar]).unwrap();
+        assert!((r - 0.0).abs() < 1e-9, "expected 0.0, got {}", r);
+    }
+
+    #[test]
+    fn test_bar_hl_midpoint_trend_none_for_single() {
+        let bars = vec![make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105))];
+        assert!(OhlcvBar::bar_hl_midpoint_trend(&bars).is_none());
+    }
+
+    #[test]
+    fn test_bar_hl_midpoint_trend_flat_zero() {
+        let bars = vec![
+            make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105)),
+            make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105)),
+        ];
+        let t = OhlcvBar::bar_hl_midpoint_trend(&bars).unwrap();
+        assert!((t - 0.0).abs() < 1e-9, "expected 0.0, got {}", t);
+    }
+
+    #[test]
+    fn test_bar_volume_acceleration_none_for_short() {
+        let bars = vec![
+            make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105)),
+            make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105)),
+        ];
+        assert!(OhlcvBar::bar_volume_acceleration(&bars).is_none());
+    }
+
+    #[test]
+    fn test_bar_volume_acceleration_constant_zero() {
+        // all same volumes → diffs=0, accel=0
+        let bars = vec![
+            make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105)),
+            make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105)),
+            make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105)),
+        ];
+        let a = OhlcvBar::bar_volume_acceleration(&bars).unwrap();
+        assert!((a - 0.0).abs() < 1e-9, "expected 0.0, got {}", a);
     }
 }

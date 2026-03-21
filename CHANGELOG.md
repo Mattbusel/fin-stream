@@ -9,6 +9,30 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.10.17] - 2026-03-20
+
+### Added
+
+**`tick` module — `NormalizedTick` analytics (round 166)**
+- `NormalizedTick::price_high_freq_vol(ticks)` — std dev of consecutive price differences (HF volatility proxy).
+- `NormalizedTick::tick_qty_trend(ticks)` — linear regression slope of quantity over tick index.
+- `NormalizedTick::price_skewness_ratio(ticks)` — mean_above_mean / mean_below_mean ratio.
+- `NormalizedTick::price_deceleration_rate(ticks)` — fraction of steps where |price diff| decreases.
+
+**`ohlcv` module — `OhlcvBar` analytics (round 166)**
+- `OhlcvBar::bar_wick_symmetry(bars)` — mean of 1 - |upper_wick - lower_wick| / range per bar.
+- `OhlcvBar::bar_open_range_ratio(bars)` — mean of (open - low) / range per bar.
+- `OhlcvBar::bar_hl_midpoint_trend(bars)` — linear regression slope of (high + low) / 2 midpoints.
+- `OhlcvBar::bar_volume_acceleration(bars)` — mean second difference of bar volumes.
+
+**`norm` module — `MinMaxNormalizer` + `ZScoreNormalizer` analytics (round 166)**
+- `window_autocorr_lag1()` — lag-1 autocorrelation of window values.
+- `window_linear_trend()` — linear regression slope over window values.
+- `window_zero_crossing_rate()` — fraction of consecutive pairs with sign change.
+- `window_entropy_proxy()` — histogram-based entropy proxy using 4 equal-width bins.
+
+---
+
 ## [2.10.16] - 2026-03-20
 
 ### Added

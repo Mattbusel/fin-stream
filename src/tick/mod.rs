@@ -8017,6 +8017,74 @@ impl NormalizedTick {
         Some((buy_qty - sell_qty) / total)
     }
 
+    // ── round-166 ────────────────────────────────────────────────────────────
+
+    /// Std dev of consecutive price differences (high-frequency volatility proxy).
+    pub fn price_high_freq_vol(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 2 { return None; }
+        let diffs: Vec<f64> = ticks.windows(2)
+            .filter_map(|w| {
+                let a = w[0].price.to_f64()?;
+                let b = w[1].price.to_f64()?;
+                Some(b - a)
+            })
+            .collect();
+        if diffs.is_empty() { return None; }
+        let n = diffs.len() as f64;
+        let mean = diffs.iter().sum::<f64>() / n;
+        let var = diffs.iter().map(|d| (d - mean).powi(2)).sum::<f64>() / n;
+        Some(var.sqrt())
+    }
+
+    /// Linear regression slope of quantity over tick index.
+    pub fn tick_qty_trend(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 2 { return None; }
+        let n = ticks.len() as f64;
+        let xs: Vec<f64> = (0..ticks.len()).map(|i| i as f64).collect();
+        let ys: Vec<f64> = ticks.iter().filter_map(|t| t.quantity.to_f64()).collect();
+        if ys.len() != ticks.len() { return None; }
+        let x_mean = xs.iter().sum::<f64>() / n;
+        let y_mean = ys.iter().sum::<f64>() / n;
+        let num: f64 = xs.iter().zip(ys.iter()).map(|(&x, &y)| (x - x_mean) * (y - y_mean)).sum();
+        let den: f64 = xs.iter().map(|&x| (x - x_mean).powi(2)).sum();
+        if den == 0.0 { return None; }
+        Some(num / den)
+    }
+
+    /// Ratio of mean-above-mean to mean-below-mean (price skewness proxy).
+    pub fn price_skewness_ratio(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() { return None; }
+        let prices: Vec<f64> = ticks.iter().filter_map(|t| t.price.to_f64()).collect();
+        if prices.is_empty() { return None; }
+        let mean = prices.iter().sum::<f64>() / prices.len() as f64;
+        let above: Vec<f64> = prices.iter().filter(|&&p| p > mean).copied().collect();
+        let below: Vec<f64> = prices.iter().filter(|&&p| p < mean).copied().collect();
+        if above.is_empty() || below.is_empty() { return None; }
+        let mean_above = above.iter().sum::<f64>() / above.len() as f64;
+        let mean_below = below.iter().sum::<f64>() / below.len() as f64;
+        if mean_below == 0.0 { return None; }
+        Some(mean_above / mean_below)
+    }
+
+    /// Fraction of steps where |price diff| decreases vs prior step (deceleration rate).
+    pub fn price_deceleration_rate(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 3 { return None; }
+        let diffs: Vec<f64> = ticks.windows(2)
+            .filter_map(|w| {
+                let a = w[0].price.to_f64()?;
+                let b = w[1].price.to_f64()?;
+                Some((b - a).abs())
+            })
+            .collect();
+        if diffs.len() < 2 { return None; }
+        let decelerations = diffs.windows(2).filter(|w| w[1] < w[0]).count();
+        Some(decelerations as f64 / (diffs.len() - 1) as f64)
+    }
+
 }
 
 
@@ -18307,5 +18375,84 @@ mod tests {
         t.side = Some(crate::tick::TradeSide::Buy);
         let f = NormalizedTick::tick_flow_imbalance(&[t]).unwrap();
         assert!((f - 1.0).abs() < 1e-9, "expected 1.0, got {}", f);
+    }
+
+    // ── round-166 tests ──────────────────────────────────────────────────────
+
+    #[test]
+    fn test_price_high_freq_vol_none_for_single() {
+        use rust_decimal_macros::dec;
+        assert!(NormalizedTick::price_high_freq_vol(&[make_tick_pq(dec!(100), dec!(1))]).is_none());
+    }
+
+    #[test]
+    fn test_price_high_freq_vol_constant_zero() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(100), dec!(1)),
+        ];
+        let v = NormalizedTick::price_high_freq_vol(&ticks).unwrap();
+        assert!((v - 0.0).abs() < 1e-9, "expected 0.0, got {}", v);
+    }
+
+    #[test]
+    fn test_tick_qty_trend_none_for_single() {
+        use rust_decimal_macros::dec;
+        assert!(NormalizedTick::tick_qty_trend(&[make_tick_pq(dec!(100), dec!(1))]).is_none());
+    }
+
+    #[test]
+    fn test_tick_qty_trend_flat_zero() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(5)),
+            make_tick_pq(dec!(101), dec!(5)),
+            make_tick_pq(dec!(102), dec!(5)),
+        ];
+        let s = NormalizedTick::tick_qty_trend(&ticks).unwrap();
+        assert!((s - 0.0).abs() < 1e-9, "expected 0.0, got {}", s);
+    }
+
+    #[test]
+    fn test_price_skewness_ratio_none_for_empty() {
+        assert!(NormalizedTick::price_skewness_ratio(&[]).is_none());
+    }
+
+    #[test]
+    fn test_price_skewness_ratio_symmetric() {
+        use rust_decimal_macros::dec;
+        // prices [90, 110] → mean=100, mean_above=110, mean_below=90 → ratio=110/90≈1.2222
+        let ticks = vec![
+            make_tick_pq(dec!(90), dec!(1)),
+            make_tick_pq(dec!(110), dec!(1)),
+        ];
+        let r = NormalizedTick::price_skewness_ratio(&ticks).unwrap();
+        let expected = 110.0 / 90.0;
+        assert!((r - expected).abs() < 1e-9, "expected {}, got {}", expected, r);
+    }
+
+    #[test]
+    fn test_price_deceleration_rate_none_for_short() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(101), dec!(1)),
+        ];
+        assert!(NormalizedTick::price_deceleration_rate(&ticks).is_none());
+    }
+
+    #[test]
+    fn test_price_deceleration_rate_constant_diffs() {
+        use rust_decimal_macros::dec;
+        // constant diffs → no deceleration
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(102), dec!(1)),
+            make_tick_pq(dec!(104), dec!(1)),
+        ];
+        let r = NormalizedTick::price_deceleration_rate(&ticks).unwrap();
+        assert!((r - 0.0).abs() < 1e-9, "expected 0.0, got {}", r);
     }
 }
