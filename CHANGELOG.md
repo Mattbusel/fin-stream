@@ -9,6 +9,27 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.4.6] - 2026-03-20
+
+### Added
+
+**`tick` module — `NormalizedTick` analytics (round 95)**
+- `NormalizedTick::buy_volume_fraction(ticks)` — fraction of total sided volume that is buy-side.
+- `NormalizedTick::tick_qty_skewness(ticks)` — skewness (third standardized moment) of the quantity distribution.
+- `NormalizedTick::above_median_price_fraction(ticks)` — fraction of ticks with price strictly above the median.
+- `NormalizedTick::cumulative_qty_imbalance(ticks)` — net buy-minus-sell quantity as a fraction of total sided quantity.
+
+**`ohlcv` module — `OhlcvBar` analytics (round 95)**
+- `OhlcvBar::up_down_volume_ratio(bars)` — ratio of total up-bar volume to total down-bar volume.
+- `OhlcvBar::longest_bearish_streak(bars)` — length of the longest consecutive run of down-close bars.
+- `OhlcvBar::mean_close_to_high_ratio(bars)` — mean `(close − low) / (high − low)` per bar, excluding zero-range bars.
+
+**`norm` module — `MinMaxNormalizer` and `ZScoreNormalizer` analytics (round 95)**
+- `window_trimmed_mean() -> Option<Decimal>` — mean of values between the 25th and 75th percentile.
+- `window_variance() -> Option<Decimal>` — population variance of the rolling window values.
+
+---
+
 ## [2.4.5] - 2026-03-20
 
 ### Added

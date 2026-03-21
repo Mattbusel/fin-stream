@@ -3899,6 +3899,82 @@ impl NormalizedTick {
         Some((buys - sells) as f64 / total as f64)
     }
 
+    // ── round-95 ─────────────────────────────────────────────────────────────
+
+    /// Fraction of total traded volume that is buy-side.
+    /// Returns `None` if no ticks carry side information or total volume is zero.
+    pub fn buy_volume_fraction(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let (buy_vol, total_vol) = ticks.iter().fold(
+            (Decimal::ZERO, Decimal::ZERO),
+            |(bv, tv), t| match t.side {
+                Some(TradeSide::Buy) => (bv + t.quantity, tv + t.quantity),
+                Some(TradeSide::Sell) => (bv, tv + t.quantity),
+                None => (bv, tv),
+            },
+        );
+        if total_vol.is_zero() {
+            return None;
+        }
+        Some((buy_vol / total_vol).to_f64().unwrap_or(0.0))
+    }
+
+    /// Skewness (third standardized moment) of the tick quantity distribution.
+    /// Returns `None` for fewer than 3 ticks or when standard deviation is zero.
+    pub fn tick_qty_skewness(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 3 {
+            return None;
+        }
+        let n = ticks.len() as f64;
+        let vals: Vec<f64> = ticks.iter().map(|t| t.quantity.to_f64().unwrap_or(0.0)).collect();
+        let mean = vals.iter().sum::<f64>() / n;
+        let variance = vals.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / n;
+        let std_dev = variance.sqrt();
+        if std_dev == 0.0 {
+            return None;
+        }
+        let skew = vals.iter().map(|v| ((v - mean) / std_dev).powi(3)).sum::<f64>() / n;
+        Some(skew)
+    }
+
+    /// Fraction of ticks whose price is strictly above the median price.
+    /// Returns `None` for an empty slice.
+    pub fn above_median_price_fraction(ticks: &[NormalizedTick]) -> Option<f64> {
+        if ticks.is_empty() {
+            return None;
+        }
+        let mut prices: Vec<Decimal> = ticks.iter().map(|t| t.price).collect();
+        prices.sort();
+        let mid = prices.len() / 2;
+        let median = if prices.len() % 2 == 0 {
+            (prices[mid - 1] + prices[mid]) / Decimal::TWO
+        } else {
+            prices[mid]
+        };
+        let above = ticks.iter().filter(|t| t.price > median).count();
+        Some(above as f64 / ticks.len() as f64)
+    }
+
+    /// Last value of the cumulative buy-minus-sell quantity imbalance as a
+    /// fraction of total sided quantity.  Returns `None` when no ticks have sides
+    /// or total sided quantity is zero.
+    pub fn cumulative_qty_imbalance(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let (net, total) = ticks.iter().fold(
+            (Decimal::ZERO, Decimal::ZERO),
+            |(net, tot), t| match t.side {
+                Some(TradeSide::Buy) => (net + t.quantity, tot + t.quantity),
+                Some(TradeSide::Sell) => (net - t.quantity, tot + t.quantity),
+                None => (net, tot),
+            },
+        );
+        if total.is_zero() {
+            return None;
+        }
+        Some((net / total).to_f64().unwrap_or(0.0))
+    }
+
 }
 
 
@@ -9328,5 +9404,102 @@ mod tests {
         ];
         let imb = NormalizedTick::trade_count_imbalance(&ticks).unwrap();
         assert!((imb - 1.0).abs() < 1e-9, "all buys → imbalance 1.0, got {}", imb);
+    }
+
+    // ── round-95 tests ────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_buy_volume_fraction_none_for_no_sides() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![make_tick_pq(dec!(100), dec!(1))];
+        assert!(NormalizedTick::buy_volume_fraction(&ticks).is_none());
+    }
+
+    #[test]
+    fn test_buy_volume_fraction_all_buys() {
+        let ticks = vec![
+            NormalizedTick {
+                exchange: crate::Exchange::Binance,
+                symbol: "BTCUSDT".into(),
+                price: rust_decimal_macros::dec!(100),
+                quantity: rust_decimal_macros::dec!(5),
+                side: Some(TradeSide::Buy),
+                trade_id: None,
+                exchange_ts_ms: None,
+                received_at_ms: 0,
+            },
+        ];
+        let f = NormalizedTick::buy_volume_fraction(&ticks).unwrap();
+        assert!((f - 1.0).abs() < 1e-9, "all buys → 1.0, got {}", f);
+    }
+
+    #[test]
+    fn test_tick_qty_skewness_none_for_two_ticks() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![make_tick_pq(dec!(100), dec!(1)), make_tick_pq(dec!(101), dec!(2))];
+        assert!(NormalizedTick::tick_qty_skewness(&ticks).is_none());
+    }
+
+    #[test]
+    fn test_tick_qty_skewness_zero_for_constant_qty() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(101), dec!(1)),
+            make_tick_pq(dec!(102), dec!(1)),
+        ];
+        assert!(NormalizedTick::tick_qty_skewness(&ticks).is_none(), "constant → std=0 → None");
+    }
+
+    #[test]
+    fn test_above_median_price_fraction_none_for_empty() {
+        assert!(NormalizedTick::above_median_price_fraction(&[]).is_none());
+    }
+
+    #[test]
+    fn test_above_median_price_fraction_basic() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(110), dec!(1)),
+            make_tick_pq(dec!(120), dec!(1)),
+        ];
+        // median = 110; only 120 is strictly above → 1/3
+        let f = NormalizedTick::above_median_price_fraction(&ticks).unwrap();
+        assert!((f - 1.0 / 3.0).abs() < 1e-9, "expected 1/3, got {}", f);
+    }
+
+    #[test]
+    fn test_cumulative_qty_imbalance_none_for_no_sides() {
+        use rust_decimal_macros::dec;
+        assert!(NormalizedTick::cumulative_qty_imbalance(&[make_tick_pq(dec!(100), dec!(1))]).is_none());
+    }
+
+    #[test]
+    fn test_cumulative_qty_imbalance_balanced() {
+        let ticks = vec![
+            NormalizedTick {
+                exchange: crate::Exchange::Binance,
+                symbol: "BTCUSDT".into(),
+                price: rust_decimal_macros::dec!(100),
+                quantity: rust_decimal_macros::dec!(3),
+                side: Some(TradeSide::Buy),
+                trade_id: None,
+                exchange_ts_ms: None,
+                received_at_ms: 0,
+            },
+            NormalizedTick {
+                exchange: crate::Exchange::Binance,
+                symbol: "BTCUSDT".into(),
+                price: rust_decimal_macros::dec!(101),
+                quantity: rust_decimal_macros::dec!(3),
+                side: Some(TradeSide::Sell),
+                trade_id: None,
+                exchange_ts_ms: None,
+                received_at_ms: 1,
+            },
+        ];
+        let imb = NormalizedTick::cumulative_qty_imbalance(&ticks).unwrap();
+        assert!(imb.abs() < 1e-9, "balanced → 0.0, got {}", imb);
     }
 }

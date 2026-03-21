@@ -3836,6 +3836,75 @@ impl OhlcvBar {
         Some(values.iter().sum::<f64>() / values.len() as f64)
     }
 
+    // ── round-95 ─────────────────────────────────────────────────────────────
+
+    /// Ratio of total up-bar volume to total down-bar volume.
+    /// Returns `None` if there are no up-bars or no down-bars.
+    pub fn up_down_volume_ratio(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let (up_vol, dn_vol) = bars.iter().fold(
+            (Decimal::ZERO, Decimal::ZERO),
+            |(up, dn), b| {
+                if b.close > b.open {
+                    (up + b.volume, dn)
+                } else if b.close < b.open {
+                    (up, dn + b.volume)
+                } else {
+                    (up, dn)
+                }
+            },
+        );
+        if up_vol.is_zero() || dn_vol.is_zero() {
+            return None;
+        }
+        Some((up_vol / dn_vol).to_f64().unwrap_or(0.0))
+    }
+
+    /// Length of the longest consecutive run of bars where `close < open`.
+    /// Returns `None` for an empty slice.
+    pub fn longest_bearish_streak(bars: &[OhlcvBar]) -> Option<usize> {
+        if bars.is_empty() {
+            return None;
+        }
+        let mut max_run = 0usize;
+        let mut cur = 0usize;
+        for b in bars {
+            if b.close < b.open {
+                cur += 1;
+                if cur > max_run {
+                    max_run = cur;
+                }
+            } else {
+                cur = 0;
+            }
+        }
+        Some(max_run)
+    }
+
+    /// Mean of `(close − low) / (high − low)` per bar, excluding zero-range bars.
+    /// Returns `None` if the slice is empty or all bars have zero range.
+    pub fn mean_close_to_high_ratio(bars: &[OhlcvBar]) -> Option<f64> {
+        if bars.is_empty() {
+            return None;
+        }
+        use rust_decimal::prelude::ToPrimitive;
+        let values: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let range = b.high - b.low;
+                if range.is_zero() {
+                    None
+                } else {
+                    Some(((b.close - b.low) / range).to_f64().unwrap_or(0.0))
+                }
+            })
+            .collect();
+        if values.is_empty() {
+            return None;
+        }
+        Some(values.iter().sum::<f64>() / values.len() as f64)
+    }
+
 }
 
 impl std::fmt::Display for OhlcvBar {
@@ -9726,5 +9795,52 @@ mod tests {
         b.volume = dec!(200);
         let avg = OhlcvBar::avg_volume_per_range(&[b]).unwrap();
         assert!((avg - 10.0).abs() < 1e-9, "expected 10.0, got {}", avg);
+    }
+
+    // ── round-95 tests ────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_up_down_volume_ratio_none_for_only_up_bars() {
+        let mut b = make_ohlcv_bar(dec!(90), dec!(110), dec!(85), dec!(105));
+        b.volume = dec!(100);
+        // one up bar, no down bars → None
+        assert!(OhlcvBar::up_down_volume_ratio(&[b]).is_none());
+    }
+
+    #[test]
+    fn test_up_down_volume_ratio_equal_volumes() {
+        let mut b1 = make_ohlcv_bar(dec!(90), dec!(110), dec!(85), dec!(105)); // up
+        b1.volume = dec!(100);
+        let mut b2 = make_ohlcv_bar(dec!(105), dec!(110), dec!(85), dec!(90)); // down
+        b2.volume = dec!(100);
+        let r = OhlcvBar::up_down_volume_ratio(&[b1, b2]).unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "equal volumes → 1.0, got {}", r);
+    }
+
+    #[test]
+    fn test_longest_bearish_streak_none_for_empty() {
+        assert!(OhlcvBar::longest_bearish_streak(&[]).is_none());
+    }
+
+    #[test]
+    fn test_longest_bearish_streak_basic() {
+        let up = make_ohlcv_bar(dec!(90), dec!(110), dec!(85), dec!(105));
+        let dn = make_ohlcv_bar(dec!(105), dec!(110), dec!(85), dec!(90));
+        // up, dn, dn, up → longest bearish = 2
+        let streak = OhlcvBar::longest_bearish_streak(&[up.clone(), dn.clone(), dn.clone(), up.clone()]).unwrap();
+        assert_eq!(streak, 2);
+    }
+
+    #[test]
+    fn test_mean_close_to_high_ratio_none_for_empty() {
+        assert!(OhlcvBar::mean_close_to_high_ratio(&[]).is_none());
+    }
+
+    #[test]
+    fn test_mean_close_to_high_ratio_mid_close() {
+        // high=110, low=90, close=100 → (100-90)/(110-90) = 0.5
+        let b = make_ohlcv_bar(dec!(95), dec!(110), dec!(90), dec!(100));
+        let r = OhlcvBar::mean_close_to_high_ratio(&[b]).unwrap();
+        assert!((r - 0.5).abs() < 1e-9, "expected 0.5, got {}", r);
     }
 }

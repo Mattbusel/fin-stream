@@ -1890,6 +1890,38 @@ impl MinMaxNormalizer {
         Some(below as f64 / self.window.len() as f64)
     }
 
+    // ── round-95 ─────────────────────────────────────────────────────────────
+
+    /// Mean of window values that fall between the 25th and 75th percentile (trimmed mean).
+    /// Returns `None` if the window is empty or has fewer than 4 values.
+    pub fn window_trimmed_mean(&self) -> Option<Decimal> {
+        if self.window.len() < 4 {
+            return None;
+        }
+        let mut sorted: Vec<Decimal> = self.window.iter().copied().collect();
+        sorted.sort();
+        let q1 = sorted.len() / 4;
+        let q3 = (sorted.len() * 3) / 4;
+        let trimmed = &sorted[q1..q3];
+        if trimmed.is_empty() {
+            return None;
+        }
+        let sum: Decimal = trimmed.iter().copied().sum();
+        Some(sum / Decimal::from(trimmed.len()))
+    }
+
+    /// Population variance of the rolling window values.
+    /// Returns `None` if the window is empty.
+    pub fn window_variance(&self) -> Option<Decimal> {
+        if self.window.is_empty() {
+            return None;
+        }
+        let n = Decimal::from(self.window.len());
+        let mean: Decimal = self.window.iter().copied().sum::<Decimal>() / n;
+        let variance = self.window.iter().map(|v| (*v - mean) * (*v - mean)).sum::<Decimal>() / n;
+        Some(variance)
+    }
+
 }
 
 #[cfg(test)]
@@ -4212,6 +4244,34 @@ mod tests {
         let p = n.latest_percentile().unwrap();
         assert!((p - 0.75).abs() < 1e-9, "expected 0.75, got {}", p);
     }
+
+    // ── round-95 tests ────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_minmax_window_trimmed_mean_none_for_small_window() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        assert!(n.window_trimmed_mean().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_trimmed_mean_constant() {
+        let mut n = norm(4);
+        for _ in 0..4 { n.update(dec!(5)); }
+        assert_eq!(n.window_trimmed_mean().unwrap(), dec!(5));
+    }
+
+    #[test]
+    fn test_minmax_window_variance_none_for_empty() {
+        assert!(norm(4).window_variance().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_variance_zero_for_constant() {
+        let mut n = norm(4);
+        for _ in 0..4 { n.update(dec!(7)); }
+        assert_eq!(n.window_variance().unwrap(), dec!(0));
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -6062,6 +6122,38 @@ impl ZScoreNormalizer {
         let latest = *self.window.back()?;
         let below = self.window.iter().filter(|&&v| v < latest).count();
         Some(below as f64 / self.window.len() as f64)
+    }
+
+    // ── round-95 ─────────────────────────────────────────────────────────────
+
+    /// Mean of window values that fall between the 25th and 75th percentile (trimmed mean).
+    /// Returns `None` if the window has fewer than 4 values.
+    pub fn window_trimmed_mean(&self) -> Option<Decimal> {
+        if self.window.len() < 4 {
+            return None;
+        }
+        let mut sorted: Vec<Decimal> = self.window.iter().copied().collect();
+        sorted.sort();
+        let q1 = sorted.len() / 4;
+        let q3 = (sorted.len() * 3) / 4;
+        let trimmed = &sorted[q1..q3];
+        if trimmed.is_empty() {
+            return None;
+        }
+        let sum: Decimal = trimmed.iter().copied().sum();
+        Some(sum / Decimal::from(trimmed.len()))
+    }
+
+    /// Population variance of the rolling window values.
+    /// Returns `None` if the window is empty.
+    pub fn window_variance(&self) -> Option<Decimal> {
+        if self.window.is_empty() {
+            return None;
+        }
+        let n = Decimal::from(self.window.len());
+        let mean: Decimal = self.window.iter().copied().sum::<Decimal>() / n;
+        let variance = self.window.iter().map(|v| (*v - mean) * (*v - mean)).sum::<Decimal>() / n;
+        Some(variance)
     }
 
 }
@@ -8538,5 +8630,33 @@ mod zscore_stability_tests {
         // latest = 4, below = 3 (1,2,3) → 3/4 = 0.75
         let p = n.latest_percentile().unwrap();
         assert!((p - 0.75).abs() < 1e-9, "expected 0.75, got {}", p);
+    }
+
+    // ── round-95 tests ────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_zscore_window_trimmed_mean_none_for_small_window() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        assert!(n.window_trimmed_mean().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_trimmed_mean_constant() {
+        let mut n = znorm(4);
+        for _ in 0..4 { n.update(dec!(5)); }
+        assert_eq!(n.window_trimmed_mean().unwrap(), dec!(5));
+    }
+
+    #[test]
+    fn test_zscore_window_variance_none_for_empty() {
+        assert!(znorm(4).window_variance().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_variance_zero_for_constant() {
+        let mut n = znorm(4);
+        for _ in 0..4 { n.update(dec!(7)); }
+        assert_eq!(n.window_variance().unwrap(), dec!(0));
     }
 }
