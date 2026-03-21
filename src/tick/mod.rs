@@ -3274,6 +3274,40 @@ impl NormalizedTick {
             .max()
     }
 
+    /// Count of ticks classified as buy-side trades.
+    pub fn buy_trade_count(ticks: &[NormalizedTick]) -> usize {
+        ticks
+            .iter()
+            .filter(|t| t.side == Some(TradeSide::Buy))
+            .count()
+    }
+
+    /// Count of ticks classified as sell-side trades.
+    pub fn sell_trade_count(ticks: &[NormalizedTick]) -> usize {
+        ticks
+            .iter()
+            .filter(|t| t.side == Some(TradeSide::Sell))
+            .count()
+    }
+
+    /// Fraction of consecutive tick pairs that reverse price direction.
+    /// A reversal is when (price[i+1] > price[i]) differs from (price[i] > price[i-1]).
+    /// Returns `None` for fewer than 3 ticks.
+    pub fn price_reversal_fraction(ticks: &[NormalizedTick]) -> Option<f64> {
+        if ticks.len() < 3 {
+            return None;
+        }
+        let reversals = ticks
+            .windows(3)
+            .filter(|w| {
+                let up1 = w[1].price > w[0].price;
+                let up2 = w[2].price > w[1].price;
+                up1 != up2
+            })
+            .count();
+        Some(reversals as f64 / (ticks.len() - 2) as f64)
+    }
+
 }
 
 

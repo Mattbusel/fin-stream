@@ -3479,6 +3479,33 @@ impl OhlcvBar {
         bars.iter().map(|b| (b.close - b.open).abs()).sum()
     }
 
+    /// Sample standard deviation of open prices across bars.  Requires ≥ 2 bars.
+    pub fn open_std(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.len() < 2 {
+            return None;
+        }
+        let vals: Vec<f64> = bars.iter().filter_map(|b| b.open.to_f64()).collect();
+        let n = vals.len() as f64;
+        let mean = vals.iter().sum::<f64>() / n;
+        let var = vals.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / (n - 1.0);
+        Some(var.sqrt())
+    }
+
+    /// Mean of `high / low` ratios across bars (bars with zero `low` are skipped).
+    pub fn mean_high_low_ratio(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter(|b| !b.low.is_zero())
+            .filter_map(|b| (b.high / b.low).to_f64())
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
+        Some(vals.iter().sum::<f64>() / vals.len() as f64)
+    }
+
 }
 
 impl std::fmt::Display for OhlcvBar {

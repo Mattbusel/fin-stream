@@ -9,6 +9,34 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.4.0] - 2026-03-21
+
+### Added
+
+**`tick` module — `NormalizedTick` analytics (round 88)**
+- `NormalizedTick::order_flow_imbalance(ticks)` — net OFI: `(buy_qty − sell_qty) / total_qty`; range `[−1, 1]`.
+- `NormalizedTick::price_qty_up_fraction(ticks)` — fraction of tick pairs where both price and quantity increased.
+- `NormalizedTick::running_high_count(ticks)` — count of ticks that set a new running high within the slice.
+- `NormalizedTick::running_low_count(ticks)` — count of ticks that set a new running low within the slice.
+- `NormalizedTick::buy_sell_avg_qty_ratio(ticks)` — mean buy quantity / mean sell quantity ratio.
+- `NormalizedTick::max_price_drop(ticks)` — largest consecutive price decline.
+- `NormalizedTick::max_price_rise(ticks)` — largest consecutive price increase.
+
+**`ohlcv` module — `OhlcvBar` analytics (round 88)**
+- `OhlcvBar::avg_range_pct_of_open(bars)` — mean of `range / open` across bars.
+- `OhlcvBar::high_volume_fraction(bars)` — fraction of bars with above-average volume.
+- `OhlcvBar::close_cluster_count(bars)` — count of consecutive bar pairs where closes are within 0.1% of each other.
+- `OhlcvBar::mean_vwap(bars)` — mean of bar VWAP values.
+- `OhlcvBar::complete_fraction(bars)` — fraction of bars where all OHLCV fields are nonzero.
+- `OhlcvBar::total_body_movement(bars)` — sum of `|close − open|` across all bars.
+
+**`norm` module — `MinMaxNormalizer` and `ZScoreNormalizer` analytics (round 88)**
+- `new_max_count() -> usize` — number of times the window sets a new running maximum.
+- `new_min_count() -> usize` — number of times the window sets a new running minimum.
+- `zero_fraction() -> Option<f64>` — fraction of window values equal to zero.
+
+---
+
 ## [2.3.9] - 2026-03-21
 
 ### Added
