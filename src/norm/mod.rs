@@ -6753,6 +6753,52 @@ impl MinMaxNormalizer {
         Some((max + min) / 2.0)
     }
 
+    /// Upper whisker: Q3 + 1.5 * IQR of window values.
+    pub fn window_upper_whisker(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let mut vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        vals.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let n = vals.len();
+        let q1 = vals[n / 4];
+        let q3 = vals[(3 * n) / 4];
+        Some(q3 + 1.5 * (q3 - q1))
+    }
+
+    /// Lower whisker: Q1 - 1.5 * IQR of window values.
+    pub fn window_lower_whisker(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let mut vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        vals.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let n = vals.len();
+        let q1 = vals[n / 4];
+        let q3 = vals[(3 * n) / 4];
+        Some(q1 - 1.5 * (q3 - q1))
+    }
+
+    /// Fraction of consecutive value pairs with the same sign.
+    pub fn window_sign_consistency(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let same = vals.windows(2)
+            .filter(|w| w[0].signum() == w[1].signum())
+            .count();
+        Some(same as f64 / (vals.len() - 1) as f64)
+    }
+
+    /// Mean sign change: fraction of consecutive pairs that change sign.
+    pub fn window_mean_sign_change(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let changes = vals.windows(2)
+            .filter(|w| w[0].signum() != w[1].signum())
+            .count();
+        Some(changes as f64 / (vals.len() - 1) as f64)
+    }
+
 }
 
 #[cfg(test)]
@@ -14684,6 +14730,65 @@ mod tests {
         let m = n.window_mid_range_f64().unwrap();
         assert!((m - 5.0).abs() < 1e-9);
     }
+
+    #[test]
+    fn test_minmax_window_upper_whisker_none_for_empty() {
+        let n = norm(4);
+        assert!(n.window_upper_whisker().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_upper_whisker_value() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let w = n.window_upper_whisker().unwrap();
+        assert!(w > 0.0);
+    }
+
+    #[test]
+    fn test_minmax_window_lower_whisker_none_for_empty() {
+        let n = norm(4);
+        assert!(n.window_lower_whisker().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_lower_whisker_symmetric() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let upper = n.window_upper_whisker().unwrap();
+        let lower = n.window_lower_whisker().unwrap();
+        assert!(upper > lower);
+    }
+
+    #[test]
+    fn test_minmax_window_sign_consistency_none_for_single() {
+        let mut n = norm(4);
+        n.update(dec!(1));
+        assert!(n.window_sign_consistency().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_sign_consistency_all_positive() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        let r = n.window_sign_consistency().unwrap();
+        assert!((r - 1.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_minmax_window_mean_sign_change_none_for_single() {
+        let mut n = norm(4);
+        n.update(dec!(1));
+        assert!(n.window_mean_sign_change().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_mean_sign_change_no_changes() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        let r = n.window_mean_sign_change().unwrap();
+        assert_eq!(r, 0.0);
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -21385,6 +21490,52 @@ impl ZScoreNormalizer {
         let max = vals.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
         let min = vals.iter().cloned().fold(f64::INFINITY, f64::min);
         Some((max + min) / 2.0)
+    }
+
+    /// Upper whisker: Q3 + 1.5 * IQR of window values.
+    pub fn window_upper_whisker(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let mut vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        vals.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let n = vals.len();
+        let q1 = vals[n / 4];
+        let q3 = vals[(3 * n) / 4];
+        Some(q3 + 1.5 * (q3 - q1))
+    }
+
+    /// Lower whisker: Q1 - 1.5 * IQR of window values.
+    pub fn window_lower_whisker(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let mut vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        vals.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let n = vals.len();
+        let q1 = vals[n / 4];
+        let q3 = vals[(3 * n) / 4];
+        Some(q1 - 1.5 * (q3 - q1))
+    }
+
+    /// Fraction of consecutive value pairs with the same sign.
+    pub fn window_sign_consistency(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let same = vals.windows(2)
+            .filter(|w| w[0].signum() == w[1].signum())
+            .count();
+        Some(same as f64 / (vals.len() - 1) as f64)
+    }
+
+    /// Mean sign change: fraction of consecutive pairs that change sign.
+    pub fn window_mean_sign_change(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let changes = vals.windows(2)
+            .filter(|w| w[0].signum() != w[1].signum())
+            .count();
+        Some(changes as f64 / (vals.len() - 1) as f64)
     }
 
 }
@@ -29266,5 +29417,64 @@ mod zscore_stability_tests {
         for v in [dec!(0), dec!(10)] { n.update(v); }
         let m = n.window_mid_range_f64().unwrap();
         assert!((m - 5.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_zscore_window_upper_whisker_none_for_empty() {
+        let n = znorm(4);
+        assert!(n.window_upper_whisker().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_upper_whisker_value() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let w = n.window_upper_whisker().unwrap();
+        assert!(w > 0.0);
+    }
+
+    #[test]
+    fn test_zscore_window_lower_whisker_none_for_empty() {
+        let n = znorm(4);
+        assert!(n.window_lower_whisker().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_lower_whisker_symmetric() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let upper = n.window_upper_whisker().unwrap();
+        let lower = n.window_lower_whisker().unwrap();
+        assert!(upper > lower);
+    }
+
+    #[test]
+    fn test_zscore_window_sign_consistency_none_for_single() {
+        let mut n = znorm(4);
+        n.update(dec!(1));
+        assert!(n.window_sign_consistency().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_sign_consistency_all_positive() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        let r = n.window_sign_consistency().unwrap();
+        assert!((r - 1.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_zscore_window_mean_sign_change_none_for_single() {
+        let mut n = znorm(4);
+        n.update(dec!(1));
+        assert!(n.window_mean_sign_change().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_mean_sign_change_no_changes() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        let r = n.window_mean_sign_change().unwrap();
+        assert_eq!(r, 0.0);
     }
 }

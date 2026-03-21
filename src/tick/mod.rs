@@ -9496,6 +9496,52 @@ impl NormalizedTick {
         Some(max_drop_speed)
     }
 
+    /// Sign of price momentum: +1 if last price > first, -1 if lower, 0 if equal.
+    pub fn tick_price_momentum_sign(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 2 { return None; }
+        let first = ticks.first()?.price.to_f64()?;
+        let last = ticks.last()?.price.to_f64()?;
+        Some(if last > first { 1.0 } else if last < first { -1.0 } else { 0.0 })
+    }
+
+    /// Approximate excess kurtosis of tick prices: E[(x-mean)^4]/std^4 - 3.
+    pub fn price_kurtosis_approx(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 4 { return None; }
+        let prices: Vec<f64> = ticks.iter().filter_map(|t| t.price.to_f64()).collect();
+        if prices.len() < 4 { return None; }
+        let n = prices.len() as f64;
+        let mean = prices.iter().sum::<f64>() / n;
+        let var = prices.iter().map(|p| (p - mean).powi(2)).sum::<f64>() / n;
+        if var == 0.0 { return None; }
+        let m4 = prices.iter().map(|p| (p - mean).powi(4)).sum::<f64>() / n;
+        Some(m4 / var.powi(2) - 3.0)
+    }
+
+    /// Variance of tick quantities.
+    pub fn tick_qty_variance(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() { return None; }
+        let qtys: Vec<f64> = ticks.iter().filter_map(|t| t.quantity.to_f64()).collect();
+        if qtys.is_empty() { return None; }
+        let mean = qtys.iter().sum::<f64>() / qtys.len() as f64;
+        Some(qtys.iter().map(|q| (q - mean).powi(2)).sum::<f64>() / qtys.len() as f64)
+    }
+
+    /// Ratio of price range (high-low) to mean price across ticks.
+    pub fn price_range_to_mean(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() { return None; }
+        let prices: Vec<f64> = ticks.iter().filter_map(|t| t.price.to_f64()).collect();
+        if prices.is_empty() { return None; }
+        let max = prices.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        let min = prices.iter().cloned().fold(f64::INFINITY, f64::min);
+        let mean = prices.iter().sum::<f64>() / prices.len() as f64;
+        if mean == 0.0 { return None; }
+        Some((max - min) / mean)
+    }
+
 }
 
 
@@ -21559,5 +21605,95 @@ mod tests {
         ];
         let s = NormalizedTick::price_drawdown_speed(&ticks).unwrap();
         assert!((s - 20.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_tick_price_momentum_sign_empty_none() {
+        assert!(NormalizedTick::tick_price_momentum_sign(&[]).is_none());
+    }
+
+    #[test]
+    fn test_tick_price_momentum_sign_up() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![make_tick_pq(dec!(100), dec!(1)), make_tick_pq(dec!(110), dec!(1))];
+        let s = NormalizedTick::tick_price_momentum_sign(&ticks).unwrap();
+        assert_eq!(s, 1.0);
+    }
+
+    #[test]
+    fn test_tick_price_momentum_sign_down() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![make_tick_pq(dec!(110), dec!(1)), make_tick_pq(dec!(100), dec!(1))];
+        let s = NormalizedTick::tick_price_momentum_sign(&ticks).unwrap();
+        assert_eq!(s, -1.0);
+    }
+
+    #[test]
+    fn test_price_kurtosis_approx_too_few_none() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(101), dec!(1)),
+        ];
+        assert!(NormalizedTick::price_kurtosis_approx(&ticks).is_none());
+    }
+
+    #[test]
+    fn test_price_kurtosis_approx_constant_none() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(100), dec!(1)),
+        ];
+        assert!(NormalizedTick::price_kurtosis_approx(&ticks).is_none());
+    }
+
+    #[test]
+    fn test_price_kurtosis_approx_returns_f64() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(101), dec!(1)),
+            make_tick_pq(dec!(99), dec!(1)),
+            make_tick_pq(dec!(102), dec!(1)),
+        ];
+        assert!(NormalizedTick::price_kurtosis_approx(&ticks).is_some());
+    }
+
+    #[test]
+    fn test_tick_qty_variance_empty_none() {
+        assert!(NormalizedTick::tick_qty_variance(&[]).is_none());
+    }
+
+    #[test]
+    fn test_tick_qty_variance_constant_zero() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![make_tick_pq(dec!(100), dec!(5)), make_tick_pq(dec!(101), dec!(5))];
+        let v = NormalizedTick::tick_qty_variance(&ticks).unwrap();
+        assert!(v.abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_price_range_to_mean_empty_none() {
+        assert!(NormalizedTick::price_range_to_mean(&[]).is_none());
+    }
+
+    #[test]
+    fn test_price_range_to_mean_constant_zero() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![make_tick_pq(dec!(100), dec!(1)), make_tick_pq(dec!(100), dec!(1))];
+        let r = NormalizedTick::price_range_to_mean(&ticks).unwrap();
+        assert!(r.abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_price_range_to_mean_value() {
+        use rust_decimal_macros::dec;
+        // prices: 90, 110 → range=20, mean=100 → ratio=0.2
+        let ticks = vec![make_tick_pq(dec!(90), dec!(1)), make_tick_pq(dec!(110), dec!(1))];
+        let r = NormalizedTick::price_range_to_mean(&ticks).unwrap();
+        assert!((r - 0.2).abs() < 1e-9);
     }
 }

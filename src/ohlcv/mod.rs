@@ -9201,6 +9201,63 @@ impl OhlcvBar {
         Some((last - ema) / range)
     }
 
+    /// Mean body as a fraction of HL range per bar.
+    pub fn bar_range_pct_body(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let ratios: Vec<f64> = bars.iter().filter_map(|b| {
+            let range = (b.high - b.low).to_f64()?;
+            if range == 0.0 { return None; }
+            let body = (b.close - b.open).abs().to_f64()?;
+            Some(body / range)
+        }).collect();
+        if ratios.is_empty() { return None; }
+        Some(ratios.iter().sum::<f64>() / ratios.len() as f64)
+    }
+
+    /// Mean shadow asymmetry: (upper_shadow - lower_shadow) / range per bar.
+    pub fn bar_shadow_asymmetry(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let vals: Vec<f64> = bars.iter().filter_map(|b| {
+            let range = (b.high - b.low).to_f64()?;
+            if range == 0.0 { return None; }
+            let top = b.open.max(b.close);
+            let bot = b.open.min(b.close);
+            let upper = (b.high - top).to_f64()?;
+            let lower = (bot - b.low).to_f64()?;
+            Some((upper - lower) / range)
+        }).collect();
+        if vals.is_empty() { return None; }
+        Some(vals.iter().sum::<f64>() / vals.len() as f64)
+    }
+
+    /// Mean absolute change in (close - open) between consecutive bars.
+    pub fn bar_close_open_accel(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.len() < 2 { return None; }
+        let diffs: Vec<f64> = bars.iter()
+            .filter_map(|b| (b.close - b.open).to_f64())
+            .collect();
+        if diffs.len() < 2 { return None; }
+        let changes: Vec<f64> = diffs.windows(2).map(|w| (w[1] - w[0]).abs()).collect();
+        Some(changes.iter().sum::<f64>() / changes.len() as f64)
+    }
+
+    /// Mean body / HL-range ratio treating it as efficiency (how much of range is body).
+    pub fn bar_hl_body_efficiency(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let vals: Vec<f64> = bars.iter().filter_map(|b| {
+            let hl = (b.high - b.low).to_f64()?;
+            if hl == 0.0 { return None; }
+            let body = (b.close - b.open).abs().to_f64()?;
+            Some(body / hl)
+        }).collect();
+        if vals.is_empty() { return None; }
+        Some(vals.iter().sum::<f64>() / vals.len() as f64)
+    }
+
 }
 
 impl std::fmt::Display for OhlcvBar {
@@ -20653,5 +20710,71 @@ mod tests {
         let b1 = make_ohlcv_bar(dec!(100), dec!(115), dec!(95), dec!(110));
         let r = OhlcvBar::bar_close_ema_spread(&[b0, b1]);
         assert!(r.is_some());
+    }
+
+    #[test]
+    fn test_bar_range_pct_body_empty_none() {
+        assert!(OhlcvBar::bar_range_pct_body(&[]).is_none());
+    }
+
+    #[test]
+    fn test_bar_range_pct_body_doji_skipped() {
+        // high==low → range=0, no valid ratio → None
+        let b = make_ohlcv_bar(dec!(100), dec!(100), dec!(100), dec!(100));
+        assert!(OhlcvBar::bar_range_pct_body(&[b]).is_none());
+    }
+
+    #[test]
+    fn test_bar_range_pct_body_value() {
+        // open=100, close=110, high=120, low=100 → body=10, range=20 → ratio=0.5
+        let b = make_ohlcv_bar(dec!(100), dec!(120), dec!(100), dec!(110));
+        let r = OhlcvBar::bar_range_pct_body(&[b]).unwrap();
+        assert!((r - 0.5).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_bar_shadow_asymmetry_empty_none() {
+        assert!(OhlcvBar::bar_shadow_asymmetry(&[]).is_none());
+    }
+
+    #[test]
+    fn test_bar_shadow_asymmetry_returns_value() {
+        let b = make_ohlcv_bar(dec!(100), dec!(120), dec!(90), dec!(110));
+        let r = OhlcvBar::bar_shadow_asymmetry(&[b]);
+        assert!(r.is_some());
+    }
+
+    #[test]
+    fn test_bar_close_open_accel_single_none() {
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        assert!(OhlcvBar::bar_close_open_accel(&[b]).is_none());
+    }
+
+    #[test]
+    fn test_bar_close_open_accel_constant_zero() {
+        // same diff each bar → change=0
+        let b0 = make_ohlcv_bar(dec!(100), dec!(115), dec!(90), dec!(110));
+        let b1 = make_ohlcv_bar(dec!(100), dec!(115), dec!(90), dec!(110));
+        let r = OhlcvBar::bar_close_open_accel(&[b0, b1]).unwrap();
+        assert!(r.abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_bar_hl_body_efficiency_empty_none() {
+        assert!(OhlcvBar::bar_hl_body_efficiency(&[]).is_none());
+    }
+
+    #[test]
+    fn test_bar_hl_body_efficiency_doji_skipped() {
+        let b = make_ohlcv_bar(dec!(100), dec!(100), dec!(100), dec!(100));
+        assert!(OhlcvBar::bar_hl_body_efficiency(&[b]).is_none());
+    }
+
+    #[test]
+    fn test_bar_hl_body_efficiency_value() {
+        // body=10, range=20 → efficiency=0.5
+        let b = make_ohlcv_bar(dec!(100), dec!(120), dec!(100), dec!(110));
+        let r = OhlcvBar::bar_hl_body_efficiency(&[b]).unwrap();
+        assert!((r - 0.5).abs() < 1e-9);
     }
 }

@@ -9,6 +9,30 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.10.41] - 2026-03-20
+
+### Added
+
+**`tick` module — `NormalizedTick` analytics (round 190)**
+- `NormalizedTick::tick_price_momentum_sign(ticks)` — sign of price change: +1, -1, or 0.
+- `NormalizedTick::price_kurtosis_approx(ticks)` — approximate excess kurtosis of tick prices.
+- `NormalizedTick::tick_qty_variance(ticks)` — variance of tick quantities.
+- `NormalizedTick::price_range_to_mean(ticks)` — price range (high-low) divided by mean price.
+
+**`ohlcv` module — `OhlcvBar` analytics (round 190)**
+- `OhlcvBar::bar_range_pct_body(bars)` — mean body as fraction of HL range per bar.
+- `OhlcvBar::bar_shadow_asymmetry(bars)` — mean (upper_shadow - lower_shadow) / range per bar.
+- `OhlcvBar::bar_close_open_accel(bars)` — mean absolute change in (close - open) between bars.
+- `OhlcvBar::bar_hl_body_efficiency(bars)` — mean body / HL-range ratio per bar.
+
+**`norm` module — `MinMaxNormalizer` + `ZScoreNormalizer` analytics (round 190)**
+- `window_upper_whisker()` — boxplot upper whisker: Q3 + 1.5 * IQR.
+- `window_lower_whisker()` — boxplot lower whisker: Q1 - 1.5 * IQR.
+- `window_sign_consistency()` — fraction of consecutive pairs with the same sign.
+- `window_mean_sign_change()` — fraction of consecutive pairs that change sign.
+
+---
+
 ## [2.10.40] - 2026-03-20
 
 ### Added
