@@ -4973,6 +4973,75 @@ impl NormalizedTick {
         Some((fraction - 0.5) * 2.0)
     }
 
+    // ── round-111 ────────────────────────────────────────────────────────────
+
+    /// Price entropy: Shannon entropy of price frequency distribution across 10 equal buckets.
+    /// Returns `None` for fewer than 2 ticks.
+    pub fn tick_price_entropy(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 2 { return None; }
+        let min_p = ticks.iter().map(|t| t.price).min()?;
+        let max_p = ticks.iter().map(|t| t.price).max()?;
+        let range = max_p - min_p;
+        if range.is_zero() { return None; }
+        let n_buckets = 10usize;
+        let bucket_size = range.to_f64().unwrap_or(0.0) / n_buckets as f64;
+        if bucket_size == 0.0 { return None; }
+        let mut counts = vec![0u64; n_buckets];
+        let min_f = min_p.to_f64().unwrap_or(0.0);
+        for t in ticks {
+            let p = t.price.to_f64().unwrap_or(min_f);
+            let idx = ((p - min_f) / bucket_size).floor() as usize;
+            let idx = idx.min(n_buckets - 1);
+            counts[idx] += 1;
+        }
+        let total = ticks.len() as f64;
+        let entropy = counts.iter().filter(|&&c| c > 0).map(|&c| {
+            let p = c as f64 / total;
+            -p * p.ln()
+        }).sum::<f64>();
+        Some(entropy)
+    }
+
+    /// Mean of the absolute price difference between consecutive ticks (average spread proxy).
+    /// Returns `None` for fewer than 2 ticks.
+    pub fn average_spread(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 2 { return None; }
+        let sum: Decimal = ticks.windows(2)
+            .map(|w| (w[1].price - w[0].price).abs())
+            .sum();
+        Some((sum / Decimal::from(ticks.len() - 1)).to_f64().unwrap_or(0.0))
+    }
+
+    /// Standard deviation of prices across the slice.
+    /// Returns `None` for fewer than 2 ticks.
+    pub fn tick_sigma(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 2 { return None; }
+        let prices: Vec<f64> = ticks.iter().filter_map(|t| t.price.to_f64()).collect();
+        if prices.len() != ticks.len() { return None; }
+        let n = prices.len() as f64;
+        let mean = prices.iter().sum::<f64>() / n;
+        let var = prices.iter().map(|p| (p - mean).powi(2)).sum::<f64>() / n;
+        Some(var.sqrt())
+    }
+
+    /// Fraction of total quantity on the downside: ticks with price below the mean price.
+    /// Returns `None` for an empty slice or zero total quantity.
+    pub fn downside_qty_fraction(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() { return None; }
+        let total_qty: Decimal = ticks.iter().map(|t| t.quantity).sum();
+        if total_qty.is_zero() { return None; }
+        let total_price: Decimal = ticks.iter().map(|t| t.price).sum();
+        let mean_price = total_price / Decimal::from(ticks.len());
+        let down_qty: Decimal = ticks.iter()
+            .filter(|t| t.price < mean_price)
+            .map(|t| t.quantity).sum();
+        Some((down_qty / total_qty).to_f64().unwrap_or(0.0))
+    }
+
 }
 
 
@@ -11488,5 +11557,73 @@ mod tests {
         t.side = Some(TradeSide::Buy);
         let idx = NormalizedTick::buy_pressure_index(&[t]).unwrap();
         assert!((idx - 1.0).abs() < 1e-9, "expected 1.0, got {}", idx);
+    }
+
+    // ── round-111 tests ───────────────────────────────────────────────────────
+
+    #[test]
+    fn test_tick_price_entropy_none_for_single() {
+        use rust_decimal_macros::dec;
+        let t = make_tick_pq(dec!(100), dec!(1));
+        assert!(NormalizedTick::tick_price_entropy(&[t]).is_none());
+    }
+
+    #[test]
+    fn test_tick_price_entropy_basic() {
+        use rust_decimal_macros::dec;
+        // 2 different prices — entropy > 0
+        let t1 = make_tick_pq(dec!(100), dec!(1));
+        let t2 = make_tick_pq(dec!(200), dec!(1));
+        let e = NormalizedTick::tick_price_entropy(&[t1, t2]).unwrap();
+        assert!(e > 0.0, "expected entropy > 0, got {}", e);
+    }
+
+    #[test]
+    fn test_average_spread_none_for_single() {
+        use rust_decimal_macros::dec;
+        let t = make_tick_pq(dec!(100), dec!(1));
+        assert!(NormalizedTick::average_spread(&[t]).is_none());
+    }
+
+    #[test]
+    fn test_average_spread_basic() {
+        use rust_decimal_macros::dec;
+        // |110-100| = 10; average spread = 10
+        let t1 = make_tick_pq(dec!(100), dec!(1));
+        let t2 = make_tick_pq(dec!(110), dec!(1));
+        let s = NormalizedTick::average_spread(&[t1, t2]).unwrap();
+        assert!((s - 10.0).abs() < 1e-9, "expected 10.0, got {}", s);
+    }
+
+    #[test]
+    fn test_tick_sigma_none_for_single() {
+        use rust_decimal_macros::dec;
+        let t = make_tick_pq(dec!(100), dec!(1));
+        assert!(NormalizedTick::tick_sigma(&[t]).is_none());
+    }
+
+    #[test]
+    fn test_tick_sigma_uniform() {
+        use rust_decimal_macros::dec;
+        // all same price → sigma=0
+        let t1 = make_tick_pq(dec!(100), dec!(1));
+        let t2 = make_tick_pq(dec!(100), dec!(1));
+        let s = NormalizedTick::tick_sigma(&[t1, t2]).unwrap();
+        assert!(s.abs() < 1e-9, "expected ~0, got {}", s);
+    }
+
+    #[test]
+    fn test_downside_qty_fraction_none_for_empty() {
+        assert!(NormalizedTick::downside_qty_fraction(&[]).is_none());
+    }
+
+    #[test]
+    fn test_downside_qty_fraction_basic() {
+        use rust_decimal_macros::dec;
+        // mean price = (100+200)/2 = 150; below mean: price=100, qty=5; total=10 → 0.5
+        let t1 = make_tick_pq(dec!(100), dec!(5));
+        let t2 = make_tick_pq(dec!(200), dec!(5));
+        let f = NormalizedTick::downside_qty_fraction(&[t1, t2]).unwrap();
+        assert!((f - 0.5).abs() < 1e-9, "expected 0.5, got {}", f);
     }
 }

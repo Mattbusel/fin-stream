@@ -9,6 +9,36 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.6.2] - 2026-03-20
+
+### Added
+
+**`tick` module — `NormalizedTick` analytics (round 111)**
+- `NormalizedTick::tick_price_entropy(ticks)` — Shannon entropy of price distribution across 10 buckets.
+- `NormalizedTick::average_spread(ticks)` — mean absolute price change between consecutive ticks.
+- `NormalizedTick::tick_sigma(ticks)` — standard deviation of prices across the slice.
+- `NormalizedTick::downside_qty_fraction(ticks)` — fraction of quantity on ticks below the mean price.
+
+**`ohlcv` module — `OhlcvBar` analytics (round 111)**
+- `OhlcvBar::open_close_range(bars)` — mean absolute `|close - open|` body size across bars.
+- `OhlcvBar::volume_per_bar(bars)` — mean volume per bar.
+- `OhlcvBar::price_momentum_mean(bars)` — mean `(close - prev_close) / prev_close` across bars.
+- `OhlcvBar::avg_intrabar_efficiency(bars)` — mean `(close - open) / (high - low)` across bars.
+
+**`norm` module — `MinMaxNormalizer` analytics (round 111)**
+- `MinMaxNormalizer::window_trimmed_sum()` — sum of middle 80% of window values (10% trim each end).
+- `MinMaxNormalizer::window_range_zscore()` — z-score of the window range relative to its mean.
+- `MinMaxNormalizer::window_above_median_count()` — count of values strictly above the window median.
+- `MinMaxNormalizer::window_min_run()` — maximum length of a consecutive decreasing run.
+
+**`norm` module — `ZScoreNormalizer` analytics (round 111)**
+- `ZScoreNormalizer::window_trimmed_sum()` — sum of middle 80% of window values (10% trim each end).
+- `ZScoreNormalizer::window_range_zscore()` — z-score of the window range relative to its mean.
+- `ZScoreNormalizer::window_above_median_count()` — count of values strictly above the window median.
+- `ZScoreNormalizer::window_min_run()` — maximum length of a consecutive decreasing run.
+
+---
+
 ## [2.6.1] - 2026-03-20
 
 ### Added

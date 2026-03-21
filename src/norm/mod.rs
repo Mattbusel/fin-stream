@@ -2901,6 +2901,67 @@ impl MinMaxNormalizer {
         (sum_sq / Decimal::from(self.window.len())).to_f64()
     }
 
+    // ── round-111 ────────────────────────────────────────────────────────────
+
+    /// Sum of window values after trimming the top and bottom 10% (floored to nearest value).
+    /// Returns `None` for fewer than 5 values (need at least 1 value after trimming).
+    pub fn window_trimmed_sum(&self) -> Option<Decimal> {
+        if self.window.len() < 5 { return None; }
+        let mut sorted: Vec<Decimal> = self.window.iter().copied().collect();
+        sorted.sort();
+        let n = sorted.len();
+        let trim = (n as f64 * 0.1).floor() as usize;
+        let trimmed = &sorted[trim..n - trim];
+        if trimmed.is_empty() { return None; }
+        Some(trimmed.iter().copied().sum())
+    }
+
+    /// Z-score of the window range `(max - min)` relative to the window mean.
+    /// Returns `None` for fewer than 2 values or zero std dev.
+    pub fn window_range_zscore(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.len() != self.window.len() { return None; }
+        let n = vals.len() as f64;
+        let mean = vals.iter().sum::<f64>() / n;
+        let std_dev = (vals.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / n).sqrt();
+        if std_dev == 0.0 { return None; }
+        let range = vals.iter().cloned().fold(f64::NEG_INFINITY, f64::max)
+            - vals.iter().cloned().fold(f64::INFINITY, f64::min);
+        Some((range - mean) / std_dev)
+    }
+
+    /// Count of window values that are strictly above the window median.
+    /// Returns `None` for an empty window.
+    pub fn window_above_median_count(&self) -> Option<usize> {
+        if self.window.is_empty() { return None; }
+        let mut sorted: Vec<Decimal> = self.window.iter().copied().collect();
+        sorted.sort();
+        let n = sorted.len();
+        let median = if n % 2 == 1 { sorted[n / 2] }
+                     else { (sorted[n / 2 - 1] + sorted[n / 2]) / Decimal::TWO };
+        Some(self.window.iter().filter(|&&v| v > median).count())
+    }
+
+    /// Maximum length of a consecutive run of *decreasing* values in the window.
+    /// Returns `None` for fewer than 2 values.
+    pub fn window_min_run(&self) -> Option<usize> {
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<Decimal> = self.window.iter().copied().collect();
+        let mut max_run = 1usize;
+        let mut cur_run = 1usize;
+        for i in 1..vals.len() {
+            if vals[i] < vals[i - 1] {
+                cur_run += 1;
+                if cur_run > max_run { max_run = cur_run; }
+            } else {
+                cur_run = 1;
+            }
+        }
+        Some(max_run)
+    }
+
 }
 
 #[cfg(test)]
@@ -5992,6 +6053,65 @@ mod tests {
         let m = n.window_second_moment().unwrap();
         assert!((m - 12.5).abs() < 1e-9, "expected 12.5, got {}", m);
     }
+
+    // ── round-111 tests ───────────────────────────────────────────────────────
+
+    #[test]
+    fn test_minmax_window_trimmed_sum_none_for_four() {
+        let mut n = norm(5);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        assert!(n.window_trimmed_sum().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_trimmed_sum_basic() {
+        let mut n = norm(10);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4), dec!(5),
+                  dec!(6), dec!(7), dec!(8), dec!(9), dec!(10)] { n.update(v); }
+        // trim 10%: trim=1 from each end → [2..9] sum=2+3+4+5+6+7+8+9=44
+        let s = n.window_trimmed_sum().unwrap();
+        assert_eq!(s, dec!(44));
+    }
+
+    #[test]
+    fn test_minmax_window_range_zscore_none_for_single() {
+        let mut n = norm(5);
+        n.update(dec!(10));
+        assert!(n.window_range_zscore().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_range_zscore_basic() {
+        let mut n = norm(5);
+        for v in [dec!(10), dec!(20), dec!(30)] { n.update(v); }
+        // should return Some without panicking
+        assert!(n.window_range_zscore().is_some());
+    }
+
+    #[test]
+    fn test_minmax_window_above_median_count_basic() {
+        let mut n = norm(5);
+        for v in [dec!(10), dec!(20), dec!(30)] { n.update(v); }
+        // median=20; above median: only 30 → count=1
+        let c = n.window_above_median_count().unwrap();
+        assert_eq!(c, 1);
+    }
+
+    #[test]
+    fn test_minmax_window_min_run_none_for_single() {
+        let mut n = norm(5);
+        n.update(dec!(10));
+        assert!(n.window_min_run().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_min_run_basic() {
+        let mut n = norm(5);
+        for v in [dec!(30), dec!(20), dec!(10), dec!(25)] { n.update(v); }
+        // longest decreasing run = 3 (30→20→10)
+        let r = n.window_min_run().unwrap();
+        assert_eq!(r, 3);
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -8838,6 +8958,67 @@ impl ZScoreNormalizer {
         if self.window.is_empty() { return None; }
         let sum_sq: Decimal = self.window.iter().map(|&v| v * v).sum();
         (sum_sq / Decimal::from(self.window.len())).to_f64()
+    }
+
+    // ── round-111 ────────────────────────────────────────────────────────────
+
+    /// Sum of window values after trimming the top and bottom 10%.
+    /// Returns `None` for fewer than 5 values.
+    pub fn window_trimmed_sum(&self) -> Option<Decimal> {
+        if self.window.len() < 5 { return None; }
+        let mut sorted: Vec<Decimal> = self.window.iter().copied().collect();
+        sorted.sort();
+        let n = sorted.len();
+        let trim = (n as f64 * 0.1).floor() as usize;
+        let trimmed = &sorted[trim..n - trim];
+        if trimmed.is_empty() { return None; }
+        Some(trimmed.iter().copied().sum())
+    }
+
+    /// Z-score of the window range `(max - min)` relative to the window mean.
+    /// Returns `None` for fewer than 2 values or zero std dev.
+    pub fn window_range_zscore(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.len() != self.window.len() { return None; }
+        let n = vals.len() as f64;
+        let mean = vals.iter().sum::<f64>() / n;
+        let std_dev = (vals.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / n).sqrt();
+        if std_dev == 0.0 { return None; }
+        let range = vals.iter().cloned().fold(f64::NEG_INFINITY, f64::max)
+            - vals.iter().cloned().fold(f64::INFINITY, f64::min);
+        Some((range - mean) / std_dev)
+    }
+
+    /// Count of window values strictly above the window median.
+    /// Returns `None` for an empty window.
+    pub fn window_above_median_count(&self) -> Option<usize> {
+        if self.window.is_empty() { return None; }
+        let mut sorted: Vec<Decimal> = self.window.iter().copied().collect();
+        sorted.sort();
+        let n = sorted.len();
+        let median = if n % 2 == 1 { sorted[n / 2] }
+                     else { (sorted[n / 2 - 1] + sorted[n / 2]) / Decimal::TWO };
+        Some(self.window.iter().filter(|&&v| v > median).count())
+    }
+
+    /// Maximum length of a consecutive run of *decreasing* values in the window.
+    /// Returns `None` for fewer than 2 values.
+    pub fn window_min_run(&self) -> Option<usize> {
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<Decimal> = self.window.iter().copied().collect();
+        let mut max_run = 1usize;
+        let mut cur_run = 1usize;
+        for i in 1..vals.len() {
+            if vals[i] < vals[i - 1] {
+                cur_run += 1;
+                if cur_run > max_run { max_run = cur_run; }
+            } else {
+                cur_run = 1;
+            }
+        }
+        Some(max_run)
     }
 
 }
@@ -12046,5 +12227,60 @@ mod zscore_stability_tests {
         for v in [dec!(3), dec!(4)] { n.update(v); }
         let m = n.window_second_moment().unwrap();
         assert!((m - 12.5).abs() < 1e-9, "expected 12.5, got {}", m);
+    }
+
+    // ── round-111 tests ───────────────────────────────────────────────────────
+
+    #[test]
+    fn test_zscore_window_trimmed_sum_none_for_four() {
+        let mut n = znorm(5);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        assert!(n.window_trimmed_sum().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_trimmed_sum_basic() {
+        let mut n = znorm(10);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4), dec!(5),
+                  dec!(6), dec!(7), dec!(8), dec!(9), dec!(10)] { n.update(v); }
+        let s = n.window_trimmed_sum().unwrap();
+        assert_eq!(s, dec!(44));
+    }
+
+    #[test]
+    fn test_zscore_window_range_zscore_none_for_single() {
+        let mut n = znorm(5);
+        n.update(dec!(10));
+        assert!(n.window_range_zscore().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_range_zscore_basic() {
+        let mut n = znorm(5);
+        for v in [dec!(10), dec!(20), dec!(30)] { n.update(v); }
+        assert!(n.window_range_zscore().is_some());
+    }
+
+    #[test]
+    fn test_zscore_window_above_median_count_basic() {
+        let mut n = znorm(5);
+        for v in [dec!(10), dec!(20), dec!(30)] { n.update(v); }
+        let c = n.window_above_median_count().unwrap();
+        assert_eq!(c, 1);
+    }
+
+    #[test]
+    fn test_zscore_window_min_run_none_for_single() {
+        let mut n = znorm(5);
+        n.update(dec!(10));
+        assert!(n.window_min_run().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_min_run_basic() {
+        let mut n = znorm(5);
+        for v in [dec!(30), dec!(20), dec!(10), dec!(25)] { n.update(v); }
+        let r = n.window_min_run().unwrap();
+        assert_eq!(r, 3);
     }
 }

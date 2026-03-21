@@ -4934,6 +4934,52 @@ impl OhlcvBar {
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
+    // ── round-111 ────────────────────────────────────────────────────────────
+
+    /// Mean of `|close - open|` across all bars (mean absolute candle body size).
+    /// Returns `None` for an empty slice.
+    pub fn open_close_range(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let sum: Decimal = bars.iter().map(|b| (b.close - b.open).abs()).sum();
+        Some((sum / Decimal::from(bars.len())).to_f64().unwrap_or(0.0))
+    }
+
+    /// Mean volume per bar.
+    /// Returns `None` for an empty slice.
+    pub fn volume_per_bar(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let total: Decimal = bars.iter().map(|b| b.volume).sum();
+        Some((total / Decimal::from(bars.len())).to_f64().unwrap_or(0.0))
+    }
+
+    /// Mean of `(close - prev_close) / prev_close` across consecutive bars.
+    /// Returns `None` for fewer than 2 bars.
+    pub fn price_momentum_mean(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.len() < 2 { return None; }
+        let vals: Vec<f64> = bars.windows(2).filter_map(|w| {
+            if w[0].close.is_zero() { None }
+            else { Some(((w[1].close - w[0].close) / w[0].close).to_f64().unwrap_or(0.0)) }
+        }).collect();
+        if vals.is_empty() { return None; }
+        Some(vals.iter().sum::<f64>() / vals.len() as f64)
+    }
+
+    /// Mean of `(close - open) / (high - low)` — intra-bar efficiency.
+    /// Returns `None` for an empty slice or no bars with non-zero range.
+    pub fn avg_intrabar_efficiency(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let vals: Vec<f64> = bars.iter().filter_map(|b| {
+            let range = b.high - b.low;
+            if range.is_zero() { None }
+            else { Some(((b.close - b.open) / range).to_f64().unwrap_or(0.0)) }
+        }).collect();
+        if vals.is_empty() { return None; }
+        Some(vals.iter().sum::<f64>() / vals.len() as f64)
+    }
+
 }
 
 impl std::fmt::Display for OhlcvBar {
@@ -11733,6 +11779,64 @@ mod tests {
         // open=100, close=110, high=110, low=100 → body=10, range=10 → ratio=1.0
         let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(100), dec!(110));
         let e = OhlcvBar::candle_range_efficiency(&[b]).unwrap();
+        assert!((e - 1.0).abs() < 1e-9, "expected 1.0, got {}", e);
+    }
+
+    // ── round-111 tests ───────────────────────────────────────────────────────
+
+    #[test]
+    fn test_open_close_range_none_for_empty() {
+        assert!(OhlcvBar::open_close_range(&[]).is_none());
+    }
+
+    #[test]
+    fn test_open_close_range_basic() {
+        // open=100, close=110 → body=10
+        let b = make_ohlcv_bar(dec!(100), dec!(115), dec!(90), dec!(110));
+        let r = OhlcvBar::open_close_range(&[b]).unwrap();
+        assert!((r - 10.0).abs() < 1e-9, "expected 10.0, got {}", r);
+    }
+
+    #[test]
+    fn test_volume_per_bar_none_for_empty() {
+        assert!(OhlcvBar::volume_per_bar(&[]).is_none());
+    }
+
+    #[test]
+    fn test_volume_per_bar_basic() {
+        let mut b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        b1.volume = dec!(100);
+        let mut b2 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        b2.volume = dec!(200);
+        let v = OhlcvBar::volume_per_bar(&[b1, b2]).unwrap();
+        assert!((v - 150.0).abs() < 1e-9, "expected 150.0, got {}", v);
+    }
+
+    #[test]
+    fn test_price_momentum_mean_none_for_single() {
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        assert!(OhlcvBar::price_momentum_mean(&[b]).is_none());
+    }
+
+    #[test]
+    fn test_price_momentum_mean_basic() {
+        // prev close=100, curr close=110 → (110-100)/100=0.1
+        let prev = make_ohlcv_bar(dec!(95), dec!(105), dec!(90), dec!(100));
+        let curr = make_ohlcv_bar(dec!(100), dec!(115), dec!(95), dec!(110));
+        let m = OhlcvBar::price_momentum_mean(&[prev, curr]).unwrap();
+        assert!((m - 0.1).abs() < 1e-9, "expected 0.1, got {}", m);
+    }
+
+    #[test]
+    fn test_avg_intrabar_efficiency_none_for_empty() {
+        assert!(OhlcvBar::avg_intrabar_efficiency(&[]).is_none());
+    }
+
+    #[test]
+    fn test_avg_intrabar_efficiency_basic() {
+        // open=100, close=110, high=110, low=100 → (close-open)/range = 10/10 = 1.0
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(100), dec!(110));
+        let e = OhlcvBar::avg_intrabar_efficiency(&[b]).unwrap();
         assert!((e - 1.0).abs() < 1e-9, "expected 1.0, got {}", e);
     }
 }
