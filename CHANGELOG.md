@@ -9,6 +9,36 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.9.0] - 2026-03-20
+
+### Added
+
+**`tick` module — `NormalizedTick` analytics (round 139)**
+- `NormalizedTick::price_upper_shadow(ticks)` — fraction of ticks with price above the mean.
+- `NormalizedTick::qty_momentum_score(ticks)` — last quantity vs mean, normalized by std dev.
+- `NormalizedTick::tick_buy_run(ticks)` — longest consecutive run of Buy-sided ticks.
+- `NormalizedTick::side_price_gap(ticks)` — mean price difference between Buy and Sell ticks.
+
+**`ohlcv` module — `OhlcvBar` analytics (round 139)**
+- `OhlcvBar::bar_wick_asymmetry(bars)` — mean of (upper wick - lower wick) per bar.
+- `OhlcvBar::close_to_open_ratio(bars)` — mean of close / open per bar.
+- `OhlcvBar::bar_volume_skew(bars)` — fraction of bars with volume above the mean volume.
+- `OhlcvBar::bar_close_to_range(bars)` — mean of (close - low) / (high - low) per bar.
+
+**`norm` module — `MinMaxNormalizer` analytics (round 139)**
+- `MinMaxNormalizer::window_range_position()` — (last - min) / (max - min) in the window.
+- `MinMaxNormalizer::window_sign_changes()` — number of times consecutive diffs change sign.
+- `MinMaxNormalizer::window_mean_shift()` — mean of second half minus mean of first half.
+- `MinMaxNormalizer::window_slope_change()` — OLS slope of second half minus first half.
+
+**`norm` module — `ZScoreNormalizer` analytics (round 139)**
+- `ZScoreNormalizer::window_range_position()` — (last - min) / (max - min) in the window.
+- `ZScoreNormalizer::window_sign_changes()` — number of times consecutive diffs change sign.
+- `ZScoreNormalizer::window_mean_shift()` — mean of second half minus mean of first half.
+- `ZScoreNormalizer::window_slope_change()` — OLS slope of second half minus first half.
+
+---
+
 ## [2.8.9] - 2026-03-20
 
 ### Added

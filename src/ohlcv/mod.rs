@@ -6351,6 +6351,57 @@ impl OhlcvBar {
         Some(reversions as f64 / (closes.len() - 1) as f64)
     }
 
+    // ── round-139 ────────────────────────────────────────────────────────────
+
+    /// Bar wick asymmetry: mean of (upper wick - lower wick) per bar.
+    pub fn bar_wick_asymmetry(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let sum: f64 = bars.iter().map(|b| {
+            let upper = (b.high - b.close.max(b.open)).to_f64().unwrap_or(0.0);
+            let lower = (b.close.min(b.open) - b.low).to_f64().unwrap_or(0.0);
+            upper - lower
+        }).sum();
+        Some(sum / bars.len() as f64)
+    }
+
+    /// Close to open ratio: mean of close[i] / open[i] per bar.
+    pub fn close_to_open_ratio(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let ratios: Vec<f64> = bars.iter().filter_map(|b| {
+            let o = b.open.to_f64()?;
+            let c = b.close.to_f64()?;
+            if o == 0.0 { None } else { Some(c / o) }
+        }).collect();
+        if ratios.is_empty() { return None; }
+        Some(ratios.iter().sum::<f64>() / ratios.len() as f64)
+    }
+
+    /// Bar volume skew: fraction of bars with volume above the mean volume.
+    pub fn bar_volume_skew(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let vols: Vec<f64> = bars.iter().map(|b| b.volume.to_f64().unwrap_or(0.0)).collect();
+        let mean = vols.iter().sum::<f64>() / vols.len() as f64;
+        let above = vols.iter().filter(|&&v| v > mean).count() as f64;
+        Some(above / vols.len() as f64)
+    }
+
+    /// Bar close to range: mean of (close - low) / (high - low) per bar.
+    pub fn bar_close_to_range(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let vals: Vec<f64> = bars.iter().filter_map(|b| {
+            let range = (b.high - b.low).to_f64()?;
+            if range == 0.0 { return None; }
+            let cl = (b.close - b.low).to_f64()?;
+            Some(cl / range)
+        }).collect();
+        if vals.is_empty() { return None; }
+        Some(vals.iter().sum::<f64>() / vals.len() as f64)
+    }
+
 }
 
 impl std::fmt::Display for OhlcvBar {
@@ -14736,5 +14787,60 @@ mod tests {
         ];
         let r = OhlcvBar::close_mean_reversion(&bars).unwrap();
         assert!(r >= 0.0 && r <= 1.0, "expected [0,1], got {}", r);
+    }
+
+    // ── round-139 ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_bar_wick_asymmetry_none_for_empty() {
+        assert!(OhlcvBar::bar_wick_asymmetry(&[]).is_none());
+    }
+
+    #[test]
+    fn test_bar_wick_asymmetry_bullish_bar() {
+        // bullish: open < close, high=close+5, low=open-1 → upper wick=5, lower wick=1 → asym=4
+        let bars = vec![make_ohlcv_bar(dec!(100), dec!(115), dec!(99), dec!(110))];
+        let a = OhlcvBar::bar_wick_asymmetry(&bars).unwrap();
+        assert!(a > 0.0, "expected positive asymmetry for upper-wick dominant, got {}", a);
+    }
+
+    #[test]
+    fn test_close_to_open_ratio_none_for_empty() {
+        assert!(OhlcvBar::close_to_open_ratio(&[]).is_none());
+    }
+
+    #[test]
+    fn test_close_to_open_ratio_flat() {
+        let bars = vec![make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100))];
+        let r = OhlcvBar::close_to_open_ratio(&bars).unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "expected 1.0, got {}", r);
+    }
+
+    #[test]
+    fn test_bar_volume_skew_none_for_empty() {
+        assert!(OhlcvBar::bar_volume_skew(&[]).is_none());
+    }
+
+    #[test]
+    fn test_bar_volume_skew_range_valid() {
+        let bars = vec![
+            make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105)),
+            make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105)),
+        ];
+        let s = OhlcvBar::bar_volume_skew(&bars).unwrap();
+        assert!(s >= 0.0 && s <= 1.0, "expected [0,1], got {}", s);
+    }
+
+    #[test]
+    fn test_bar_close_to_range_none_for_empty() {
+        assert!(OhlcvBar::bar_close_to_range(&[]).is_none());
+    }
+
+    #[test]
+    fn test_bar_close_to_range_at_high() {
+        // close=high → (close-low)/(high-low) = 1.0
+        let bars = vec![make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(110))];
+        let r = OhlcvBar::bar_close_to_range(&bars).unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "expected 1.0, got {}", r);
     }
 }

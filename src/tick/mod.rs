@@ -6481,6 +6481,62 @@ impl NormalizedTick {
         Some(downs.iter().sum::<f64>() / downs.len() as f64)
     }
 
+    // ── round-139 ────────────────────────────────────────────────────────────
+
+    /// Price upper shadow: fraction of ticks where price > mean price.
+    pub fn price_upper_shadow(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() { return None; }
+        let prices: Vec<f64> = ticks.iter().map(|t| t.price.to_f64().unwrap_or(0.0)).collect();
+        let mean = prices.iter().sum::<f64>() / prices.len() as f64;
+        let above = prices.iter().filter(|&&p| p > mean).count() as f64;
+        Some(above / prices.len() as f64)
+    }
+
+    /// Quantity momentum score: last quantity vs mean quantity, normalized by std.
+    pub fn qty_momentum_score(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 2 { return None; }
+        let qtys: Vec<f64> = ticks.iter().map(|t| t.quantity.to_f64().unwrap_or(0.0)).collect();
+        let mean = qtys.iter().sum::<f64>() / qtys.len() as f64;
+        let std = (qtys.iter().map(|&q| (q - mean).powi(2)).sum::<f64>() / qtys.len() as f64).sqrt();
+        if std == 0.0 { return None; }
+        Some((*qtys.last()? - mean) / std)
+    }
+
+    /// Tick buy run: longest consecutive run of Buy-sided ticks.
+    pub fn tick_buy_run(ticks: &[NormalizedTick]) -> Option<usize> {
+        if ticks.is_empty() { return None; }
+        let mut max_run = 0usize;
+        let mut cur_run = 0usize;
+        for t in ticks {
+            if matches!(t.side, Some(TradeSide::Buy)) {
+                cur_run += 1;
+                max_run = max_run.max(cur_run);
+            } else {
+                cur_run = 0;
+            }
+        }
+        Some(max_run)
+    }
+
+    /// Side price gap: mean price difference between Buy and Sell ticks.
+    pub fn side_price_gap(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let buy_prices: Vec<f64> = ticks.iter()
+            .filter(|t| matches!(t.side, Some(TradeSide::Buy)))
+            .map(|t| t.price.to_f64().unwrap_or(0.0))
+            .collect();
+        let sell_prices: Vec<f64> = ticks.iter()
+            .filter(|t| matches!(t.side, Some(TradeSide::Sell)))
+            .map(|t| t.price.to_f64().unwrap_or(0.0))
+            .collect();
+        if buy_prices.is_empty() || sell_prices.is_empty() { return None; }
+        let buy_mean = buy_prices.iter().sum::<f64>() / buy_prices.len() as f64;
+        let sell_mean = sell_prices.iter().sum::<f64>() / sell_prices.len() as f64;
+        Some(buy_mean - sell_mean)
+    }
+
 }
 
 
@@ -14817,5 +14873,77 @@ mod tests {
         // no down moves → rate = 0.0
         let r = NormalizedTick::price_decay_rate(&ticks).unwrap();
         assert!((r - 0.0).abs() < 1e-9, "expected 0.0 for all-up, got {}", r);
+    }
+
+    // ── round-139 ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_price_upper_shadow_none_for_empty() {
+        assert!(NormalizedTick::price_upper_shadow(&[]).is_none());
+    }
+
+    #[test]
+    fn test_price_upper_shadow_all_below_mean() {
+        use rust_decimal_macros::dec;
+        // all prices equal → mean=100 → none above → 0.0
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(100), dec!(1)),
+        ];
+        let r = NormalizedTick::price_upper_shadow(&ticks).unwrap();
+        assert!((r - 0.0).abs() < 1e-9, "expected 0.0, got {}", r);
+    }
+
+    #[test]
+    fn test_qty_momentum_score_none_for_single() {
+        assert!(NormalizedTick::qty_momentum_score(&[make_tick_pq(rust_decimal_macros::dec!(100), rust_decimal_macros::dec!(1))]).is_none());
+    }
+
+    #[test]
+    fn test_qty_momentum_score_last_highest() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(100), dec!(2)),
+            make_tick_pq(dec!(100), dec!(10)),
+        ];
+        let s = NormalizedTick::qty_momentum_score(&ticks).unwrap();
+        assert!(s > 0.0, "expected positive momentum for rising qty, got {}", s);
+    }
+
+    #[test]
+    fn test_tick_buy_run_none_for_empty() {
+        assert!(NormalizedTick::tick_buy_run(&[]).is_none());
+    }
+
+    #[test]
+    fn test_tick_buy_run_all_buy() {
+        use rust_decimal_macros::dec;
+        use crate::tick::TradeSide;
+        let mut t1 = make_tick_pq(dec!(100), dec!(1));
+        t1.side = Some(TradeSide::Buy);
+        let mut t2 = make_tick_pq(dec!(101), dec!(1));
+        t2.side = Some(TradeSide::Buy);
+        let run = NormalizedTick::tick_buy_run(&[t1, t2]).unwrap();
+        assert_eq!(run, 2, "expected 2, got {}", run);
+    }
+
+    #[test]
+    fn test_side_price_gap_none_for_no_sides() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![make_tick_pq(dec!(100), dec!(1))];
+        assert!(NormalizedTick::side_price_gap(&ticks).is_none());
+    }
+
+    #[test]
+    fn test_side_price_gap_buy_above_sell() {
+        use rust_decimal_macros::dec;
+        use crate::tick::TradeSide;
+        let mut buy = make_tick_pq(dec!(110), dec!(1));
+        buy.side = Some(TradeSide::Buy);
+        let mut sell = make_tick_pq(dec!(100), dec!(1));
+        sell.side = Some(TradeSide::Sell);
+        let gap = NormalizedTick::side_price_gap(&[buy, sell]).unwrap();
+        assert!((gap - 10.0).abs() < 1e-6, "expected 10.0, got {}", gap);
     }
 }

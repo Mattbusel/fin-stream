@@ -4272,6 +4272,61 @@ impl MinMaxNormalizer {
         Some(variance.sqrt())
     }
 
+    // ── round-139 ────────────────────────────────────────────────────────────
+
+    /// Range position: (last value - min) / (max - min) in the window.
+    pub fn window_range_position(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let max = vals.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        let min = vals.iter().cloned().fold(f64::INFINITY, f64::min);
+        let range = max - min;
+        if range == 0.0 { return Some(0.5); }
+        let last = *vals.last()?;
+        Some((last - min) / range)
+    }
+
+    /// Sign changes: number of times consecutive differences change sign in the window.
+    pub fn window_sign_changes(&self) -> Option<usize> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 3 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let diffs: Vec<f64> = vals.windows(2).map(|w| w[1] - w[0]).collect();
+        let changes = diffs.windows(2)
+            .filter(|w| w[0] * w[1] < 0.0)
+            .count();
+        Some(changes)
+    }
+
+    /// Mean shift: mean of the last half minus mean of the first half.
+    pub fn window_mean_shift(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 4 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let mid = vals.len() / 2;
+        let first_mean = vals[..mid].iter().sum::<f64>() / mid as f64;
+        let second_mean = vals[mid..].iter().sum::<f64>() / (vals.len() - mid) as f64;
+        Some(second_mean - first_mean)
+    }
+
+    /// Slope change: difference between the OLS slope of the second half and first half.
+    pub fn window_slope_change(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 4 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let mid = vals.len() / 2;
+        let slope = |seg: &[f64]| -> f64 {
+            let n = seg.len() as f64;
+            let x_mean = (n - 1.0) / 2.0;
+            let y_mean = seg.iter().sum::<f64>() / n;
+            let num: f64 = seg.iter().enumerate().map(|(i, &y)| (i as f64 - x_mean) * (y - y_mean)).sum();
+            let den: f64 = seg.iter().enumerate().map(|(i, _)| (i as f64 - x_mean).powi(2)).sum();
+            if den == 0.0 { 0.0 } else { num / den }
+        };
+        Some(slope(&vals[mid..]) - slope(&vals[..mid]))
+    }
+
 }
 
 #[cfg(test)]
@@ -9090,6 +9145,71 @@ mod tests {
         let rv = n.window_recent_volatility().unwrap();
         assert!((rv - 0.0).abs() < 1e-9, "expected 0.0 for constant, got {}", rv);
     }
+
+    // ── round-139 ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_minmax_window_range_position_none_for_empty() {
+        let n = norm(4);
+        assert!(n.window_range_position().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_range_position_at_max() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        // last=4, min=1, max=4 → (4-1)/(4-1)=1.0
+        let r = n.window_range_position().unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "expected 1.0, got {}", r);
+    }
+
+    #[test]
+    fn test_minmax_window_sign_changes_none_for_small() {
+        let mut n = norm(4);
+        n.update(dec!(1)); n.update(dec!(2));
+        assert!(n.window_sign_changes().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_sign_changes_alternating() {
+        let mut n = norm(5);
+        for v in [dec!(1), dec!(3), dec!(1), dec!(3), dec!(1)] { n.update(v); }
+        // diffs: +2, -2, +2, -2 → sign changes: 3
+        let sc = n.window_sign_changes().unwrap();
+        assert_eq!(sc, 3, "expected 3 sign changes, got {}", sc);
+    }
+
+    #[test]
+    fn test_minmax_window_mean_shift_none_for_small() {
+        let mut n = norm(4);
+        n.update(dec!(1)); n.update(dec!(2)); n.update(dec!(3));
+        assert!(n.window_mean_shift().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_mean_shift_increasing() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(10), dec!(11)] { n.update(v); }
+        // first half [1,2] mean=1.5, second half [10,11] mean=10.5 → shift=9.0
+        let ms = n.window_mean_shift().unwrap();
+        assert!(ms > 0.0, "expected positive shift, got {}", ms);
+    }
+
+    #[test]
+    fn test_minmax_window_slope_change_none_for_small() {
+        let mut n = norm(4);
+        n.update(dec!(1)); n.update(dec!(2)); n.update(dec!(3));
+        assert!(n.window_slope_change().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_slope_change_basic() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let sc = n.window_slope_change().unwrap();
+        // uniform slope → near 0
+        assert!(sc.abs() < 1.0, "expected small slope change, got {}", sc);
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -13306,6 +13426,61 @@ impl ZScoreNormalizer {
         let mean = recent.iter().sum::<f64>() / recent.len() as f64;
         let variance = recent.iter().map(|&v| (v - mean).powi(2)).sum::<f64>() / recent.len() as f64;
         Some(variance.sqrt())
+    }
+
+    // ── round-139 ────────────────────────────────────────────────────────────
+
+    /// Range position: (last value - min) / (max - min) in the window.
+    pub fn window_range_position(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let max = vals.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        let min = vals.iter().cloned().fold(f64::INFINITY, f64::min);
+        let range = max - min;
+        if range == 0.0 { return Some(0.5); }
+        let last = *vals.last()?;
+        Some((last - min) / range)
+    }
+
+    /// Sign changes: number of times consecutive differences change sign in the window.
+    pub fn window_sign_changes(&self) -> Option<usize> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 3 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let diffs: Vec<f64> = vals.windows(2).map(|w| w[1] - w[0]).collect();
+        let changes = diffs.windows(2)
+            .filter(|w| w[0] * w[1] < 0.0)
+            .count();
+        Some(changes)
+    }
+
+    /// Mean shift: mean of the last half minus mean of the first half.
+    pub fn window_mean_shift(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 4 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let mid = vals.len() / 2;
+        let first_mean = vals[..mid].iter().sum::<f64>() / mid as f64;
+        let second_mean = vals[mid..].iter().sum::<f64>() / (vals.len() - mid) as f64;
+        Some(second_mean - first_mean)
+    }
+
+    /// Slope change: difference between the OLS slope of the second half and first half.
+    pub fn window_slope_change(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 4 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let mid = vals.len() / 2;
+        let slope = |seg: &[f64]| -> f64 {
+            let n = seg.len() as f64;
+            let x_mean = (n - 1.0) / 2.0;
+            let y_mean = seg.iter().sum::<f64>() / n;
+            let num: f64 = seg.iter().enumerate().map(|(i, &y)| (i as f64 - x_mean) * (y - y_mean)).sum();
+            let den: f64 = seg.iter().enumerate().map(|(i, _)| (i as f64 - x_mean).powi(2)).sum();
+            if den == 0.0 { 0.0 } else { num / den }
+        };
+        Some(slope(&vals[mid..]) - slope(&vals[..mid]))
     }
 
 }
@@ -18174,5 +18349,66 @@ mod zscore_stability_tests {
         for v in [dec!(5), dec!(5), dec!(5), dec!(5)] { n.update(v); }
         let rv = n.window_recent_volatility().unwrap();
         assert!((rv - 0.0).abs() < 1e-9, "expected 0.0 for constant, got {}", rv);
+    }
+
+    // ── round-139 ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_zscore_window_range_position_none_for_empty() {
+        let n = znorm(4);
+        assert!(n.window_range_position().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_range_position_at_max() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let r = n.window_range_position().unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "expected 1.0, got {}", r);
+    }
+
+    #[test]
+    fn test_zscore_window_sign_changes_none_for_small() {
+        let mut n = znorm(4);
+        n.update(dec!(1)); n.update(dec!(2));
+        assert!(n.window_sign_changes().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_sign_changes_alternating() {
+        let mut n = znorm(5);
+        for v in [dec!(1), dec!(3), dec!(1), dec!(3), dec!(1)] { n.update(v); }
+        let sc = n.window_sign_changes().unwrap();
+        assert_eq!(sc, 3, "expected 3 sign changes, got {}", sc);
+    }
+
+    #[test]
+    fn test_zscore_window_mean_shift_none_for_small() {
+        let mut n = znorm(4);
+        n.update(dec!(1)); n.update(dec!(2)); n.update(dec!(3));
+        assert!(n.window_mean_shift().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_mean_shift_increasing() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(10), dec!(11)] { n.update(v); }
+        let ms = n.window_mean_shift().unwrap();
+        assert!(ms > 0.0, "expected positive shift, got {}", ms);
+    }
+
+    #[test]
+    fn test_zscore_window_slope_change_none_for_small() {
+        let mut n = znorm(4);
+        n.update(dec!(1)); n.update(dec!(2)); n.update(dec!(3));
+        assert!(n.window_slope_change().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_slope_change_basic() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let sc = n.window_slope_change().unwrap();
+        assert!(sc.abs() < 1.0, "expected small slope change, got {}", sc);
     }
 }
