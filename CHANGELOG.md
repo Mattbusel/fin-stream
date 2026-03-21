@@ -9,6 +9,30 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.10.44] - 2026-03-20
+
+### Added
+
+**`tick` module — `NormalizedTick` analytics (round 193)**
+- `NormalizedTick::tick_vol_gini(ticks)` — Gini coefficient of tick volumes.
+- `NormalizedTick::price_mean_abs_change(ticks)` — mean absolute price change between consecutive ticks.
+- `NormalizedTick::tick_price_abs_momentum(ticks)` — |last price - first price|.
+- `NormalizedTick::tick_qty_gini(ticks)` — Gini coefficient of tick quantities.
+
+**`ohlcv` module — `OhlcvBar` analytics (round 193)**
+- `OhlcvBar::bar_open_close_range_ratio(bars)` — mean |open-close| / mean HL range per bar.
+- `OhlcvBar::bar_vol_per_candle(bars)` — total volume / number of bars.
+- `OhlcvBar::bar_close_high_low_ratio(bars)` — mean close / (high+low)/2 per bar.
+- `OhlcvBar::bar_close_open_std(bars)` — standard deviation of (close - open) across bars.
+
+**`norm` module — `MinMaxNormalizer` + `ZScoreNormalizer` analytics (round 193)**
+- `window_max_abs_diff()` — maximum absolute consecutive difference in window.
+- `window_local_trend()` — mean sign of successive differences (trend direction).
+- `window_normalized_entropy()` — entropy normalized to [0,1] by log(n).
+- `window_decay_variance()` — exponentially decay-weighted variance.
+
+---
+
 ## [2.10.43] - 2026-03-20
 
 ### Added

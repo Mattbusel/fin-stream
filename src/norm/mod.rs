@@ -6893,6 +6893,61 @@ impl MinMaxNormalizer {
         Some(max / total)
     }
 
+    /// Maximum absolute pairwise difference across consecutive pairs in window.
+    pub fn window_max_abs_diff(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        vals.windows(2)
+            .map(|w| (w[1] - w[0]).abs())
+            .reduce(f64::max)
+    }
+
+    /// Local trend: mean of sign of each successive difference.
+    pub fn window_local_trend(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let signs: Vec<f64> = vals.windows(2)
+            .map(|w| if w[1] > w[0] { 1.0 } else if w[1] < w[0] { -1.0 } else { 0.0 })
+            .collect();
+        Some(signs.iter().sum::<f64>() / signs.len() as f64)
+    }
+
+    /// Entropy normalized to [0,1] by dividing by log(n).
+    pub fn window_normalized_entropy(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let n = self.window.len();
+        if n < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let total: f64 = vals.iter().map(|v| v.abs()).sum();
+        if total == 0.0 { return None; }
+        let entropy: f64 = vals.iter()
+            .filter(|&&v| v.abs() > 0.0)
+            .map(|&v| { let p = v.abs() / total; -p * p.ln() })
+            .sum();
+        let max_entropy = (n as f64).ln();
+        if max_entropy == 0.0 { return None; }
+        Some(entropy / max_entropy)
+    }
+
+    /// Exponentially decay-weighted variance of window values.
+    pub fn window_decay_variance(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let n = vals.len();
+        let alpha = 2.0 / (n as f64 + 1.0);
+        let weights: Vec<f64> = (0..n).map(|i| (1.0 - alpha).powi((n - 1 - i) as i32)).collect();
+        let w_sum: f64 = weights.iter().sum();
+        let w_mean: f64 = vals.iter().zip(weights.iter()).map(|(v, w)| v * w).sum::<f64>() / w_sum;
+        let w_var: f64 = vals.iter().zip(weights.iter())
+            .map(|(v, w)| w * (v - w_mean).powi(2))
+            .sum::<f64>() / w_sum;
+        Some(w_var)
+    }
+
 }
 
 #[cfg(test)]
@@ -14998,6 +15053,65 @@ mod tests {
         let r = n.window_value_concentration().unwrap();
         assert!((r - 0.25).abs() < 1e-9);
     }
+
+    #[test]
+    fn test_minmax_window_max_abs_diff_none_for_single() {
+        let mut n = norm(4);
+        n.update(dec!(5));
+        assert!(n.window_max_abs_diff().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_max_abs_diff_value() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(4), dec!(2)] { n.update(v); }
+        let r = n.window_max_abs_diff().unwrap();
+        assert!((r - 3.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_minmax_window_local_trend_none_for_single() {
+        let mut n = norm(4);
+        n.update(dec!(5));
+        assert!(n.window_local_trend().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_local_trend_all_up() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        let r = n.window_local_trend().unwrap();
+        assert!((r - 1.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_minmax_window_normalized_entropy_none_for_single() {
+        let mut n = norm(4);
+        n.update(dec!(5));
+        assert!(n.window_normalized_entropy().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_normalized_entropy_returns_value() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        assert!(n.window_normalized_entropy().is_some());
+    }
+
+    #[test]
+    fn test_minmax_window_decay_variance_none_for_single() {
+        let mut n = norm(4);
+        n.update(dec!(5));
+        assert!(n.window_decay_variance().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_decay_variance_constant_zero() {
+        let mut n = norm(4);
+        for v in [dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        let r = n.window_decay_variance().unwrap();
+        assert!(r.abs() < 1e-9);
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -21839,6 +21953,61 @@ impl ZScoreNormalizer {
         if total == 0.0 { return None; }
         let max = vals.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
         Some(max / total)
+    }
+
+    /// Maximum absolute pairwise difference across consecutive pairs in window.
+    pub fn window_max_abs_diff(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        vals.windows(2)
+            .map(|w| (w[1] - w[0]).abs())
+            .reduce(f64::max)
+    }
+
+    /// Local trend: mean of sign of each successive difference.
+    pub fn window_local_trend(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let signs: Vec<f64> = vals.windows(2)
+            .map(|w| if w[1] > w[0] { 1.0 } else if w[1] < w[0] { -1.0 } else { 0.0 })
+            .collect();
+        Some(signs.iter().sum::<f64>() / signs.len() as f64)
+    }
+
+    /// Entropy normalized to [0,1] by dividing by log(n).
+    pub fn window_normalized_entropy(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let n = self.window.len();
+        if n < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let total: f64 = vals.iter().map(|v| v.abs()).sum();
+        if total == 0.0 { return None; }
+        let entropy: f64 = vals.iter()
+            .filter(|&&v| v.abs() > 0.0)
+            .map(|&v| { let p = v.abs() / total; -p * p.ln() })
+            .sum();
+        let max_entropy = (n as f64).ln();
+        if max_entropy == 0.0 { return None; }
+        Some(entropy / max_entropy)
+    }
+
+    /// Exponentially decay-weighted variance of window values.
+    pub fn window_decay_variance(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let n = vals.len();
+        let alpha = 2.0 / (n as f64 + 1.0);
+        let weights: Vec<f64> = (0..n).map(|i| (1.0 - alpha).powi((n - 1 - i) as i32)).collect();
+        let w_sum: f64 = weights.iter().sum();
+        let w_mean: f64 = vals.iter().zip(weights.iter()).map(|(v, w)| v * w).sum::<f64>() / w_sum;
+        let w_var: f64 = vals.iter().zip(weights.iter())
+            .map(|(v, w)| w * (v - w_mean).powi(2))
+            .sum::<f64>() / w_sum;
+        Some(w_var)
     }
 
 }
@@ -29894,5 +30063,64 @@ mod zscore_stability_tests {
         for v in [dec!(1), dec!(1), dec!(1), dec!(1)] { n.update(v); }
         let r = n.window_value_concentration().unwrap();
         assert!((r - 0.25).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_zscore_window_max_abs_diff_none_for_single() {
+        let mut n = znorm(4);
+        n.update(dec!(5));
+        assert!(n.window_max_abs_diff().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_max_abs_diff_value() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(4), dec!(2)] { n.update(v); }
+        let r = n.window_max_abs_diff().unwrap();
+        assert!((r - 3.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_zscore_window_local_trend_none_for_single() {
+        let mut n = znorm(4);
+        n.update(dec!(5));
+        assert!(n.window_local_trend().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_local_trend_all_up() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        let r = n.window_local_trend().unwrap();
+        assert!((r - 1.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_zscore_window_normalized_entropy_none_for_single() {
+        let mut n = znorm(4);
+        n.update(dec!(5));
+        assert!(n.window_normalized_entropy().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_normalized_entropy_returns_value() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        assert!(n.window_normalized_entropy().is_some());
+    }
+
+    #[test]
+    fn test_zscore_window_decay_variance_none_for_single() {
+        let mut n = znorm(4);
+        n.update(dec!(5));
+        assert!(n.window_decay_variance().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_decay_variance_constant_zero() {
+        let mut n = znorm(4);
+        for v in [dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        let r = n.window_decay_variance().unwrap();
+        assert!(r.abs() < 1e-9);
     }
 }

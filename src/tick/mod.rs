@@ -9652,6 +9652,57 @@ impl NormalizedTick {
         Some(entropy(buy_vol / total) + entropy(sell_vol / total))
     }
 
+    /// Gini coefficient of tick volumes (0 = perfectly equal, 1 = maximally unequal).
+    pub fn tick_vol_gini(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() { return None; }
+        let mut vols: Vec<f64> = ticks.iter()
+            .filter_map(|t| t.quantity.to_f64())
+            .collect();
+        if vols.is_empty() { return None; }
+        vols.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let n = vols.len() as f64;
+        let sum: f64 = vols.iter().sum();
+        if sum == 0.0 { return None; }
+        let weighted: f64 = vols.iter().enumerate().map(|(i, v)| (2 * (i + 1)) as f64 * v).sum();
+        Some((weighted / (n * sum)) - (n + 1.0) / n)
+    }
+
+    /// Mean absolute change in price between consecutive ticks.
+    pub fn price_mean_abs_change(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 2 { return None; }
+        let prices: Vec<f64> = ticks.iter().filter_map(|t| t.price.to_f64()).collect();
+        if prices.len() < 2 { return None; }
+        let changes: Vec<f64> = prices.windows(2).map(|w| (w[1] - w[0]).abs()).collect();
+        Some(changes.iter().sum::<f64>() / changes.len() as f64)
+    }
+
+    /// Absolute price momentum: |last price - first price|.
+    pub fn tick_price_abs_momentum(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 2 { return None; }
+        let first = ticks.first()?.price.to_f64()?;
+        let last = ticks.last()?.price.to_f64()?;
+        Some((last - first).abs())
+    }
+
+    /// Gini coefficient of tick quantities.
+    pub fn tick_qty_gini(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() { return None; }
+        let mut qtys: Vec<f64> = ticks.iter()
+            .filter_map(|t| t.quantity.to_f64())
+            .collect();
+        if qtys.is_empty() { return None; }
+        qtys.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let n = qtys.len() as f64;
+        let sum: f64 = qtys.iter().sum();
+        if sum == 0.0 { return None; }
+        let weighted: f64 = qtys.iter().enumerate().map(|(i, q)| (2 * (i + 1)) as f64 * q).sum();
+        Some((weighted / (n * sum)) - (n + 1.0) / n)
+    }
+
 }
 
 
@@ -22012,5 +22063,77 @@ mod tests {
         let r = NormalizedTick::tick_side_vol_entropy(&[buy, sell]).unwrap();
         // balanced → entropy = ln(2)
         assert!((r - std::f64::consts::LN_2).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_tick_vol_gini_empty_none() {
+        assert!(NormalizedTick::tick_vol_gini(&[]).is_none());
+    }
+
+    #[test]
+    fn test_tick_vol_gini_equal_vols() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(5)),
+            make_tick_pq(dec!(101), dec!(5)),
+        ];
+        let g = NormalizedTick::tick_vol_gini(&ticks).unwrap();
+        assert!(g.abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_price_mean_abs_change_single_none() {
+        use rust_decimal_macros::dec;
+        assert!(NormalizedTick::price_mean_abs_change(&[make_tick_pq(dec!(100), dec!(1))]).is_none());
+    }
+
+    #[test]
+    fn test_price_mean_abs_change_constant_zero() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![make_tick_pq(dec!(100), dec!(1)), make_tick_pq(dec!(100), dec!(1))];
+        let r = NormalizedTick::price_mean_abs_change(&ticks).unwrap();
+        assert!(r.abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_price_mean_abs_change_value() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(105), dec!(1)),
+            make_tick_pq(dec!(100), dec!(1)),
+        ];
+        let r = NormalizedTick::price_mean_abs_change(&ticks).unwrap();
+        assert!((r - 5.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_tick_price_abs_momentum_single_none() {
+        use rust_decimal_macros::dec;
+        assert!(NormalizedTick::tick_price_abs_momentum(&[make_tick_pq(dec!(100), dec!(1))]).is_none());
+    }
+
+    #[test]
+    fn test_tick_price_abs_momentum_value() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![make_tick_pq(dec!(100), dec!(1)), make_tick_pq(dec!(90), dec!(1))];
+        let r = NormalizedTick::tick_price_abs_momentum(&ticks).unwrap();
+        assert!((r - 10.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_tick_qty_gini_empty_none() {
+        assert!(NormalizedTick::tick_qty_gini(&[]).is_none());
+    }
+
+    #[test]
+    fn test_tick_qty_gini_equal_zero() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(3)),
+            make_tick_pq(dec!(101), dec!(3)),
+        ];
+        let g = NormalizedTick::tick_qty_gini(&ticks).unwrap();
+        assert!(g.abs() < 1e-9);
     }
 }

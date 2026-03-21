@@ -9376,6 +9376,55 @@ impl OhlcvBar {
         Some(changes.iter().sum::<f64>() / changes.len() as f64)
     }
 
+    /// Ratio of mean |open - close| to mean |high - low| across bars.
+    pub fn bar_open_close_range_ratio(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let body_mean = bars.iter()
+            .filter_map(|b| (b.close - b.open).abs().to_f64())
+            .sum::<f64>() / bars.len() as f64;
+        let range_mean = bars.iter()
+            .filter_map(|b| (b.high - b.low).to_f64())
+            .sum::<f64>() / bars.len() as f64;
+        if range_mean == 0.0 { return None; }
+        Some(body_mean / range_mean)
+    }
+
+    /// Total volume divided by number of bars (volume per candle).
+    pub fn bar_vol_per_candle(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let total: f64 = bars.iter().filter_map(|b| b.volume.to_f64()).sum();
+        Some(total / bars.len() as f64)
+    }
+
+    /// Ratio of close to (high + low) / 2 averaged across bars.
+    pub fn bar_close_high_low_ratio(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let vals: Vec<f64> = bars.iter().filter_map(|b| {
+            let hl_mid = ((b.high + b.low) / rust_decimal::Decimal::TWO).to_f64()?;
+            if hl_mid == 0.0 { return None; }
+            let close = b.close.to_f64()?;
+            Some(close / hl_mid)
+        }).collect();
+        if vals.is_empty() { return None; }
+        Some(vals.iter().sum::<f64>() / vals.len() as f64)
+    }
+
+    /// Standard deviation of (close - open) values across bars.
+    pub fn bar_close_open_std(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.len() < 2 { return None; }
+        let diffs: Vec<f64> = bars.iter()
+            .filter_map(|b| (b.close - b.open).to_f64())
+            .collect();
+        if diffs.len() < 2 { return None; }
+        let mean = diffs.iter().sum::<f64>() / diffs.len() as f64;
+        let var = diffs.iter().map(|d| (d - mean).powi(2)).sum::<f64>() / diffs.len() as f64;
+        Some(var.sqrt())
+    }
+
 }
 
 impl std::fmt::Display for OhlcvBar {
@@ -21009,6 +21058,63 @@ mod tests {
         let b0 = make_ohlcv_bar(dec!(100), dec!(115), dec!(90), dec!(110));
         let b1 = make_ohlcv_bar(dec!(100), dec!(115), dec!(90), dec!(110));
         let r = OhlcvBar::bar_body_progression(&[b0, b1]).unwrap();
+        assert!(r.abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_bar_open_close_range_ratio_empty_none() {
+        assert!(OhlcvBar::bar_open_close_range_ratio(&[]).is_none());
+    }
+
+    #[test]
+    fn test_bar_open_close_range_ratio_doji_none() {
+        let b = make_ohlcv_bar(dec!(100), dec!(100), dec!(100), dec!(100));
+        assert!(OhlcvBar::bar_open_close_range_ratio(&[b]).is_none());
+    }
+
+    #[test]
+    fn test_bar_open_close_range_ratio_value() {
+        // body=|110-100|=10, range=|120-90|=30 → ratio=10/30
+        let b = make_ohlcv_bar(dec!(100), dec!(120), dec!(90), dec!(110));
+        let r = OhlcvBar::bar_open_close_range_ratio(&[b]).unwrap();
+        assert!((r - 10.0 / 30.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_bar_vol_per_candle_empty_none() {
+        assert!(OhlcvBar::bar_vol_per_candle(&[]).is_none());
+    }
+
+    #[test]
+    fn test_bar_vol_per_candle_single() {
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let r = OhlcvBar::bar_vol_per_candle(&[b]).unwrap();
+        assert!((r - 1.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_bar_close_high_low_ratio_empty_none() {
+        assert!(OhlcvBar::bar_close_high_low_ratio(&[]).is_none());
+    }
+
+    #[test]
+    fn test_bar_close_high_low_ratio_returns_value() {
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100));
+        let r = OhlcvBar::bar_close_high_low_ratio(&[b]);
+        assert!(r.is_some());
+    }
+
+    #[test]
+    fn test_bar_close_open_std_single_none() {
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        assert!(OhlcvBar::bar_close_open_std(&[b]).is_none());
+    }
+
+    #[test]
+    fn test_bar_close_open_std_constant_zero() {
+        let b0 = make_ohlcv_bar(dec!(100), dec!(115), dec!(90), dec!(110));
+        let b1 = make_ohlcv_bar(dec!(100), dec!(115), dec!(90), dec!(110));
+        let r = OhlcvBar::bar_close_open_std(&[b0, b1]).unwrap();
         assert!(r.abs() < 1e-9);
     }
 }
