@@ -9,6 +9,30 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.10.48] - 2026-03-20
+
+### Added
+
+**`tick` module — `NormalizedTick` analytics (round 197)**
+- `NormalizedTick::tick_vol_trend_sign(ticks)` — sign of volume change from first to second half.
+- `NormalizedTick::price_stddev_skew(ticks)` — upside std dev minus downside std dev of returns.
+- `NormalizedTick::tick_net_price_impact(ticks)` — net buy price*qty minus sell price*qty.
+- `NormalizedTick::tick_side_momentum_diff(ticks)` — |mean buy price - mean sell price|.
+
+**`ohlcv` module — `OhlcvBar` analytics (round 197)**
+- `OhlcvBar::bar_candle_reversal_count(bars)` — count of close direction reversals.
+- `OhlcvBar::bar_oc_std(bars)` — standard deviation of (open - close) across bars.
+- `OhlcvBar::bar_high_low_trend(bars)` — fraction of bars with both higher high and higher low.
+- `OhlcvBar::bar_close_above_vwap(bars)` — fraction of bars where close > OHLC/4 proxy VWAP.
+
+**`norm` module — `MinMaxNormalizer` + `ZScoreNormalizer` analytics (round 197)**
+- `window_relative_entropy()` — KL divergence of window distribution vs uniform.
+- `window_signed_range()` — value range signed by proximity of last value to min or max.
+- `window_q1_f64()` — first quartile (Q1) of window values.
+- `window_q3_f64()` — third quartile (Q3) of window values.
+
+---
+
 ## [2.10.47] - 2026-03-20
 
 ### Added

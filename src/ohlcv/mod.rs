@@ -9581,6 +9581,54 @@ impl OhlcvBar {
         Some(diffs.iter().sum::<f64>() / diffs.len() as f64)
     }
 
+    /// Count of bars where close direction reverses vs previous bar.
+    pub fn bar_candle_reversal_count(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.len() < 3 { return None; }
+        let closes: Vec<f64> = bars.iter().filter_map(|b| b.close.to_f64()).collect();
+        if closes.len() < 3 { return None; }
+        let signs: Vec<f64> = closes.windows(2)
+            .map(|w| if w[1] > w[0] { 1.0 } else if w[1] < w[0] { -1.0 } else { 0.0 })
+            .collect();
+        let reversals = signs.windows(2)
+            .filter(|w| w[0] * w[1] < 0.0)
+            .count();
+        Some(reversals as f64)
+    }
+
+    /// Standard deviation of (open - close) across bars.
+    pub fn bar_oc_std(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.len() < 2 { return None; }
+        let diffs: Vec<f64> = bars.iter()
+            .filter_map(|b| (b.open - b.close).to_f64())
+            .collect();
+        if diffs.len() < 2 { return None; }
+        let mean = diffs.iter().sum::<f64>() / diffs.len() as f64;
+        let var = diffs.iter().map(|d| (d - mean).powi(2)).sum::<f64>() / diffs.len() as f64;
+        Some(var.sqrt())
+    }
+
+    /// Fraction of bars where high was rising relative to previous bar.
+    pub fn bar_high_low_trend(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.len() < 2 { return None; }
+        let ups = bars.windows(2).filter(|w| w[1].high > w[0].high && w[1].low > w[0].low).count();
+        Some(ups as f64 / (bars.len() - 1) as f64)
+    }
+
+    /// Fraction of bars where close > OHLC/4 (proxy VWAP).
+    pub fn bar_close_above_vwap(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let four = rust_decimal::Decimal::new(4, 0);
+        let count = bars.iter().filter(|b| {
+            let vwap = (b.open + b.high + b.low + b.close) / four;
+            b.close > vwap
+        }).count();
+        Some(count as f64 / bars.len() as f64)
+    }
+
 }
 
 impl std::fmt::Display for OhlcvBar {
@@ -21444,5 +21492,61 @@ mod tests {
         let b1 = make_ohlcv_bar(dec!(100), dec!(115), dec!(90), dec!(110));
         let r = OhlcvBar::bar_open_velocity(&[b0, b1]).unwrap();
         assert!(r.abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_bar_candle_reversal_count_too_few_none() {
+        let b0 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let b1 = make_ohlcv_bar(dec!(105), dec!(115), dec!(95), dec!(110));
+        assert!(OhlcvBar::bar_candle_reversal_count(&[b0, b1]).is_none());
+    }
+
+    #[test]
+    fn test_bar_candle_reversal_count_monotone_zero() {
+        let b0 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100));
+        let b1 = make_ohlcv_bar(dec!(100), dec!(115), dec!(90), dec!(105));
+        let b2 = make_ohlcv_bar(dec!(105), dec!(120), dec!(95), dec!(110));
+        let r = OhlcvBar::bar_candle_reversal_count(&[b0, b1, b2]).unwrap();
+        assert_eq!(r, 0.0);
+    }
+
+    #[test]
+    fn test_bar_oc_std_single_none() {
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        assert!(OhlcvBar::bar_oc_std(&[b]).is_none());
+    }
+
+    #[test]
+    fn test_bar_oc_std_constant_zero() {
+        let b0 = make_ohlcv_bar(dec!(100), dec!(115), dec!(90), dec!(110));
+        let b1 = make_ohlcv_bar(dec!(100), dec!(115), dec!(90), dec!(110));
+        let r = OhlcvBar::bar_oc_std(&[b0, b1]).unwrap();
+        assert!(r.abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_bar_high_low_trend_single_none() {
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        assert!(OhlcvBar::bar_high_low_trend(&[b]).is_none());
+    }
+
+    #[test]
+    fn test_bar_high_low_trend_rising() {
+        let b0 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let b1 = make_ohlcv_bar(dec!(105), dec!(120), dec!(95), dec!(115));
+        let r = OhlcvBar::bar_high_low_trend(&[b0, b1]).unwrap();
+        assert!((r - 1.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_bar_close_above_vwap_empty_none() {
+        assert!(OhlcvBar::bar_close_above_vwap(&[]).is_none());
+    }
+
+    #[test]
+    fn test_bar_close_above_vwap_returns_value() {
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(109));
+        let r = OhlcvBar::bar_close_above_vwap(&[b]);
+        assert!(r.is_some());
     }
 }

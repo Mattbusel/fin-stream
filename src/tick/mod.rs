@@ -9883,6 +9883,77 @@ impl NormalizedTick {
         Some(momentum as f64)
     }
 
+    /// Sign of the volume trend: +1 if later-half vol > earlier-half, -1 otherwise.
+    pub fn tick_vol_trend_sign(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 2 { return None; }
+        let mid = ticks.len() / 2;
+        let first: f64 = ticks[..mid].iter().filter_map(|t| t.quantity.to_f64()).sum();
+        let second: f64 = ticks[mid..].iter().filter_map(|t| t.quantity.to_f64()).sum();
+        Some(if second > first { 1.0 } else if second < first { -1.0 } else { 0.0 })
+    }
+
+    /// Asymmetry between upside and downside price std devs.
+    pub fn price_stddev_skew(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 3 { return None; }
+        let prices: Vec<f64> = ticks.iter().filter_map(|t| t.price.to_f64()).collect();
+        if prices.len() < 3 { return None; }
+        let rets: Vec<f64> = prices.windows(2).map(|w| w[1] - w[0]).collect();
+        let mean = rets.iter().sum::<f64>() / rets.len() as f64;
+        let up: Vec<f64> = rets.iter().cloned().filter(|&r| r >= mean).collect();
+        let dn: Vec<f64> = rets.iter().cloned().filter(|&r| r < mean).collect();
+        if up.is_empty() || dn.is_empty() { return None; }
+        let std_dev = |v: &[f64]| -> f64 {
+            let m = v.iter().sum::<f64>() / v.len() as f64;
+            (v.iter().map(|x| (x - m).powi(2)).sum::<f64>() / v.len() as f64).sqrt()
+        };
+        let up_std = std_dev(&up);
+        let dn_std = std_dev(&dn);
+        Some(up_std - dn_std)
+    }
+
+    /// Net price impact: sum of (price * qty) for buys minus for sells.
+    pub fn tick_net_price_impact(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() { return None; }
+        let buy_impact: f64 = ticks.iter()
+            .filter(|t| t.side == Some(TradeSide::Buy))
+            .filter_map(|t| {
+                let p = t.price.to_f64()?;
+                let q = t.quantity.to_f64()?;
+                Some(p * q)
+            })
+            .sum();
+        let sell_impact: f64 = ticks.iter()
+            .filter(|t| t.side == Some(TradeSide::Sell))
+            .filter_map(|t| {
+                let p = t.price.to_f64()?;
+                let q = t.quantity.to_f64()?;
+                Some(p * q)
+            })
+            .sum();
+        Some(buy_impact - sell_impact)
+    }
+
+    /// Difference in mean price between buy-side and sell-side ticks.
+    pub fn tick_side_momentum_diff(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() { return None; }
+        let buy_prices: Vec<f64> = ticks.iter()
+            .filter(|t| t.side == Some(TradeSide::Buy))
+            .filter_map(|t| t.price.to_f64())
+            .collect();
+        let sell_prices: Vec<f64> = ticks.iter()
+            .filter(|t| t.side == Some(TradeSide::Sell))
+            .filter_map(|t| t.price.to_f64())
+            .collect();
+        if buy_prices.is_empty() || sell_prices.is_empty() { return None; }
+        let buy_mean = buy_prices.iter().sum::<f64>() / buy_prices.len() as f64;
+        let sell_mean = sell_prices.iter().sum::<f64>() / sell_prices.len() as f64;
+        Some((buy_mean - sell_mean).abs())
+    }
+
 }
 
 
@@ -22555,5 +22626,71 @@ mod tests {
         ];
         let r = NormalizedTick::tick_signed_momentum_count(&ticks).unwrap();
         assert_eq!(r, 1.0);
+    }
+
+    #[test]
+    fn test_tick_vol_trend_sign_single_none() {
+        use rust_decimal_macros::dec;
+        assert!(NormalizedTick::tick_vol_trend_sign(&[make_tick_pq(dec!(100), dec!(1))]).is_none());
+    }
+
+    #[test]
+    fn test_tick_vol_trend_sign_equal_zero() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![make_tick_pq(dec!(100), dec!(5)), make_tick_pq(dec!(101), dec!(5))];
+        let r = NormalizedTick::tick_vol_trend_sign(&ticks).unwrap();
+        assert_eq!(r, 0.0);
+    }
+
+    #[test]
+    fn test_price_stddev_skew_too_few_none() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![make_tick_pq(dec!(100), dec!(1)), make_tick_pq(dec!(101), dec!(1))];
+        assert!(NormalizedTick::price_stddev_skew(&ticks).is_none());
+    }
+
+    #[test]
+    fn test_price_stddev_skew_returns_value() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(102), dec!(1)),
+            make_tick_pq(dec!(101), dec!(1)),
+            make_tick_pq(dec!(99), dec!(1)),
+        ];
+        assert!(NormalizedTick::price_stddev_skew(&ticks).is_some());
+    }
+
+    #[test]
+    fn test_tick_net_price_impact_empty_zero() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![make_tick_pq(dec!(100), dec!(1))]; // no sides
+        let r = NormalizedTick::tick_net_price_impact(&ticks).unwrap();
+        assert!(r.abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_tick_net_price_impact_buy_dominant() {
+        use rust_decimal_macros::dec;
+        let mut b = make_tick_pq(dec!(100), dec!(5));
+        b.side = Some(TradeSide::Buy);
+        let r = NormalizedTick::tick_net_price_impact(&[b]).unwrap();
+        assert!((r - 500.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_tick_side_momentum_diff_empty_none() {
+        assert!(NormalizedTick::tick_side_momentum_diff(&[]).is_none());
+    }
+
+    #[test]
+    fn test_tick_side_momentum_diff_same_price_zero() {
+        use rust_decimal_macros::dec;
+        let mut b = make_tick_pq(dec!(100), dec!(1));
+        b.side = Some(TradeSide::Buy);
+        let mut s = make_tick_pq(dec!(100), dec!(1));
+        s.side = Some(TradeSide::Sell);
+        let r = NormalizedTick::tick_side_momentum_diff(&[b, s]).unwrap();
+        assert!(r.abs() < 1e-9);
     }
 }

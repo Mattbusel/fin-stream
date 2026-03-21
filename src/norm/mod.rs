@@ -7096,6 +7096,56 @@ impl MinMaxNormalizer {
         Some(count as f64)
     }
 
+    /// Relative entropy (KL divergence) of window distribution vs uniform.
+    pub fn window_relative_entropy(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let n = self.window.len();
+        if n < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let total: f64 = vals.iter().map(|v| v.abs()).sum();
+        if total == 0.0 { return None; }
+        let uniform = 1.0 / n as f64;
+        let kl: f64 = vals.iter()
+            .filter(|&&v| v.abs() > 0.0)
+            .map(|&v| { let p = v.abs() / total; p * (p / uniform).ln() })
+            .sum();
+        Some(kl)
+    }
+
+    /// Signed range: max - min with sign indicating which came last.
+    pub fn window_signed_range(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let max = vals.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        let min = vals.iter().cloned().fold(f64::INFINITY, f64::min);
+        let range = max - min;
+        let last = *vals.last()?;
+        let sign = if (last - max).abs() < (last - min).abs() { -1.0 } else { 1.0 };
+        Some(sign * range)
+    }
+
+    /// First quartile (Q1) of window values as f64.
+    pub fn window_q1_f64(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let mut vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        vals.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let n = vals.len();
+        Some(vals[n / 4])
+    }
+
+    /// Third quartile (Q3) of window values as f64.
+    pub fn window_q3_f64(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let mut vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        vals.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let n = vals.len();
+        Some(vals[(3 * n) / 4])
+    }
+
 }
 
 #[cfg(test)]
@@ -15434,6 +15484,65 @@ mod tests {
         let r = n.window_mean_reversion_count().unwrap();
         assert!(r >= 0.0);
     }
+
+    #[test]
+    fn test_minmax_window_relative_entropy_none_for_single() {
+        let mut n = norm(4);
+        n.update(dec!(5));
+        assert!(n.window_relative_entropy().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_relative_entropy_returns_nonneg() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let r = n.window_relative_entropy().unwrap();
+        assert!(r >= 0.0);
+    }
+
+    #[test]
+    fn test_minmax_window_signed_range_none_for_single() {
+        let mut n = norm(4);
+        n.update(dec!(5));
+        assert!(n.window_signed_range().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_signed_range_returns_value() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(5)] { n.update(v); }
+        let r = n.window_signed_range().unwrap();
+        assert!(r != 0.0);
+    }
+
+    #[test]
+    fn test_minmax_window_q1_f64_none_for_empty() {
+        let n = norm(4);
+        assert!(n.window_q1_f64().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_q1_f64_value() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let q1 = n.window_q1_f64().unwrap();
+        assert!(q1 >= 1.0 && q1 <= 2.0);
+    }
+
+    #[test]
+    fn test_minmax_window_q3_f64_none_for_empty() {
+        let n = norm(4);
+        assert!(n.window_q3_f64().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_q3_f64_value() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let q3 = n.window_q3_f64().unwrap();
+        let q1 = n.window_q1_f64().unwrap();
+        assert!(q3 >= q1);
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -22478,6 +22587,56 @@ impl ZScoreNormalizer {
             .filter(|w| (w[0] > mean && w[1] <= mean) || (w[0] < mean && w[1] >= mean))
             .count();
         Some(count as f64)
+    }
+
+    /// Relative entropy (KL divergence) of window distribution vs uniform.
+    pub fn window_relative_entropy(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let n = self.window.len();
+        if n < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let total: f64 = vals.iter().map(|v| v.abs()).sum();
+        if total == 0.0 { return None; }
+        let uniform = 1.0 / n as f64;
+        let kl: f64 = vals.iter()
+            .filter(|&&v| v.abs() > 0.0)
+            .map(|&v| { let p = v.abs() / total; p * (p / uniform).ln() })
+            .sum();
+        Some(kl)
+    }
+
+    /// Signed range: max - min with sign indicating which came last.
+    pub fn window_signed_range(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let max = vals.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        let min = vals.iter().cloned().fold(f64::INFINITY, f64::min);
+        let range = max - min;
+        let last = *vals.last()?;
+        let sign = if (last - max).abs() < (last - min).abs() { -1.0 } else { 1.0 };
+        Some(sign * range)
+    }
+
+    /// First quartile (Q1) of window values as f64.
+    pub fn window_q1_f64(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let mut vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        vals.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let n = vals.len();
+        Some(vals[n / 4])
+    }
+
+    /// Third quartile (Q3) of window values as f64.
+    pub fn window_q3_f64(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let mut vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        vals.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let n = vals.len();
+        Some(vals[(3 * n) / 4])
     }
 
 }
@@ -30766,5 +30925,64 @@ mod zscore_stability_tests {
         for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
         let r = n.window_mean_reversion_count().unwrap();
         assert!(r >= 0.0);
+    }
+
+    #[test]
+    fn test_zscore_window_relative_entropy_none_for_single() {
+        let mut n = znorm(4);
+        n.update(dec!(5));
+        assert!(n.window_relative_entropy().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_relative_entropy_returns_nonneg() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let r = n.window_relative_entropy().unwrap();
+        assert!(r >= 0.0);
+    }
+
+    #[test]
+    fn test_zscore_window_signed_range_none_for_single() {
+        let mut n = znorm(4);
+        n.update(dec!(5));
+        assert!(n.window_signed_range().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_signed_range_returns_value() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(5)] { n.update(v); }
+        let r = n.window_signed_range().unwrap();
+        assert!(r != 0.0);
+    }
+
+    #[test]
+    fn test_zscore_window_q1_f64_none_for_empty() {
+        let n = znorm(4);
+        assert!(n.window_q1_f64().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_q1_f64_value() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let q1 = n.window_q1_f64().unwrap();
+        assert!(q1 >= 1.0 && q1 <= 2.0);
+    }
+
+    #[test]
+    fn test_zscore_window_q3_f64_none_for_empty() {
+        let n = znorm(4);
+        assert!(n.window_q3_f64().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_q3_f64_value() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let q3 = n.window_q3_f64().unwrap();
+        let q1 = n.window_q1_f64().unwrap();
+        assert!(q3 >= q1);
     }
 }
