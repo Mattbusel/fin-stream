@@ -7933,6 +7933,78 @@ impl OhlcvBar {
         Some(bulls as f64 / bears as f64)
     }
 
+    // ── round-169 ────────────────────────────────────────────────────────────
+
+    /// Mean gap between consecutive bar closes (close[i] - close[i-1]).
+    pub fn bar_close_gap_mean(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.len() < 2 { return None; }
+        let gaps: Vec<f64> = bars.windows(2).filter_map(|w| {
+            let a = w[0].close.to_f64()?;
+            let b = w[1].close.to_f64()?;
+            Some(b - a)
+        }).collect();
+        if gaps.is_empty() { return None; }
+        Some(gaps.iter().sum::<f64>() / gaps.len() as f64)
+    }
+
+    /// Mean |open - (high+low)/2| per bar (open distance from bar midpoint).
+    pub fn bar_open_mid_dist(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let vals: Vec<f64> = bars.iter().filter_map(|b| {
+            let o = b.open.to_f64()?;
+            let h = b.high.to_f64()?;
+            let l = b.low.to_f64()?;
+            Some((o - (h + l) / 2.0).abs())
+        }).collect();
+        if vals.is_empty() { return None; }
+        Some(vals.iter().sum::<f64>() / vals.len() as f64)
+    }
+
+    /// Mean (high - low) / volume per bar (range per unit volume).
+    pub fn bar_high_low_velocity(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let vals: Vec<f64> = bars.iter().filter_map(|b| {
+            let h = b.high.to_f64()?;
+            let l = b.low.to_f64()?;
+            let v = b.volume.to_f64()?;
+            if v == 0.0 { return None; }
+            Some((h - l) / v)
+        }).collect();
+        if vals.is_empty() { return None; }
+        Some(vals.iter().sum::<f64>() / vals.len() as f64)
+    }
+
+    /// Histogram entropy of bar ranges (4 equal-width bins).
+    pub fn bar_range_entropy(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let ranges: Vec<f64> = bars.iter().filter_map(|b| {
+            let h = b.high.to_f64()?;
+            let l = b.low.to_f64()?;
+            Some(h - l)
+        }).collect();
+        if ranges.is_empty() { return None; }
+        let min = ranges.iter().cloned().fold(f64::INFINITY, f64::min);
+        let max = ranges.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        if (max - min).abs() < 1e-12 { return Some(0.0); }
+        let n_bins = 4usize;
+        let bin_w = (max - min) / n_bins as f64;
+        let mut counts = vec![0usize; n_bins];
+        for &r in &ranges {
+            let idx = ((r - min) / bin_w) as usize;
+            counts[idx.min(n_bins - 1)] += 1;
+        }
+        let total = ranges.len() as f64;
+        let entropy: f64 = counts.iter()
+            .filter(|&&c| c > 0)
+            .map(|&c| { let p = c as f64 / total; -p * p.ln() })
+            .sum();
+        Some(entropy)
+    }
+
 }
 
 impl std::fmt::Display for OhlcvBar {
@@ -18117,5 +18189,65 @@ mod tests {
         // no bears → None
         let bar = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
         assert!(OhlcvBar::bar_bull_bear_ratio(&[bar]).is_none());
+    }
+
+    // ── round-169 tests ──────────────────────────────────────────────────────
+
+    #[test]
+    fn test_bar_close_gap_mean_none_for_single() {
+        let bars = vec![make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105))];
+        assert!(OhlcvBar::bar_close_gap_mean(&bars).is_none());
+    }
+
+    #[test]
+    fn test_bar_close_gap_mean_flat_zero() {
+        let bars = vec![
+            make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105)),
+            make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105)),
+        ];
+        let g = OhlcvBar::bar_close_gap_mean(&bars).unwrap();
+        assert!((g - 0.0).abs() < 1e-9, "expected 0.0, got {}", g);
+    }
+
+    #[test]
+    fn test_bar_open_mid_dist_none_for_empty() {
+        assert!(OhlcvBar::bar_open_mid_dist(&[]).is_none());
+    }
+
+    #[test]
+    fn test_bar_open_mid_dist_open_at_mid_zero() {
+        // open=100, high=110, low=90 → mid=100 → dist=0
+        let bar = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let d = OhlcvBar::bar_open_mid_dist(&[bar]).unwrap();
+        assert!((d - 0.0).abs() < 1e-9, "expected 0.0, got {}", d);
+    }
+
+    #[test]
+    fn test_bar_high_low_velocity_none_for_empty() {
+        assert!(OhlcvBar::bar_high_low_velocity(&[]).is_none());
+    }
+
+    #[test]
+    fn test_bar_high_low_velocity_unit_volume() {
+        // high=110, low=90, volume=1 → velocity=20
+        let bar = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let v = OhlcvBar::bar_high_low_velocity(&[bar]).unwrap();
+        assert!((v - 20.0).abs() < 1e-9, "expected 20.0, got {}", v);
+    }
+
+    #[test]
+    fn test_bar_range_entropy_none_for_empty() {
+        assert!(OhlcvBar::bar_range_entropy(&[]).is_none());
+    }
+
+    #[test]
+    fn test_bar_range_entropy_constant_zero() {
+        // all same range → entropy=0
+        let bars = vec![
+            make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105)),
+            make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105)),
+        ];
+        let e = OhlcvBar::bar_range_entropy(&bars).unwrap();
+        assert!((e - 0.0).abs() < 1e-9, "expected 0.0, got {}", e);
     }
 }

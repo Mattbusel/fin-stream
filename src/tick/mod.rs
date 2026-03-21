@@ -8239,6 +8239,93 @@ impl NormalizedTick {
         Some(consistent as f64 / diffs.len() as f64)
     }
 
+    // ── round-169 ────────────────────────────────────────────────────────────
+
+    /// Histogram entropy of price differences (4 equal-width bins).
+    pub fn price_range_entropy(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 2 { return None; }
+        let diffs: Vec<f64> = ticks.windows(2)
+            .filter_map(|w| {
+                let a = w[0].price.to_f64()?;
+                let b = w[1].price.to_f64()?;
+                Some(b - a)
+            })
+            .collect();
+        if diffs.is_empty() { return None; }
+        let min = diffs.iter().cloned().fold(f64::INFINITY, f64::min);
+        let max = diffs.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        if (max - min).abs() < 1e-12 { return Some(0.0); }
+        let n_bins = 4usize;
+        let bin_w = (max - min) / n_bins as f64;
+        let mut counts = vec![0usize; n_bins];
+        for &d in &diffs {
+            let idx = ((d - min) / bin_w) as usize;
+            counts[idx.min(n_bins - 1)] += 1;
+        }
+        let total = diffs.len() as f64;
+        let entropy: f64 = counts.iter()
+            .filter(|&&c| c > 0)
+            .map(|&c| { let p = c as f64 / total; -p * p.ln() })
+            .sum();
+        Some(entropy)
+    }
+
+    /// Mean length of same-side (buy/sell) consecutive runs.
+    pub fn tick_side_run_length(ticks: &[NormalizedTick]) -> Option<f64> {
+        let sides: Vec<i32> = ticks.iter().filter_map(|t| match t.side {
+            Some(crate::tick::TradeSide::Buy) => Some(1),
+            Some(crate::tick::TradeSide::Sell) => Some(-1),
+            None => None,
+        }).collect();
+        if sides.is_empty() { return None; }
+        let mut runs = Vec::new();
+        let mut cur = 1usize;
+        for i in 1..sides.len() {
+            if sides[i] == sides[i - 1] { cur += 1; } else { runs.push(cur); cur = 1; }
+        }
+        runs.push(cur);
+        Some(runs.iter().sum::<usize>() as f64 / runs.len() as f64)
+    }
+
+    /// (mean_buy_price - mean_sell_price) / overall_mean_price (net buying pressure).
+    pub fn price_net_buying_pressure(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let buy_prices: Vec<f64> = ticks.iter().filter_map(|t| {
+            if matches!(t.side, Some(crate::tick::TradeSide::Buy)) { t.price.to_f64() } else { None }
+        }).collect();
+        let sell_prices: Vec<f64> = ticks.iter().filter_map(|t| {
+            if matches!(t.side, Some(crate::tick::TradeSide::Sell)) { t.price.to_f64() } else { None }
+        }).collect();
+        if buy_prices.is_empty() || sell_prices.is_empty() { return None; }
+        let all_prices: Vec<f64> = ticks.iter().filter_map(|t| t.price.to_f64()).collect();
+        if all_prices.is_empty() { return None; }
+        let overall_mean = all_prices.iter().sum::<f64>() / all_prices.len() as f64;
+        if overall_mean == 0.0 { return None; }
+        let mean_buy = buy_prices.iter().sum::<f64>() / buy_prices.len() as f64;
+        let mean_sell = sell_prices.iter().sum::<f64>() / sell_prices.len() as f64;
+        Some((mean_buy - mean_sell) / overall_mean)
+    }
+
+    /// Ratio of second-half price variance to first-half price variance.
+    pub fn price_variance_ratio(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 4 { return None; }
+        let prices: Vec<f64> = ticks.iter().filter_map(|t| t.price.to_f64()).collect();
+        if prices.len() < 4 { return None; }
+        let mid = prices.len() / 2;
+        let first = &prices[..mid];
+        let second = &prices[mid..];
+        let var = |v: &[f64]| -> f64 {
+            let m = v.iter().sum::<f64>() / v.len() as f64;
+            v.iter().map(|x| (x - m).powi(2)).sum::<f64>() / v.len() as f64
+        };
+        let v1 = var(first);
+        let v2 = var(second);
+        if v1 == 0.0 { return None; }
+        Some(v2 / v1)
+    }
+
 }
 
 
@@ -18770,5 +18857,84 @@ mod tests {
         ];
         let c = NormalizedTick::price_move_consistency(&ticks).unwrap();
         assert!((c - 1.0).abs() < 1e-9, "expected 1.0, got {}", c);
+    }
+
+    // ── round-169 tests ──────────────────────────────────────────────────────
+
+    #[test]
+    fn test_price_range_entropy_none_for_single() {
+        use rust_decimal_macros::dec;
+        assert!(NormalizedTick::price_range_entropy(&[make_tick_pq(dec!(100), dec!(1))]).is_none());
+    }
+
+    #[test]
+    fn test_price_range_entropy_constant_zero() {
+        use rust_decimal_macros::dec;
+        // constant diffs → entropy=0
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(100), dec!(1)),
+        ];
+        let e = NormalizedTick::price_range_entropy(&ticks).unwrap();
+        assert!((e - 0.0).abs() < 1e-9, "expected 0.0, got {}", e);
+    }
+
+    #[test]
+    fn test_tick_side_run_length_none_for_no_sides() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![make_tick_pq(dec!(100), dec!(1))];
+        assert!(NormalizedTick::tick_side_run_length(&ticks).is_none());
+    }
+
+    #[test]
+    fn test_tick_side_run_length_single_buy() {
+        use rust_decimal_macros::dec;
+        let mut t = make_tick_pq(dec!(100), dec!(5));
+        t.side = Some(crate::tick::TradeSide::Buy);
+        let r = NormalizedTick::tick_side_run_length(&[t]).unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "expected 1.0, got {}", r);
+    }
+
+    #[test]
+    fn test_price_net_buying_pressure_none_for_no_sides() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![make_tick_pq(dec!(100), dec!(1))];
+        assert!(NormalizedTick::price_net_buying_pressure(&ticks).is_none());
+    }
+
+    #[test]
+    fn test_price_net_buying_pressure_equal_prices_zero() {
+        use rust_decimal_macros::dec;
+        let mut buy = make_tick_pq(dec!(100), dec!(1));
+        buy.side = Some(crate::tick::TradeSide::Buy);
+        let mut sell = make_tick_pq(dec!(100), dec!(1));
+        sell.side = Some(crate::tick::TradeSide::Sell);
+        let p = NormalizedTick::price_net_buying_pressure(&[buy, sell]).unwrap();
+        assert!((p - 0.0).abs() < 1e-9, "expected 0.0, got {}", p);
+    }
+
+    #[test]
+    fn test_price_variance_ratio_none_for_short() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(101), dec!(1)),
+            make_tick_pq(dec!(102), dec!(1)),
+        ];
+        assert!(NormalizedTick::price_variance_ratio(&ticks).is_none());
+    }
+
+    #[test]
+    fn test_price_variance_ratio_constant_none() {
+        use rust_decimal_macros::dec;
+        // first half constant → variance=0 → None
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(101), dec!(1)),
+            make_tick_pq(dec!(102), dec!(1)),
+        ];
+        assert!(NormalizedTick::price_variance_ratio(&ticks).is_none());
     }
 }

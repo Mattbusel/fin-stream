@@ -5764,6 +5764,56 @@ impl MinMaxNormalizer {
         Some(speeds.iter().sum::<f64>() / speeds.len() as f64)
     }
 
+    // ── round-169 ────────────────────────────────────────────────────────────
+
+    /// Mean of positive consecutive changes (upside capture).
+    pub fn window_upside_capture(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let ups: Vec<f64> = vals.windows(2).filter_map(|w| {
+            let d = w[1] - w[0];
+            if d > 0.0 { Some(d) } else { None }
+        }).collect();
+        if ups.is_empty() { return Some(0.0); }
+        Some(ups.iter().sum::<f64>() / ups.len() as f64)
+    }
+
+    /// Mean absolute value of negative consecutive changes (downside capture).
+    pub fn window_downside_capture(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let downs: Vec<f64> = vals.windows(2).filter_map(|w| {
+            let d = w[1] - w[0];
+            if d < 0.0 { Some(d.abs()) } else { None }
+        }).collect();
+        if downs.is_empty() { return Some(0.0); }
+        Some(downs.iter().sum::<f64>() / downs.len() as f64)
+    }
+
+    /// Mean absolute difference between consecutive window values.
+    pub fn window_mean_abs_lag_diff(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let abs_diffs: Vec<f64> = vals.windows(2).map(|w| (w[1] - w[0]).abs()).collect();
+        Some(abs_diffs.iter().sum::<f64>() / abs_diffs.len() as f64)
+    }
+
+    /// Range asymmetry: (max - mean) / (mean - min). Returns None if mean == min.
+    pub fn window_range_asymmetry(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let n = vals.len() as f64;
+        let mean = vals.iter().sum::<f64>() / n;
+        let max = vals.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        let min = vals.iter().cloned().fold(f64::INFINITY, f64::min);
+        if (mean - min).abs() < 1e-12 { return None; }
+        Some((max - mean) / (mean - min))
+    }
+
 }
 
 #[cfg(test)]
@@ -12449,6 +12499,68 @@ mod tests {
         let s = n.window_mean_reversion_speed().unwrap();
         assert!((s - 0.0).abs() < 1e-9, "expected 0.0, got {}", s);
     }
+
+    // ── round-169 tests ──────────────────────────────────────────────────────
+
+    #[test]
+    fn test_minmax_window_upside_capture_none_for_single() {
+        let mut n = norm(4);
+        n.update(dec!(5));
+        assert!(n.window_upside_capture().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_upside_capture_monotone_up() {
+        let mut n = norm(3);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        let u = n.window_upside_capture().unwrap();
+        assert!((u - 1.0).abs() < 1e-9, "expected 1.0, got {}", u);
+    }
+
+    #[test]
+    fn test_minmax_window_downside_capture_none_for_single() {
+        let mut n = norm(4);
+        n.update(dec!(5));
+        assert!(n.window_downside_capture().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_downside_capture_monotone_down() {
+        let mut n = norm(3);
+        for v in [dec!(3), dec!(2), dec!(1)] { n.update(v); }
+        let d = n.window_downside_capture().unwrap();
+        assert!((d - 1.0).abs() < 1e-9, "expected 1.0, got {}", d);
+    }
+
+    #[test]
+    fn test_minmax_window_mean_abs_lag_diff_none_for_single() {
+        let mut n = norm(4);
+        n.update(dec!(5));
+        assert!(n.window_mean_abs_lag_diff().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_mean_abs_lag_diff_constant_zero() {
+        let mut n = norm(3);
+        for v in [dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        let d = n.window_mean_abs_lag_diff().unwrap();
+        assert!((d - 0.0).abs() < 1e-9, "expected 0.0, got {}", d);
+    }
+
+    #[test]
+    fn test_minmax_window_range_asymmetry_none_for_empty() {
+        let n = norm(4);
+        assert!(n.window_range_asymmetry().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_range_asymmetry_symmetric_one() {
+        let mut n = norm(3);
+        // [4, 6, 10] → mean=20/3≈6.67, max=10, min=4
+        // asymmetry=(10-6.67)/(6.67-4)=3.33/2.67≈1.25 — just ensure non-None
+        for v in [dec!(4), dec!(6), dec!(10)] { n.update(v); }
+        assert!(n.window_range_asymmetry().is_some());
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -18161,6 +18273,56 @@ impl ZScoreNormalizer {
             .map(|w| (w[0] - mean).abs() - (w[1] - mean).abs())
             .collect();
         Some(speeds.iter().sum::<f64>() / speeds.len() as f64)
+    }
+
+    // ── round-169 ────────────────────────────────────────────────────────────
+
+    /// Mean of positive consecutive changes (upside capture).
+    pub fn window_upside_capture(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let ups: Vec<f64> = vals.windows(2).filter_map(|w| {
+            let d = w[1] - w[0];
+            if d > 0.0 { Some(d) } else { None }
+        }).collect();
+        if ups.is_empty() { return Some(0.0); }
+        Some(ups.iter().sum::<f64>() / ups.len() as f64)
+    }
+
+    /// Mean absolute value of negative consecutive changes (downside capture).
+    pub fn window_downside_capture(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let downs: Vec<f64> = vals.windows(2).filter_map(|w| {
+            let d = w[1] - w[0];
+            if d < 0.0 { Some(d.abs()) } else { None }
+        }).collect();
+        if downs.is_empty() { return Some(0.0); }
+        Some(downs.iter().sum::<f64>() / downs.len() as f64)
+    }
+
+    /// Mean absolute difference between consecutive window values.
+    pub fn window_mean_abs_lag_diff(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let abs_diffs: Vec<f64> = vals.windows(2).map(|w| (w[1] - w[0]).abs()).collect();
+        Some(abs_diffs.iter().sum::<f64>() / abs_diffs.len() as f64)
+    }
+
+    /// Range asymmetry: (max - mean) / (mean - min). Returns None if mean == min.
+    pub fn window_range_asymmetry(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let n = vals.len() as f64;
+        let mean = vals.iter().sum::<f64>() / n;
+        let max = vals.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        let min = vals.iter().cloned().fold(f64::INFINITY, f64::min);
+        if (mean - min).abs() < 1e-12 { return None; }
+        Some((max - mean) / (mean - min))
     }
 
 }
@@ -24821,5 +24983,65 @@ mod zscore_stability_tests {
         for v in [dec!(5), dec!(5), dec!(5)] { n.update(v); }
         let s = n.window_mean_reversion_speed().unwrap();
         assert!((s - 0.0).abs() < 1e-9, "expected 0.0, got {}", s);
+    }
+
+    // ── round-169 tests ──────────────────────────────────────────────────────
+
+    #[test]
+    fn test_zscore_window_upside_capture_none_for_single() {
+        let mut n = znorm(4);
+        n.update(dec!(5));
+        assert!(n.window_upside_capture().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_upside_capture_monotone_up() {
+        let mut n = znorm(3);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        let u = n.window_upside_capture().unwrap();
+        assert!((u - 1.0).abs() < 1e-9, "expected 1.0, got {}", u);
+    }
+
+    #[test]
+    fn test_zscore_window_downside_capture_none_for_single() {
+        let mut n = znorm(4);
+        n.update(dec!(5));
+        assert!(n.window_downside_capture().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_downside_capture_monotone_down() {
+        let mut n = znorm(3);
+        for v in [dec!(3), dec!(2), dec!(1)] { n.update(v); }
+        let d = n.window_downside_capture().unwrap();
+        assert!((d - 1.0).abs() < 1e-9, "expected 1.0, got {}", d);
+    }
+
+    #[test]
+    fn test_zscore_window_mean_abs_lag_diff_none_for_single() {
+        let mut n = znorm(4);
+        n.update(dec!(5));
+        assert!(n.window_mean_abs_lag_diff().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_mean_abs_lag_diff_constant_zero() {
+        let mut n = znorm(3);
+        for v in [dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        let d = n.window_mean_abs_lag_diff().unwrap();
+        assert!((d - 0.0).abs() < 1e-9, "expected 0.0, got {}", d);
+    }
+
+    #[test]
+    fn test_zscore_window_range_asymmetry_none_for_empty() {
+        let n = znorm(4);
+        assert!(n.window_range_asymmetry().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_range_asymmetry_non_none() {
+        let mut n = znorm(3);
+        for v in [dec!(4), dec!(6), dec!(10)] { n.update(v); }
+        assert!(n.window_range_asymmetry().is_some());
     }
 }

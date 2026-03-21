@@ -9,6 +9,30 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.10.20] - 2026-03-20
+
+### Added
+
+**`tick` module — `NormalizedTick` analytics (round 169)**
+- `NormalizedTick::price_range_entropy(ticks)` — histogram entropy of price differences (4 bins).
+- `NormalizedTick::tick_side_run_length(ticks)` — mean length of same-side consecutive runs.
+- `NormalizedTick::price_net_buying_pressure(ticks)` — (mean_buy_price - mean_sell_price) / overall_mean.
+- `NormalizedTick::price_variance_ratio(ticks)` — ratio of second-half to first-half price variance.
+
+**`ohlcv` module — `OhlcvBar` analytics (round 169)**
+- `OhlcvBar::bar_close_gap_mean(bars)` — mean gap between consecutive bar closes.
+- `OhlcvBar::bar_open_mid_dist(bars)` — mean |open - (high+low)/2| per bar.
+- `OhlcvBar::bar_high_low_velocity(bars)` — mean (high - low) / volume per bar.
+- `OhlcvBar::bar_range_entropy(bars)` — histogram entropy of bar ranges (4 equal-width bins).
+
+**`norm` module — `MinMaxNormalizer` + `ZScoreNormalizer` analytics (round 169)**
+- `window_upside_capture()` — mean of positive consecutive changes.
+- `window_downside_capture()` — mean absolute value of negative consecutive changes.
+- `window_mean_abs_lag_diff()` — mean absolute difference between consecutive values.
+- `window_range_asymmetry()` — (max - mean) / (mean - min).
+
+---
+
 ## [2.10.19] - 2026-03-20
 
 ### Added
