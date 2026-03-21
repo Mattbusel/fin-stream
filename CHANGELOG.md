@@ -9,6 +9,36 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.8.2] - 2026-03-20
+
+### Added
+
+**`tick` module — `NormalizedTick` analytics (round 131)**
+- `NormalizedTick::price_range_momentum(ticks)` — (last - first) / (max - min) price range.
+- `NormalizedTick::qty_imbalance_ratio(ticks)` — |buy_qty - sell_qty| / total sided quantity.
+- `NormalizedTick::tick_flow_entropy(ticks)` — Shannon entropy of price change directions.
+- `NormalizedTick::side_price_spread(ticks)` — mean buy price minus mean sell price.
+
+**`ohlcv` module — `OhlcvBar` analytics (round 131)**
+- `OhlcvBar::close_trend_strength(bars)` — (last close - first close) / close range.
+- `OhlcvBar::bar_body_skew(bars)` — mean of signed body / range per bar.
+- `OhlcvBar::bar_range_mean_dev(bars)` — mean absolute deviation of bar ranges.
+- `OhlcvBar::bar_close_momentum(bars)` — sum of signed close-to-close directions.
+
+**`norm` module — `MinMaxNormalizer` analytics (round 131)**
+- `MinMaxNormalizer::window_last_pct_change()` — percentage change from first to last window value.
+- `MinMaxNormalizer::window_std_trend()` — std of 2nd half minus std of 1st half of window.
+- `MinMaxNormalizer::window_nonzero_count()` — count of non-zero values in the window.
+- `MinMaxNormalizer::window_pct_above_mean()` — fraction of window values above the mean.
+
+**`norm` module — `ZScoreNormalizer` analytics (round 131)**
+- `ZScoreNormalizer::window_last_pct_change()` — percentage change from first to last window value.
+- `ZScoreNormalizer::window_std_trend()` — std of 2nd half minus std of 1st half of window.
+- `ZScoreNormalizer::window_nonzero_count()` — count of non-zero values in the window.
+- `ZScoreNormalizer::window_pct_above_mean()` — fraction of window values above the mean.
+
+---
+
 ## [2.8.1] - 2026-03-20
 
 ### Added
