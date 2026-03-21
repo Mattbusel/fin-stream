@@ -9,6 +9,28 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.10.69] - 2026-03-20
+
+### Added
+
+**`tick` module — `NormalizedTick` analytics (round 218)**
+- `NormalizedTick::tick_price_ema_cross(ticks)` — 1.0 if last price is above the price EMA, else 0.0.
+- `NormalizedTick::tick_vol_above_avg(ticks)` — fraction of ticks with volume above mean volume.
+- `NormalizedTick::tick_side_switch_rate(ticks)` — fraction of consecutive tick pairs where trade side flips.
+- `NormalizedTick::tick_vol_range(ticks)` — range of quantities (max_qty - min_qty).
+
+**`ohlcv` module — `OhlcvBar` analytics (round 218)**
+- `OhlcvBar::bar_wicks_total(bars)` — mean total wick length (upper + lower shadow) per bar.
+- `OhlcvBar::bar_close_above_prev_high(bars)` — fraction of bars where close exceeds previous bar's high.
+- `OhlcvBar::bar_range_open_ratio(bars)` — mean (high - low) / open (range normalized by open price).
+
+**`norm` module — `MinMaxNormalizer` + `ZScoreNormalizer` analytics (round 218)**
+- `window_streak_up()` — longest consecutive up-streak as fraction of window pairs.
+- `window_down_streak()` — longest consecutive down-streak as fraction of window pairs.
+- `window_mean_sq_error()` — mean squared error of values relative to window mean.
+
+---
+
 ## [2.10.68] - 2026-03-20
 
 ### Added

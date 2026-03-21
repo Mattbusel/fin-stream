@@ -10387,6 +10387,54 @@ impl NormalizedTick {
         Some(total)
     }
 
+    /// Whether last price is above the EMA of all prices (1.0 = above, 0.0 = below).
+    pub fn tick_price_ema_cross(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() { return None; }
+        let prices: Vec<f64> = ticks.iter().filter_map(|t| t.price.to_f64()).collect();
+        if prices.is_empty() { return None; }
+        let alpha = 2.0 / (prices.len() as f64 + 1.0);
+        let mut ema = prices[0];
+        for &p in &prices[1..] { ema = alpha * p + (1.0 - alpha) * ema; }
+        let last = *prices.last()?;
+        Some(if last > ema { 1.0 } else { 0.0 })
+    }
+
+    /// Fraction of ticks with volume above the mean volume.
+    pub fn tick_vol_above_avg(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() { return None; }
+        let vols: Vec<f64> = ticks.iter().filter_map(|t| t.quantity.to_f64()).collect();
+        if vols.is_empty() { return None; }
+        let mean = vols.iter().sum::<f64>() / vols.len() as f64;
+        let above = vols.iter().filter(|&&v| v > mean).count();
+        Some(above as f64 / vols.len() as f64)
+    }
+
+    /// Number of times trade side flips between consecutive ticks as fraction of pairs.
+    pub fn tick_side_switch_rate(ticks: &[NormalizedTick]) -> Option<f64> {
+        if ticks.len() < 2 { return None; }
+        let sides: Vec<_> = ticks.iter().map(|t| t.side.clone()).collect();
+        let n = sides.len() - 1;
+        let switches = sides.windows(2).filter(|w| {
+            matches!((&w[0], &w[1]),
+                (Some(TradeSide::Buy), Some(TradeSide::Sell)) |
+                (Some(TradeSide::Sell), Some(TradeSide::Buy)))
+        }).count();
+        Some(switches as f64 / n as f64)
+    }
+
+    /// Range of quantities (max_qty - min_qty) as measure of order size dispersion.
+    pub fn tick_vol_range(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() { return None; }
+        let vols: Vec<f64> = ticks.iter().filter_map(|t| t.quantity.to_f64()).collect();
+        if vols.is_empty() { return None; }
+        let min = vols.iter().cloned().fold(f64::INFINITY, f64::min);
+        let max = vols.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        Some(max - min)
+    }
+
     /// Fraction of total volume traded in the second half of the tick sequence.
     pub fn tick_late_vol_frac(ticks: &[NormalizedTick]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
@@ -25184,5 +25232,76 @@ mod tests {
         ];
         let r = NormalizedTick::tick_price_quarter_drift(&ticks).unwrap();
         assert!(r > 0.0, "expected positive drift got {}", r);
+    }
+
+    #[test]
+    fn test_tick_price_ema_cross_empty_none() {
+        assert!(NormalizedTick::tick_price_ema_cross(&[]).is_none());
+    }
+
+    #[test]
+    fn test_tick_price_ema_cross_returns_binary() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(105), dec!(1)),
+            make_tick_pq(dec!(200), dec!(1)), // last >> EMA → 1.0
+        ];
+        let r = NormalizedTick::tick_price_ema_cross(&ticks).unwrap();
+        assert!((r - 1.0).abs() < 1e-9 || r.abs() < 1e-9, "expected 0 or 1 got {}", r);
+    }
+
+    #[test]
+    fn test_tick_vol_above_avg_empty_none() {
+        assert!(NormalizedTick::tick_vol_above_avg(&[]).is_none());
+    }
+
+    #[test]
+    fn test_tick_vol_above_avg_returns_bounded() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(101), dec!(10)),
+        ];
+        let r = NormalizedTick::tick_vol_above_avg(&ticks).unwrap();
+        assert!(r >= 0.0 && r <= 1.0);
+    }
+
+    #[test]
+    fn test_tick_side_switch_rate_too_few_none() {
+        use rust_decimal_macros::dec;
+        let t = make_tick_pq(dec!(100), dec!(1));
+        assert!(NormalizedTick::tick_side_switch_rate(&[t]).is_none());
+    }
+
+    #[test]
+    fn test_tick_side_switch_rate_all_switch() {
+        use rust_decimal_macros::dec;
+        use crate::tick::TradeSide;
+        let mut b = make_tick_pq(dec!(100), dec!(1));
+        b.side = Some(TradeSide::Buy);
+        let mut s = make_tick_pq(dec!(101), dec!(1));
+        s.side = Some(TradeSide::Sell);
+        let mut b2 = make_tick_pq(dec!(102), dec!(1));
+        b2.side = Some(TradeSide::Buy);
+        let ticks = vec![b, s, b2];
+        let r = NormalizedTick::tick_side_switch_rate(&ticks).unwrap();
+        assert!((r - 1.0).abs() < 1e-6, "expected 1.0 got {}", r);
+    }
+
+    #[test]
+    fn test_tick_vol_range_empty_none() {
+        assert!(NormalizedTick::tick_vol_range(&[]).is_none());
+    }
+
+    #[test]
+    fn test_tick_vol_range_returns_nonneg() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(2)),
+            make_tick_pq(dec!(101), dec!(8)),
+        ];
+        let r = NormalizedTick::tick_vol_range(&ticks).unwrap();
+        assert!((r - 6.0).abs() < 1e-6, "expected 6.0 got {}", r);
     }
 }

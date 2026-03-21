@@ -8048,6 +8048,45 @@ impl MinMaxNormalizer {
         Some(mean / std)
     }
 
+    /// Longest consecutive up-streak length as fraction of window size.
+    pub fn window_streak_up(&self) -> Option<f64> {
+        if self.window.len() < 2 { return None; }
+        use rust_decimal::prelude::ToPrimitive;
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.len() < 2 { return None; }
+        let mut max_streak = 0usize;
+        let mut cur = 0usize;
+        for w in vals.windows(2) {
+            if w[1] > w[0] { cur += 1; max_streak = max_streak.max(cur); } else { cur = 0; }
+        }
+        Some(max_streak as f64 / (vals.len() - 1) as f64)
+    }
+
+    /// Longest consecutive down-streak length as fraction of window size.
+    pub fn window_down_streak(&self) -> Option<f64> {
+        if self.window.len() < 2 { return None; }
+        use rust_decimal::prelude::ToPrimitive;
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.len() < 2 { return None; }
+        let mut max_streak = 0usize;
+        let mut cur = 0usize;
+        for w in vals.windows(2) {
+            if w[1] < w[0] { cur += 1; max_streak = max_streak.max(cur); } else { cur = 0; }
+        }
+        Some(max_streak as f64 / (vals.len() - 1) as f64)
+    }
+
+    /// Mean squared error of values relative to the window mean.
+    pub fn window_mean_sq_error(&self) -> Option<f64> {
+        if self.window.is_empty() { return None; }
+        use rust_decimal::prelude::ToPrimitive;
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.is_empty() { return None; }
+        let mean = vals.iter().sum::<f64>() / vals.len() as f64;
+        let mse = vals.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / vals.len() as f64;
+        Some(mse)
+    }
+
 }
 
 #[cfg(test)]
@@ -17423,6 +17462,51 @@ mod tests {
         // mean=10, std≈2 → cv_inverse≈5
         assert!(r > 0.0, "expected positive got {}", r);
     }
+
+    #[test]
+    fn test_minmax_window_streak_up_none_single() {
+        let mut n = norm(5);
+        n.update(dec!(5));
+        assert!(n.window_streak_up().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_streak_up_all_up() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        // all 3 pairs up → streak=3/3=1.0
+        let r = n.window_streak_up().unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "expected 1.0 got {}", r);
+    }
+
+    #[test]
+    fn test_minmax_window_down_streak_none_single() {
+        let mut n = norm(5);
+        n.update(dec!(5));
+        assert!(n.window_down_streak().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_down_streak_all_down() {
+        let mut n = norm(4);
+        for v in [dec!(4), dec!(3), dec!(2), dec!(1)] { n.update(v); }
+        let r = n.window_down_streak().unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "expected 1.0 got {}", r);
+    }
+
+    #[test]
+    fn test_minmax_window_mean_sq_error_empty_none() {
+        let n = norm(5);
+        assert!(n.window_mean_sq_error().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_mean_sq_error_uniform_zero() {
+        let mut n = norm(3);
+        for _ in 0..3 { n.update(dec!(5)); }
+        let r = n.window_mean_sq_error().unwrap();
+        assert!(r.abs() < 1e-9, "expected 0 got {}", r);
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -25416,6 +25500,45 @@ impl ZScoreNormalizer {
         };
         if std == 0.0 { return None; }
         Some(mean / std)
+    }
+
+    /// Longest consecutive up-streak length as fraction of window size.
+    pub fn window_streak_up(&self) -> Option<f64> {
+        if self.window.len() < 2 { return None; }
+        use rust_decimal::prelude::ToPrimitive;
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.len() < 2 { return None; }
+        let mut max_streak = 0usize;
+        let mut cur = 0usize;
+        for w in vals.windows(2) {
+            if w[1] > w[0] { cur += 1; max_streak = max_streak.max(cur); } else { cur = 0; }
+        }
+        Some(max_streak as f64 / (vals.len() - 1) as f64)
+    }
+
+    /// Longest consecutive down-streak length as fraction of window size.
+    pub fn window_down_streak(&self) -> Option<f64> {
+        if self.window.len() < 2 { return None; }
+        use rust_decimal::prelude::ToPrimitive;
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.len() < 2 { return None; }
+        let mut max_streak = 0usize;
+        let mut cur = 0usize;
+        for w in vals.windows(2) {
+            if w[1] < w[0] { cur += 1; max_streak = max_streak.max(cur); } else { cur = 0; }
+        }
+        Some(max_streak as f64 / (vals.len() - 1) as f64)
+    }
+
+    /// Mean squared error of values relative to the window mean.
+    pub fn window_mean_sq_error(&self) -> Option<f64> {
+        if self.window.is_empty() { return None; }
+        use rust_decimal::prelude::ToPrimitive;
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.is_empty() { return None; }
+        let mean = vals.iter().sum::<f64>() / vals.len() as f64;
+        let mse = vals.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / vals.len() as f64;
+        Some(mse)
     }
 
 }
@@ -34738,5 +34861,49 @@ mod zscore_stability_tests {
         for v in [dec!(8), dec!(10), dec!(12)] { n.update(v); }
         let r = n.window_cv_inverse().unwrap();
         assert!(r > 0.0, "expected positive got {}", r);
+    }
+
+    #[test]
+    fn test_zscore_window_streak_up_none_single() {
+        let mut n = znorm(5);
+        n.update(dec!(5));
+        assert!(n.window_streak_up().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_streak_up_all_up() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let r = n.window_streak_up().unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "expected 1.0 got {}", r);
+    }
+
+    #[test]
+    fn test_zscore_window_down_streak_none_single() {
+        let mut n = znorm(5);
+        n.update(dec!(5));
+        assert!(n.window_down_streak().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_down_streak_all_down() {
+        let mut n = znorm(4);
+        for v in [dec!(4), dec!(3), dec!(2), dec!(1)] { n.update(v); }
+        let r = n.window_down_streak().unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "expected 1.0 got {}", r);
+    }
+
+    #[test]
+    fn test_zscore_window_mean_sq_error_empty_none() {
+        let n = znorm(5);
+        assert!(n.window_mean_sq_error().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_mean_sq_error_uniform_zero() {
+        let mut n = znorm(3);
+        for _ in 0..3 { n.update(dec!(5)); }
+        let r = n.window_mean_sq_error().unwrap();
+        assert!(r.abs() < 1e-9, "expected 0 got {}", r);
     }
 }
