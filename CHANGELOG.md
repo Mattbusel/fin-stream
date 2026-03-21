@@ -9,6 +9,36 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.6.3] - 2026-03-20
+
+### Added
+
+**`tick` module — `NormalizedTick` analytics (round 112)**
+- `NormalizedTick::price_reversal_rate(ticks)` — fraction of consecutive direction pairs that reverse.
+- `NormalizedTick::qty_ema(ticks)` — exponential moving average of trade quantities.
+- `NormalizedTick::last_buy_price(ticks)` — price of the most recent buy-side tick.
+- `NormalizedTick::last_sell_price(ticks)` — price of the most recent sell-side tick.
+
+**`ohlcv` module — `OhlcvBar` analytics (round 112)**
+- `OhlcvBar::wicks_to_body_ratio(bars)` — mean ratio of total wick length to body length.
+- `OhlcvBar::avg_close_deviation(bars)` — mean absolute deviation of close prices from their mean.
+- `OhlcvBar::open_midpoint_ratio(bars)` — mean ratio of open to `(high+low)/2`.
+- `OhlcvBar::volume_weighted_close_change(bars)` — volume-weighted mean of close-to-close changes.
+
+**`norm` module — `MinMaxNormalizer` analytics (round 112)**
+- `MinMaxNormalizer::window_harmonic_mean()` — harmonic mean of window values.
+- `MinMaxNormalizer::window_geometric_std()` — geometric standard deviation of window values.
+- `MinMaxNormalizer::window_entropy_rate()` — mean absolute first differences as entropy rate proxy.
+- `MinMaxNormalizer::window_burstiness()` — burstiness index `(std - mean) / (std + mean)`.
+
+**`norm` module — `ZScoreNormalizer` analytics (round 112)**
+- `ZScoreNormalizer::window_harmonic_mean()` — harmonic mean of window values.
+- `ZScoreNormalizer::window_geometric_std()` — geometric standard deviation of window values.
+- `ZScoreNormalizer::window_entropy_rate()` — mean absolute first differences as entropy rate proxy.
+- `ZScoreNormalizer::window_burstiness()` — burstiness index `(std - mean) / (std + mean)`.
+
+---
+
 ## [2.6.2] - 2026-03-20
 
 ### Added

@@ -5042,6 +5042,56 @@ impl NormalizedTick {
         Some((down_qty / total_qty).to_f64().unwrap_or(0.0))
     }
 
+    // ── round-112 ────────────────────────────────────────────────────────────
+
+    /// Fraction of consecutive tick pairs where price reverses direction.
+    /// Returns `None` for fewer than 3 ticks.
+    pub fn price_reversal_rate(ticks: &[NormalizedTick]) -> Option<f64> {
+        if ticks.len() < 3 { return None; }
+        let directions: Vec<i8> = ticks.windows(2).map(|w| {
+            if w[1].price > w[0].price { 1i8 }
+            else if w[1].price < w[0].price { -1i8 }
+            else { 0i8 }
+        }).collect();
+        let reversals = directions.windows(2)
+            .filter(|w| w[0] != 0 && w[1] != 0 && w[0] != w[1])
+            .count();
+        Some(reversals as f64 / (directions.len() - 1) as f64)
+    }
+
+    /// Exponential moving average of trade quantities (alpha = 2/(n+1), n = tick count).
+    /// Returns `None` for an empty slice.
+    pub fn qty_ema(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() { return None; }
+        let n = ticks.len();
+        let alpha = 2.0 / (n + 1) as f64;
+        let mut ema = ticks[0].quantity.to_f64().unwrap_or(0.0);
+        for t in &ticks[1..] {
+            let q = t.quantity.to_f64().unwrap_or(0.0);
+            ema = alpha * q + (1.0 - alpha) * ema;
+        }
+        Some(ema)
+    }
+
+    /// Last price among buy-side ticks.
+    /// Returns `None` if no buy-side ticks exist.
+    pub fn last_buy_price(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        ticks.iter().rev()
+            .find(|t| matches!(t.side, Some(TradeSide::Buy)))
+            .and_then(|t| t.price.to_f64())
+    }
+
+    /// Last price among sell-side ticks.
+    /// Returns `None` if no sell-side ticks exist.
+    pub fn last_sell_price(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        ticks.iter().rev()
+            .find(|t| matches!(t.side, Some(TradeSide::Sell)))
+            .and_then(|t| t.price.to_f64())
+    }
+
 }
 
 
@@ -11625,5 +11675,52 @@ mod tests {
         let t2 = make_tick_pq(dec!(200), dec!(5));
         let f = NormalizedTick::downside_qty_fraction(&[t1, t2]).unwrap();
         assert!((f - 0.5).abs() < 1e-9, "expected 0.5, got {}", f);
+    }
+
+    #[test]
+    fn test_price_reversal_rate_none_for_two() {
+        use rust_decimal_macros::dec;
+        let t1 = make_tick_pq(dec!(100), dec!(1));
+        let t2 = make_tick_pq(dec!(101), dec!(1));
+        assert!(NormalizedTick::price_reversal_rate(&[t1, t2]).is_none());
+    }
+
+    #[test]
+    fn test_price_reversal_rate_basic() {
+        use rust_decimal_macros::dec;
+        // up, down → reversal fraction = 1/(2-1) = 1.0
+        let t1 = make_tick_pq(dec!(100), dec!(1));
+        let t2 = make_tick_pq(dec!(105), dec!(1));
+        let t3 = make_tick_pq(dec!(100), dec!(1));
+        let r = NormalizedTick::price_reversal_rate(&[t1, t2, t3]).unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "expected 1.0, got {}", r);
+    }
+
+    #[test]
+    fn test_qty_ema_none_for_empty() {
+        assert!(NormalizedTick::qty_ema(&[]).is_none());
+    }
+
+    #[test]
+    fn test_qty_ema_single() {
+        use rust_decimal_macros::dec;
+        let t = make_tick_pq(dec!(100), dec!(5));
+        let e = NormalizedTick::qty_ema(&[t]).unwrap();
+        assert!((e - 5.0).abs() < 1e-9, "expected 5.0, got {}", e);
+    }
+
+    #[test]
+    fn test_last_buy_price_none_when_no_buy() {
+        use rust_decimal_macros::dec;
+        let t = make_tick_pq(dec!(100), dec!(1));
+        // no side set → None
+        assert!(NormalizedTick::last_buy_price(&[t]).is_none());
+    }
+
+    #[test]
+    fn test_last_sell_price_none_when_no_sell() {
+        use rust_decimal_macros::dec;
+        let t = make_tick_pq(dec!(100), dec!(1));
+        assert!(NormalizedTick::last_sell_price(&[t]).is_none());
     }
 }

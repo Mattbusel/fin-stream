@@ -2962,6 +2962,61 @@ impl MinMaxNormalizer {
         Some(max_run)
     }
 
+    // ── round-112 ────────────────────────────────────────────────────────────
+
+    /// Harmonic mean of the window values. Returns `None` if window is empty
+    /// or any value is zero.
+    pub fn window_harmonic_mean(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let mut sum_recip = 0f64;
+        for &v in &self.window {
+            let f = v.to_f64()?;
+            if f == 0.0 { return None; }
+            sum_recip += 1.0 / f;
+        }
+        Some(self.window.len() as f64 / sum_recip)
+    }
+
+    /// Geometric standard deviation of the window (exp of std-dev of log-values).
+    /// Returns `None` if window has fewer than 2 values or any value is non-positive.
+    pub fn window_geometric_std(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let logs: Vec<f64> = self.window.iter().map(|&v| {
+            let f = v.to_f64()?;
+            if f <= 0.0 { None } else { Some(f.ln()) }
+        }).collect::<Option<Vec<_>>>()?;
+        let n = logs.len() as f64;
+        let mean = logs.iter().sum::<f64>() / n;
+        let var = logs.iter().map(|&x| (x - mean).powi(2)).sum::<f64>() / (n - 1.0);
+        Some(var.sqrt().exp())
+    }
+
+    /// Entropy rate approximation: mean of absolute first differences of the window.
+    /// Returns `None` for fewer than 2 values.
+    pub fn window_entropy_rate(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let sum: f64 = vals.windows(2).map(|w| (w[1] - w[0]).abs()).sum();
+        Some(sum / (vals.len() - 1) as f64)
+    }
+
+    /// Burstiness: (std_dev - mean) / (std_dev + mean). Returns `None` if window
+    /// is empty, mean + std_dev is zero, or fewer than 2 values for std_dev.
+    pub fn window_burstiness(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let n = vals.len() as f64;
+        let mean = vals.iter().sum::<f64>() / n;
+        let var = vals.iter().map(|&x| (x - mean).powi(2)).sum::<f64>() / (n - 1.0);
+        let std = var.sqrt();
+        let denom = std + mean;
+        if denom == 0.0 { None } else { Some((std - mean) / denom) }
+    }
+
 }
 
 #[cfg(test)]
@@ -6112,6 +6167,74 @@ mod tests {
         let r = n.window_min_run().unwrap();
         assert_eq!(r, 3);
     }
+
+    #[test]
+    fn test_minmax_window_harmonic_mean_none_for_zero() {
+        let mut n = norm(3);
+        n.update(dec!(0));
+        assert!(n.window_harmonic_mean().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_harmonic_mean_basic() {
+        let mut n = norm(3);
+        n.update(dec!(1));
+        n.update(dec!(2));
+        n.update(dec!(4));
+        // harmonic mean = 3 / (1 + 0.5 + 0.25) = 3/1.75 ≈ 1.7143
+        let h = n.window_harmonic_mean().unwrap();
+        assert!((h - 12.0 / 7.0).abs() < 1e-9, "expected ~1.7143, got {}", h);
+    }
+
+    #[test]
+    fn test_minmax_window_geometric_std_none_for_single() {
+        let mut n = norm(3);
+        n.update(dec!(5));
+        assert!(n.window_geometric_std().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_geometric_std_basic() {
+        let mut n = norm(3);
+        n.update(dec!(1));
+        n.update(dec!(10));
+        let g = n.window_geometric_std().unwrap();
+        assert!(g > 1.0, "geometric std should be > 1 for spread data");
+    }
+
+    #[test]
+    fn test_minmax_window_entropy_rate_none_for_single() {
+        let mut n = norm(3);
+        n.update(dec!(5));
+        assert!(n.window_entropy_rate().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_entropy_rate_basic() {
+        let mut n = norm(3);
+        n.update(dec!(10));
+        n.update(dec!(12));
+        n.update(dec!(14));
+        // diffs: |2|, |2| → mean=2
+        let e = n.window_entropy_rate().unwrap();
+        assert!((e - 2.0).abs() < 1e-9, "expected 2.0, got {}", e);
+    }
+
+    #[test]
+    fn test_minmax_window_burstiness_none_for_single() {
+        let mut n = norm(3);
+        n.update(dec!(5));
+        assert!(n.window_burstiness().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_burstiness_basic() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(1), dec!(1), dec!(10)] { n.update(v); }
+        let b = n.window_burstiness().unwrap();
+        // bursty signal should have positive burstiness
+        assert!(b > 0.0, "expected positive burstiness, got {}", b);
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -9019,6 +9142,61 @@ impl ZScoreNormalizer {
             }
         }
         Some(max_run)
+    }
+
+    // ── round-112 ────────────────────────────────────────────────────────────
+
+    /// Harmonic mean of the window values. Returns `None` if window is empty
+    /// or any value is zero.
+    pub fn window_harmonic_mean(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let mut sum_recip = 0f64;
+        for &v in &self.window {
+            let f = v.to_f64()?;
+            if f == 0.0 { return None; }
+            sum_recip += 1.0 / f;
+        }
+        Some(self.window.len() as f64 / sum_recip)
+    }
+
+    /// Geometric standard deviation of the window (exp of std-dev of log-values).
+    /// Returns `None` if window has fewer than 2 values or any value is non-positive.
+    pub fn window_geometric_std(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let logs: Vec<f64> = self.window.iter().map(|&v| {
+            let f = v.to_f64()?;
+            if f <= 0.0 { None } else { Some(f.ln()) }
+        }).collect::<Option<Vec<_>>>()?;
+        let n = logs.len() as f64;
+        let mean = logs.iter().sum::<f64>() / n;
+        let var = logs.iter().map(|&x| (x - mean).powi(2)).sum::<f64>() / (n - 1.0);
+        Some(var.sqrt().exp())
+    }
+
+    /// Entropy rate approximation: mean of absolute first differences of the window.
+    /// Returns `None` for fewer than 2 values.
+    pub fn window_entropy_rate(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let sum: f64 = vals.windows(2).map(|w| (w[1] - w[0]).abs()).sum();
+        Some(sum / (vals.len() - 1) as f64)
+    }
+
+    /// Burstiness: (std_dev - mean) / (std_dev + mean). Returns `None` if window
+    /// is empty, mean + std_dev is zero, or fewer than 2 values for std_dev.
+    pub fn window_burstiness(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let n = vals.len() as f64;
+        let mean = vals.iter().sum::<f64>() / n;
+        let var = vals.iter().map(|&x| (x - mean).powi(2)).sum::<f64>() / (n - 1.0);
+        let std = var.sqrt();
+        let denom = std + mean;
+        if denom == 0.0 { None } else { Some((std - mean) / denom) }
     }
 
 }
@@ -12282,5 +12460,70 @@ mod zscore_stability_tests {
         for v in [dec!(30), dec!(20), dec!(10), dec!(25)] { n.update(v); }
         let r = n.window_min_run().unwrap();
         assert_eq!(r, 3);
+    }
+
+    #[test]
+    fn test_zscore_window_harmonic_mean_none_for_zero() {
+        let mut n = znorm(3);
+        n.update(dec!(0));
+        assert!(n.window_harmonic_mean().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_harmonic_mean_basic() {
+        let mut n = znorm(3);
+        n.update(dec!(1));
+        n.update(dec!(2));
+        n.update(dec!(4));
+        let h = n.window_harmonic_mean().unwrap();
+        assert!((h - 12.0 / 7.0).abs() < 1e-9, "expected ~1.7143, got {}", h);
+    }
+
+    #[test]
+    fn test_zscore_window_geometric_std_none_for_single() {
+        let mut n = znorm(3);
+        n.update(dec!(5));
+        assert!(n.window_geometric_std().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_geometric_std_basic() {
+        let mut n = znorm(3);
+        n.update(dec!(1));
+        n.update(dec!(10));
+        let g = n.window_geometric_std().unwrap();
+        assert!(g > 1.0, "geometric std should be > 1 for spread data");
+    }
+
+    #[test]
+    fn test_zscore_window_entropy_rate_none_for_single() {
+        let mut n = znorm(3);
+        n.update(dec!(5));
+        assert!(n.window_entropy_rate().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_entropy_rate_basic() {
+        let mut n = znorm(3);
+        n.update(dec!(10));
+        n.update(dec!(12));
+        n.update(dec!(14));
+        let e = n.window_entropy_rate().unwrap();
+        assert!((e - 2.0).abs() < 1e-9, "expected 2.0, got {}", e);
+    }
+
+    #[test]
+    fn test_zscore_window_burstiness_none_for_single() {
+        let mut n = znorm(3);
+        n.update(dec!(5));
+        assert!(n.window_burstiness().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_burstiness_basic() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(1), dec!(1), dec!(10)] { n.update(v); }
+        let b = n.window_burstiness().unwrap();
+        assert!(b > 0.0, "expected positive burstiness, got {}", b);
     }
 }

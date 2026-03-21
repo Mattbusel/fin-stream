@@ -4980,6 +4980,67 @@ impl OhlcvBar {
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
+    // ── round-112 ────────────────────────────────────────────────────────────
+
+    /// Mean ratio of total wick length to body length across bars.
+    /// Bars with zero body are skipped. Returns `None` if no eligible bars.
+    pub fn wicks_to_body_ratio(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let mut sum = 0f64;
+        let mut cnt = 0usize;
+        for b in bars {
+            let body = (b.close - b.open).abs();
+            if body.is_zero() { continue; }
+            let upper = b.high - b.open.max(b.close);
+            let lower = b.open.min(b.close) - b.low;
+            let wicks = upper + lower;
+            let ratio = wicks.to_f64()? / body.to_f64()?;
+            sum += ratio;
+            cnt += 1;
+        }
+        if cnt == 0 { None } else { Some(sum / cnt as f64) }
+    }
+
+    /// Mean absolute deviation of each bar's close from the overall close mean.
+    /// Returns `None` for empty input.
+    pub fn avg_close_deviation(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let n = bars.len() as f64;
+        let mean: f64 = bars.iter().map(|b| b.close.to_f64().unwrap_or(0.0)).sum::<f64>() / n;
+        let mad = bars.iter().map(|b| (b.close.to_f64().unwrap_or(0.0) - mean).abs()).sum::<f64>() / n;
+        Some(mad)
+    }
+
+    /// Mean ratio of each bar's open to its midpoint `(high+low)/2`.
+    /// Returns `None` for empty input.
+    pub fn open_midpoint_ratio(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let sum: f64 = bars.iter().map(|b| {
+            let mid = (b.high + b.low) / Decimal::TWO;
+            if mid.is_zero() { 1.0 }
+            else { b.open.to_f64().unwrap_or(0.0) / mid.to_f64().unwrap_or(1.0) }
+        }).sum();
+        Some(sum / bars.len() as f64)
+    }
+
+    /// Volume-weighted mean of close-to-close changes.
+    /// Returns `None` for fewer than 2 bars or zero total volume.
+    pub fn volume_weighted_close_change(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.len() < 2 { return None; }
+        let mut num = 0f64;
+        let mut denom = 0f64;
+        for w in bars.windows(2) {
+            let chg = (w[1].close - w[0].close).to_f64()?;
+            let vol = w[1].volume.to_f64().unwrap_or(0.0);
+            num += chg * vol;
+            denom += vol;
+        }
+        if denom == 0.0 { None } else { Some(num / denom) }
+    }
+
 }
 
 impl std::fmt::Display for OhlcvBar {
@@ -11825,6 +11886,64 @@ mod tests {
         let curr = make_ohlcv_bar(dec!(100), dec!(115), dec!(95), dec!(110));
         let m = OhlcvBar::price_momentum_mean(&[prev, curr]).unwrap();
         assert!((m - 0.1).abs() < 1e-9, "expected 0.1, got {}", m);
+    }
+
+    #[test]
+    fn test_wicks_to_body_ratio_none_for_doji() {
+        // zero body → skipped → None
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100));
+        assert!(OhlcvBar::wicks_to_body_ratio(&[b]).is_none());
+    }
+
+    #[test]
+    fn test_wicks_to_body_ratio_basic() {
+        // open=100, close=110 (body=10), high=115, low=98 → upper=5, lower=2, wicks=7 → ratio=0.7
+        let b = make_ohlcv_bar(dec!(100), dec!(115), dec!(98), dec!(110));
+        let r = OhlcvBar::wicks_to_body_ratio(&[b]).unwrap();
+        assert!((r - 0.7).abs() < 1e-9, "expected 0.7, got {}", r);
+    }
+
+    #[test]
+    fn test_avg_close_deviation_none_for_empty() {
+        assert!(OhlcvBar::avg_close_deviation(&[]).is_none());
+    }
+
+    #[test]
+    fn test_avg_close_deviation_basic() {
+        // closes: 100, 120 → mean=110 → MAD = (10+10)/2 = 10
+        let b1 = make_ohlcv_bar(dec!(100), dec!(120), dec!(95), dec!(100));
+        let b2 = make_ohlcv_bar(dec!(100), dec!(125), dec!(95), dec!(120));
+        let d = OhlcvBar::avg_close_deviation(&[b1, b2]).unwrap();
+        assert!((d - 10.0).abs() < 1e-9, "expected 10.0, got {}", d);
+    }
+
+    #[test]
+    fn test_open_midpoint_ratio_none_for_empty() {
+        assert!(OhlcvBar::open_midpoint_ratio(&[]).is_none());
+    }
+
+    #[test]
+    fn test_open_midpoint_ratio_basic() {
+        // open=100, high=120, low=80 → mid=100 → ratio=1.0
+        let b = make_ohlcv_bar(dec!(100), dec!(120), dec!(80), dec!(110));
+        let r = OhlcvBar::open_midpoint_ratio(&[b]).unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "expected 1.0, got {}", r);
+    }
+
+    #[test]
+    fn test_volume_weighted_close_change_none_for_single() {
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        assert!(OhlcvBar::volume_weighted_close_change(&[b]).is_none());
+    }
+
+    #[test]
+    fn test_volume_weighted_close_change_basic() {
+        // bar1 close=100 vol=0, bar2 close=110 vol=10 → chg=10, vol=10 → result=10
+        let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100));
+        let b2 = make_ohlcv_bar(dec!(100), dec!(115), dec!(95), dec!(110));
+        let v = OhlcvBar::volume_weighted_close_change(&[b1, b2]).unwrap();
+        // b2 volume from make_ohlcv_bar is dec!(1000) by default, chg=10 → result=10
+        assert!((v - 10.0).abs() < 1e-9, "expected 10.0, got {}", v);
     }
 
     #[test]
