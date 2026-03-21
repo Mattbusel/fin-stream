@@ -8508,6 +8508,56 @@ impl NormalizedTick {
         Some(crossings as f64 / (prices.len() - 1) as f64)
     }
 
+    // ── round-173 ────────────────────────────────────────────────────────────
+
+    /// Fraction of total quantity from buy-side ticks.
+    pub fn tick_buy_volume_pct(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let mut buy_qty = 0.0f64;
+        let mut total_qty = 0.0f64;
+        for t in ticks {
+            let q = t.quantity.to_f64().unwrap_or(0.0);
+            if matches!(t.side, Some(crate::tick::TradeSide::Buy)) { buy_qty += q; }
+            total_qty += q;
+        }
+        if total_qty == 0.0 { return None; }
+        Some(buy_qty / total_qty)
+    }
+
+    /// (price_max - price_min) / mean_price — efficiency of price spread relative to level.
+    pub fn price_spread_efficiency(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() { return None; }
+        let prices: Vec<f64> = ticks.iter().filter_map(|t| t.price.to_f64()).collect();
+        if prices.is_empty() { return None; }
+        let mean = prices.iter().sum::<f64>() / prices.len() as f64;
+        if mean == 0.0 { return None; }
+        let max = prices.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        let min = prices.iter().cloned().fold(f64::INFINITY, f64::min);
+        Some((max - min) / mean)
+    }
+
+    /// (buy_count - sell_count) / total_sided_ticks (order flow imbalance by count).
+    pub fn tick_order_imbalance(ticks: &[NormalizedTick]) -> Option<f64> {
+        let buys = ticks.iter().filter(|t| matches!(t.side, Some(crate::tick::TradeSide::Buy))).count();
+        let sells = ticks.iter().filter(|t| matches!(t.side, Some(crate::tick::TradeSide::Sell))).count();
+        let total = buys + sells;
+        if total == 0 { return None; }
+        Some((buys as f64 - sells as f64) / total as f64)
+    }
+
+    /// Mean lower shadow fraction: (min_price - mean_price).abs() / mean_price.
+    pub fn price_lower_shadow_ratio(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() { return None; }
+        let prices: Vec<f64> = ticks.iter().filter_map(|t| t.price.to_f64()).collect();
+        if prices.is_empty() { return None; }
+        let mean = prices.iter().sum::<f64>() / prices.len() as f64;
+        if mean == 0.0 { return None; }
+        let min = prices.iter().cloned().fold(f64::INFINITY, f64::min);
+        Some((mean - min).abs() / mean)
+    }
+
 }
 
 
@@ -19348,6 +19398,75 @@ mod tests {
             make_tick_pq(dec!(100), dec!(1)),
         ];
         let r = NormalizedTick::price_mean_cross_rate(&ticks).unwrap();
+        assert!((r - 0.0).abs() < 1e-9, "expected 0.0, got {}", r);
+    }
+
+    // ── round-173 tests ──────────────────────────────────────────────────────
+
+    #[test]
+    fn test_tick_buy_volume_pct_none_for_no_volume() {
+        use rust_decimal_macros::dec;
+        // no sides → total_qty=1 but no buy_qty → fraction=0
+        let ticks = vec![make_tick_pq(dec!(100), dec!(1))];
+        let p = NormalizedTick::tick_buy_volume_pct(&ticks).unwrap();
+        assert!((p - 0.0).abs() < 1e-9, "expected 0.0, got {}", p);
+    }
+
+    #[test]
+    fn test_tick_buy_volume_pct_all_buy_one() {
+        use rust_decimal_macros::dec;
+        let mut t = make_tick_pq(dec!(100), dec!(5));
+        t.side = Some(crate::tick::TradeSide::Buy);
+        let p = NormalizedTick::tick_buy_volume_pct(&[t]).unwrap();
+        assert!((p - 1.0).abs() < 1e-9, "expected 1.0, got {}", p);
+    }
+
+    #[test]
+    fn test_price_spread_efficiency_none_for_empty() {
+        assert!(NormalizedTick::price_spread_efficiency(&[]).is_none());
+    }
+
+    #[test]
+    fn test_price_spread_efficiency_constant_zero() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(100), dec!(1)),
+        ];
+        let e = NormalizedTick::price_spread_efficiency(&ticks).unwrap();
+        assert!((e - 0.0).abs() < 1e-9, "expected 0.0, got {}", e);
+    }
+
+    #[test]
+    fn test_tick_order_imbalance_none_for_no_sides() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![make_tick_pq(dec!(100), dec!(1))];
+        assert!(NormalizedTick::tick_order_imbalance(&ticks).is_none());
+    }
+
+    #[test]
+    fn test_tick_order_imbalance_all_buy_one() {
+        use rust_decimal_macros::dec;
+        let mut t = make_tick_pq(dec!(100), dec!(5));
+        t.side = Some(crate::tick::TradeSide::Buy);
+        let i = NormalizedTick::tick_order_imbalance(&[t]).unwrap();
+        assert!((i - 1.0).abs() < 1e-9, "expected 1.0, got {}", i);
+    }
+
+    #[test]
+    fn test_price_lower_shadow_ratio_none_for_empty() {
+        assert!(NormalizedTick::price_lower_shadow_ratio(&[]).is_none());
+    }
+
+    #[test]
+    fn test_price_lower_shadow_ratio_constant_zero() {
+        use rust_decimal_macros::dec;
+        // all same price → mean=min → ratio=0
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(100), dec!(1)),
+        ];
+        let r = NormalizedTick::price_lower_shadow_ratio(&ticks).unwrap();
         assert!((r - 0.0).abs() < 1e-9, "expected 0.0, got {}", r);
     }
 }

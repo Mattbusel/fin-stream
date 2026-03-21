@@ -9,6 +9,30 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.10.24] - 2026-03-20
+
+### Added
+
+**`tick` module — `NormalizedTick` analytics (round 173)**
+- `NormalizedTick::tick_buy_volume_pct(ticks)` — fraction of total quantity from buy-side ticks.
+- `NormalizedTick::price_spread_efficiency(ticks)` — (max_price - min_price) / mean_price.
+- `NormalizedTick::tick_order_imbalance(ticks)` — (buy_count - sell_count) / total_sided_ticks.
+- `NormalizedTick::price_lower_shadow_ratio(ticks)` — (mean_price - min_price) / mean_price.
+
+**`ohlcv` module — `OhlcvBar` analytics (round 173)**
+- `OhlcvBar::bar_true_range_mean(bars)` — mean true range using previous close.
+- `OhlcvBar::bar_close_above_open_pct(bars)` — fraction of bars where close > open.
+- `OhlcvBar::bar_atr_body_ratio(bars)` — mean true range / |close-open| per bar.
+- `OhlcvBar::bar_volume_pct_change(bars)` — mean pct volume change between consecutive bars.
+
+**`norm` module — `MinMaxNormalizer` + `ZScoreNormalizer` analytics (round 173)**
+- `window_oscillation_rate()` — fraction of consecutive sign changes in window diffs.
+- `window_pct_change_last()` — (last - first) / first * 100.
+- `window_mean_first_half()` — mean of first half of window values.
+- `window_mean_second_half()` — mean of second half of window values.
+
+---
+
 ## [2.10.23] - 2026-03-20
 
 ### Added

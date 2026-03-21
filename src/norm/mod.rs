@@ -5961,6 +5961,50 @@ impl MinMaxNormalizer {
         Some(up_sum / down_sum)
     }
 
+    // ── round-173 ────────────────────────────────────────────────────────────
+
+    /// Fraction of consecutive sign changes (oscillation rate).
+    pub fn window_oscillation_rate(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let sign_changes = vals.windows(2).filter(|w| w[0] * w[1] < 0.0).count();
+        Some(sign_changes as f64 / (vals.len() - 1) as f64)
+    }
+
+    /// (last_value - first_value) / first_value * 100 (total pct change over window).
+    pub fn window_pct_change_last(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let first = vals[0];
+        let last = *vals.last()?;
+        if first.abs() < 1e-12 { return None; }
+        Some((last - first) / first * 100.0)
+    }
+
+    /// Mean of the first half of window values.
+    pub fn window_mean_first_half(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let half = vals.len() / 2;
+        let first = &vals[..half];
+        if first.is_empty() { return None; }
+        Some(first.iter().sum::<f64>() / first.len() as f64)
+    }
+
+    /// Mean of the second half of window values.
+    pub fn window_mean_second_half(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let half = vals.len() / 2;
+        let second = &vals[half..];
+        if second.is_empty() { return None; }
+        Some(second.iter().sum::<f64>() / second.len() as f64)
+    }
+
 }
 
 #[cfg(test)]
@@ -12888,6 +12932,68 @@ mod tests {
         for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
         assert!(n.window_relative_strength().is_none());
     }
+
+    // ── round-173 tests ──────────────────────────────────────────────────────
+
+    #[test]
+    fn test_minmax_window_oscillation_rate_none_for_single() {
+        let mut n = norm(4);
+        n.update(dec!(5));
+        assert!(n.window_oscillation_rate().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_oscillation_rate_all_positive_zero() {
+        let mut n = norm(3);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        let r = n.window_oscillation_rate().unwrap();
+        assert!((r - 0.0).abs() < 1e-9, "expected 0.0, got {}", r);
+    }
+
+    #[test]
+    fn test_minmax_window_pct_change_last_none_for_single() {
+        let mut n = norm(4);
+        n.update(dec!(5));
+        assert!(n.window_pct_change_last().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_pct_change_last_same_zero() {
+        let mut n = norm(3);
+        for v in [dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        let c = n.window_pct_change_last().unwrap();
+        assert!((c - 0.0).abs() < 1e-9, "expected 0.0, got {}", c);
+    }
+
+    #[test]
+    fn test_minmax_window_mean_first_half_none_for_single() {
+        let mut n = norm(4);
+        n.update(dec!(5));
+        assert!(n.window_mean_first_half().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_mean_first_half_constant() {
+        let mut n = norm(4);
+        for v in [dec!(5), dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        let m = n.window_mean_first_half().unwrap();
+        assert!((m - 5.0).abs() < 1e-9, "expected 5.0, got {}", m);
+    }
+
+    #[test]
+    fn test_minmax_window_mean_second_half_none_for_single() {
+        let mut n = norm(4);
+        n.update(dec!(5));
+        assert!(n.window_mean_second_half().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_mean_second_half_constant() {
+        let mut n = norm(4);
+        for v in [dec!(5), dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        let m = n.window_mean_second_half().unwrap();
+        assert!((m - 5.0).abs() < 1e-9, "expected 5.0, got {}", m);
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -18797,6 +18903,50 @@ impl ZScoreNormalizer {
         let down_sum: f64 = vals.windows(2).filter_map(|w| { let d = w[1]-w[0]; if d < 0.0 { Some(d.abs()) } else { None } }).sum();
         if down_sum == 0.0 { return None; }
         Some(up_sum / down_sum)
+    }
+
+    // ── round-173 ────────────────────────────────────────────────────────────
+
+    /// Fraction of consecutive sign changes (oscillation rate).
+    pub fn window_oscillation_rate(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let sign_changes = vals.windows(2).filter(|w| w[0] * w[1] < 0.0).count();
+        Some(sign_changes as f64 / (vals.len() - 1) as f64)
+    }
+
+    /// (last_value - first_value) / first_value * 100 (total pct change over window).
+    pub fn window_pct_change_last(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let first = vals[0];
+        let last = *vals.last()?;
+        if first.abs() < 1e-12 { return None; }
+        Some((last - first) / first * 100.0)
+    }
+
+    /// Mean of the first half of window values.
+    pub fn window_mean_first_half(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let half = vals.len() / 2;
+        let first = &vals[..half];
+        if first.is_empty() { return None; }
+        Some(first.iter().sum::<f64>() / first.len() as f64)
+    }
+
+    /// Mean of the second half of window values.
+    pub fn window_mean_second_half(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let half = vals.len() / 2;
+        let second = &vals[half..];
+        if second.is_empty() { return None; }
+        Some(second.iter().sum::<f64>() / second.len() as f64)
     }
 
 }
@@ -25694,5 +25844,67 @@ mod zscore_stability_tests {
         let mut n = znorm(3);
         for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
         assert!(n.window_relative_strength().is_none());
+    }
+
+    // ── round-173 tests ──────────────────────────────────────────────────────
+
+    #[test]
+    fn test_zscore_window_oscillation_rate_none_for_single() {
+        let mut n = znorm(4);
+        n.update(dec!(5));
+        assert!(n.window_oscillation_rate().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_oscillation_rate_all_positive_zero() {
+        let mut n = znorm(3);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        let r = n.window_oscillation_rate().unwrap();
+        assert!((r - 0.0).abs() < 1e-9, "expected 0.0, got {}", r);
+    }
+
+    #[test]
+    fn test_zscore_window_pct_change_last_none_for_single() {
+        let mut n = znorm(4);
+        n.update(dec!(5));
+        assert!(n.window_pct_change_last().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_pct_change_last_same_zero() {
+        let mut n = znorm(3);
+        for v in [dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        let c = n.window_pct_change_last().unwrap();
+        assert!((c - 0.0).abs() < 1e-9, "expected 0.0, got {}", c);
+    }
+
+    #[test]
+    fn test_zscore_window_mean_first_half_none_for_single() {
+        let mut n = znorm(4);
+        n.update(dec!(5));
+        assert!(n.window_mean_first_half().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_mean_first_half_constant() {
+        let mut n = znorm(4);
+        for v in [dec!(5), dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        let m = n.window_mean_first_half().unwrap();
+        assert!((m - 5.0).abs() < 1e-9, "expected 5.0, got {}", m);
+    }
+
+    #[test]
+    fn test_zscore_window_mean_second_half_none_for_single() {
+        let mut n = znorm(4);
+        n.update(dec!(5));
+        assert!(n.window_mean_second_half().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_mean_second_half_constant() {
+        let mut n = znorm(4);
+        for v in [dec!(5), dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        let m = n.window_mean_second_half().unwrap();
+        assert!((m - 5.0).abs() < 1e-9, "expected 5.0, got {}", m);
     }
 }

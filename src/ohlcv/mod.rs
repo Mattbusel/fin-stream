@@ -8194,6 +8194,65 @@ impl OhlcvBar {
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
+    // ── round-173 ────────────────────────────────────────────────────────────
+
+    /// Mean True Range: mean(max(H-L, |H-prev_C|, |L-prev_C|)) — same formula as ATR.
+    pub fn bar_true_range_mean(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.len() < 2 { return None; }
+        let trs: Vec<f64> = bars.windows(2).filter_map(|w| {
+            let h = w[1].high.to_f64()?;
+            let l = w[1].low.to_f64()?;
+            let pc = w[0].close.to_f64()?;
+            Some((h - l).max((h - pc).abs()).max((l - pc).abs()))
+        }).collect();
+        if trs.is_empty() { return None; }
+        Some(trs.iter().sum::<f64>() / trs.len() as f64)
+    }
+
+    /// Fraction of bars where close > open (bullish pct).
+    pub fn bar_close_above_open_pct(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let bulls = bars.iter().filter(|b| {
+            b.close.to_f64().unwrap_or(0.0) > b.open.to_f64().unwrap_or(0.0)
+        }).count();
+        Some(bulls as f64 / bars.len() as f64)
+    }
+
+    /// Mean ATR / body ratio: true_range / |close - open| per bar.
+    pub fn bar_atr_body_ratio(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.len() < 2 { return None; }
+        let vals: Vec<f64> = bars.windows(2).filter_map(|w| {
+            let h = w[1].high.to_f64()?;
+            let l = w[1].low.to_f64()?;
+            let pc = w[0].close.to_f64()?;
+            let o = w[1].open.to_f64()?;
+            let c = w[1].close.to_f64()?;
+            let tr = (h - l).max((h - pc).abs()).max((l - pc).abs());
+            let body = (c - o).abs();
+            if body == 0.0 { return None; }
+            Some(tr / body)
+        }).collect();
+        if vals.is_empty() { return None; }
+        Some(vals.iter().sum::<f64>() / vals.len() as f64)
+    }
+
+    /// Mean pct volume change between consecutive bars: (vol[i]-vol[i-1])/vol[i-1].
+    pub fn bar_volume_pct_change(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.len() < 2 { return None; }
+        let vals: Vec<f64> = bars.windows(2).filter_map(|w| {
+            let prev = w[0].volume.to_f64()?;
+            let curr = w[1].volume.to_f64()?;
+            if prev == 0.0 { return None; }
+            Some((curr - prev) / prev)
+        }).collect();
+        if vals.is_empty() { return None; }
+        Some(vals.iter().sum::<f64>() / vals.len() as f64)
+    }
+
 }
 
 impl std::fmt::Display for OhlcvBar {
@@ -18625,5 +18684,95 @@ mod tests {
         let bar = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(110));
         let r = OhlcvBar::bar_high_close_ratio(&[bar]).unwrap();
         assert!((r - 1.0).abs() < 1e-9, "expected 1.0, got {}", r);
+    }
+
+    // --- round-173 ---
+
+    #[test]
+    fn test_bar_true_range_mean_none_for_empty() {
+        assert!(OhlcvBar::bar_true_range_mean(&[]).is_none());
+    }
+
+    #[test]
+    fn test_bar_true_range_mean_single_bar_none() {
+        // Requires at least 2 bars to compute TR using prev close
+        let bar = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100));
+        assert!(OhlcvBar::bar_true_range_mean(&[bar]).is_none());
+    }
+
+    #[test]
+    fn test_bar_true_range_mean_uses_prev_close() {
+        // Bar0: C=100 (prev close)
+        // Bar1: H=108, L=95, prev_C=100 → H-L=13, |H-pC|=8, |L-pC|=5 → TR=13
+        // mean = 13.0
+        let b0 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100));
+        let b1 = make_ohlcv_bar(dec!(102), dec!(108), dec!(95), dec!(105));
+        let r = OhlcvBar::bar_true_range_mean(&[b0, b1]).unwrap();
+        assert!((r - 13.0).abs() < 1e-9, "expected 13.0, got {}", r);
+    }
+
+    #[test]
+    fn test_bar_close_above_open_pct_none_for_empty() {
+        assert!(OhlcvBar::bar_close_above_open_pct(&[]).is_none());
+    }
+
+    #[test]
+    fn test_bar_close_above_open_pct_all_bullish() {
+        let b0 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(102));
+        let r = OhlcvBar::bar_close_above_open_pct(&[b0, b1]).unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "expected 1.0, got {}", r);
+    }
+
+    #[test]
+    fn test_bar_close_above_open_pct_mixed() {
+        // 1 bullish, 1 bearish → 0.5
+        let bull = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let bear = make_ohlcv_bar(dec!(105), dec!(110), dec!(90), dec!(100));
+        let r = OhlcvBar::bar_close_above_open_pct(&[bull, bear]).unwrap();
+        assert!((r - 0.5).abs() < 1e-9, "expected 0.5, got {}", r);
+    }
+
+    #[test]
+    fn test_bar_atr_body_ratio_none_for_empty() {
+        assert!(OhlcvBar::bar_atr_body_ratio(&[]).is_none());
+    }
+
+    #[test]
+    fn test_bar_atr_body_ratio_doji_none() {
+        // open=close → body=0 → returns None
+        let bar = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100));
+        assert!(OhlcvBar::bar_atr_body_ratio(&[bar]).is_none());
+    }
+
+    #[test]
+    fn test_bar_atr_body_ratio_value() {
+        // b0: C=100 (prev close), b1: H=110, L=90, O=100, C=105
+        // TR = max(H-L=20, |H-pC|=10, |L-pC|=10) = 20, body=5 → ratio=4.0
+        let b0 = make_ohlcv_bar(dec!(100), dec!(100), dec!(100), dec!(100));
+        let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let r = OhlcvBar::bar_atr_body_ratio(&[b0, b1]).unwrap();
+        assert!((r - 4.0).abs() < 1e-9, "expected 4.0, got {}", r);
+    }
+
+    #[test]
+    fn test_bar_volume_pct_change_none_for_empty() {
+        assert!(OhlcvBar::bar_volume_pct_change(&[]).is_none());
+    }
+
+    #[test]
+    fn test_bar_volume_pct_change_single_bar_none() {
+        // Need at least 2 bars
+        let bar = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100));
+        assert!(OhlcvBar::bar_volume_pct_change(&[bar]).is_none());
+    }
+
+    #[test]
+    fn test_bar_volume_pct_change_equal_volumes() {
+        // Both bars have volume=1 → pct_change = 0
+        let b0 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100));
+        let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100));
+        let r = OhlcvBar::bar_volume_pct_change(&[b0, b1]).unwrap();
+        assert!(r.abs() < 1e-9, "expected 0.0, got {}", r);
     }
 }
