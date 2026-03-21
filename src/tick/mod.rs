@@ -3308,6 +3308,100 @@ impl NormalizedTick {
         Some(reversals as f64 / (ticks.len() - 2) as f64)
     }
 
+    // ── round-89 ─────────────────────────────────────────────────────────────
+
+    /// Fraction of ticks within `band` of the slice VWAP.
+    ///
+    /// Returns `None` for empty slices or when VWAP cannot be computed.
+    pub fn near_vwap_fraction(ticks: &[NormalizedTick], band: Decimal) -> Option<f64> {
+        if ticks.is_empty() {
+            return None;
+        }
+        let vwap = Self::vwap(ticks)?;
+        let count = ticks.iter().filter(|t| (t.price - vwap).abs() <= band).count();
+        Some(count as f64 / ticks.len() as f64)
+    }
+
+    /// Mean signed return: `mean(price_i - price_{i-1}) / price_{i-1}` across all consecutive pairs.
+    ///
+    /// Returns `None` for fewer than 2 ticks.
+    pub fn mean_tick_return(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 2 {
+            return None;
+        }
+        let returns: Vec<f64> = ticks
+            .windows(2)
+            .filter_map(|w| {
+                let prev = w[0].price.to_f64()?;
+                if prev == 0.0 { return None; }
+                let curr = w[1].price.to_f64()?;
+                Some((curr - prev) / prev)
+            })
+            .collect();
+        if returns.is_empty() {
+            return None;
+        }
+        Some(returns.iter().sum::<f64>() / returns.len() as f64)
+    }
+
+    /// Count of ticks where `side == Buy` and price is strictly below VWAP (passive buy).
+    ///
+    /// Returns 0 if VWAP cannot be computed.
+    pub fn passive_buy_count(ticks: &[NormalizedTick]) -> usize {
+        let vwap = match Self::vwap(ticks) {
+            Some(v) => v,
+            None => return 0,
+        };
+        ticks
+            .iter()
+            .filter(|t| t.side == Some(TradeSide::Buy) && t.price < vwap)
+            .count()
+    }
+
+    /// Count of ticks where `side == Sell` and price is strictly above VWAP (passive sell).
+    ///
+    /// Returns 0 if VWAP cannot be computed.
+    pub fn passive_sell_count(ticks: &[NormalizedTick]) -> usize {
+        let vwap = match Self::vwap(ticks) {
+            Some(v) => v,
+            None => return 0,
+        };
+        ticks
+            .iter()
+            .filter(|t| t.side == Some(TradeSide::Sell) && t.price > vwap)
+            .count()
+    }
+
+    /// Interquartile range of prices (Q3 − Q1).
+    ///
+    /// Returns `None` for fewer than 4 ticks.
+    pub fn price_iqr(ticks: &[NormalizedTick]) -> Option<Decimal> {
+        if ticks.len() < 4 {
+            return None;
+        }
+        let mut prices: Vec<Decimal> = ticks.iter().map(|t| t.price).collect();
+        prices.sort();
+        let n = prices.len();
+        let q1 = prices[n / 4];
+        let q3 = prices[(3 * n) / 4];
+        Some(q3 - q1)
+    }
+
+    /// Fraction of ticks with price above the 75th percentile of all tick prices in the slice.
+    ///
+    /// Returns `None` for fewer than 4 ticks.
+    pub fn top_quartile_price_fraction(ticks: &[NormalizedTick]) -> Option<f64> {
+        if ticks.len() < 4 {
+            return None;
+        }
+        let mut prices: Vec<Decimal> = ticks.iter().map(|t| t.price).collect();
+        prices.sort();
+        let q3 = prices[(3 * prices.len()) / 4];
+        let count = ticks.iter().filter(|t| t.price > q3).count();
+        Some(count as f64 / ticks.len() as f64)
+    }
+
 }
 
 
@@ -8184,5 +8278,54 @@ mod tests {
             make_tick_pq(dec!(100), dec!(1)),
         ];
         assert_eq!(NormalizedTick::max_price_rise(&ticks).unwrap(), dec!(15));
+    }
+
+    #[test]
+    fn test_buy_trade_count_zero_for_no_sides() {
+        use rust_decimal_macros::dec;
+        let t = make_tick_pq(dec!(100), dec!(1));
+        assert_eq!(NormalizedTick::buy_trade_count(&[t]), 0);
+    }
+
+    #[test]
+    fn test_buy_trade_count_correct() {
+        use rust_decimal_macros::dec;
+        let mut t1 = make_tick_pq(dec!(100), dec!(1));
+        t1.side = Some(TradeSide::Buy);
+        let mut t2 = make_tick_pq(dec!(100), dec!(1));
+        t2.side = Some(TradeSide::Sell);
+        assert_eq!(NormalizedTick::buy_trade_count(&[t1, t2]), 1);
+    }
+
+    #[test]
+    fn test_sell_trade_count_correct() {
+        use rust_decimal_macros::dec;
+        let mut t1 = make_tick_pq(dec!(100), dec!(1));
+        t1.side = Some(TradeSide::Buy);
+        let mut t2 = make_tick_pq(dec!(100), dec!(1));
+        t2.side = Some(TradeSide::Sell);
+        assert_eq!(NormalizedTick::sell_trade_count(&[t1, t2]), 1);
+    }
+
+    #[test]
+    fn test_price_reversal_fraction_none_for_two_ticks() {
+        use rust_decimal_macros::dec;
+        let t1 = make_tick_pq(dec!(100), dec!(1));
+        let t2 = make_tick_pq(dec!(101), dec!(1));
+        assert!(NormalizedTick::price_reversal_fraction(&[t1, t2]).is_none());
+    }
+
+    #[test]
+    fn test_price_reversal_fraction_one_for_zigzag() {
+        use rust_decimal_macros::dec;
+        // up-down-up: 2 reversals out of 2 pairs → 1.0
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(110), dec!(1)),
+            make_tick_pq(dec!(105), dec!(1)),
+            make_tick_pq(dec!(115), dec!(1)),
+        ];
+        let f = NormalizedTick::price_reversal_fraction(&ticks).unwrap();
+        assert!((f - 1.0).abs() < 1e-9, "perfect zigzag → 1.0, got {}", f);
     }
 }

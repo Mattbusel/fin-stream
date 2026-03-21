@@ -21,6 +21,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - `NormalizedTick::buy_sell_avg_qty_ratio(ticks)` — mean buy quantity / mean sell quantity ratio.
 - `NormalizedTick::max_price_drop(ticks)` — largest consecutive price decline.
 - `NormalizedTick::max_price_rise(ticks)` — largest consecutive price increase.
+- `NormalizedTick::buy_trade_count(ticks)` — count of buy-side trades in the slice.
+- `NormalizedTick::sell_trade_count(ticks)` — count of sell-side trades in the slice.
+- `NormalizedTick::price_reversal_fraction(ticks)` — fraction of 3-tick windows that reverse direction.
 
 **`ohlcv` module — `OhlcvBar` analytics (round 88)**
 - `OhlcvBar::avg_range_pct_of_open(bars)` — mean of `range / open` across bars.
@@ -29,6 +32,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - `OhlcvBar::mean_vwap(bars)` — mean of bar VWAP values.
 - `OhlcvBar::complete_fraction(bars)` — fraction of bars where all OHLCV fields are nonzero.
 - `OhlcvBar::total_body_movement(bars)` — sum of `|close − open|` across all bars.
+- `OhlcvBar::open_std(bars)` — sample standard deviation of open prices.
+- `OhlcvBar::mean_high_low_ratio(bars)` — mean of `high / low` ratio; always ≥ 1.
 
 **`norm` module — `MinMaxNormalizer` and `ZScoreNormalizer` analytics (round 88)**
 - `new_max_count() -> usize` — number of times the window sets a new running maximum.

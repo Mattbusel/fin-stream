@@ -9084,4 +9084,30 @@ mod tests {
         let b2 = make_ohlcv_bar(dec!(110), dec!(120), dec!(100), dec!(100)); // body = 10
         assert_eq!(OhlcvBar::total_body_movement(&[b1, b2]), dec!(15));
     }
+
+    #[test]
+    fn test_open_std_none_for_single() {
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        assert!(OhlcvBar::open_std(&[b]).is_none());
+    }
+
+    #[test]
+    fn test_open_std_zero_for_constant_open() {
+        let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let b2 = make_ohlcv_bar(dec!(100), dec!(120), dec!(80), dec!(110));
+        let s = OhlcvBar::open_std(&[b1, b2]).unwrap();
+        assert!(s.abs() < 1e-9, "constant open → std=0, got {}", s);
+    }
+
+    #[test]
+    fn test_mean_high_low_ratio_none_for_empty() {
+        assert!(OhlcvBar::mean_high_low_ratio(&[]).is_none());
+    }
+
+    #[test]
+    fn test_mean_high_low_ratio_above_one() {
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100));
+        let r = OhlcvBar::mean_high_low_ratio(&[b]).unwrap();
+        assert!(r > 1.0, "high > low → ratio > 1, got {}", r);
+    }
 }
