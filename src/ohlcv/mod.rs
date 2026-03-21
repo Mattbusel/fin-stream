@@ -2755,6 +2755,124 @@ impl OhlcvBar {
         bars.iter().map(|b| b.trade_count).min()
     }
 
+    // ── round-82 ─────────────────────────────────────────────────────────────
+
+    /// Mean of `high − low` across bars.
+    pub fn avg_bar_range(bars: &[OhlcvBar]) -> Option<Decimal> {
+        if bars.is_empty() {
+            return None;
+        }
+        let sum: Decimal = bars.iter().map(|b| b.high - b.low).sum();
+        Some(sum / Decimal::from(bars.len()))
+    }
+
+    /// Largest single-bar upward body (`max(close − open, 0)`).
+    pub fn max_up_move(bars: &[OhlcvBar]) -> Option<Decimal> {
+        bars.iter().map(|b| (b.close - b.open).max(Decimal::ZERO)).max()
+    }
+
+    /// Largest single-bar downward body (`max(open − close, 0)`).
+    pub fn max_down_move(bars: &[OhlcvBar]) -> Option<Decimal> {
+        bars.iter().map(|b| (b.open - b.close).max(Decimal::ZERO)).max()
+    }
+
+    /// Mean of `(close − low) / range` where range > 0; position of close within each bar's range.
+    pub fn avg_close_position(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let range = b.high - b.low;
+                if range.is_zero() {
+                    return None;
+                }
+                let pos = (b.close - b.low).to_f64()? / range.to_f64()?;
+                Some(pos)
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
+        Some(vals.iter().sum::<f64>() / vals.len() as f64)
+    }
+
+    /// Std dev of volume across bars; requires ≥ 2 bars.
+    pub fn volume_std(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.len() < 2 {
+            return None;
+        }
+        let vols: Vec<f64> = bars.iter().filter_map(|b| b.volume.to_f64()).collect();
+        let n = vols.len() as f64;
+        if n < 2.0 {
+            return None;
+        }
+        let mean = vols.iter().sum::<f64>() / n;
+        let var = vols.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / (n - 1.0);
+        Some(var.sqrt())
+    }
+
+    /// Mean of `total_wick / range` per bar (proportion of range that is wick); excludes doji bars.
+    pub fn avg_wick_ratio(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let range = b.high - b.low;
+                if range.is_zero() {
+                    return None;
+                }
+                let upper = b.high - b.close.max(b.open);
+                let lower = b.close.min(b.open) - b.low;
+                let wick = upper + lower;
+                let ratio = wick.to_f64()? / range.to_f64()?;
+                Some(ratio)
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
+        Some(vals.iter().sum::<f64>() / vals.len() as f64)
+    }
+
+    /// Mean of `|open_i − close_{i-1}| / close_{i-1}` across bars from the second onward; measures gap size.
+    pub fn open_gap_mean(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.len() < 2 {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .windows(2)
+            .filter_map(|w| {
+                let prev_close = w[0].close;
+                if prev_close.is_zero() {
+                    return None;
+                }
+                let gap = (w[1].open - prev_close).abs().to_f64()? / prev_close.to_f64()?;
+                Some(gap)
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
+        Some(vals.iter().sum::<f64>() / vals.len() as f64)
+    }
+
+    /// Net directional move: `(last_close − first_open) / first_open`; overall percentage move across all bars.
+    pub fn net_directional_move(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() {
+            return None;
+        }
+        let first_open = bars.first()?.open;
+        let last_close = bars.last()?.close;
+        if first_open.is_zero() {
+            return None;
+        }
+        let pct = (last_close - first_open).to_f64()? / first_open.to_f64()?;
+        Some(pct)
+    }
+
 }
 
 impl std::fmt::Display for OhlcvBar {

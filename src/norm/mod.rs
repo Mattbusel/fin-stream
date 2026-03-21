@@ -1361,6 +1361,19 @@ impl MinMaxNormalizer {
         Some(num / den)
     }
 
+    // ── round-82 ─────────────────────────────────────────────────────────────
+
+    /// Mean of `|x_i − x_{i-1}|` across consecutive window values; average absolute change.
+    pub fn mean_absolute_change(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.len() < 2 {
+            return None;
+        }
+        let mac = vals.windows(2).map(|w| (w[1] - w[0]).abs()).sum::<f64>() / (vals.len() - 1) as f64;
+        Some(mac)
+    }
+
 }
 
 #[cfg(test)]
@@ -4504,6 +4517,19 @@ impl ZScoreNormalizer {
         let den: f64 = (0..z_vals.len()).map(|i| (i as f64 - x_mean).powi(2)).sum();
         if den == 0.0 { return None; }
         Some(num / den)
+    }
+
+    // ── round-82 ─────────────────────────────────────────────────────────────
+
+    /// Mean of `|x_i − x_{i-1}|` across consecutive window values; average absolute change.
+    pub fn mean_absolute_change(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.len() < 2 {
+            return None;
+        }
+        let mac = vals.windows(2).map(|w| (w[1] - w[0]).abs()).sum::<f64>() / (vals.len() - 1) as f64;
+        Some(mac)
     }
 
 }

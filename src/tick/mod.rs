@@ -2312,6 +2312,105 @@ impl NormalizedTick {
         Self::min_price(ticks)
     }
 
+    // ── round-82 ─────────────────────────────────────────────────────────────
+
+    /// Quantity-weighted mean of signed price changes; positive = net upward momentum.
+    pub fn price_momentum_score(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 2 {
+            return None;
+        }
+        let mut num = 0f64;
+        let mut den = 0f64;
+        for w in ticks.windows(2) {
+            let dp = (w[1].price - w[0].price).to_f64()?;
+            let q = w[1].quantity.to_f64()?;
+            num += dp * q;
+            den += q;
+        }
+        if den == 0.0 { None } else { Some(num / den) }
+    }
+
+    /// Std dev of prices weighted by quantity (dispersion around VWAP).
+    pub fn vwap_std(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 2 {
+            return None;
+        }
+        let vwap = Self::vwap(ticks)?.to_f64()?;
+        let total_vol: f64 = ticks.iter().filter_map(|t| t.quantity.to_f64()).sum();
+        if total_vol == 0.0 {
+            return None;
+        }
+        let var: f64 = ticks
+            .iter()
+            .filter_map(|t| {
+                let p = t.price.to_f64()?;
+                let q = t.quantity.to_f64()?;
+                Some((p - vwap).powi(2) * q)
+            })
+            .sum::<f64>()
+            / total_vol;
+        Some(var.sqrt())
+    }
+
+    /// Fraction of ticks that set a new running high or low (price range expansion events).
+    pub fn price_range_expansion(ticks: &[NormalizedTick]) -> Option<f64> {
+        if ticks.is_empty() {
+            return None;
+        }
+        let mut hi = ticks[0].price;
+        let mut lo = ticks[0].price;
+        let mut count = 0usize;
+        for t in ticks.iter().skip(1) {
+            if t.price > hi {
+                hi = t.price;
+                count += 1;
+            } else if t.price < lo {
+                lo = t.price;
+                count += 1;
+            }
+        }
+        Some(count as f64 / ticks.len() as f64)
+    }
+
+    /// Fraction of total volume classified as sell-side; complement of `buy_to_total_volume_ratio`.
+    pub fn sell_to_total_volume_ratio(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() {
+            return None;
+        }
+        let sell_vol: Decimal = ticks
+            .iter()
+            .filter(|t| t.side == Some(crate::tick::TradeSide::Sell))
+            .map(|t| t.quantity)
+            .sum();
+        let total: Decimal = ticks.iter().map(|t| t.quantity).sum();
+        if total.is_zero() {
+            return Some(0.0);
+        }
+        sell_vol.to_f64().zip(total.to_f64()).map(|(s, tot)| s / tot)
+    }
+
+    /// Std dev of per-tick notional (`price × quantity`); requires ≥ 2 ticks.
+    pub fn notional_std(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 2 {
+            return None;
+        }
+        let notionals: Vec<f64> = ticks
+            .iter()
+            .filter_map(|t| (t.price * t.quantity).to_f64())
+            .collect();
+        let n = notionals.len() as f64;
+        if n < 2.0 {
+            return None;
+        }
+        let mean = notionals.iter().sum::<f64>() / n;
+        let var = notionals.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / (n - 1.0);
+        Some(var.sqrt())
+    }
+
 }
 
 

@@ -9,6 +9,25 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.3.4] - 2026-03-20
+
+### Added
+
+**`tick` module — `NormalizedTick` analytics (round 82)**
+- `NormalizedTick::price_momentum_score(ticks)` — quantity-weighted mean of signed price changes; positive = net upward momentum.
+- `NormalizedTick::vwap_std(ticks)` — std dev of prices weighted by quantity (dispersion around VWAP).
+- `NormalizedTick::price_range_expansion(ticks)` — fraction of ticks that set a new running high or low.
+- `NormalizedTick::sell_to_total_volume_ratio(ticks)` — fraction of total volume classified as sell-side.
+- `NormalizedTick::notional_std(ticks)` — std dev of per-tick notional (`price × quantity`); requires ≥ 2 ticks.
+
+**`norm` module — `MinMaxNormalizer` and `ZScoreNormalizer` analytics (round 82)**
+- `mean_absolute_change() -> Option<f64>` — mean of `|x_i − x_{i-1}|` across consecutive window values; average absolute step size.
+
+### Fixed
+- Removed duplicate `quantity_skewness`, `price_acceleration` (tick), `autocorrelation_lag1` (norm) and `wick_ratio` (ohlcv) definitions that were introduced by parallel agent runs and caused E0592 compile errors.
+
+---
+
 ## [2.3.3] - 2026-03-20
 
 ### Added
