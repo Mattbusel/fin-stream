@@ -6646,6 +6646,73 @@ impl MinMaxNormalizer {
         Some(trimmed.iter().sum::<f64>() / trimmed.len() as f64)
     }
 
+    /// Change in entropy between first-half and second-half of window.
+    pub fn window_entropy_change(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let n = self.window.len();
+        if n < 4 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let half = n / 2;
+        let entropy_half = |slice: &[f64]| -> f64 {
+            let min = slice.iter().cloned().fold(f64::INFINITY, f64::min);
+            let max = slice.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+            let range = max - min;
+            if range == 0.0 { return 0.0; }
+            let buckets = 5usize;
+            let mut counts = vec![0usize; buckets];
+            for &v in slice {
+                let idx = (((v - min) / range) * buckets as f64) as usize;
+                counts[idx.min(buckets - 1)] += 1;
+            }
+            let n_f = slice.len() as f64;
+            counts.iter().filter(|&&c| c > 0).map(|&c| { let p = c as f64 / n_f; -p * p.log2() }).sum()
+        };
+        let e1 = entropy_half(&vals[..half]);
+        let e2 = entropy_half(&vals[half..]);
+        Some(e2 - e1)
+    }
+
+    /// Fraction of consecutive window pairs that move in the direction of the overall trend.
+    pub fn window_trend_coherence(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let overall = vals.last()? - vals.first()?;
+        if overall == 0.0 { return None; }
+        let sign = if overall > 0.0 { 1.0 } else { -1.0 };
+        let coherent = vals.windows(2).filter(|w| {
+            let d = w[1] - w[0];
+            (d > 0.0 && sign > 0.0) || (d < 0.0 && sign < 0.0)
+        }).count();
+        Some(coherent as f64 / (vals.len() - 1) as f64)
+    }
+
+    /// Mean(vals) / Std(vals): signal-to-noise ratio proxy.
+    pub fn window_price_vol_ratio_f64(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let mean = vals.iter().sum::<f64>() / vals.len() as f64;
+        let std = (vals.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / vals.len() as f64).sqrt();
+        if std == 0.0 { return None; }
+        Some(mean / std)
+    }
+
+    /// Running range: difference between current max and min as each element is added, then mean.
+    pub fn window_running_range(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let mut running_max = vals[0];
+        let mut running_min = vals[0];
+        let ranges: Vec<f64> = vals.iter().map(|&v| {
+            if v > running_max { running_max = v; }
+            if v < running_min { running_min = v; }
+            running_max - running_min
+        }).collect();
+        Some(ranges.iter().sum::<f64>() / ranges.len() as f64)
+    }
+
 }
 
 #[cfg(test)]
@@ -14469,6 +14536,56 @@ mod tests {
         let r = n.window_trimmed_mean_f64().unwrap();
         assert!((r - 5.0).abs() < 1e-9, "expected 5.0, got {}", r);
     }
+
+    #[test]
+    fn test_minmax_window_entropy_change_none_for_short() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        assert!(n.window_entropy_change().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_entropy_change_constant_zero() {
+        let mut n = norm(8);
+        for v in [dec!(5), dec!(5), dec!(5), dec!(5), dec!(5), dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        let r = n.window_entropy_change().unwrap();
+        assert!(r.abs() < 1e-9, "expected 0.0, got {}", r);
+    }
+
+    #[test]
+    fn test_minmax_window_trend_coherence_none_for_single() {
+        let mut n = norm(4);
+        n.update(dec!(5));
+        assert!(n.window_trend_coherence().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_trend_coherence_none_for_flat() {
+        let mut n = norm(4);
+        for v in [dec!(5), dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        assert!(n.window_trend_coherence().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_price_vol_ratio_f64_none_for_constant() {
+        let mut n = norm(4);
+        for v in [dec!(5), dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        assert!(n.window_price_vol_ratio_f64().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_running_range_none_for_empty() {
+        let n = norm(4);
+        assert!(n.window_running_range().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_running_range_constant_zero() {
+        let mut n = norm(4);
+        for v in [dec!(5), dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        let r = n.window_running_range().unwrap();
+        assert!(r.abs() < 1e-9, "expected 0.0, got {}", r);
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -21063,6 +21180,73 @@ impl ZScoreNormalizer {
         let trimmed = &vals[trim..vals.len() - trim];
         if trimmed.is_empty() { return None; }
         Some(trimmed.iter().sum::<f64>() / trimmed.len() as f64)
+    }
+
+    /// Change in entropy between first-half and second-half of window.
+    pub fn window_entropy_change(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let n = self.window.len();
+        if n < 4 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let half = n / 2;
+        let entropy_half = |slice: &[f64]| -> f64 {
+            let min = slice.iter().cloned().fold(f64::INFINITY, f64::min);
+            let max = slice.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+            let range = max - min;
+            if range == 0.0 { return 0.0; }
+            let buckets = 5usize;
+            let mut counts = vec![0usize; buckets];
+            for &v in slice {
+                let idx = (((v - min) / range) * buckets as f64) as usize;
+                counts[idx.min(buckets - 1)] += 1;
+            }
+            let n_f = slice.len() as f64;
+            counts.iter().filter(|&&c| c > 0).map(|&c| { let p = c as f64 / n_f; -p * p.log2() }).sum()
+        };
+        let e1 = entropy_half(&vals[..half]);
+        let e2 = entropy_half(&vals[half..]);
+        Some(e2 - e1)
+    }
+
+    /// Fraction of consecutive window pairs that move in the direction of the overall trend.
+    pub fn window_trend_coherence(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let overall = vals.last()? - vals.first()?;
+        if overall == 0.0 { return None; }
+        let sign = if overall > 0.0 { 1.0 } else { -1.0 };
+        let coherent = vals.windows(2).filter(|w| {
+            let d = w[1] - w[0];
+            (d > 0.0 && sign > 0.0) || (d < 0.0 && sign < 0.0)
+        }).count();
+        Some(coherent as f64 / (vals.len() - 1) as f64)
+    }
+
+    /// Mean(vals) / Std(vals): signal-to-noise ratio proxy.
+    pub fn window_price_vol_ratio_f64(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let mean = vals.iter().sum::<f64>() / vals.len() as f64;
+        let std = (vals.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / vals.len() as f64).sqrt();
+        if std == 0.0 { return None; }
+        Some(mean / std)
+    }
+
+    /// Running range: difference between current max and min as each element is added, then mean.
+    pub fn window_running_range(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let mut running_max = vals[0];
+        let mut running_min = vals[0];
+        let ranges: Vec<f64> = vals.iter().map(|&v| {
+            if v > running_max { running_max = v; }
+            if v < running_min { running_min = v; }
+            running_max - running_min
+        }).collect();
+        Some(ranges.iter().sum::<f64>() / ranges.len() as f64)
     }
 
 }
@@ -28836,5 +29020,55 @@ mod zscore_stability_tests {
         for v in [dec!(5), dec!(5), dec!(5), dec!(5)] { n.update(v); }
         let r = n.window_trimmed_mean_f64().unwrap();
         assert!((r - 5.0).abs() < 1e-9, "expected 5.0, got {}", r);
+    }
+
+    #[test]
+    fn test_zscore_window_entropy_change_none_for_short() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        assert!(n.window_entropy_change().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_entropy_change_constant_zero() {
+        let mut n = znorm(8);
+        for v in [dec!(5), dec!(5), dec!(5), dec!(5), dec!(5), dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        let r = n.window_entropy_change().unwrap();
+        assert!(r.abs() < 1e-9, "expected 0.0, got {}", r);
+    }
+
+    #[test]
+    fn test_zscore_window_trend_coherence_none_for_single() {
+        let mut n = znorm(4);
+        n.update(dec!(5));
+        assert!(n.window_trend_coherence().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_trend_coherence_none_for_flat() {
+        let mut n = znorm(4);
+        for v in [dec!(5), dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        assert!(n.window_trend_coherence().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_price_vol_ratio_f64_none_for_constant() {
+        let mut n = znorm(4);
+        for v in [dec!(5), dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        assert!(n.window_price_vol_ratio_f64().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_running_range_none_for_empty() {
+        let n = znorm(4);
+        assert!(n.window_running_range().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_running_range_constant_zero() {
+        let mut n = znorm(4);
+        for v in [dec!(5), dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        let r = n.window_running_range().unwrap();
+        assert!(r.abs() < 1e-9, "expected 0.0, got {}", r);
     }
 }

@@ -9078,6 +9078,68 @@ impl OhlcvBar {
         Some(signs.iter().sum::<f64>() / signs.len() as f64)
     }
 
+    /// Mean (open - min(open,close)) / body per bar: open position within body.
+    pub fn bar_open_body_pct(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let vals: Vec<f64> = bars.iter().filter_map(|b| {
+            let o = b.open.to_f64()?;
+            let c = b.close.to_f64()?;
+            let body = (c - o).abs();
+            if body == 0.0 { return None; }
+            Some((o - o.min(c)) / body)
+        }).collect();
+        if vals.is_empty() { return None; }
+        Some(vals.iter().sum::<f64>() / vals.len() as f64)
+    }
+
+    /// Pearson correlation between close and volume across bars.
+    pub fn bar_close_to_vol_corr(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.len() < 2 { return None; }
+        let pairs: Vec<(f64, f64)> = bars.iter().filter_map(|b| {
+            Some((b.close.to_f64()?, b.volume.to_f64()?))
+        }).collect();
+        if pairs.len() < 2 { return None; }
+        let n = pairs.len() as f64;
+        let mx = pairs.iter().map(|p| p.0).sum::<f64>() / n;
+        let my = pairs.iter().map(|p| p.1).sum::<f64>() / n;
+        let cov = pairs.iter().map(|p| (p.0 - mx) * (p.1 - my)).sum::<f64>() / n;
+        let sx = (pairs.iter().map(|p| (p.0 - mx).powi(2)).sum::<f64>() / n).sqrt();
+        let sy = (pairs.iter().map(|p| (p.1 - my).powi(2)).sum::<f64>() / n).sqrt();
+        if sx == 0.0 || sy == 0.0 { return None; }
+        Some(cov / (sx * sy))
+    }
+
+    /// Std of total wick length: std(upper_wick + lower_wick) per bar.
+    pub fn bar_wick_volatility(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.len() < 2 { return None; }
+        let wicks: Vec<f64> = bars.iter().filter_map(|b| {
+            let o = b.open.to_f64()?;
+            let h = b.high.to_f64()?;
+            let l = b.low.to_f64()?;
+            let c = b.close.to_f64()?;
+            Some((h - o.max(c)) + (o.min(c) - l))
+        }).collect();
+        if wicks.len() < 2 { return None; }
+        let mean = wicks.iter().sum::<f64>() / wicks.len() as f64;
+        Some((wicks.iter().map(|w| (w - mean).powi(2)).sum::<f64>() / wicks.len() as f64).sqrt())
+    }
+
+    /// Z-score of each bar's volume vs. rolling mean, then take the mean z-score.
+    pub fn bar_vol_zscore_mean(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.len() < 2 { return None; }
+        let vols: Vec<f64> = bars.iter().filter_map(|b| b.volume.to_f64()).collect();
+        if vols.len() < 2 { return None; }
+        let mean = vols.iter().sum::<f64>() / vols.len() as f64;
+        let std = (vols.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / vols.len() as f64).sqrt();
+        if std == 0.0 { return None; }
+        let z_mean = vols.iter().map(|v| (v - mean) / std).sum::<f64>() / vols.len() as f64;
+        Some(z_mean)
+    }
+
 }
 
 impl std::fmt::Display for OhlcvBar {
@@ -20411,5 +20473,52 @@ mod tests {
         let b1 = make_ohlcv_bar(dec!(105), dec!(115), dec!(95), dec!(110));
         let r = OhlcvBar::bar_range_change_sign(&[b0, b1]).unwrap();
         assert!(r.abs() < 1e-9, "expected 0.0, got {}", r);
+    }
+
+    #[test]
+    fn test_bar_open_body_pct_empty_none() {
+        assert!(OhlcvBar::bar_open_body_pct(&[]).is_none());
+    }
+
+    #[test]
+    fn test_bar_open_body_pct_doji_none() {
+        // open=close → body=0 → filtered
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100));
+        assert!(OhlcvBar::bar_open_body_pct(&[b]).is_none());
+    }
+
+    #[test]
+    fn test_bar_close_to_vol_corr_none_for_single() {
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        assert!(OhlcvBar::bar_close_to_vol_corr(&[b]).is_none());
+    }
+
+    #[test]
+    fn test_bar_wick_volatility_none_for_single() {
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        assert!(OhlcvBar::bar_wick_volatility(&[b]).is_none());
+    }
+
+    #[test]
+    fn test_bar_wick_volatility_constant_zero() {
+        // All bars same shape → wicks constant → std=0
+        let b0 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let r = OhlcvBar::bar_wick_volatility(&[b0, b1]).unwrap();
+        assert!(r.abs() < 1e-9, "expected 0.0, got {}", r);
+    }
+
+    #[test]
+    fn test_bar_vol_zscore_mean_none_for_single() {
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        assert!(OhlcvBar::bar_vol_zscore_mean(&[b]).is_none());
+    }
+
+    #[test]
+    fn test_bar_vol_zscore_mean_constant_none() {
+        // All same volume → std=0 → None
+        let b0 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let b1 = make_ohlcv_bar(dec!(105), dec!(115), dec!(95), dec!(110));
+        assert!(OhlcvBar::bar_vol_zscore_mean(&[b0, b1]).is_none());
     }
 }

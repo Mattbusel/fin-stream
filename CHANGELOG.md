@@ -9,6 +9,30 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.10.39] - 2026-03-20
+
+### Added
+
+**`tick` module — `NormalizedTick` analytics (round 188)**
+- `NormalizedTick::tick_price_pressure(ticks)` — signed volume pressure: sum((buy-sell qty)*price) / total price.
+- `NormalizedTick::tick_qty_decay_weight(ticks)` — exponentially decay-weighted mean of quantities.
+- `NormalizedTick::price_trend_coherence(ticks)` — fraction of tick pairs aligned with the overall price trend.
+- `NormalizedTick::tick_bid_ask_ratio(ticks)` — buy tick count / sell tick count.
+
+**`ohlcv` module — `OhlcvBar` analytics (round 188)**
+- `OhlcvBar::bar_open_body_pct(bars)` — mean (open - min(open,close)) / body per bar.
+- `OhlcvBar::bar_close_to_vol_corr(bars)` — Pearson correlation between close and volume.
+- `OhlcvBar::bar_wick_volatility(bars)` — standard deviation of total wick length per bar.
+- `OhlcvBar::bar_vol_zscore_mean(bars)` — mean z-score of bar volumes relative to rolling distribution.
+
+**`norm` module — `MinMaxNormalizer` + `ZScoreNormalizer` analytics (round 188)**
+- `window_entropy_change()` — change in entropy from first to second half of window.
+- `window_trend_coherence()` — fraction of window pairs aligned with the overall window trend.
+- `window_price_vol_ratio_f64()` — mean / std: signal-to-noise ratio proxy.
+- `window_running_range()` — mean running range (current max minus current min as each element added).
+
+---
+
 ## [2.10.38] - 2026-03-20
 
 ### Added

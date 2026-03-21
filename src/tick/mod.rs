@@ -9370,6 +9370,70 @@ impl NormalizedTick {
         Some(accels.iter().sum::<f64>() / accels.len() as f64)
     }
 
+    /// Signed volume pressure: sum((buy_qty - sell_qty) * price) / total_price.
+    pub fn tick_price_pressure(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() { return None; }
+        let mut num = 0.0f64;
+        let mut denom = 0.0f64;
+        for t in ticks {
+            if let (Some(price), Some(qty)) = (t.price.to_f64(), t.quantity.to_f64()) {
+                let signed = match t.side {
+                    Some(TradeSide::Buy) => qty,
+                    Some(TradeSide::Sell) => -qty,
+                    None => 0.0,
+                };
+                num += signed * price;
+                denom += price;
+            }
+        }
+        if denom == 0.0 { return None; }
+        Some(num / denom)
+    }
+
+    /// Exponentially decay-weighted mean of quantities (recent ticks weighted more).
+    pub fn tick_qty_decay_weight(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() { return None; }
+        let n = ticks.len();
+        let mut num = 0.0f64;
+        let mut denom = 0.0f64;
+        for (i, t) in ticks.iter().enumerate() {
+            if let Some(qty) = t.quantity.to_f64() {
+                let w = 0.9f64.powi((n - 1 - i) as i32);
+                num += qty * w;
+                denom += w;
+            }
+        }
+        if denom == 0.0 { return None; }
+        Some(num / denom)
+    }
+
+    /// Fraction of consecutive price pairs moving in the same direction as the overall trend.
+    pub fn price_trend_coherence(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 2 { return None; }
+        let prices: Vec<f64> = ticks.iter().filter_map(|t| t.price.to_f64()).collect();
+        if prices.len() < 2 { return None; }
+        let overall = prices.last()? - prices.first()?;
+        if overall == 0.0 { return None; }
+        let trend_sign = if overall > 0.0 { 1.0 } else { -1.0 };
+        let coherent = prices.windows(2).filter(|w| {
+            let diff = w[1] - w[0];
+            (diff > 0.0 && trend_sign > 0.0) || (diff < 0.0 && trend_sign < 0.0)
+        }).count();
+        Some(coherent as f64 / (prices.len() - 1) as f64)
+    }
+
+    /// Ratio of buy ticks to sell ticks (by count).
+    pub fn tick_bid_ask_ratio(ticks: &[NormalizedTick]) -> Option<f64> {
+        if ticks.is_empty() { return None; }
+        let buys = ticks.iter().filter(|t| t.side == Some(TradeSide::Buy)).count();
+        let sells = ticks.iter().filter(|t| t.side == Some(TradeSide::Sell)).count();
+        if sells == 0 { return None; }
+        Some(buys as f64 / sells as f64)
+    }
+
 }
 
 
@@ -21271,5 +21335,61 @@ mod tests {
         ];
         let r = NormalizedTick::price_signed_accel(&ticks).unwrap();
         assert!(r.abs() < 1e-9, "expected 0.0, got {}", r);
+    }
+
+    #[test]
+    fn test_tick_price_pressure_empty_none() {
+        use rust_decimal_macros::dec;
+        assert!(NormalizedTick::tick_price_pressure(&[]).is_none());
+    }
+
+    #[test]
+    fn test_tick_price_pressure_no_side_zero() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(5)),
+            make_tick_pq(dec!(101), dec!(3)),
+        ];
+        let r = NormalizedTick::tick_price_pressure(&ticks).unwrap();
+        assert!(r.abs() < 1e-9, "expected 0.0, got {}", r);
+    }
+
+    #[test]
+    fn test_tick_qty_decay_weight_empty_none() {
+        use rust_decimal_macros::dec;
+        assert!(NormalizedTick::tick_qty_decay_weight(&[]).is_none());
+    }
+
+    #[test]
+    fn test_tick_qty_decay_weight_constant_value() {
+        use rust_decimal_macros::dec;
+        // All qty=5 → weighted mean = 5
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(5)),
+            make_tick_pq(dec!(101), dec!(5)),
+            make_tick_pq(dec!(102), dec!(5)),
+        ];
+        let r = NormalizedTick::tick_qty_decay_weight(&ticks).unwrap();
+        assert!((r - 5.0).abs() < 1e-9, "expected 5.0, got {}", r);
+    }
+
+    #[test]
+    fn test_price_trend_coherence_empty_none() {
+        use rust_decimal_macros::dec;
+        assert!(NormalizedTick::price_trend_coherence(&[]).is_none());
+    }
+
+    #[test]
+    fn test_tick_bid_ask_ratio_empty_none() {
+        use rust_decimal_macros::dec;
+        assert!(NormalizedTick::tick_bid_ask_ratio(&[]).is_none());
+    }
+
+    #[test]
+    fn test_tick_bid_ask_ratio_no_sells_none() {
+        use rust_decimal_macros::dec;
+        // No sells → None
+        let ticks = vec![make_tick_pq(dec!(100), dec!(1))];
+        assert!(NormalizedTick::tick_bid_ask_ratio(&ticks).is_none());
     }
 }
