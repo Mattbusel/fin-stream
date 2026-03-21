@@ -9,6 +9,30 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.10.22] - 2026-03-20
+
+### Added
+
+**`tick` module — `NormalizedTick` analytics (round 171)**
+- `NormalizedTick::price_trend_angle(ticks)` — atan(regression slope) in degrees.
+- `NormalizedTick::tick_qty_mean_zscore(ticks)` — z-score of last tick quantity vs all quantities.
+- `NormalizedTick::price_local_extrema_count(ticks)` — count of local maxima + minima in prices.
+- `NormalizedTick::price_up_pressure(ticks)` — mean magnitude of positive price moves.
+
+**`ohlcv` module — `OhlcvBar` analytics (round 171)**
+- `OhlcvBar::bar_typical_price_mean(bars)` — mean of (high + low + close) / 3 per bar.
+- `OhlcvBar::bar_high_low_pct(bars)` — mean of (high - low) / low * 100 per bar.
+- `OhlcvBar::bar_volume_zscore(bars)` — z-score of last bar volume vs all volumes.
+- `OhlcvBar::bar_close_return_mean(bars)` — mean log return between consecutive closes.
+
+**`norm` module — `MinMaxNormalizer` + `ZScoreNormalizer` analytics (round 171)**
+- `window_trend_angle()` — atan(linear regression slope) in degrees.
+- `window_abs_momentum()` — mean absolute consecutive difference.
+- `window_mean_below_mean()` — mean of values below the window mean.
+- `window_diff_ratio()` — ratio of last diff to first diff.
+
+---
+
 ## [2.10.21] - 2026-03-20
 
 ### Added

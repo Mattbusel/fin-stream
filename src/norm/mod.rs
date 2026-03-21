@@ -5860,6 +5860,54 @@ impl MinMaxNormalizer {
         Some(sign(last_diff) - sign(first_diff))
     }
 
+    // ── round-171 ────────────────────────────────────────────────────────────
+
+    /// Arctangent of linear regression slope over window (trend angle in degrees).
+    pub fn window_trend_angle(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let n = vals.len() as f64;
+        let xs: Vec<f64> = (0..vals.len()).map(|i| i as f64).collect();
+        let x_mean = xs.iter().sum::<f64>() / n;
+        let y_mean = vals.iter().sum::<f64>() / n;
+        let num: f64 = xs.iter().zip(vals.iter()).map(|(&x, &y)| (x - x_mean) * (y - y_mean)).sum();
+        let den: f64 = xs.iter().map(|&x| (x - x_mean).powi(2)).sum();
+        if den == 0.0 { return None; }
+        Some((num / den).atan().to_degrees())
+    }
+
+    /// Mean absolute value of consecutive differences (absolute momentum).
+    pub fn window_abs_momentum(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let abs_diffs: Vec<f64> = vals.windows(2).map(|w| (w[1] - w[0]).abs()).collect();
+        Some(abs_diffs.iter().sum::<f64>() / abs_diffs.len() as f64)
+    }
+
+    /// Mean of window values that are below the overall mean (lower tail mean).
+    pub fn window_mean_below_mean(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let mean = vals.iter().sum::<f64>() / vals.len() as f64;
+        let below: Vec<f64> = vals.iter().filter(|&&v| v < mean).copied().collect();
+        if below.is_empty() { return None; }
+        Some(below.iter().sum::<f64>() / below.len() as f64)
+    }
+
+    /// Ratio of last diff to first diff (how speed changed end vs start).
+    pub fn window_diff_ratio(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 3 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let first_diff = vals[1] - vals[0];
+        let last_diff = vals[vals.len() - 1] - vals[vals.len() - 2];
+        if first_diff.abs() < 1e-12 { return None; }
+        Some(last_diff / first_diff)
+    }
+
 }
 
 #[cfg(test)]
@@ -12667,6 +12715,67 @@ mod tests {
         // first_diff=1 (sign=1), last_diff=1 (sign=1) → 1-1=0
         assert!((m - 0.0).abs() < 1e-9, "expected 0.0, got {}", m);
     }
+
+    // ── round-171 tests ──────────────────────────────────────────────────────
+
+    #[test]
+    fn test_minmax_window_trend_angle_none_for_single() {
+        let mut n = norm(4);
+        n.update(dec!(5));
+        assert!(n.window_trend_angle().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_trend_angle_flat_zero() {
+        let mut n = norm(3);
+        for v in [dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        let a = n.window_trend_angle().unwrap();
+        assert!((a - 0.0).abs() < 1e-9, "expected 0.0, got {}", a);
+    }
+
+    #[test]
+    fn test_minmax_window_abs_momentum_none_for_single() {
+        let mut n = norm(4);
+        n.update(dec!(5));
+        assert!(n.window_abs_momentum().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_abs_momentum_constant_zero() {
+        let mut n = norm(3);
+        for v in [dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        let m = n.window_abs_momentum().unwrap();
+        assert!((m - 0.0).abs() < 1e-9, "expected 0.0, got {}", m);
+    }
+
+    #[test]
+    fn test_minmax_window_mean_below_mean_none_for_empty() {
+        let n = norm(4);
+        assert!(n.window_mean_below_mean().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_mean_below_mean_constant_none() {
+        let mut n = norm(3);
+        for v in [dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        // all at mean → nothing below → None
+        assert!(n.window_mean_below_mean().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_diff_ratio_none_for_short() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2)] { n.update(v); }
+        assert!(n.window_diff_ratio().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_diff_ratio_constant_one() {
+        let mut n = norm(3);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        let r = n.window_diff_ratio().unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "expected 1.0, got {}", r);
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -18475,6 +18584,54 @@ impl ZScoreNormalizer {
         let last_diff = vals[vals.len() - 1] - vals[vals.len() - 2];
         let sign = |x: f64| -> f64 { if x > 0.0 { 1.0 } else if x < 0.0 { -1.0 } else { 0.0 } };
         Some(sign(last_diff) - sign(first_diff))
+    }
+
+    // ── round-171 ────────────────────────────────────────────────────────────
+
+    /// Arctangent of linear regression slope over window (trend angle in degrees).
+    pub fn window_trend_angle(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let n = vals.len() as f64;
+        let xs: Vec<f64> = (0..vals.len()).map(|i| i as f64).collect();
+        let x_mean = xs.iter().sum::<f64>() / n;
+        let y_mean = vals.iter().sum::<f64>() / n;
+        let num: f64 = xs.iter().zip(vals.iter()).map(|(&x, &y)| (x - x_mean) * (y - y_mean)).sum();
+        let den: f64 = xs.iter().map(|&x| (x - x_mean).powi(2)).sum();
+        if den == 0.0 { return None; }
+        Some((num / den).atan().to_degrees())
+    }
+
+    /// Mean absolute value of consecutive differences (absolute momentum).
+    pub fn window_abs_momentum(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let abs_diffs: Vec<f64> = vals.windows(2).map(|w| (w[1] - w[0]).abs()).collect();
+        Some(abs_diffs.iter().sum::<f64>() / abs_diffs.len() as f64)
+    }
+
+    /// Mean of window values that are below the overall mean (lower tail mean).
+    pub fn window_mean_below_mean(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let mean = vals.iter().sum::<f64>() / vals.len() as f64;
+        let below: Vec<f64> = vals.iter().filter(|&&v| v < mean).copied().collect();
+        if below.is_empty() { return None; }
+        Some(below.iter().sum::<f64>() / below.len() as f64)
+    }
+
+    /// Ratio of last diff to first diff (how speed changed end vs start).
+    pub fn window_diff_ratio(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 3 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let first_diff = vals[1] - vals[0];
+        let last_diff = vals[vals.len() - 1] - vals[vals.len() - 2];
+        if first_diff.abs() < 1e-12 { return None; }
+        Some(last_diff / first_diff)
     }
 
 }
@@ -25254,5 +25411,65 @@ mod zscore_stability_tests {
         for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
         let m = n.window_sign_momentum().unwrap();
         assert!((m - 0.0).abs() < 1e-9, "expected 0.0, got {}", m);
+    }
+
+    // ── round-171 tests ──────────────────────────────────────────────────────
+
+    #[test]
+    fn test_zscore_window_trend_angle_none_for_single() {
+        let mut n = znorm(4);
+        n.update(dec!(5));
+        assert!(n.window_trend_angle().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_trend_angle_flat_zero() {
+        let mut n = znorm(3);
+        for v in [dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        let a = n.window_trend_angle().unwrap();
+        assert!((a - 0.0).abs() < 1e-9, "expected 0.0, got {}", a);
+    }
+
+    #[test]
+    fn test_zscore_window_abs_momentum_none_for_single() {
+        let mut n = znorm(4);
+        n.update(dec!(5));
+        assert!(n.window_abs_momentum().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_abs_momentum_constant_zero() {
+        let mut n = znorm(3);
+        for v in [dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        let m = n.window_abs_momentum().unwrap();
+        assert!((m - 0.0).abs() < 1e-9, "expected 0.0, got {}", m);
+    }
+
+    #[test]
+    fn test_zscore_window_mean_below_mean_none_for_empty() {
+        let n = znorm(4);
+        assert!(n.window_mean_below_mean().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_mean_below_mean_constant_none() {
+        let mut n = znorm(3);
+        for v in [dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        assert!(n.window_mean_below_mean().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_diff_ratio_none_for_short() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2)] { n.update(v); }
+        assert!(n.window_diff_ratio().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_diff_ratio_constant_one() {
+        let mut n = znorm(3);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        let r = n.window_diff_ratio().unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "expected 1.0, got {}", r);
     }
 }

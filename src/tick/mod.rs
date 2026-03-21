@@ -8384,6 +8384,65 @@ impl NormalizedTick {
         Some(max_z - min_z)
     }
 
+    // ── round-171 ────────────────────────────────────────────────────────────
+
+    /// Arctangent of price linear regression slope / price scale (trend angle in degrees).
+    pub fn price_trend_angle(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 2 { return None; }
+        let prices: Vec<f64> = ticks.iter().filter_map(|t| t.price.to_f64()).collect();
+        if prices.len() < 2 { return None; }
+        let n = prices.len() as f64;
+        let xs: Vec<f64> = (0..prices.len()).map(|i| i as f64).collect();
+        let x_mean = xs.iter().sum::<f64>() / n;
+        let y_mean = prices.iter().sum::<f64>() / n;
+        let num: f64 = xs.iter().zip(prices.iter()).map(|(&x, &y)| (x - x_mean) * (y - y_mean)).sum();
+        let den: f64 = xs.iter().map(|&x| (x - x_mean).powi(2)).sum();
+        if den == 0.0 { return None; }
+        let slope = num / den;
+        Some(slope.atan().to_degrees())
+    }
+
+    /// Z-score of the last tick quantity relative to all ticks (how unusual last qty is).
+    pub fn tick_qty_mean_zscore(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 2 { return None; }
+        let qtys: Vec<f64> = ticks.iter().filter_map(|t| t.quantity.to_f64()).collect();
+        if qtys.len() < 2 { return None; }
+        let n = qtys.len() as f64;
+        let mean = qtys.iter().sum::<f64>() / n;
+        let std = (qtys.iter().map(|q| (q - mean).powi(2)).sum::<f64>() / n).sqrt();
+        if std == 0.0 { return None; }
+        let last = *qtys.last()?;
+        Some((last - mean) / std)
+    }
+
+    /// Count of local extrema (local maxima + local minima) in tick prices.
+    pub fn price_local_extrema_count(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 3 { return None; }
+        let prices: Vec<f64> = ticks.iter().filter_map(|t| t.price.to_f64()).collect();
+        if prices.len() < 3 { return None; }
+        let count = prices.windows(3).filter(|w| {
+            (w[1] > w[0] && w[1] > w[2]) || (w[1] < w[0] && w[1] < w[2])
+        }).count();
+        Some(count as f64)
+    }
+
+    /// Mean magnitude of positive price moves (upward pressure).
+    pub fn price_up_pressure(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 2 { return None; }
+        let ups: Vec<f64> = ticks.windows(2).filter_map(|w| {
+            let a = w[0].price.to_f64()?;
+            let b = w[1].price.to_f64()?;
+            let d = b - a;
+            if d > 0.0 { Some(d) } else { None }
+        }).collect();
+        if ups.is_empty() { return None; }
+        Some(ups.iter().sum::<f64>() / ups.len() as f64)
+    }
+
 }
 
 
@@ -19074,5 +19133,84 @@ mod tests {
         ];
         let r = NormalizedTick::price_zscore_range(&ticks).unwrap();
         assert!((r - 2.0).abs() < 1e-9, "expected 2.0, got {}", r);
+    }
+
+    // ── round-171 tests ──────────────────────────────────────────────────────
+
+    #[test]
+    fn test_price_trend_angle_none_for_single() {
+        use rust_decimal_macros::dec;
+        assert!(NormalizedTick::price_trend_angle(&[make_tick_pq(dec!(100), dec!(1))]).is_none());
+    }
+
+    #[test]
+    fn test_price_trend_angle_flat_zero() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(100), dec!(1)),
+        ];
+        let a = NormalizedTick::price_trend_angle(&ticks).unwrap();
+        assert!((a - 0.0).abs() < 1e-9, "expected 0.0, got {}", a);
+    }
+
+    #[test]
+    fn test_tick_qty_mean_zscore_none_for_constant() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(5)),
+            make_tick_pq(dec!(101), dec!(5)),
+        ];
+        assert!(NormalizedTick::tick_qty_mean_zscore(&ticks).is_none());
+    }
+
+    #[test]
+    fn test_tick_qty_mean_zscore_none_for_single() {
+        use rust_decimal_macros::dec;
+        assert!(NormalizedTick::tick_qty_mean_zscore(&[make_tick_pq(dec!(100), dec!(1))]).is_none());
+    }
+
+    #[test]
+    fn test_price_local_extrema_count_none_for_short() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(101), dec!(1)),
+        ];
+        assert!(NormalizedTick::price_local_extrema_count(&ticks).is_none());
+    }
+
+    #[test]
+    fn test_price_local_extrema_count_monotone_zero() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(101), dec!(1)),
+            make_tick_pq(dec!(102), dec!(1)),
+        ];
+        let c = NormalizedTick::price_local_extrema_count(&ticks).unwrap();
+        assert!((c - 0.0).abs() < 1e-9, "expected 0.0, got {}", c);
+    }
+
+    #[test]
+    fn test_price_up_pressure_none_for_no_ups() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(102), dec!(1)),
+            make_tick_pq(dec!(100), dec!(1)),
+        ];
+        assert!(NormalizedTick::price_up_pressure(&ticks).is_none());
+    }
+
+    #[test]
+    fn test_price_up_pressure_one_up() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(103), dec!(1)),
+        ];
+        let p = NormalizedTick::price_up_pressure(&ticks).unwrap();
+        assert!((p - 3.0).abs() < 1e-9, "expected 3.0, got {}", p);
     }
 }
