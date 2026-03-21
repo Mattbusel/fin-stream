@@ -1374,6 +1374,84 @@ impl MinMaxNormalizer {
         Some(mac)
     }
 
+    // ── round-83 ─────────────────────────────────────────────────────────────
+
+    /// Fraction of consecutive pairs that are monotonically increasing.
+    ///
+    /// Computed as `count(x_{i+1} > x_i) / (n − 1)`.
+    /// Returns `None` for windows with fewer than 2 values.
+    pub fn monotone_increase_fraction(&self) -> Option<f64> {
+        let n = self.window.len();
+        if n < 2 {
+            return None;
+        }
+        let increasing = self.window
+            .iter()
+            .collect::<Vec<_>>()
+            .windows(2)
+            .filter(|w| w[1] > w[0])
+            .count();
+        Some(increasing as f64 / (n - 1) as f64)
+    }
+
+    /// Maximum absolute value in the window.
+    ///
+    /// Returns `None` if the window is empty.
+    pub fn abs_max(&self) -> Option<Decimal> {
+        self.window.iter().map(|v| v.abs()).reduce(|a, b| a.max(b))
+    }
+
+    /// Minimum absolute value in the window.
+    ///
+    /// Returns `None` if the window is empty.
+    pub fn abs_min(&self) -> Option<Decimal> {
+        self.window.iter().map(|v| v.abs()).reduce(|a, b| a.min(b))
+    }
+
+    /// Count of values in the window that equal the window maximum.
+    ///
+    /// Returns `None` if the window is empty.
+    pub fn max_count(&self) -> Option<usize> {
+        let mut tmp = MinMaxNormalizer::new(self.window_size).ok()?;
+        for &v in &self.window {
+            tmp.update(v);
+        }
+        let (_, max) = tmp.min_max()?;
+        Some(self.window.iter().filter(|&&v| v == max).count())
+    }
+
+    /// Count of values in the window that equal the window minimum.
+    ///
+    /// Returns `None` if the window is empty.
+    pub fn min_count(&self) -> Option<usize> {
+        let mut tmp = MinMaxNormalizer::new(self.window_size).ok()?;
+        for &v in &self.window {
+            tmp.update(v);
+        }
+        let (min, _) = tmp.min_max()?;
+        Some(self.window.iter().filter(|&&v| v == min).count())
+    }
+
+    /// Ratio of the current window mean to the mean computed at window creation
+    /// time (first `window_size / 2` values).
+    ///
+    /// Returns `None` if fewer than 2 observations or the early mean is zero.
+    pub fn mean_ratio(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let n = self.window.len();
+        if n < 2 {
+            return None;
+        }
+        let current_mean = self.mean()?;
+        let half = (n / 2).max(1);
+        let early_sum: Decimal = self.window.iter().take(half).copied().sum();
+        let early_mean = early_sum / Decimal::from(half as i64);
+        if early_mean.is_zero() {
+            return None;
+        }
+        (current_mean / early_mean).to_f64()
+    }
+
 }
 
 #[cfg(test)]

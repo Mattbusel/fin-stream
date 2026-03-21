@@ -2873,6 +2873,172 @@ impl OhlcvBar {
         Some(pct)
     }
 
+    // ── round-83 ─────────────────────────────────────────────────────────────
+
+    /// Fraction of bars where the close is above the bar's median price
+    /// `(high + low) / 2`.
+    ///
+    /// A high fraction indicates persistently bullish closes; near 0.5 means
+    /// closes tend to land at the midpoint. Returns `None` for empty slices.
+    pub fn close_above_median_fraction(bars: &[OhlcvBar]) -> Option<f64> {
+        if bars.is_empty() {
+            return None;
+        }
+        let above = bars.iter().filter(|b| b.close > b.high_low_midpoint()).count();
+        Some(above as f64 / bars.len() as f64)
+    }
+
+    /// Mean of `(high − low) / open` across bars — intrabar range relative to
+    /// opening price.
+    ///
+    /// Returns `None` when no bars have a non-zero open.
+    pub fn avg_range_to_open(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                if b.open.is_zero() { return None; }
+                ((b.high - b.low) / b.open).to_f64()
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
+        Some(vals.iter().sum::<f64>() / vals.len() as f64)
+    }
+
+    /// Sum of all close prices across the slice.
+    ///
+    /// Useful as a component in rolling sum-based indicators.
+    /// Returns `Decimal::ZERO` for an empty slice.
+    pub fn close_sum(bars: &[OhlcvBar]) -> Decimal {
+        bars.iter().map(|b| b.close).sum()
+    }
+
+    /// Count of bars where volume strictly exceeds the slice average volume.
+    ///
+    /// Returns 0 for empty slices or when average volume cannot be computed.
+    pub fn above_avg_volume_count(bars: &[OhlcvBar]) -> usize {
+        let avg = Self::mean_volume(bars).unwrap_or(Decimal::ZERO);
+        if avg.is_zero() {
+            return 0;
+        }
+        bars.iter().filter(|b| b.volume > avg).count()
+    }
+
+    /// Median close price across the slice.
+    ///
+    /// Returns `None` for empty slices.
+    pub fn median_close(bars: &[OhlcvBar]) -> Option<Decimal> {
+        if bars.is_empty() {
+            return None;
+        }
+        let mut closes: Vec<Decimal> = bars.iter().map(|b| b.close).collect();
+        closes.sort();
+        let n = closes.len();
+        if n % 2 == 1 {
+            Some(closes[n / 2])
+        } else {
+            Some((closes[n / 2 - 1] + closes[n / 2]) / Decimal::from(2u64))
+        }
+    }
+
+    /// Fraction of bars that are flat (open == close, i.e., doji-like).
+    ///
+    /// Returns `None` for empty slices.
+    pub fn flat_bar_fraction(bars: &[OhlcvBar]) -> Option<f64> {
+        if bars.is_empty() {
+            return None;
+        }
+        let flat = bars.iter().filter(|b| b.open == b.close).count();
+        Some(flat as f64 / bars.len() as f64)
+    }
+
+    /// Mean of `body / range` per bar — average fraction of the range that
+    /// is body. Bars with zero range are excluded.
+    ///
+    /// Returns `None` when no bars have non-zero range.
+    pub fn avg_body_to_range(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let r = b.range();
+                if r.is_zero() { return None; }
+                (b.body() / r).to_f64()
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
+        Some(vals.iter().sum::<f64>() / vals.len() as f64)
+    }
+
+    /// Largest single-bar price gap (open vs. previous close) in the slice.
+    ///
+    /// Returns `None` for fewer than 2 bars.
+    pub fn max_open_gap(bars: &[OhlcvBar]) -> Option<Decimal> {
+        if bars.len() < 2 {
+            return None;
+        }
+        bars.windows(2)
+            .map(|w| (w[1].open - w[0].close).abs())
+            .max()
+    }
+
+    /// OLS linear regression slope of bar volume over bar index.
+    ///
+    /// A positive slope means volume is trending up; negative means trending
+    /// down. Returns `None` for fewer than 2 bars.
+    pub fn volume_trend_slope(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let n = bars.len();
+        if n < 2 {
+            return None;
+        }
+        let n_f = n as f64;
+        let x_mean = (n_f - 1.0) / 2.0;
+        let y: Vec<f64> = bars.iter().filter_map(|b| b.volume.to_f64()).collect();
+        if y.len() < 2 {
+            return None;
+        }
+        let y_mean = y.iter().sum::<f64>() / y.len() as f64;
+        let num: f64 = y.iter().enumerate().map(|(i, &v)| (i as f64 - x_mean) * (v - y_mean)).sum();
+        let den: f64 = (0..n).map(|i| (i as f64 - x_mean).powi(2)).sum();
+        if den == 0.0 { None } else { Some(num / den) }
+    }
+
+    /// Fraction of bars where close > previous close (i.e., up-close bars).
+    ///
+    /// Returns `None` for fewer than 2 bars.
+    pub fn up_close_fraction(bars: &[OhlcvBar]) -> Option<f64> {
+        if bars.len() < 2 {
+            return None;
+        }
+        let up = bars.windows(2).filter(|w| w[1].close > w[0].close).count();
+        Some(up as f64 / (bars.len() - 1) as f64)
+    }
+
+    /// Mean of the upper-shadow-to-range ratio across bars.
+    ///
+    /// `upper_shadow / range` for each bar with non-zero range.
+    /// Returns `None` when no bars have non-zero range.
+    pub fn avg_upper_shadow_ratio(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let r = b.range();
+                if r.is_zero() { return None; }
+                (b.upper_shadow() / r).to_f64()
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
+        Some(vals.iter().sum::<f64>() / vals.len() as f64)
+    }
+
 }
 
 impl std::fmt::Display for OhlcvBar {
