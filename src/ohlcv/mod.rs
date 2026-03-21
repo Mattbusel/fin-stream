@@ -4157,6 +4157,77 @@ impl OhlcvBar {
         Some(count)
     }
 
+    // ── round-99 ─────────────────────────────────────────────────────────────
+
+    /// Mean lower shadow as a fraction of bar range, excluding zero-range bars.
+    /// Returns `None` for an empty slice or all zero-range bars.
+    pub fn avg_lower_shadow(bars: &[OhlcvBar]) -> Option<f64> {
+        if bars.is_empty() {
+            return None;
+        }
+        use rust_decimal::prelude::ToPrimitive;
+        let values: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let range = b.high - b.low;
+                if range.is_zero() {
+                    return None;
+                }
+                let body_bottom = b.open.min(b.close);
+                let lower = body_bottom - b.low;
+                Some((lower / range).to_f64().unwrap_or(0.0))
+            })
+            .collect();
+        if values.is_empty() {
+            return None;
+        }
+        Some(values.iter().sum::<f64>() / values.len() as f64)
+    }
+
+    /// Number of bars completely contained within the previous bar's range
+    /// (inside bars: `high ≤ prev_high` and `low ≥ prev_low`).
+    /// Returns `None` for fewer than 2 bars.
+    pub fn inside_bar_count(bars: &[OhlcvBar]) -> Option<usize> {
+        if bars.len() < 2 {
+            return None;
+        }
+        let count = bars
+            .windows(2)
+            .filter(|w| w[1].high <= w[0].high && w[1].low >= w[0].low)
+            .count();
+        Some(count)
+    }
+
+    /// Width of the price channel: rolling max-high minus rolling min-low across the slice.
+    /// Returns `None` for an empty slice.
+    pub fn price_channel_width(bars: &[OhlcvBar]) -> Option<f64> {
+        if bars.is_empty() {
+            return None;
+        }
+        use rust_decimal::prelude::ToPrimitive;
+        let max_high = bars.iter().map(|b| b.high).max()?;
+        let min_low = bars.iter().map(|b| b.low).min()?;
+        Some((max_high - min_low).to_f64().unwrap_or(0.0))
+    }
+
+    /// Rate of change of volume trend: (second-half mean volume − first-half mean volume)
+    /// divided by the first-half mean. Returns `None` for fewer than 4 bars or zero first-half mean.
+    pub fn volume_trend_acceleration(bars: &[OhlcvBar]) -> Option<f64> {
+        if bars.len() < 4 {
+            return None;
+        }
+        use rust_decimal::prelude::ToPrimitive;
+        let half = bars.len() / 2;
+        let n1 = Decimal::from(half);
+        let n2 = Decimal::from(bars.len() - half);
+        let first_mean: Decimal = bars[..half].iter().map(|b| b.volume).sum::<Decimal>() / n1;
+        let second_mean: Decimal = bars[half..].iter().map(|b| b.volume).sum::<Decimal>() / n2;
+        if first_mean.is_zero() {
+            return None;
+        }
+        Some(((second_mean - first_mean) / first_mean).to_f64().unwrap_or(0.0))
+    }
+
 }
 
 impl std::fmt::Display for OhlcvBar {
@@ -10269,5 +10340,66 @@ mod tests {
         let b2 = make_ohlcv_bar(dec!(90), dec!(95), dec!(85), dec!(93));
         let c = OhlcvBar::down_gap_count(&[b1, b2]).unwrap();
         assert_eq!(c, 1);
+    }
+
+    // ── round-99 tests ────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_avg_lower_shadow_none_for_empty() {
+        assert!(OhlcvBar::avg_lower_shadow(&[]).is_none());
+    }
+
+    #[test]
+    fn test_avg_lower_shadow_zero_for_no_lower_shadow() {
+        // open=low → lower shadow = 0
+        let b = make_ohlcv_bar(dec!(90), dec!(110), dec!(90), dec!(105));
+        let s = OhlcvBar::avg_lower_shadow(&[b]).unwrap();
+        assert!(s.abs() < 1e-9, "no lower shadow → 0, got {}", s);
+    }
+
+    #[test]
+    fn test_inside_bar_count_none_for_single_bar() {
+        let b = make_ohlcv_bar(dec!(90), dec!(110), dec!(85), dec!(100));
+        assert!(OhlcvBar::inside_bar_count(&[b]).is_none());
+    }
+
+    #[test]
+    fn test_inside_bar_count_detects_inside_bar() {
+        // b2 contained within b1
+        let b1 = make_ohlcv_bar(dec!(85), dec!(115), dec!(80), dec!(100));
+        let b2 = make_ohlcv_bar(dec!(90), dec!(110), dec!(85), dec!(105));
+        let c = OhlcvBar::inside_bar_count(&[b1, b2]).unwrap();
+        assert_eq!(c, 1);
+    }
+
+    #[test]
+    fn test_price_channel_width_none_for_empty() {
+        assert!(OhlcvBar::price_channel_width(&[]).is_none());
+    }
+
+    #[test]
+    fn test_price_channel_width_basic() {
+        // high=110, low=85 → width=25
+        let b = make_ohlcv_bar(dec!(90), dec!(110), dec!(85), dec!(100));
+        let w = OhlcvBar::price_channel_width(&[b]).unwrap();
+        assert!((w - 25.0).abs() < 1e-9, "expected 25.0, got {}", w);
+    }
+
+    #[test]
+    fn test_volume_trend_acceleration_none_for_three_bars() {
+        let b = make_ohlcv_bar(dec!(90), dec!(110), dec!(85), dec!(100));
+        assert!(OhlcvBar::volume_trend_acceleration(&[b.clone(), b.clone(), b]).is_none());
+    }
+
+    #[test]
+    fn test_volume_trend_acceleration_zero_for_constant_volume() {
+        let mut bars = Vec::new();
+        for _ in 0..4 {
+            let mut b = make_ohlcv_bar(dec!(90), dec!(110), dec!(85), dec!(100));
+            b.volume = dec!(100);
+            bars.push(b);
+        }
+        let a = OhlcvBar::volume_trend_acceleration(&bars).unwrap();
+        assert!(a.abs() < 1e-9, "constant volume → acceleration=0, got {}", a);
     }
 }

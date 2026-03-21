@@ -9,6 +9,30 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.5.0] - 2026-03-20
+
+### Added
+
+**`tick` module — `NormalizedTick` analytics (round 99)**
+- `NormalizedTick::price_change_acceleration(ticks)` — rate of change of mean inter-tick price change (second half vs first half).
+- `NormalizedTick::avg_qty_per_direction(ticks)` — mean quantity per sided tick (buys and sells combined).
+- `NormalizedTick::micro_price(ticks)` — volume-weighted mid-price using buy/sell quantity as proxy for bid/ask imbalance.
+- `NormalizedTick::inter_tick_gap_iqr(ticks)` — interquartile range of inter-arrival gaps in milliseconds.
+
+**`ohlcv` module — `OhlcvBar` analytics (round 99)**
+- `OhlcvBar::avg_lower_shadow(bars)` — mean lower shadow as a fraction of bar range.
+- `OhlcvBar::inside_bar_count(bars)` — number of bars fully contained within the previous bar's range.
+- `OhlcvBar::price_channel_width(bars)` — max high minus min low across the full slice.
+- `OhlcvBar::volume_trend_acceleration(bars)` — `(second_half_mean − first_half_mean) / first_half_mean` of volume.
+
+**`norm` module — `MinMaxNormalizer` and `ZScoreNormalizer` analytics (round 99)**
+- `window_percentile_25() -> Option<Decimal>` — 25th percentile of the rolling window.
+- `mean_reversion_score() -> Option<f64>` — distance of latest value from window mean as fraction of window range.
+- `trend_strength() -> Option<f64>` — |second_half_mean − first_half_mean| / window std-dev.
+- `window_peak_count() -> Option<usize>` — number of local peaks in the rolling window.
+
+---
+
 ## [2.4.9] - 2026-03-20
 
 ### Added

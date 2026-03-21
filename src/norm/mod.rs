@@ -2134,6 +2134,80 @@ impl MinMaxNormalizer {
         Some((second_mean - first_mean) / half as f64)
     }
 
+    // ── round-99 ─────────────────────────────────────────────────────────────
+
+    /// 25th percentile of the rolling window.
+    /// Returns `None` for an empty window.
+    pub fn window_percentile_25(&self) -> Option<Decimal> {
+        if self.window.is_empty() {
+            return None;
+        }
+        let mut sorted: Vec<Decimal> = self.window.iter().copied().collect();
+        sorted.sort();
+        let idx = sorted.len() / 4;
+        Some(sorted[idx.min(sorted.len() - 1)])
+    }
+
+    /// Mean-reversion score: how far the latest value is from the window mean,
+    /// expressed as a fraction of the window range. Returns `None` for empty window
+    /// or zero range.
+    pub fn mean_reversion_score(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() {
+            return None;
+        }
+        let min = self.window.iter().copied().min()?;
+        let max = self.window.iter().copied().max()?;
+        let range = max - min;
+        if range.is_zero() {
+            return None;
+        }
+        let n = Decimal::from(self.window.len());
+        let mean: Decimal = self.window.iter().copied().sum::<Decimal>() / n;
+        let latest = *self.window.back()?;
+        Some(((latest - mean) / range).to_f64().unwrap_or(0.0))
+    }
+
+    /// Trend strength: absolute difference between first-half mean and second-half
+    /// mean divided by the window standard deviation. Returns `None` for fewer than
+    /// 4 values or zero std-dev.
+    pub fn trend_strength(&self) -> Option<f64> {
+        if self.window.len() < 4 {
+            return None;
+        }
+        use rust_decimal::prelude::ToPrimitive;
+        let n = self.window.len() as f64;
+        let vals: Vec<f64> = self
+            .window
+            .iter()
+            .map(|v| v.to_f64().unwrap_or(0.0))
+            .collect();
+        let mean = vals.iter().sum::<f64>() / n;
+        let variance = vals.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / n;
+        let std_dev = variance.sqrt();
+        if std_dev == 0.0 {
+            return None;
+        }
+        let half = vals.len() / 2;
+        let first_mean = vals[..half].iter().sum::<f64>() / half as f64;
+        let second_mean = vals[half..].iter().sum::<f64>() / (vals.len() - half) as f64;
+        Some((second_mean - first_mean).abs() / std_dev)
+    }
+
+    /// Number of local peaks (values greater than both neighbours) in the window.
+    /// Returns `None` for fewer than 3 values.
+    pub fn window_peak_count(&self) -> Option<usize> {
+        if self.window.len() < 3 {
+            return None;
+        }
+        let vals: Vec<Decimal> = self.window.iter().copied().collect();
+        let count = vals
+            .windows(3)
+            .filter(|w| w[1] > w[0] && w[1] > w[2])
+            .count();
+        Some(count)
+    }
+
 }
 
 #[cfg(test)]
@@ -4616,6 +4690,50 @@ mod tests {
         for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
         assert!(n.slope_of_mean().is_none());
     }
+
+    // ── round-99 tests ────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_minmax_window_percentile_25_none_for_empty() {
+        assert!(norm(4).window_percentile_25().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_percentile_25_constant() {
+        let mut n = norm(4);
+        for _ in 0..4 { n.update(dec!(5)); }
+        assert_eq!(n.window_percentile_25().unwrap(), dec!(5));
+    }
+
+    #[test]
+    fn test_minmax_mean_reversion_score_none_for_constant() {
+        let mut n = norm(4);
+        for _ in 0..4 { n.update(dec!(5)); }
+        assert!(n.mean_reversion_score().is_none());
+    }
+
+    #[test]
+    fn test_minmax_trend_strength_none_for_constant() {
+        let mut n = norm(4);
+        for _ in 0..4 { n.update(dec!(5)); }
+        assert!(n.trend_strength().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_peak_count_none_for_small_window() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2)] { n.update(v); }
+        assert!(n.window_peak_count().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_peak_count_basic() {
+        let mut n = norm(4);
+        // 1, 3, 2, 4 → peak at 3 (idx 1): 3>1 and 3>2
+        for v in [dec!(1), dec!(3), dec!(2), dec!(4)] { n.update(v); }
+        let p = n.window_peak_count().unwrap();
+        assert_eq!(p, 1);
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -6709,6 +6827,78 @@ impl ZScoreNormalizer {
         let first_mean = vals[..half].iter().sum::<f64>() / half as f64;
         let second_mean = vals[half..].iter().sum::<f64>() / (vals.len() - half) as f64;
         Some((second_mean - first_mean) / half as f64)
+    }
+
+    // ── round-99 ─────────────────────────────────────────────────────────────
+
+    /// 25th percentile of the rolling window.
+    /// Returns `None` for an empty window.
+    pub fn window_percentile_25(&self) -> Option<Decimal> {
+        if self.window.is_empty() {
+            return None;
+        }
+        let mut sorted: Vec<Decimal> = self.window.iter().copied().collect();
+        sorted.sort();
+        let idx = sorted.len() / 4;
+        Some(sorted[idx.min(sorted.len() - 1)])
+    }
+
+    /// Mean-reversion score: how far the latest value is from the window mean
+    /// as a fraction of the window range. Returns `None` for empty window or zero range.
+    pub fn mean_reversion_score(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() {
+            return None;
+        }
+        let min = self.window.iter().copied().min()?;
+        let max = self.window.iter().copied().max()?;
+        let range = max - min;
+        if range.is_zero() {
+            return None;
+        }
+        let n = Decimal::from(self.window.len());
+        let mean: Decimal = self.window.iter().copied().sum::<Decimal>() / n;
+        let latest = *self.window.back()?;
+        Some(((latest - mean) / range).to_f64().unwrap_or(0.0))
+    }
+
+    /// Trend strength: |(second_half_mean − first_half_mean)| / window_std_dev.
+    /// Returns `None` for fewer than 4 values or zero std-dev.
+    pub fn trend_strength(&self) -> Option<f64> {
+        if self.window.len() < 4 {
+            return None;
+        }
+        use rust_decimal::prelude::ToPrimitive;
+        let n = self.window.len() as f64;
+        let vals: Vec<f64> = self
+            .window
+            .iter()
+            .map(|v| v.to_f64().unwrap_or(0.0))
+            .collect();
+        let mean = vals.iter().sum::<f64>() / n;
+        let variance = vals.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / n;
+        let std_dev = variance.sqrt();
+        if std_dev == 0.0 {
+            return None;
+        }
+        let half = vals.len() / 2;
+        let first_mean = vals[..half].iter().sum::<f64>() / half as f64;
+        let second_mean = vals[half..].iter().sum::<f64>() / (vals.len() - half) as f64;
+        Some((second_mean - first_mean).abs() / std_dev)
+    }
+
+    /// Number of local peaks (value greater than both neighbours) in the window.
+    /// Returns `None` for fewer than 3 values.
+    pub fn window_peak_count(&self) -> Option<usize> {
+        if self.window.len() < 3 {
+            return None;
+        }
+        let vals: Vec<Decimal> = self.window.iter().copied().collect();
+        let count = vals
+            .windows(3)
+            .filter(|w| w[1] > w[0] && w[1] > w[2])
+            .count();
+        Some(count)
     }
 
 }
@@ -9344,5 +9534,48 @@ mod zscore_stability_tests {
         let mut n = znorm(4);
         for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
         assert!(n.slope_of_mean().is_none());
+    }
+
+    // ── round-99 tests ────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_zscore_window_percentile_25_none_for_empty() {
+        assert!(znorm(4).window_percentile_25().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_percentile_25_constant() {
+        let mut n = znorm(4);
+        for _ in 0..4 { n.update(dec!(5)); }
+        assert_eq!(n.window_percentile_25().unwrap(), dec!(5));
+    }
+
+    #[test]
+    fn test_zscore_mean_reversion_score_none_for_constant() {
+        let mut n = znorm(4);
+        for _ in 0..4 { n.update(dec!(5)); }
+        assert!(n.mean_reversion_score().is_none());
+    }
+
+    #[test]
+    fn test_zscore_trend_strength_none_for_constant() {
+        let mut n = znorm(4);
+        for _ in 0..4 { n.update(dec!(5)); }
+        assert!(n.trend_strength().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_peak_count_none_for_small_window() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2)] { n.update(v); }
+        assert!(n.window_peak_count().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_peak_count_basic() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(3), dec!(2), dec!(4)] { n.update(v); }
+        let p = n.window_peak_count().unwrap();
+        assert_eq!(p, 1);
     }
 }
