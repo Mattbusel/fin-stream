@@ -9258,6 +9258,68 @@ impl OhlcvBar {
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
+    /// Mean (close - prev_close) / prev_close gap ratio between consecutive bars.
+    pub fn bar_close_gap_ratio(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.len() < 2 { return None; }
+        let ratios: Vec<f64> = bars.windows(2).filter_map(|w| {
+            let prev = w[0].close.to_f64()?;
+            if prev == 0.0 { return None; }
+            let curr = w[1].close.to_f64()?;
+            Some((curr - prev) / prev)
+        }).collect();
+        if ratios.is_empty() { return None; }
+        Some(ratios.iter().sum::<f64>() / ratios.len() as f64)
+    }
+
+    /// Ratio of total body to total wick length across bars.
+    pub fn bar_body_wick_ratio(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let mut total_body = 0.0_f64;
+        let mut total_wick = 0.0_f64;
+        for b in bars {
+            let body = (b.close - b.open).abs().to_f64().unwrap_or(0.0);
+            let top = b.open.max(b.close);
+            let bot = b.open.min(b.close);
+            let wick = (b.high - top).to_f64().unwrap_or(0.0)
+                     + (bot - b.low).to_f64().unwrap_or(0.0);
+            total_body += body;
+            total_wick += wick;
+        }
+        if total_wick == 0.0 { return None; }
+        Some(total_body / total_wick)
+    }
+
+    /// Mean (open - prev_close) / body ratio: gap relative to body size.
+    pub fn bar_open_gap_body_ratio(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.len() < 2 { return None; }
+        let ratios: Vec<f64> = bars.windows(2).filter_map(|w| {
+            let gap = (w[1].open - w[0].close).to_f64()?;
+            let body = (w[1].close - w[1].open).abs().to_f64()?;
+            if body == 0.0 { return None; }
+            Some(gap / body)
+        }).collect();
+        if ratios.is_empty() { return None; }
+        Some(ratios.iter().sum::<f64>() / ratios.len() as f64)
+    }
+
+    /// Ratio of second-half volume mean to first-half volume mean.
+    pub fn bar_vol_momentum_ratio(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.len() < 2 { return None; }
+        let mid = bars.len() / 2;
+        let first_mean = bars[..mid].iter()
+            .filter_map(|b| b.volume.to_f64())
+            .sum::<f64>() / mid as f64;
+        let second_mean = bars[mid..].iter()
+            .filter_map(|b| b.volume.to_f64())
+            .sum::<f64>() / (bars.len() - mid) as f64;
+        if first_mean == 0.0 { return None; }
+        Some(second_mean / first_mean)
+    }
+
 }
 
 impl std::fmt::Display for OhlcvBar {
@@ -20776,5 +20838,60 @@ mod tests {
         let b = make_ohlcv_bar(dec!(100), dec!(120), dec!(100), dec!(110));
         let r = OhlcvBar::bar_hl_body_efficiency(&[b]).unwrap();
         assert!((r - 0.5).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_bar_close_gap_ratio_single_none() {
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        assert!(OhlcvBar::bar_close_gap_ratio(&[b]).is_none());
+    }
+
+    #[test]
+    fn test_bar_close_gap_ratio_flat_zero() {
+        let b0 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100));
+        let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100));
+        let r = OhlcvBar::bar_close_gap_ratio(&[b0, b1]).unwrap();
+        assert!(r.abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_bar_body_wick_ratio_empty_none() {
+        assert!(OhlcvBar::bar_body_wick_ratio(&[]).is_none());
+    }
+
+    #[test]
+    fn test_bar_body_wick_ratio_no_wicks_none() {
+        // open=close=high=low → no wicks → None
+        let b = make_ohlcv_bar(dec!(100), dec!(100), dec!(100), dec!(100));
+        assert!(OhlcvBar::bar_body_wick_ratio(&[b]).is_none());
+    }
+
+    #[test]
+    fn test_bar_open_gap_body_ratio_single_none() {
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        assert!(OhlcvBar::bar_open_gap_body_ratio(&[b]).is_none());
+    }
+
+    #[test]
+    fn test_bar_open_gap_body_ratio_doji_skipped() {
+        // b1 has open==close → body=0 → skipped → None
+        let b0 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100));
+        let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100));
+        assert!(OhlcvBar::bar_open_gap_body_ratio(&[b0, b1]).is_none());
+    }
+
+    #[test]
+    fn test_bar_vol_momentum_ratio_single_none() {
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        assert!(OhlcvBar::bar_vol_momentum_ratio(&[b]).is_none());
+    }
+
+    #[test]
+    fn test_bar_vol_momentum_ratio_equal_halves() {
+        let b0 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let b1 = make_ohlcv_bar(dec!(105), dec!(115), dec!(95), dec!(110));
+        let r = OhlcvBar::bar_vol_momentum_ratio(&[b0, b1]).unwrap();
+        // Both halves have vol=1 → ratio=1
+        assert!((r - 1.0).abs() < 1e-9);
     }
 }

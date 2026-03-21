@@ -9,6 +9,30 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.10.42] - 2026-03-20
+
+### Added
+
+**`tick` module — `NormalizedTick` analytics (round 191)**
+- `NormalizedTick::tick_trade_imbalance_rate(ticks)` — |buy_count - sell_count| / total trades.
+- `NormalizedTick::price_downside_vol_ratio(ticks)` — std of negative returns / std of positive returns.
+- `NormalizedTick::tick_qty_kurtosis(ticks)` — approximate excess kurtosis of tick quantities.
+- `NormalizedTick::price_consecutive_up_pct(ticks)` — fraction of consecutive tick pairs where price increases.
+
+**`ohlcv` module — `OhlcvBar` analytics (round 191)**
+- `OhlcvBar::bar_close_gap_ratio(bars)` — mean (close - prev_close) / prev_close between bars.
+- `OhlcvBar::bar_body_wick_ratio(bars)` — total body length / total wick length across bars.
+- `OhlcvBar::bar_open_gap_body_ratio(bars)` — mean (open - prev_close) / body ratio per bar.
+- `OhlcvBar::bar_vol_momentum_ratio(bars)` — second-half mean volume / first-half mean volume.
+
+**`norm` module — `MinMaxNormalizer` + `ZScoreNormalizer` analytics (round 191)**
+- `window_abs_mean_ratio()` — mean absolute value divided by absolute mean.
+- `window_entropy_density()` — entropy normalized by log(window size).
+- `window_peak_valley_ratio()` — count of peaks / count of valleys in window.
+- `window_range_bias()` — position of mean within the window's range: (mean - min) / (max - min).
+
+---
+
 ## [2.10.41] - 2026-03-20
 
 ### Added

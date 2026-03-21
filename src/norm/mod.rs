@@ -6799,6 +6799,57 @@ impl MinMaxNormalizer {
         Some(changes as f64 / (vals.len() - 1) as f64)
     }
 
+    /// Ratio of mean absolute value to mean value (abs mean / mean).
+    pub fn window_abs_mean_ratio(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let mean = vals.iter().sum::<f64>() / vals.len() as f64;
+        if mean == 0.0 { return None; }
+        let abs_mean = vals.iter().map(|v| v.abs()).sum::<f64>() / vals.len() as f64;
+        Some(abs_mean / mean.abs())
+    }
+
+    /// Entropy density: entropy divided by log(window size).
+    pub fn window_entropy_density(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let n = self.window.len();
+        if n < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let total: f64 = vals.iter().map(|v| v.abs()).sum();
+        if total == 0.0 { return None; }
+        let entropy: f64 = vals.iter()
+            .filter(|&&v| v.abs() > 0.0)
+            .map(|&v| { let p = v.abs() / total; -p * p.ln() })
+            .sum();
+        Some(entropy / (n as f64).ln())
+    }
+
+    /// Ratio of peak count to valley count in window.
+    pub fn window_peak_valley_ratio(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 3 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let peaks = vals.windows(3).filter(|w| w[1] > w[0] && w[1] > w[2]).count();
+        let valleys = vals.windows(3).filter(|w| w[1] < w[0] && w[1] < w[2]).count();
+        if valleys == 0 { return None; }
+        Some(peaks as f64 / valleys as f64)
+    }
+
+    /// Range bias: (mean - min) / (max - min) — where in the range the mean sits.
+    pub fn window_range_bias(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let max = vals.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        let min = vals.iter().cloned().fold(f64::INFINITY, f64::min);
+        let range = max - min;
+        if range == 0.0 { return None; }
+        let mean = vals.iter().sum::<f64>() / vals.len() as f64;
+        Some((mean - min) / range)
+    }
+
 }
 
 #[cfg(test)]
@@ -14789,6 +14840,62 @@ mod tests {
         let r = n.window_mean_sign_change().unwrap();
         assert_eq!(r, 0.0);
     }
+
+    #[test]
+    fn test_minmax_window_abs_mean_ratio_none_for_empty() {
+        let n = norm(4);
+        assert!(n.window_abs_mean_ratio().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_abs_mean_ratio_zero_mean_none() {
+        let mut n = norm(4);
+        for v in [dec!(-1), dec!(1)] { n.update(v); }
+        assert!(n.window_abs_mean_ratio().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_abs_mean_ratio_positive() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        let r = n.window_abs_mean_ratio().unwrap();
+        assert!((r - 1.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_minmax_window_entropy_density_none_for_single() {
+        let mut n = norm(4);
+        n.update(dec!(5));
+        assert!(n.window_entropy_density().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_entropy_density_returns_value() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        assert!(n.window_entropy_density().is_some());
+    }
+
+    #[test]
+    fn test_minmax_window_peak_valley_ratio_none_for_two() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2)] { n.update(v); }
+        assert!(n.window_peak_valley_ratio().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_range_bias_none_for_empty() {
+        let n = norm(4);
+        assert!(n.window_range_bias().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_range_bias_midpoint() {
+        let mut n = norm(4);
+        for v in [dec!(0), dec!(10)] { n.update(v); }
+        let r = n.window_range_bias().unwrap();
+        assert!((r - 0.5).abs() < 1e-9);
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -21536,6 +21643,57 @@ impl ZScoreNormalizer {
             .filter(|w| w[0].signum() != w[1].signum())
             .count();
         Some(changes as f64 / (vals.len() - 1) as f64)
+    }
+
+    /// Ratio of mean absolute value to mean value (abs mean / mean).
+    pub fn window_abs_mean_ratio(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let mean = vals.iter().sum::<f64>() / vals.len() as f64;
+        if mean == 0.0 { return None; }
+        let abs_mean = vals.iter().map(|v| v.abs()).sum::<f64>() / vals.len() as f64;
+        Some(abs_mean / mean.abs())
+    }
+
+    /// Entropy density: entropy divided by log(window size).
+    pub fn window_entropy_density(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let n = self.window.len();
+        if n < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let total: f64 = vals.iter().map(|v| v.abs()).sum();
+        if total == 0.0 { return None; }
+        let entropy: f64 = vals.iter()
+            .filter(|&&v| v.abs() > 0.0)
+            .map(|&v| { let p = v.abs() / total; -p * p.ln() })
+            .sum();
+        Some(entropy / (n as f64).ln())
+    }
+
+    /// Ratio of peak count to valley count in window.
+    pub fn window_peak_valley_ratio(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 3 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let peaks = vals.windows(3).filter(|w| w[1] > w[0] && w[1] > w[2]).count();
+        let valleys = vals.windows(3).filter(|w| w[1] < w[0] && w[1] < w[2]).count();
+        if valleys == 0 { return None; }
+        Some(peaks as f64 / valleys as f64)
+    }
+
+    /// Range bias: (mean - min) / (max - min) — where in the range the mean sits.
+    pub fn window_range_bias(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let max = vals.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        let min = vals.iter().cloned().fold(f64::INFINITY, f64::min);
+        let range = max - min;
+        if range == 0.0 { return None; }
+        let mean = vals.iter().sum::<f64>() / vals.len() as f64;
+        Some((mean - min) / range)
     }
 
 }
@@ -29476,5 +29634,61 @@ mod zscore_stability_tests {
         for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
         let r = n.window_mean_sign_change().unwrap();
         assert_eq!(r, 0.0);
+    }
+
+    #[test]
+    fn test_zscore_window_abs_mean_ratio_none_for_empty() {
+        let n = znorm(4);
+        assert!(n.window_abs_mean_ratio().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_abs_mean_ratio_zero_mean_none() {
+        let mut n = znorm(4);
+        for v in [dec!(-1), dec!(1)] { n.update(v); }
+        assert!(n.window_abs_mean_ratio().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_abs_mean_ratio_positive() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        let r = n.window_abs_mean_ratio().unwrap();
+        assert!((r - 1.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_zscore_window_entropy_density_none_for_single() {
+        let mut n = znorm(4);
+        n.update(dec!(5));
+        assert!(n.window_entropy_density().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_entropy_density_returns_value() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        assert!(n.window_entropy_density().is_some());
+    }
+
+    #[test]
+    fn test_zscore_window_peak_valley_ratio_none_for_two() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2)] { n.update(v); }
+        assert!(n.window_peak_valley_ratio().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_range_bias_none_for_empty() {
+        let n = znorm(4);
+        assert!(n.window_range_bias().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_range_bias_midpoint() {
+        let mut n = znorm(4);
+        for v in [dec!(0), dec!(10)] { n.update(v); }
+        let r = n.window_range_bias().unwrap();
+        assert!((r - 0.5).abs() < 1e-9);
     }
 }
