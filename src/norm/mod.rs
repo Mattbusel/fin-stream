@@ -2563,6 +2563,92 @@ impl MinMaxNormalizer {
         Some((weighted / (sum * Decimal::from(n))).to_f64().unwrap_or(0.0).abs())
     }
 
+    // ── round-105 ────────────────────────────────────────────────────────────
+
+    /// Approximate Hurst exponent via rescaled range (R/S) analysis.
+    /// H > 0.5 indicates trending, H < 0.5 indicates mean-reverting.
+    /// Returns `None` for fewer than 4 values.
+    pub fn window_hurst_exponent(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 4 {
+            return None;
+        }
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.len() != self.window.len() {
+            return None;
+        }
+        let n = vals.len() as f64;
+        let mean = vals.iter().sum::<f64>() / n;
+        let deviations: Vec<f64> = vals.iter().map(|v| v - mean).collect();
+        let mut cumulative = 0.0_f64;
+        let mut cum_max = f64::NEG_INFINITY;
+        let mut cum_min = f64::INFINITY;
+        for d in &deviations {
+            cumulative += d;
+            if cumulative > cum_max { cum_max = cumulative; }
+            if cumulative < cum_min { cum_min = cumulative; }
+        }
+        let r = cum_max - cum_min;
+        let s = (vals.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / n).sqrt();
+        if s == 0.0 || r == 0.0 { return None; }
+        Some((r / s).ln() / n.ln())
+    }
+
+    /// Count of times the window series crosses its own mean.
+    /// Returns `None` for fewer than 2 values.
+    pub fn window_mean_crossings(&self) -> Option<usize> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 {
+            return None;
+        }
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.len() != self.window.len() { return None; }
+        let mean = vals.iter().sum::<f64>() / vals.len() as f64;
+        let crossings = vals.windows(2)
+            .filter(|w| (w[0] - mean).signum() != (w[1] - mean).signum()
+                && w[0] != mean && w[1] != mean)
+            .count();
+        Some(crossings)
+    }
+
+    /// Sample skewness of the window values.
+    /// Returns `None` for fewer than 3 values or zero standard deviation.
+    pub fn window_skewness(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 3 {
+            return None;
+        }
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.len() != self.window.len() { return None; }
+        let n = vals.len() as f64;
+        let mean = vals.iter().sum::<f64>() / n;
+        let variance = vals.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / n;
+        let std_dev = variance.sqrt();
+        if std_dev == 0.0 { return None; }
+        let skew = vals.iter().map(|v| ((v - mean) / std_dev).powi(3)).sum::<f64>() / n;
+        Some(skew)
+    }
+
+    /// Maximum length of a consecutive run of increasing values in the window.
+    /// Returns `None` for fewer than 2 values.
+    pub fn window_max_run(&self) -> Option<usize> {
+        if self.window.len() < 2 {
+            return None;
+        }
+        let vals: Vec<Decimal> = self.window.iter().copied().collect();
+        let mut max_run = 1usize;
+        let mut cur_run = 1usize;
+        for i in 1..vals.len() {
+            if vals[i] > vals[i - 1] {
+                cur_run += 1;
+                if cur_run > max_run { max_run = cur_run; }
+            } else {
+                cur_run = 1;
+            }
+        }
+        Some(max_run)
+    }
+
 }
 
 #[cfg(test)]
@@ -5332,6 +5418,71 @@ mod tests {
         let g = n.window_gini().unwrap();
         assert!(g.abs() < 1e-9, "expected ~0, got {}", g);
     }
+
+    // ── round-105 tests ───────────────────────────────────────────────────────
+
+    #[test]
+    fn test_minmax_window_hurst_none_for_three() {
+        let mut n = norm(5);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        assert!(n.window_hurst_exponent().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_hurst_basic() {
+        let mut n = norm(10);
+        for v in [dec!(1), dec!(2), dec!(4), dec!(8)] { n.update(v); }
+        // Should return Some (just check it computes without panic)
+        assert!(n.window_hurst_exponent().is_some());
+    }
+
+    #[test]
+    fn test_minmax_window_mean_crossings_none_for_single() {
+        let mut n = norm(5);
+        n.update(dec!(10));
+        assert!(n.window_mean_crossings().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_mean_crossings_basic() {
+        let mut n = norm(5);
+        for v in [dec!(10), dec!(20), dec!(5), dec!(20)] { n.update(v); }
+        // mean=13.75; crossings: 10<m → 20>m (cross), 20>m → 5<m (cross), 5<m → 20>m (cross) = 3
+        let c = n.window_mean_crossings().unwrap();
+        assert_eq!(c, 3);
+    }
+
+    #[test]
+    fn test_minmax_window_skewness_none_for_two() {
+        let mut n = norm(5);
+        for v in [dec!(10), dec!(20)] { n.update(v); }
+        assert!(n.window_skewness().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_skewness_symmetric() {
+        let mut n = norm(5);
+        for v in [dec!(10), dec!(20), dec!(30)] { n.update(v); }
+        // symmetric → skew ≈ 0
+        let s = n.window_skewness().unwrap();
+        assert!(s.abs() < 1e-9, "expected ~0, got {}", s);
+    }
+
+    #[test]
+    fn test_minmax_window_max_run_none_for_single() {
+        let mut n = norm(5);
+        n.update(dec!(10));
+        assert!(n.window_max_run().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_max_run_basic() {
+        let mut n = norm(5);
+        for v in [dec!(10), dec!(20), dec!(30), dec!(10)] { n.update(v); }
+        // longest run = 3 (10→20→30)
+        let r = n.window_max_run().unwrap();
+        assert_eq!(r, 3);
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -7851,6 +8002,83 @@ impl ZScoreNormalizer {
             .map(|(i, &v)| Decimal::from(2 * (i as i64 + 1) - n as i64 - 1) * v)
             .sum();
         Some((weighted / (sum * Decimal::from(n))).to_f64().unwrap_or(0.0).abs())
+    }
+
+    // ── round-105 ────────────────────────────────────────────────────────────
+
+    /// Approximate Hurst exponent via rescaled range (R/S) analysis.
+    /// Returns `None` for fewer than 4 values.
+    pub fn window_hurst_exponent(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 4 {
+            return None;
+        }
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.len() != self.window.len() { return None; }
+        let n = vals.len() as f64;
+        let mean = vals.iter().sum::<f64>() / n;
+        let deviations: Vec<f64> = vals.iter().map(|v| v - mean).collect();
+        let mut cumulative = 0.0_f64;
+        let mut cum_max = f64::NEG_INFINITY;
+        let mut cum_min = f64::INFINITY;
+        for d in &deviations {
+            cumulative += d;
+            if cumulative > cum_max { cum_max = cumulative; }
+            if cumulative < cum_min { cum_min = cumulative; }
+        }
+        let r = cum_max - cum_min;
+        let s = (vals.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / n).sqrt();
+        if s == 0.0 || r == 0.0 { return None; }
+        Some((r / s).ln() / n.ln())
+    }
+
+    /// Count of times the window series crosses its own mean.
+    /// Returns `None` for fewer than 2 values.
+    pub fn window_mean_crossings(&self) -> Option<usize> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.len() != self.window.len() { return None; }
+        let mean = vals.iter().sum::<f64>() / vals.len() as f64;
+        let crossings = vals.windows(2)
+            .filter(|w| (w[0] - mean).signum() != (w[1] - mean).signum()
+                && w[0] != mean && w[1] != mean)
+            .count();
+        Some(crossings)
+    }
+
+    /// Sample skewness of the window values.
+    /// Returns `None` for fewer than 3 values or zero standard deviation.
+    pub fn window_skewness(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 3 { return None; }
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.len() != self.window.len() { return None; }
+        let n = vals.len() as f64;
+        let mean = vals.iter().sum::<f64>() / n;
+        let variance = vals.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / n;
+        let std_dev = variance.sqrt();
+        if std_dev == 0.0 { return None; }
+        let skew = vals.iter().map(|v| ((v - mean) / std_dev).powi(3)).sum::<f64>() / n;
+        Some(skew)
+    }
+
+    /// Maximum length of a consecutive run of increasing values in the window.
+    /// Returns `None` for fewer than 2 values.
+    pub fn window_max_run(&self) -> Option<usize> {
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<Decimal> = self.window.iter().copied().collect();
+        let mut max_run = 1usize;
+        let mut cur_run = 1usize;
+        for i in 1..vals.len() {
+            if vals[i] > vals[i - 1] {
+                cur_run += 1;
+                if cur_run > max_run { max_run = cur_run; }
+            } else {
+                cur_run = 1;
+            }
+        }
+        Some(max_run)
     }
 
 }
@@ -10758,5 +10986,66 @@ mod zscore_stability_tests {
         for v in [dec!(10), dec!(10), dec!(10)] { n.update(v); }
         let g = n.window_gini().unwrap();
         assert!(g.abs() < 1e-9, "expected ~0, got {}", g);
+    }
+
+    // ── round-105 tests ───────────────────────────────────────────────────────
+
+    #[test]
+    fn test_zscore_window_hurst_none_for_three() {
+        let mut n = znorm(5);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        assert!(n.window_hurst_exponent().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_hurst_basic() {
+        let mut n = znorm(10);
+        for v in [dec!(1), dec!(2), dec!(4), dec!(8)] { n.update(v); }
+        assert!(n.window_hurst_exponent().is_some());
+    }
+
+    #[test]
+    fn test_zscore_window_mean_crossings_none_for_single() {
+        let mut n = znorm(5);
+        n.update(dec!(10));
+        assert!(n.window_mean_crossings().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_mean_crossings_basic() {
+        let mut n = znorm(5);
+        for v in [dec!(10), dec!(20), dec!(5), dec!(20)] { n.update(v); }
+        let c = n.window_mean_crossings().unwrap();
+        assert_eq!(c, 3);
+    }
+
+    #[test]
+    fn test_zscore_window_skewness_none_for_two() {
+        let mut n = znorm(5);
+        for v in [dec!(10), dec!(20)] { n.update(v); }
+        assert!(n.window_skewness().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_skewness_symmetric() {
+        let mut n = znorm(5);
+        for v in [dec!(10), dec!(20), dec!(30)] { n.update(v); }
+        let s = n.window_skewness().unwrap();
+        assert!(s.abs() < 1e-9, "expected ~0, got {}", s);
+    }
+
+    #[test]
+    fn test_zscore_window_max_run_none_for_single() {
+        let mut n = znorm(5);
+        n.update(dec!(10));
+        assert!(n.window_max_run().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_max_run_basic() {
+        let mut n = znorm(5);
+        for v in [dec!(10), dec!(20), dec!(30), dec!(10)] { n.update(v); }
+        let r = n.window_max_run().unwrap();
+        assert_eq!(r, 3);
     }
 }

@@ -9,6 +9,36 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.5.6] - 2026-03-20
+
+### Added
+
+**`tick` module — `NormalizedTick` analytics (round 105)**
+- `NormalizedTick::tick_burst_count(ticks)` — count of inter-tick gaps shorter than the median gap.
+- `NormalizedTick::price_trend_score(ticks)` — fraction of consecutive tick pairs where price increases.
+- `NormalizedTick::sell_qty_fraction(ticks)` — fraction of total quantity traded on the sell side.
+- `NormalizedTick::qty_above_median(ticks)` — count of ticks whose quantity exceeds the median.
+
+**`ohlcv` module — `OhlcvBar` analytics (round 105)**
+- `OhlcvBar::close_to_high_mean(bars)` — mean `(high - close) / (high - low)` across bars with non-zero range.
+- `OhlcvBar::bar_volatility_score(bars)` — mean true range divided by mean close price.
+- `OhlcvBar::bearish_close_fraction(bars)` — fraction of bars where close is below open.
+- `OhlcvBar::high_minus_open_mean(bars)` — mean of `high - open` across all bars.
+
+**`norm` module — `MinMaxNormalizer` analytics (round 105)**
+- `MinMaxNormalizer::window_hurst_exponent()` — approximate Hurst exponent via rescaled range analysis.
+- `MinMaxNormalizer::window_mean_crossings()` — count of times the series crosses its own mean.
+- `MinMaxNormalizer::window_skewness()` — sample skewness of window values.
+- `MinMaxNormalizer::window_max_run()` — maximum length of a consecutive increasing run.
+
+**`norm` module — `ZScoreNormalizer` analytics (round 105)**
+- `ZScoreNormalizer::window_hurst_exponent()` — approximate Hurst exponent via rescaled range analysis.
+- `ZScoreNormalizer::window_mean_crossings()` — count of times the series crosses its own mean.
+- `ZScoreNormalizer::window_skewness()` — sample skewness of window values.
+- `ZScoreNormalizer::window_max_run()` — maximum length of a consecutive increasing run.
+
+---
+
 ## [2.5.5] - 2026-03-20
 
 ### Added

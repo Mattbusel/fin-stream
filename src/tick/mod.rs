@@ -4670,6 +4670,63 @@ impl NormalizedTick {
         total.to_f64()
     }
 
+    // ── round-105 ────────────────────────────────────────────────────────────
+
+    /// Count of inter-tick gaps that are shorter than the median gap (burst events).
+    /// Returns `None` for fewer than 3 ticks (need at least 2 gaps to compute median).
+    pub fn tick_burst_count(ticks: &[NormalizedTick]) -> Option<usize> {
+        if ticks.len() < 3 {
+            return None;
+        }
+        let mut gaps: Vec<u64> = ticks.windows(2)
+            .map(|w| w[1].received_at_ms.saturating_sub(w[0].received_at_ms))
+            .collect();
+        gaps.sort();
+        let median = gaps[gaps.len() / 2];
+        let burst_count = gaps.iter().filter(|&&g| g < median).count();
+        Some(burst_count)
+    }
+
+    /// Price trend score: fraction of consecutive tick pairs where price increases.
+    /// Returns `None` for fewer than 2 ticks.
+    pub fn price_trend_score(ticks: &[NormalizedTick]) -> Option<f64> {
+        if ticks.len() < 2 {
+            return None;
+        }
+        let up = ticks.windows(2).filter(|w| w[1].price > w[0].price).count();
+        Some(up as f64 / (ticks.len() - 1) as f64)
+    }
+
+    /// Fraction of total quantity traded on the sell side.
+    /// Returns `None` for an empty slice or zero total quantity.
+    pub fn sell_qty_fraction(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() {
+            return None;
+        }
+        let total: Decimal = ticks.iter().map(|t| t.quantity).sum();
+        if total.is_zero() {
+            return None;
+        }
+        let sell_qty: Decimal = ticks.iter()
+            .filter(|t| matches!(t.side, Some(TradeSide::Sell)))
+            .map(|t| t.quantity)
+            .sum();
+        Some((sell_qty / total).to_f64().unwrap_or(0.0))
+    }
+
+    /// Count of ticks whose quantity exceeds the median quantity of the slice.
+    /// Returns `None` for an empty slice.
+    pub fn qty_above_median(ticks: &[NormalizedTick]) -> Option<usize> {
+        if ticks.is_empty() {
+            return None;
+        }
+        let mut sorted: Vec<Decimal> = ticks.iter().map(|t| t.quantity).collect();
+        sorted.sort();
+        let median = sorted[sorted.len() / 2];
+        Some(ticks.iter().filter(|t| t.quantity > median).count())
+    }
+
 }
 
 
@@ -10758,5 +10815,83 @@ mod tests {
         ];
         let w = NormalizedTick::weighted_tick_count(&ticks).unwrap();
         assert!((w - 8.0).abs() < 1e-9, "expected 8.0, got {}", w);
+    }
+
+    // ── round-105 tests ───────────────────────────────────────────────────────
+
+    #[test]
+    fn test_tick_burst_count_none_for_two() {
+        use rust_decimal_macros::dec;
+        let t1 = make_tick_pq(dec!(100), dec!(1));
+        let t2 = make_tick_pq(dec!(100), dec!(1));
+        assert!(NormalizedTick::tick_burst_count(&[t1, t2]).is_none());
+    }
+
+    #[test]
+    fn test_tick_burst_count_basic() {
+        use rust_decimal_macros::dec;
+        let mut t1 = make_tick_pq(dec!(100), dec!(1));
+        t1.received_at_ms = 0;
+        let mut t2 = make_tick_pq(dec!(100), dec!(1));
+        t2.received_at_ms = 10; // gap=10 (burst, below median=50)
+        let mut t3 = make_tick_pq(dec!(100), dec!(1));
+        t3.received_at_ms = 110; // gap=100
+        let count = NormalizedTick::tick_burst_count(&[t1, t2, t3]).unwrap();
+        assert_eq!(count, 1); // gap=10 < median=55 (median of [10,100])
+    }
+
+    #[test]
+    fn test_price_trend_score_none_for_single() {
+        use rust_decimal_macros::dec;
+        let t = make_tick_pq(dec!(100), dec!(1));
+        assert!(NormalizedTick::price_trend_score(&[t]).is_none());
+    }
+
+    #[test]
+    fn test_price_trend_score_all_up() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(110), dec!(1)),
+            make_tick_pq(dec!(120), dec!(1)),
+        ];
+        let s = NormalizedTick::price_trend_score(&ticks).unwrap();
+        assert!((s - 1.0).abs() < 1e-9, "expected 1.0, got {}", s);
+    }
+
+    #[test]
+    fn test_sell_qty_fraction_none_for_empty() {
+        assert!(NormalizedTick::sell_qty_fraction(&[]).is_none());
+    }
+
+    #[test]
+    fn test_sell_qty_fraction_basic() {
+        use rust_decimal_macros::dec;
+        let mut buy = make_tick_pq(dec!(100), dec!(6));
+        buy.side = Some(TradeSide::Buy);
+        let mut sell = make_tick_pq(dec!(100), dec!(4));
+        sell.side = Some(TradeSide::Sell);
+        let f = NormalizedTick::sell_qty_fraction(&[buy, sell]).unwrap();
+        assert!((f - 0.4).abs() < 1e-9, "expected 0.4, got {}", f);
+    }
+
+    #[test]
+    fn test_qty_above_median_none_for_empty() {
+        assert!(NormalizedTick::qty_above_median(&[]).is_none());
+    }
+
+    #[test]
+    fn test_qty_above_median_basic() {
+        use rust_decimal_macros::dec;
+        // sorted qtys: [1,2,3,4,5], median=3; above median: 4,5 → count=2
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(100), dec!(5)),
+            make_tick_pq(dec!(100), dec!(3)),
+            make_tick_pq(dec!(100), dec!(2)),
+            make_tick_pq(dec!(100), dec!(4)),
+        ];
+        let c = NormalizedTick::qty_above_median(&ticks).unwrap();
+        assert_eq!(c, 2);
     }
 }

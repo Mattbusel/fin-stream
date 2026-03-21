@@ -4638,6 +4638,62 @@ impl OhlcvBar {
         Some(cov / (std_o * std_c))
     }
 
+    // ── round-105 ────────────────────────────────────────────────────────────
+
+    /// Mean of `(high - close) / (high - low)` across bars with non-zero range.
+    /// Measures how far close is from the high on average.
+    /// Returns `None` for an empty slice or no bars with non-zero range.
+    pub fn close_to_high_mean(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let ratios: Vec<f64> = bars.iter().filter_map(|b| {
+            let range = b.high - b.low;
+            if range.is_zero() { None }
+            else { Some(((b.high - b.close) / range).to_f64().unwrap_or(0.0)) }
+        }).collect();
+        if ratios.is_empty() { return None; }
+        Some(ratios.iter().sum::<f64>() / ratios.len() as f64)
+    }
+
+    /// Mean true range divided by mean close price — a normalised volatility score.
+    /// Returns `None` for fewer than 2 bars or zero mean close.
+    pub fn bar_volatility_score(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.len() < 2 {
+            return None;
+        }
+        let true_ranges: Vec<Decimal> = bars.windows(2).map(|w| {
+            let prev = &w[0];
+            let curr = &w[1];
+            let hl = curr.high - curr.low;
+            let hpc = (curr.high - prev.close).abs();
+            let lpc = (curr.low - prev.close).abs();
+            hl.max(hpc).max(lpc)
+        }).collect();
+        let mean_tr: Decimal = true_ranges.iter().copied().sum::<Decimal>()
+            / Decimal::from(true_ranges.len());
+        let mean_close: Decimal = bars.iter().map(|b| b.close).sum::<Decimal>()
+            / Decimal::from(bars.len());
+        if mean_close.is_zero() { return None; }
+        Some((mean_tr / mean_close).to_f64().unwrap_or(0.0))
+    }
+
+    /// Fraction of bars that close below their open (bearish candles).
+    /// Returns `None` for an empty slice.
+    pub fn bearish_close_fraction(bars: &[OhlcvBar]) -> Option<f64> {
+        if bars.is_empty() { return None; }
+        let bearish = bars.iter().filter(|b| b.close < b.open).count();
+        Some(bearish as f64 / bars.len() as f64)
+    }
+
+    /// Mean of `high - open` across all bars.
+    /// Returns `None` for an empty slice.
+    pub fn high_minus_open_mean(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let sum: Decimal = bars.iter().map(|b| b.high - b.open).sum();
+        Some((sum / Decimal::from(bars.len())).to_f64().unwrap_or(0.0))
+    }
+
 }
 
 impl std::fmt::Display for OhlcvBar {
@@ -11083,5 +11139,63 @@ mod tests {
         let b2 = make_ohlcv_bar(dec!(110), dec!(130), dec!(100), dec!(120));
         let corr = OhlcvBar::open_close_correlation(&[b1, b2]).unwrap();
         assert!((corr - 1.0).abs() < 1e-9, "expected 1.0, got {}", corr);
+    }
+
+    // ── round-105 tests ───────────────────────────────────────────────────────
+
+    #[test]
+    fn test_close_to_high_mean_none_for_empty() {
+        assert!(OhlcvBar::close_to_high_mean(&[]).is_none());
+    }
+
+    #[test]
+    fn test_close_to_high_mean_basic() {
+        // high=110, close=100, low=90 → range=20, high-close=10 → ratio=0.5
+        let b = make_ohlcv_bar(dec!(95), dec!(110), dec!(90), dec!(100));
+        let m = OhlcvBar::close_to_high_mean(&[b]).unwrap();
+        assert!((m - 0.5).abs() < 1e-9, "expected 0.5, got {}", m);
+    }
+
+    #[test]
+    fn test_bar_volatility_score_none_for_single() {
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        assert!(OhlcvBar::bar_volatility_score(&[b]).is_none());
+    }
+
+    #[test]
+    fn test_bar_volatility_score_basic() {
+        let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100));
+        let b2 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100));
+        // TR of b2 relative to b1: hl=20, hpc=10, lpc=10 → TR=20; mean_close=100 → score=0.2
+        let s = OhlcvBar::bar_volatility_score(&[b1, b2]).unwrap();
+        assert!((s - 0.2).abs() < 1e-9, "expected 0.2, got {}", s);
+    }
+
+    #[test]
+    fn test_bearish_close_fraction_none_for_empty() {
+        assert!(OhlcvBar::bearish_close_fraction(&[]).is_none());
+    }
+
+    #[test]
+    fn test_bearish_close_fraction_basic() {
+        // open=110, close=95 → bearish
+        let bearish = make_ohlcv_bar(dec!(110), dec!(115), dec!(90), dec!(95));
+        // open=90, close=105 → bullish
+        let bullish = make_ohlcv_bar(dec!(90), dec!(115), dec!(85), dec!(105));
+        let f = OhlcvBar::bearish_close_fraction(&[bearish, bullish]).unwrap();
+        assert!((f - 0.5).abs() < 1e-9, "expected 0.5, got {}", f);
+    }
+
+    #[test]
+    fn test_high_minus_open_mean_none_for_empty() {
+        assert!(OhlcvBar::high_minus_open_mean(&[]).is_none());
+    }
+
+    #[test]
+    fn test_high_minus_open_mean_basic() {
+        // open=100, high=115 → diff=15
+        let b = make_ohlcv_bar(dec!(100), dec!(115), dec!(90), dec!(110));
+        let m = OhlcvBar::high_minus_open_mean(&[b]).unwrap();
+        assert!((m - 15.0).abs() < 1e-9, "expected 15.0, got {}", m);
     }
 }
