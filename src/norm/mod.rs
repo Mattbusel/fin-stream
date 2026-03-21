@@ -4327,6 +4327,54 @@ impl MinMaxNormalizer {
         Some(slope(&vals[mid..]) - slope(&vals[..mid]))
     }
 
+    // ── round-140 ────────────────────────────────────────────────────────────
+
+    /// Recovery rate: fraction of steps that recover from the preceding drop.
+    pub fn window_recovery_rate(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 3 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let triplets = vals.windows(3)
+            .filter(|w| w[1] < w[0] && w[2] > w[1])
+            .count();
+        let drops = vals.windows(2).filter(|w| w[1] < w[0]).count();
+        if drops == 0 { return Some(1.0); }
+        Some(triplets as f64 / drops as f64)
+    }
+
+    /// Normalized spread: (max - min) / mean of the window.
+    pub fn window_normalized_spread(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let max = vals.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        let min = vals.iter().cloned().fold(f64::INFINITY, f64::min);
+        let mean = vals.iter().sum::<f64>() / vals.len() as f64;
+        if mean == 0.0 { return None; }
+        Some((max - min) / mean.abs())
+    }
+
+    /// First-to-last ratio: last value / first value in the window.
+    pub fn window_first_last_ratio(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let first = self.window.front()?.to_f64()?;
+        let last = self.window.back()?.to_f64()?;
+        if first == 0.0 { return None; }
+        Some(last / first)
+    }
+
+    /// Extrema count: number of local maxima and minima in the window.
+    pub fn window_extrema_count(&self) -> Option<usize> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 3 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let count = vals.windows(3)
+            .filter(|w| (w[1] > w[0] && w[1] > w[2]) || (w[1] < w[0] && w[1] < w[2]))
+            .count();
+        Some(count)
+    }
+
 }
 
 #[cfg(test)]
@@ -9210,6 +9258,70 @@ mod tests {
         // uniform slope → near 0
         assert!(sc.abs() < 1.0, "expected small slope change, got {}", sc);
     }
+
+    // ── round-140 ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_minmax_window_recovery_rate_none_for_small() {
+        let mut n = norm(4);
+        n.update(dec!(1)); n.update(dec!(2));
+        assert!(n.window_recovery_rate().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_recovery_rate_no_drops() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let r = n.window_recovery_rate().unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "expected 1.0 when no drops, got {}", r);
+    }
+
+    #[test]
+    fn test_minmax_window_normalized_spread_none_for_empty() {
+        let n = norm(4);
+        assert!(n.window_normalized_spread().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_normalized_spread_basic() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        // range=3, mean=2.5 → spread=3/2.5=1.2
+        let s = n.window_normalized_spread().unwrap();
+        assert!((s - 1.2).abs() < 1e-9, "expected 1.2, got {}", s);
+    }
+
+    #[test]
+    fn test_minmax_window_first_last_ratio_none_for_single() {
+        let mut n = norm(4);
+        n.update(dec!(5));
+        assert!(n.window_first_last_ratio().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_first_last_ratio_basic() {
+        let mut n = norm(4);
+        for v in [dec!(2), dec!(3), dec!(4), dec!(8)] { n.update(v); }
+        // first=2, last=8 → ratio=4.0
+        let r = n.window_first_last_ratio().unwrap();
+        assert!((r - 4.0).abs() < 1e-9, "expected 4.0, got {}", r);
+    }
+
+    #[test]
+    fn test_minmax_window_extrema_count_none_for_small() {
+        let mut n = norm(4);
+        n.update(dec!(1)); n.update(dec!(2));
+        assert!(n.window_extrema_count().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_extrema_count_alternating() {
+        let mut n = norm(5);
+        for v in [dec!(1), dec!(3), dec!(1), dec!(3), dec!(1)] { n.update(v); }
+        // middle 3 values are all extrema → count=3
+        let e = n.window_extrema_count().unwrap();
+        assert_eq!(e, 3, "expected 3 extrema, got {}", e);
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -13481,6 +13593,54 @@ impl ZScoreNormalizer {
             if den == 0.0 { 0.0 } else { num / den }
         };
         Some(slope(&vals[mid..]) - slope(&vals[..mid]))
+    }
+
+    // ── round-140 ────────────────────────────────────────────────────────────
+
+    /// Recovery rate: fraction of steps that recover from the preceding drop.
+    pub fn window_recovery_rate(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 3 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let triplets = vals.windows(3)
+            .filter(|w| w[1] < w[0] && w[2] > w[1])
+            .count();
+        let drops = vals.windows(2).filter(|w| w[1] < w[0]).count();
+        if drops == 0 { return Some(1.0); }
+        Some(triplets as f64 / drops as f64)
+    }
+
+    /// Normalized spread: (max - min) / mean of the window.
+    pub fn window_normalized_spread(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let max = vals.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        let min = vals.iter().cloned().fold(f64::INFINITY, f64::min);
+        let mean = vals.iter().sum::<f64>() / vals.len() as f64;
+        if mean == 0.0 { return None; }
+        Some((max - min) / mean.abs())
+    }
+
+    /// First-to-last ratio: last value / first value in the window.
+    pub fn window_first_last_ratio(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let first = self.window.front()?.to_f64()?;
+        let last = self.window.back()?.to_f64()?;
+        if first == 0.0 { return None; }
+        Some(last / first)
+    }
+
+    /// Extrema count: number of local maxima and minima in the window.
+    pub fn window_extrema_count(&self) -> Option<usize> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 3 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let count = vals.windows(3)
+            .filter(|w| (w[1] > w[0] && w[1] > w[2]) || (w[1] < w[0] && w[1] < w[2]))
+            .count();
+        Some(count)
     }
 
 }
@@ -18410,5 +18570,66 @@ mod zscore_stability_tests {
         for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
         let sc = n.window_slope_change().unwrap();
         assert!(sc.abs() < 1.0, "expected small slope change, got {}", sc);
+    }
+
+    // ── round-140 ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_zscore_window_recovery_rate_none_for_small() {
+        let mut n = znorm(4);
+        n.update(dec!(1)); n.update(dec!(2));
+        assert!(n.window_recovery_rate().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_recovery_rate_no_drops() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let r = n.window_recovery_rate().unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "expected 1.0 when no drops, got {}", r);
+    }
+
+    #[test]
+    fn test_zscore_window_normalized_spread_none_for_empty() {
+        let n = znorm(4);
+        assert!(n.window_normalized_spread().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_normalized_spread_basic() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let s = n.window_normalized_spread().unwrap();
+        assert!((s - 1.2).abs() < 1e-9, "expected 1.2, got {}", s);
+    }
+
+    #[test]
+    fn test_zscore_window_first_last_ratio_none_for_single() {
+        let mut n = znorm(4);
+        n.update(dec!(5));
+        assert!(n.window_first_last_ratio().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_first_last_ratio_basic() {
+        let mut n = znorm(4);
+        for v in [dec!(2), dec!(3), dec!(4), dec!(8)] { n.update(v); }
+        let r = n.window_first_last_ratio().unwrap();
+        assert!((r - 4.0).abs() < 1e-9, "expected 4.0, got {}", r);
+    }
+
+    #[test]
+    fn test_zscore_window_extrema_count_none_for_small() {
+        let mut n = znorm(4);
+        n.update(dec!(1)); n.update(dec!(2));
+        assert!(n.window_extrema_count().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_extrema_count_alternating() {
+        let mut n = znorm(5);
+        for v in [dec!(1), dec!(3), dec!(1), dec!(3), dec!(1)] { n.update(v); }
+        let e = n.window_extrema_count().unwrap();
+        assert_eq!(e, 3, "expected 3 extrema, got {}", e);
     }
 }

@@ -9,6 +9,36 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.9.1] - 2026-03-20
+
+### Added
+
+**`tick` module — `NormalizedTick` analytics (round 140)**
+- `NormalizedTick::price_volatility_skew(ticks)` — skewness of absolute price changes.
+- `NormalizedTick::qty_peak_to_trough(ticks)` — max / min quantity ratio across ticks.
+- `NormalizedTick::tick_momentum_decay(ticks)` — Pearson correlation of price changes with their index.
+- `NormalizedTick::side_transition_rate(ticks)` — fraction of consecutive sided tick pairs that switch side.
+
+**`ohlcv` module — `OhlcvBar` analytics (round 140)**
+- `OhlcvBar::bar_body_trend_score(bars)` — OLS slope of body sizes (|close - open|) over bars.
+- `OhlcvBar::close_high_ratio(bars)` — mean of close / high per bar.
+- `OhlcvBar::bar_volume_efficiency(bars)` — total price move / total volume.
+- `OhlcvBar::high_open_spread(bars)` — mean of (high - open) per bar.
+
+**`norm` module — `MinMaxNormalizer` analytics (round 140)**
+- `MinMaxNormalizer::window_recovery_rate()` — fraction of drops immediately followed by a recovery.
+- `MinMaxNormalizer::window_normalized_spread()` — (max - min) / mean of the window.
+- `MinMaxNormalizer::window_first_last_ratio()` — last value / first value in the window.
+- `MinMaxNormalizer::window_extrema_count()` — number of local maxima and minima in the window.
+
+**`norm` module — `ZScoreNormalizer` analytics (round 140)**
+- `ZScoreNormalizer::window_recovery_rate()` — fraction of drops immediately followed by a recovery.
+- `ZScoreNormalizer::window_normalized_spread()` — (max - min) / mean of the window.
+- `ZScoreNormalizer::window_first_last_ratio()` — last value / first value in the window.
+- `ZScoreNormalizer::window_extrema_count()` — number of local maxima and minima in the window.
+
+---
+
 ## [2.9.0] - 2026-03-20
 
 ### Added

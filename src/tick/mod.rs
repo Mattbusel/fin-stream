@@ -6537,6 +6537,65 @@ impl NormalizedTick {
         Some(buy_mean - sell_mean)
     }
 
+    // ── round-140 ────────────────────────────────────────────────────────────
+
+    /// Price volatility skew: skewness of absolute price changes.
+    pub fn price_volatility_skew(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 3 { return None; }
+        let abs_changes: Vec<f64> = ticks.windows(2)
+            .map(|w| (w[1].price - w[0].price).abs().to_f64().unwrap_or(0.0))
+            .collect();
+        let n = abs_changes.len() as f64;
+        let mean = abs_changes.iter().sum::<f64>() / n;
+        let std = (abs_changes.iter().map(|&x| (x - mean).powi(2)).sum::<f64>() / n).sqrt();
+        if std == 0.0 { return None; }
+        let skew = abs_changes.iter().map(|&x| ((x - mean) / std).powi(3)).sum::<f64>() / n;
+        Some(skew)
+    }
+
+    /// Quantity peak to trough: max quantity / min quantity across ticks.
+    pub fn qty_peak_to_trough(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() { return None; }
+        let qtys: Vec<f64> = ticks.iter().map(|t| t.quantity.to_f64().unwrap_or(0.0)).collect();
+        let max = qtys.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        let min = qtys.iter().cloned().fold(f64::INFINITY, f64::min);
+        if min == 0.0 { return None; }
+        Some(max / min)
+    }
+
+    /// Tick momentum decay: correlation of price changes with their index (negative = decay).
+    pub fn tick_momentum_decay(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 3 { return None; }
+        let changes: Vec<f64> = ticks.windows(2)
+            .map(|w| (w[1].price - w[0].price).to_f64().unwrap_or(0.0))
+            .collect();
+        let n = changes.len() as f64;
+        let indices: Vec<f64> = (0..changes.len()).map(|i| i as f64).collect();
+        let x_mean = indices.iter().sum::<f64>() / n;
+        let y_mean = changes.iter().sum::<f64>() / n;
+        let cov: f64 = indices.iter().zip(changes.iter()).map(|(&x, &y)| (x - x_mean) * (y - y_mean)).sum::<f64>() / n;
+        let x_std = (indices.iter().map(|&x| (x - x_mean).powi(2)).sum::<f64>() / n).sqrt();
+        let y_std = (changes.iter().map(|&y| (y - y_mean).powi(2)).sum::<f64>() / n).sqrt();
+        if x_std == 0.0 || y_std == 0.0 { return None; }
+        Some(cov / (x_std * y_std))
+    }
+
+    /// Side transition rate: fraction of consecutive tick pairs that change side.
+    pub fn side_transition_rate(ticks: &[NormalizedTick]) -> Option<f64> {
+        if ticks.len() < 2 { return None; }
+        let sided: Vec<_> = ticks.iter()
+            .filter_map(|t| t.side)
+            .collect();
+        if sided.len() < 2 { return None; }
+        let transitions = sided.windows(2)
+            .filter(|w| !matches!((w[0], w[1]), (TradeSide::Buy, TradeSide::Buy) | (TradeSide::Sell, TradeSide::Sell)))
+            .count() as f64;
+        Some(transitions / (sided.len() - 1) as f64)
+    }
+
 }
 
 
@@ -14945,5 +15004,82 @@ mod tests {
         sell.side = Some(TradeSide::Sell);
         let gap = NormalizedTick::side_price_gap(&[buy, sell]).unwrap();
         assert!((gap - 10.0).abs() < 1e-6, "expected 10.0, got {}", gap);
+    }
+
+    // ── round-140 ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_price_volatility_skew_none_for_two() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![make_tick_pq(dec!(100), dec!(1)), make_tick_pq(dec!(102), dec!(1))];
+        assert!(NormalizedTick::price_volatility_skew(&ticks).is_none());
+    }
+
+    #[test]
+    fn test_price_volatility_skew_returns_some() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(101), dec!(1)),
+            make_tick_pq(dec!(110), dec!(1)),
+        ];
+        assert!(NormalizedTick::price_volatility_skew(&ticks).is_some());
+    }
+
+    #[test]
+    fn test_qty_peak_to_trough_none_for_empty() {
+        assert!(NormalizedTick::qty_peak_to_trough(&[]).is_none());
+    }
+
+    #[test]
+    fn test_qty_peak_to_trough_basic() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(2)),
+            make_tick_pq(dec!(100), dec!(4)),
+            make_tick_pq(dec!(100), dec!(8)),
+        ];
+        let r = NormalizedTick::qty_peak_to_trough(&ticks).unwrap();
+        assert!((r - 4.0).abs() < 1e-9, "expected 4.0 (8/2), got {}", r);
+    }
+
+    #[test]
+    fn test_tick_momentum_decay_none_for_two() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![make_tick_pq(dec!(100), dec!(1)), make_tick_pq(dec!(101), dec!(1))];
+        assert!(NormalizedTick::tick_momentum_decay(&ticks).is_none());
+    }
+
+    #[test]
+    fn test_tick_momentum_decay_returns_some() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(102), dec!(1)),
+            make_tick_pq(dec!(101), dec!(1)),
+        ];
+        assert!(NormalizedTick::tick_momentum_decay(&ticks).is_some());
+    }
+
+    #[test]
+    fn test_side_transition_rate_none_for_no_sides() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![make_tick_pq(dec!(100), dec!(1)), make_tick_pq(dec!(101), dec!(1))];
+        assert!(NormalizedTick::side_transition_rate(&ticks).is_none());
+    }
+
+    #[test]
+    fn test_side_transition_rate_alternating() {
+        use rust_decimal_macros::dec;
+        use crate::tick::TradeSide;
+        let mut t1 = make_tick_pq(dec!(100), dec!(1));
+        t1.side = Some(TradeSide::Buy);
+        let mut t2 = make_tick_pq(dec!(101), dec!(1));
+        t2.side = Some(TradeSide::Sell);
+        let mut t3 = make_tick_pq(dec!(102), dec!(1));
+        t3.side = Some(TradeSide::Buy);
+        // 2 transitions out of 2 pairs → 1.0
+        let r = NormalizedTick::side_transition_rate(&[t1, t2, t3]).unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "expected 1.0 for alternating, got {}", r);
     }
 }
