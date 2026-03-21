@@ -5879,6 +5879,65 @@ impl NormalizedTick {
         Some((ticks.len() - mid) as f64 / ticks.len() as f64)
     }
 
+    // ── round-128 ────────────────────────────────────────────────────────────
+
+    /// Z-score of last price relative to rolling mean/std of prices: Bollinger score.
+    pub fn price_bollinger_score(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 2 { return None; }
+        let vals: Vec<f64> = ticks.iter().map(|t| t.price.to_f64().unwrap_or(0.0)).collect();
+        let n = vals.len() as f64;
+        let mean = vals.iter().sum::<f64>() / n;
+        let std = (vals.iter().map(|&x| (x - mean).powi(2)).sum::<f64>() / n).sqrt();
+        if std == 0.0 { return None; }
+        let last = *vals.last()?;
+        Some((last - mean) / std)
+    }
+
+    /// Log mean: exp(mean of log quantities).
+    pub fn qty_log_mean(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() { return None; }
+        let logs: Vec<f64> = ticks.iter()
+            .map(|t| t.quantity.to_f64().unwrap_or(0.0))
+            .filter(|&q| q > 0.0)
+            .map(|q| q.ln())
+            .collect();
+        if logs.is_empty() { return None; }
+        Some((logs.iter().sum::<f64>() / logs.len() as f64).exp())
+    }
+
+    /// Variance of inter-tick price speed (|price diff| per tick).
+    pub fn tick_speed_variance(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 3 { return None; }
+        let speeds: Vec<f64> = ticks.windows(2)
+            .map(|w| (w[1].price - w[0].price).abs().to_f64().unwrap_or(0.0))
+            .collect();
+        let n = speeds.len() as f64;
+        let mean = speeds.iter().sum::<f64>() / n;
+        let var = speeds.iter().map(|&x| (x - mean).powi(2)).sum::<f64>() / n;
+        Some(var)
+    }
+
+    /// Relative strength: mean buy price / mean sell price; None if either side absent.
+    pub fn relative_price_strength(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let buy_prices: Vec<f64> = ticks.iter()
+            .filter(|t| matches!(t.side, Some(TradeSide::Buy)))
+            .map(|t| t.price.to_f64().unwrap_or(0.0))
+            .collect();
+        let sell_prices: Vec<f64> = ticks.iter()
+            .filter(|t| matches!(t.side, Some(TradeSide::Sell)))
+            .map(|t| t.price.to_f64().unwrap_or(0.0))
+            .collect();
+        if buy_prices.is_empty() || sell_prices.is_empty() { return None; }
+        let buy_mean = buy_prices.iter().sum::<f64>() / buy_prices.len() as f64;
+        let sell_mean = sell_prices.iter().sum::<f64>() / sell_prices.len() as f64;
+        if sell_mean == 0.0 { return None; }
+        Some(buy_mean / sell_mean)
+    }
+
 }
 
 
@@ -13424,5 +13483,66 @@ mod tests {
         let f = NormalizedTick::late_trade_fraction(&ticks).unwrap();
         // 4 ticks: mid=2, late=2 → 0.5
         assert!((f - 0.5).abs() < 1e-9, "expected 0.5, got {}", f);
+    }
+
+    // ── round-128 ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_price_bollinger_score_none_for_single() {
+        use rust_decimal_macros::dec;
+        assert!(NormalizedTick::price_bollinger_score(&[make_tick_pq(dec!(100), dec!(1))]).is_none());
+    }
+
+    #[test]
+    fn test_price_bollinger_score_uniform_none() {
+        use rust_decimal_macros::dec;
+        let ticks: Vec<_> = (0..3).map(|_| make_tick_pq(dec!(100), dec!(1))).collect();
+        assert!(NormalizedTick::price_bollinger_score(&ticks).is_none());
+    }
+
+    #[test]
+    fn test_qty_log_mean_none_for_empty() {
+        assert!(NormalizedTick::qty_log_mean(&[]).is_none());
+    }
+
+    #[test]
+    fn test_qty_log_mean_uniform() {
+        use rust_decimal_macros::dec;
+        let ticks: Vec<_> = (0..3).map(|_| make_tick_pq(dec!(100), dec!(4))).collect();
+        // log mean of all-4 = exp(ln(4)) = 4
+        let m = NormalizedTick::qty_log_mean(&ticks).unwrap();
+        assert!((m - 4.0).abs() < 1e-9, "expected 4.0, got {}", m);
+    }
+
+    #[test]
+    fn test_tick_speed_variance_none_for_two() {
+        use rust_decimal_macros::dec;
+        let ticks = [make_tick_pq(dec!(100), dec!(1)), make_tick_pq(dec!(101), dec!(1))];
+        assert!(NormalizedTick::tick_speed_variance(&ticks).is_none());
+    }
+
+    #[test]
+    fn test_tick_speed_variance_constant_zero() {
+        use rust_decimal_macros::dec;
+        let ticks: Vec<_> = (0..4).map(|_| make_tick_pq(dec!(100), dec!(1))).collect();
+        let v = NormalizedTick::tick_speed_variance(&ticks).unwrap();
+        assert!(v.abs() < 1e-9, "expected 0.0, got {}", v);
+    }
+
+    #[test]
+    fn test_relative_price_strength_none_for_no_sides() {
+        use rust_decimal_macros::dec;
+        assert!(NormalizedTick::relative_price_strength(&[make_tick_pq(dec!(100), dec!(1))]).is_none());
+    }
+
+    #[test]
+    fn test_relative_price_strength_equal() {
+        use rust_decimal_macros::dec;
+        let mut buy = make_tick_pq(dec!(100), dec!(1));
+        buy.side = Some(TradeSide::Buy);
+        let mut sell = make_tick_pq(dec!(100), dec!(1));
+        sell.side = Some(TradeSide::Sell);
+        let r = NormalizedTick::relative_price_strength(&[buy, sell]).unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "expected 1.0, got {}", r);
     }
 }

@@ -3745,6 +3745,46 @@ impl MinMaxNormalizer {
         Some(vals.windows(2).filter(|w| w[1] > w[0]).count())
     }
 
+    // ── round-128 ────────────────────────────────────────────────────────────
+
+    /// Count of negative successive differences (losses).
+    pub fn window_loss_count(&self) -> Option<usize> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        Some(vals.windows(2).filter(|w| w[1] < w[0]).count())
+    }
+
+    /// Net change: last value minus first value.
+    pub fn window_net_change(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let first = self.window.front()?.to_f64()?;
+        let last = self.window.back()?.to_f64()?;
+        Some(last - first)
+    }
+
+    /// Mean second-order difference (acceleration) of window values.
+    pub fn window_acceleration(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 3 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let acc: Vec<f64> = vals.windows(3).map(|w| w[2] - 2.0 * w[1] + w[0]).collect();
+        Some(acc.iter().sum::<f64>() / acc.len() as f64)
+    }
+
+    /// Regime score: fraction of values above mean minus fraction below mean.
+    pub fn window_regime_score(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let n = vals.len() as f64;
+        let mean = vals.iter().sum::<f64>() / n;
+        let above = vals.iter().filter(|&&v| v > mean).count() as f64;
+        let below = vals.iter().filter(|&&v| v < mean).count() as f64;
+        Some((above - below) / n)
+    }
+
 }
 
 #[cfg(test)]
@@ -7890,6 +7930,68 @@ mod tests {
         let c = n.window_gain_count().unwrap();
         assert_eq!(c, 2);
     }
+
+    // ── round-128 ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_minmax_window_loss_count_none_for_single() {
+        let mut n = norm(3);
+        n.update(dec!(5));
+        assert!(n.window_loss_count().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_loss_count_all_falling() {
+        let mut n = norm(3);
+        for v in [dec!(3), dec!(2), dec!(1)] { n.update(v); }
+        let c = n.window_loss_count().unwrap();
+        assert_eq!(c, 2);
+    }
+
+    #[test]
+    fn test_minmax_window_net_change_none_for_single() {
+        let mut n = norm(3);
+        n.update(dec!(5));
+        assert!(n.window_net_change().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_net_change_basic() {
+        let mut n = norm(3);
+        for v in [dec!(3), dec!(5), dec!(8)] { n.update(v); }
+        let nc = n.window_net_change().unwrap();
+        assert!((nc - 5.0).abs() < 1e-9, "expected 5.0, got {}", nc);
+    }
+
+    #[test]
+    fn test_minmax_window_acceleration_none_for_two() {
+        let mut n = norm(3);
+        for v in [dec!(1), dec!(2)] { n.update(v); }
+        assert!(n.window_acceleration().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_acceleration_linear_zero() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let a = n.window_acceleration().unwrap();
+        assert!(a.abs() < 1e-9, "expected 0.0, got {}", a);
+    }
+
+    #[test]
+    fn test_minmax_window_regime_score_none_for_empty() {
+        let n = norm(3);
+        assert!(n.window_regime_score().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_regime_score_all_above() {
+        let mut n = norm(3);
+        // 10, 10, 1 → mean≈7, two above, one below → (2-1)/3≈0.33
+        for v in [dec!(10), dec!(10), dec!(1)] { n.update(v); }
+        let s = n.window_regime_score().unwrap();
+        assert!(s > 0.0, "expected positive, got {}", s);
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -11579,6 +11681,46 @@ impl ZScoreNormalizer {
         if self.window.len() < 2 { return None; }
         let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
         Some(vals.windows(2).filter(|w| w[1] > w[0]).count())
+    }
+
+    // ── round-128 ────────────────────────────────────────────────────────────
+
+    /// Count of negative successive differences (losses).
+    pub fn window_loss_count(&self) -> Option<usize> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        Some(vals.windows(2).filter(|w| w[1] < w[0]).count())
+    }
+
+    /// Net change: last value minus first value.
+    pub fn window_net_change(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let first = self.window.front()?.to_f64()?;
+        let last = self.window.back()?.to_f64()?;
+        Some(last - first)
+    }
+
+    /// Mean second-order difference (acceleration) of window values.
+    pub fn window_acceleration(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 3 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let acc: Vec<f64> = vals.windows(3).map(|w| w[2] - 2.0 * w[1] + w[0]).collect();
+        Some(acc.iter().sum::<f64>() / acc.len() as f64)
+    }
+
+    /// Regime score: fraction of values above mean minus fraction below mean.
+    pub fn window_regime_score(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let n = vals.len() as f64;
+        let mean = vals.iter().sum::<f64>() / n;
+        let above = vals.iter().filter(|&&v| v > mean).count() as f64;
+        let below = vals.iter().filter(|&&v| v < mean).count() as f64;
+        Some((above - below) / n)
     }
 
 }
@@ -15791,5 +15933,66 @@ mod zscore_stability_tests {
         for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
         let c = n.window_gain_count().unwrap();
         assert_eq!(c, 2);
+    }
+
+    // ── round-128 ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_zscore_window_loss_count_none_for_single() {
+        let mut n = znorm(3);
+        n.update(dec!(5));
+        assert!(n.window_loss_count().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_loss_count_all_falling() {
+        let mut n = znorm(3);
+        for v in [dec!(3), dec!(2), dec!(1)] { n.update(v); }
+        let c = n.window_loss_count().unwrap();
+        assert_eq!(c, 2);
+    }
+
+    #[test]
+    fn test_zscore_window_net_change_none_for_single() {
+        let mut n = znorm(3);
+        n.update(dec!(5));
+        assert!(n.window_net_change().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_net_change_basic() {
+        let mut n = znorm(3);
+        for v in [dec!(3), dec!(5), dec!(8)] { n.update(v); }
+        let nc = n.window_net_change().unwrap();
+        assert!((nc - 5.0).abs() < 1e-9, "expected 5.0, got {}", nc);
+    }
+
+    #[test]
+    fn test_zscore_window_acceleration_none_for_two() {
+        let mut n = znorm(3);
+        for v in [dec!(1), dec!(2)] { n.update(v); }
+        assert!(n.window_acceleration().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_acceleration_linear_zero() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let a = n.window_acceleration().unwrap();
+        assert!(a.abs() < 1e-9, "expected 0.0, got {}", a);
+    }
+
+    #[test]
+    fn test_zscore_window_regime_score_none_for_empty() {
+        let n = znorm(3);
+        assert!(n.window_regime_score().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_regime_score_all_above() {
+        let mut n = znorm(3);
+        for v in [dec!(10), dec!(10), dec!(1)] { n.update(v); }
+        let s = n.window_regime_score().unwrap();
+        assert!(s > 0.0, "expected positive, got {}", s);
     }
 }

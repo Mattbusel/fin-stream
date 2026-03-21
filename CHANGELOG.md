@@ -9,6 +9,36 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.7.9] - 2026-03-20
+
+### Added
+
+**`tick` module — `NormalizedTick` analytics (round 128)**
+- `NormalizedTick::price_bollinger_score(ticks)` — z-score of the last price relative to the window mean/std.
+- `NormalizedTick::qty_log_mean(ticks)` — geometric mean of quantities (exp of mean log).
+- `NormalizedTick::tick_speed_variance(ticks)` — variance of absolute price changes between consecutive ticks.
+- `NormalizedTick::relative_price_strength(ticks)` — mean buy price divided by mean sell price.
+
+**`ohlcv` module — `OhlcvBar` analytics (round 128)**
+- `OhlcvBar::avg_close_slope(bars)` — mean of consecutive close differences.
+- `OhlcvBar::body_range_zscore(bars)` — z-score of the last bar's body size within the window.
+- `OhlcvBar::volume_entropy(bars)` — Shannon entropy of the volume distribution across bars.
+- `OhlcvBar::low_persistence(bars)` — fraction of bars where low is below the prior bar's low.
+
+**`norm` module — `MinMaxNormalizer` analytics (round 128)**
+- `MinMaxNormalizer::window_loss_count()` — count of consecutive negative differences in the window.
+- `MinMaxNormalizer::window_net_change()` — difference between last and first window value.
+- `MinMaxNormalizer::window_acceleration()` — mean of second-order differences (change-of-change).
+- `MinMaxNormalizer::window_regime_score()` — fraction above mean minus fraction below mean.
+
+**`norm` module — `ZScoreNormalizer` analytics (round 128)**
+- `ZScoreNormalizer::window_loss_count()` — count of consecutive negative differences in the window.
+- `ZScoreNormalizer::window_net_change()` — difference between last and first window value.
+- `ZScoreNormalizer::window_acceleration()` — mean of second-order differences (change-of-change).
+- `ZScoreNormalizer::window_regime_score()` — fraction above mean minus fraction below mean.
+
+---
+
 ## [2.7.8] - 2026-03-20
 
 ### Added

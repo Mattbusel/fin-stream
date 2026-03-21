@@ -5795,6 +5795,53 @@ impl OhlcvBar {
         Some(sum / bars.len() as f64)
     }
 
+    // ── round-128 ────────────────────────────────────────────────────────────
+
+    /// Average close slope: mean of (close[i] - close[i-1]) across bars.
+    pub fn avg_close_slope(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.len() < 2 { return None; }
+        let sum: f64 = bars.windows(2)
+            .map(|w| (w[1].close - w[0].close).to_f64().unwrap_or(0.0))
+            .sum();
+        Some(sum / (bars.len() - 1) as f64)
+    }
+
+    /// Z-score of last body size relative to all body sizes.
+    pub fn body_range_zscore(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.len() < 2 { return None; }
+        let bodies: Vec<f64> = bars.iter()
+            .map(|b| (b.close - b.open).abs().to_f64().unwrap_or(0.0))
+            .collect();
+        let n = bodies.len() as f64;
+        let mean = bodies.iter().sum::<f64>() / n;
+        let std = (bodies.iter().map(|&x| (x - mean).powi(2)).sum::<f64>() / n).sqrt();
+        if std == 0.0 { return None; }
+        let last = *bodies.last()?;
+        Some((last - mean) / std)
+    }
+
+    /// Shannon entropy of volume distribution across bars.
+    pub fn volume_entropy(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let vols: Vec<f64> = bars.iter().map(|b| b.volume.to_f64().unwrap_or(0.0)).collect();
+        let total: f64 = vols.iter().sum();
+        if total == 0.0 { return Some(0.0); }
+        let entropy: f64 = vols.iter()
+            .map(|&v| { let p = v / total; if p > 0.0 { -p * p.ln() } else { 0.0 } })
+            .sum();
+        Some(entropy)
+    }
+
+    /// Fraction of bars where low[i] < low[i-1] (new lows).
+    pub fn low_persistence(bars: &[OhlcvBar]) -> Option<f64> {
+        if bars.len() < 2 { return None; }
+        let count = bars.windows(2).filter(|w| w[1].low < w[0].low).count();
+        Some(count as f64 / (bars.len() - 1) as f64)
+    }
+
 }
 
 impl std::fmt::Display for OhlcvBar {
@@ -13574,5 +13621,57 @@ mod tests {
         let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
         let t = OhlcvBar::bar_tightness(&[b]).unwrap();
         assert!(t > 0.0, "expected positive tightness, got {}", t);
+    }
+
+    // ── round-128 ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_avg_close_slope_none_for_single() {
+        assert!(OhlcvBar::avg_close_slope(&[make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105))]).is_none());
+    }
+
+    #[test]
+    fn test_avg_close_slope_rising() {
+        let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100));
+        let b2 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let s = OhlcvBar::avg_close_slope(&[b1, b2]).unwrap();
+        assert!((s - 5.0).abs() < 1e-9, "expected 5.0, got {}", s);
+    }
+
+    #[test]
+    fn test_body_range_zscore_none_for_single() {
+        assert!(OhlcvBar::body_range_zscore(&[make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105))]).is_none());
+    }
+
+    #[test]
+    fn test_body_range_zscore_uniform_none() {
+        let bars: Vec<_> = (0..3).map(|_| make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105))).collect();
+        // all same body → std=0 → None
+        assert!(OhlcvBar::body_range_zscore(&bars).is_none());
+    }
+
+    #[test]
+    fn test_volume_entropy_none_for_empty() {
+        assert!(OhlcvBar::volume_entropy(&[]).is_none());
+    }
+
+    #[test]
+    fn test_volume_entropy_uniform_positive() {
+        let bars: Vec<_> = (0..3).map(|_| make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105))).collect();
+        let e = OhlcvBar::volume_entropy(&bars).unwrap();
+        assert!(e >= 0.0, "expected non-negative, got {}", e);
+    }
+
+    #[test]
+    fn test_low_persistence_none_for_single() {
+        assert!(OhlcvBar::low_persistence(&[make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105))]).is_none());
+    }
+
+    #[test]
+    fn test_low_persistence_always_falling() {
+        let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let b2 = make_ohlcv_bar(dec!(95), dec!(108), dec!(85), dec!(100));
+        let p = OhlcvBar::low_persistence(&[b1, b2]).unwrap();
+        assert!((p - 1.0).abs() < 1e-9, "expected 1.0, got {}", p);
     }
 }
