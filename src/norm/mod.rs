@@ -3017,6 +3017,68 @@ impl MinMaxNormalizer {
         if denom == 0.0 { None } else { Some((std - mean) / denom) }
     }
 
+    // ── round-113 ────────────────────────────────────────────────────────────
+
+    /// Ratio of IQR to median. Returns `None` if fewer than 3 values or zero median.
+    pub fn window_iqr_ratio(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 3 { return None; }
+        let mut sorted: Vec<Decimal> = self.window.iter().copied().collect();
+        sorted.sort();
+        let n = sorted.len();
+        let median = if n % 2 == 1 { sorted[n / 2] }
+                     else { (sorted[n / 2 - 1] + sorted[n / 2]) / Decimal::TWO };
+        if median.is_zero() { return None; }
+        let q1 = sorted[n / 4];
+        let q3 = sorted[3 * n / 4];
+        let iqr = q3 - q1;
+        (iqr / median).to_f64()
+    }
+
+    /// Mean-reversion score: fraction of consecutive pairs where the value moves
+    /// toward the overall window mean. Returns `None` for fewer than 2 values.
+    pub fn window_mean_reversion(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let mean = vals.iter().sum::<f64>() / vals.len() as f64;
+        let count = vals.windows(2).filter(|w| {
+            let before = (w[0] - mean).abs();
+            let after = (w[1] - mean).abs();
+            after < before
+        }).count();
+        Some(count as f64 / (vals.len() - 1) as f64)
+    }
+
+    /// Lag-1 autocorrelation of the window values. Returns `None` for fewer than
+    /// 3 values or zero variance.
+    pub fn window_autocorrelation(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 3 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let n = vals.len() as f64;
+        let mean = vals.iter().sum::<f64>() / n;
+        let var = vals.iter().map(|&x| (x - mean).powi(2)).sum::<f64>() / n;
+        if var == 0.0 { return None; }
+        let cov: f64 = vals.windows(2).map(|w| (w[0] - mean) * (w[1] - mean)).sum::<f64>()
+            / (vals.len() - 1) as f64;
+        Some(cov / var)
+    }
+
+    /// Ordinary least-squares slope of window values over their index.
+    /// Returns `None` for fewer than 2 values.
+    pub fn window_slope(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let n = vals.len() as f64;
+        let x_mean = (n - 1.0) / 2.0;
+        let y_mean = vals.iter().sum::<f64>() / n;
+        let num: f64 = vals.iter().enumerate().map(|(i, &y)| (i as f64 - x_mean) * (y - y_mean)).sum();
+        let den: f64 = vals.iter().enumerate().map(|(i, _)| (i as f64 - x_mean).powi(2)).sum();
+        if den == 0.0 { None } else { Some(num / den) }
+    }
+
 }
 
 #[cfg(test)]
@@ -6235,6 +6297,71 @@ mod tests {
         // bursty signal should have positive burstiness
         assert!(b > 0.0, "expected positive burstiness, got {}", b);
     }
+
+    #[test]
+    fn test_minmax_window_iqr_ratio_none_for_two() {
+        let mut n = norm(3);
+        n.update(dec!(1));
+        n.update(dec!(2));
+        assert!(n.window_iqr_ratio().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_iqr_ratio_basic() {
+        let mut n = norm(5);
+        for v in [dec!(2), dec!(4), dec!(6), dec!(8), dec!(10)] { n.update(v); }
+        let r = n.window_iqr_ratio().unwrap();
+        assert!(r > 0.0, "expected positive IQR ratio, got {}", r);
+    }
+
+    #[test]
+    fn test_minmax_window_mean_reversion_none_for_single() {
+        let mut n = norm(3);
+        n.update(dec!(5));
+        assert!(n.window_mean_reversion().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_mean_reversion_basic() {
+        let mut n = norm(4);
+        // 1, 5, 2, 5 — values alternate away from mean, some move toward
+        for v in [dec!(1), dec!(5), dec!(2), dec!(5)] { n.update(v); }
+        let r = n.window_mean_reversion().unwrap();
+        assert!(r >= 0.0 && r <= 1.0, "expected [0,1], got {}", r);
+    }
+
+    #[test]
+    fn test_minmax_window_autocorrelation_none_for_two() {
+        let mut n = norm(3);
+        n.update(dec!(1));
+        n.update(dec!(2));
+        assert!(n.window_autocorrelation().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_autocorrelation_basic() {
+        let mut n = norm(4);
+        // perfectly trending up → high positive autocorrelation
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let a = n.window_autocorrelation().unwrap();
+        assert!(a > 0.0, "expected positive autocorrelation, got {}", a);
+    }
+
+    #[test]
+    fn test_minmax_window_slope_none_for_single() {
+        let mut n = norm(3);
+        n.update(dec!(5));
+        assert!(n.window_slope().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_slope_basic() {
+        let mut n = norm(3);
+        // 1, 2, 3 → slope = 1
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        let s = n.window_slope().unwrap();
+        assert!((s - 1.0).abs() < 1e-9, "expected 1.0, got {}", s);
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -9197,6 +9324,68 @@ impl ZScoreNormalizer {
         let std = var.sqrt();
         let denom = std + mean;
         if denom == 0.0 { None } else { Some((std - mean) / denom) }
+    }
+
+    // ── round-113 ────────────────────────────────────────────────────────────
+
+    /// Ratio of IQR to median. Returns `None` if fewer than 3 values or zero median.
+    pub fn window_iqr_ratio(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 3 { return None; }
+        let mut sorted: Vec<Decimal> = self.window.iter().copied().collect();
+        sorted.sort();
+        let n = sorted.len();
+        let median = if n % 2 == 1 { sorted[n / 2] }
+                     else { (sorted[n / 2 - 1] + sorted[n / 2]) / Decimal::TWO };
+        if median.is_zero() { return None; }
+        let q1 = sorted[n / 4];
+        let q3 = sorted[3 * n / 4];
+        let iqr = q3 - q1;
+        (iqr / median).to_f64()
+    }
+
+    /// Mean-reversion score: fraction of consecutive pairs where the value moves
+    /// toward the overall window mean. Returns `None` for fewer than 2 values.
+    pub fn window_mean_reversion(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let mean = vals.iter().sum::<f64>() / vals.len() as f64;
+        let count = vals.windows(2).filter(|w| {
+            let before = (w[0] - mean).abs();
+            let after = (w[1] - mean).abs();
+            after < before
+        }).count();
+        Some(count as f64 / (vals.len() - 1) as f64)
+    }
+
+    /// Lag-1 autocorrelation of the window values. Returns `None` for fewer than
+    /// 3 values or zero variance.
+    pub fn window_autocorrelation(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 3 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let n = vals.len() as f64;
+        let mean = vals.iter().sum::<f64>() / n;
+        let var = vals.iter().map(|&x| (x - mean).powi(2)).sum::<f64>() / n;
+        if var == 0.0 { return None; }
+        let cov: f64 = vals.windows(2).map(|w| (w[0] - mean) * (w[1] - mean)).sum::<f64>()
+            / (vals.len() - 1) as f64;
+        Some(cov / var)
+    }
+
+    /// Ordinary least-squares slope of window values over their index.
+    /// Returns `None` for fewer than 2 values.
+    pub fn window_slope(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let n = vals.len() as f64;
+        let x_mean = (n - 1.0) / 2.0;
+        let y_mean = vals.iter().sum::<f64>() / n;
+        let num: f64 = vals.iter().enumerate().map(|(i, &y)| (i as f64 - x_mean) * (y - y_mean)).sum();
+        let den: f64 = vals.iter().enumerate().map(|(i, _)| (i as f64 - x_mean).powi(2)).sum();
+        if den == 0.0 { None } else { Some(num / den) }
     }
 
 }
@@ -12525,5 +12714,67 @@ mod zscore_stability_tests {
         for v in [dec!(1), dec!(1), dec!(1), dec!(10)] { n.update(v); }
         let b = n.window_burstiness().unwrap();
         assert!(b > 0.0, "expected positive burstiness, got {}", b);
+    }
+
+    #[test]
+    fn test_zscore_window_iqr_ratio_none_for_two() {
+        let mut n = znorm(3);
+        n.update(dec!(1));
+        n.update(dec!(2));
+        assert!(n.window_iqr_ratio().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_iqr_ratio_basic() {
+        let mut n = znorm(5);
+        for v in [dec!(2), dec!(4), dec!(6), dec!(8), dec!(10)] { n.update(v); }
+        let r = n.window_iqr_ratio().unwrap();
+        assert!(r > 0.0, "expected positive IQR ratio, got {}", r);
+    }
+
+    #[test]
+    fn test_zscore_window_mean_reversion_none_for_single() {
+        let mut n = znorm(3);
+        n.update(dec!(5));
+        assert!(n.window_mean_reversion().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_mean_reversion_basic() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(5), dec!(2), dec!(5)] { n.update(v); }
+        let r = n.window_mean_reversion().unwrap();
+        assert!(r >= 0.0 && r <= 1.0, "expected [0,1], got {}", r);
+    }
+
+    #[test]
+    fn test_zscore_window_autocorrelation_none_for_two() {
+        let mut n = znorm(3);
+        n.update(dec!(1));
+        n.update(dec!(2));
+        assert!(n.window_autocorrelation().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_autocorrelation_basic() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let a = n.window_autocorrelation().unwrap();
+        assert!(a > 0.0, "expected positive autocorrelation, got {}", a);
+    }
+
+    #[test]
+    fn test_zscore_window_slope_none_for_single() {
+        let mut n = znorm(3);
+        n.update(dec!(5));
+        assert!(n.window_slope().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_slope_basic() {
+        let mut n = znorm(3);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        let s = n.window_slope().unwrap();
+        assert!((s - 1.0).abs() < 1e-9, "expected 1.0, got {}", s);
     }
 }

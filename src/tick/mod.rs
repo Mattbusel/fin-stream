@@ -5092,6 +5092,54 @@ impl NormalizedTick {
             .and_then(|t| t.price.to_f64())
     }
 
+    // ── round-113 ────────────────────────────────────────────────────────────
+
+    /// Mean inter-tick gap in milliseconds. Returns `None` for fewer than 2 ticks.
+    pub fn avg_inter_tick_gap(ticks: &[NormalizedTick]) -> Option<f64> {
+        if ticks.len() < 2 { return None; }
+        let sum: u64 = ticks.windows(2)
+            .map(|w| w[1].received_at_ms.saturating_sub(w[0].received_at_ms))
+            .sum();
+        Some(sum as f64 / (ticks.len() - 1) as f64)
+    }
+
+    /// Tick intensity: number of ticks per second. Returns `None` if time span is zero
+    /// or fewer than 2 ticks.
+    pub fn tick_intensity(ticks: &[NormalizedTick]) -> Option<f64> {
+        if ticks.len() < 2 { return None; }
+        let span_ms = ticks.last()?.received_at_ms.saturating_sub(ticks.first()?.received_at_ms);
+        if span_ms == 0 { return None; }
+        Some(ticks.len() as f64 / (span_ms as f64 / 1000.0))
+    }
+
+    /// Price swing: `max_price - min_price` as a fraction of `min_price`.
+    /// Returns `None` for empty input or zero min price.
+    pub fn price_swing(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() { return None; }
+        let max_p = ticks.iter().map(|t| t.price).fold(ticks[0].price, |a, b| a.max(b));
+        let min_p = ticks.iter().map(|t| t.price).fold(ticks[0].price, |a, b| a.min(b));
+        if min_p.is_zero() { return None; }
+        ((max_p - min_p) / min_p).to_f64()
+    }
+
+    /// Quantity velocity: mean rate of quantity change between consecutive ticks.
+    /// Returns `None` for fewer than 2 ticks or zero time span.
+    pub fn qty_velocity(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 2 { return None; }
+        let mut sum = 0f64;
+        let mut cnt = 0usize;
+        for w in ticks.windows(2) {
+            let dt = w[1].received_at_ms.saturating_sub(w[0].received_at_ms);
+            if dt == 0 { continue; }
+            let dq = (w[1].quantity - w[0].quantity).to_f64().unwrap_or(0.0);
+            sum += dq / dt as f64;
+            cnt += 1;
+        }
+        if cnt == 0 { None } else { Some(sum / cnt as f64) }
+    }
+
 }
 
 
@@ -11722,5 +11770,81 @@ mod tests {
         use rust_decimal_macros::dec;
         let t = make_tick_pq(dec!(100), dec!(1));
         assert!(NormalizedTick::last_sell_price(&[t]).is_none());
+    }
+
+    #[test]
+    fn test_avg_inter_tick_gap_none_for_single() {
+        use rust_decimal_macros::dec;
+        let t = make_tick_pq(dec!(100), dec!(1));
+        assert!(NormalizedTick::avg_inter_tick_gap(&[t]).is_none());
+    }
+
+    #[test]
+    fn test_avg_inter_tick_gap_basic() {
+        use rust_decimal_macros::dec;
+        let mut t1 = make_tick_pq(dec!(100), dec!(1));
+        let mut t2 = make_tick_pq(dec!(101), dec!(1));
+        let mut t3 = make_tick_pq(dec!(102), dec!(1));
+        t1.received_at_ms = 1000;
+        t2.received_at_ms = 1100;
+        t3.received_at_ms = 1300;
+        // gaps: 100, 200 → mean = 150
+        let g = NormalizedTick::avg_inter_tick_gap(&[t1, t2, t3]).unwrap();
+        assert!((g - 150.0).abs() < 1e-9, "expected 150.0, got {}", g);
+    }
+
+    #[test]
+    fn test_tick_intensity_none_for_single() {
+        use rust_decimal_macros::dec;
+        let t = make_tick_pq(dec!(100), dec!(1));
+        assert!(NormalizedTick::tick_intensity(&[t]).is_none());
+    }
+
+    #[test]
+    fn test_tick_intensity_basic() {
+        use rust_decimal_macros::dec;
+        let mut t1 = make_tick_pq(dec!(100), dec!(1));
+        let mut t2 = make_tick_pq(dec!(101), dec!(1));
+        t1.received_at_ms = 0;
+        t2.received_at_ms = 2000;
+        // 2 ticks over 2s → 1 tick/s
+        let i = NormalizedTick::tick_intensity(&[t1, t2]).unwrap();
+        assert!((i - 1.0).abs() < 1e-9, "expected 1.0, got {}", i);
+    }
+
+    #[test]
+    fn test_price_swing_none_for_empty() {
+        assert!(NormalizedTick::price_swing(&[]).is_none());
+    }
+
+    #[test]
+    fn test_price_swing_basic() {
+        use rust_decimal_macros::dec;
+        // prices: 100, 110, 90 → max=110, min=90 → swing = 20/90
+        let t1 = make_tick_pq(dec!(100), dec!(1));
+        let t2 = make_tick_pq(dec!(110), dec!(1));
+        let t3 = make_tick_pq(dec!(90), dec!(1));
+        let s = NormalizedTick::price_swing(&[t1, t2, t3]).unwrap();
+        let expected = 20.0 / 90.0;
+        assert!((s - expected).abs() < 1e-9, "expected {}, got {}", expected, s);
+    }
+
+    #[test]
+    fn test_qty_velocity_none_for_single() {
+        use rust_decimal_macros::dec;
+        let t = make_tick_pq(dec!(100), dec!(1));
+        assert!(NormalizedTick::qty_velocity(&[t]).is_none());
+    }
+
+    #[test]
+    fn test_qty_velocity_basic() {
+        use rust_decimal_macros::dec;
+        let mut t1 = make_tick_pq(dec!(100), dec!(10));
+        let mut t2 = make_tick_pq(dec!(101), dec!(20));
+        t1.received_at_ms = 0;
+        t2.received_at_ms = 1000;
+        // dq=10, dt=1000ms → rate = 10/1000 = 0.01 per ms
+        let v = NormalizedTick::qty_velocity(&[t1, t2]).unwrap();
+        assert!((v - 0.01).abs() < 1e-9, "expected 0.01, got {}", v);
     }
 }

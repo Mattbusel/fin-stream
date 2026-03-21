@@ -5041,6 +5041,62 @@ impl OhlcvBar {
         if denom == 0.0 { None } else { Some(num / denom) }
     }
 
+    // ── round-113 ────────────────────────────────────────────────────────────
+
+    /// Mean ratio of bar range `(high - low)` to volume for each bar.
+    /// Bars with zero volume are skipped. Returns `None` if no eligible bars.
+    pub fn range_to_volume_ratio(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let mut sum = 0f64;
+        let mut cnt = 0usize;
+        for b in bars {
+            if b.volume.is_zero() { continue; }
+            let range = (b.high - b.low).to_f64().unwrap_or(0.0);
+            let vol = b.volume.to_f64().unwrap_or(1.0);
+            sum += range / vol;
+            cnt += 1;
+        }
+        if cnt == 0 { None } else { Some(sum / cnt as f64) }
+    }
+
+    /// Mean of `(high - low)` (the high-low spread) across bars.
+    /// Returns `None` for empty input.
+    pub fn avg_high_low_spread(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let sum: f64 = bars.iter().map(|b| (b.high - b.low).to_f64().unwrap_or(0.0)).sum();
+        Some(sum / bars.len() as f64)
+    }
+
+    /// Candle persistence: fraction of bars where the close direction matches
+    /// the prior bar's close direction. Returns `None` for fewer than 3 bars.
+    pub fn candle_persistence(bars: &[OhlcvBar]) -> Option<f64> {
+        if bars.len() < 3 { return None; }
+        let dirs: Vec<i8> = bars.windows(2).map(|w| {
+            if w[1].close > w[0].close { 1i8 }
+            else if w[1].close < w[0].close { -1i8 }
+            else { 0i8 }
+        }).collect();
+        let same = dirs.windows(2).filter(|w| w[0] != 0 && w[0] == w[1]).count();
+        let eligible = dirs.windows(2).filter(|w| w[0] != 0 && w[1] != 0).count();
+        if eligible == 0 { None } else { Some(same as f64 / eligible as f64) }
+    }
+
+    /// Z-score of each bar's range relative to the mean and std of all bar ranges.
+    /// Returns the mean of all bar range z-scores. Returns `None` for fewer than 2 bars.
+    pub fn bar_range_zscore(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.len() < 2 { return None; }
+        let ranges: Vec<f64> = bars.iter().map(|b| (b.high - b.low).to_f64().unwrap_or(0.0)).collect();
+        let n = ranges.len() as f64;
+        let mean = ranges.iter().sum::<f64>() / n;
+        let var = ranges.iter().map(|&r| (r - mean).powi(2)).sum::<f64>() / (n - 1.0);
+        let std = var.sqrt();
+        if std == 0.0 { return Some(0.0); }
+        let z_mean = ranges.iter().map(|&r| (r - mean) / std).sum::<f64>() / n;
+        Some(z_mean)
+    }
+
 }
 
 impl std::fmt::Display for OhlcvBar {
@@ -11957,5 +12013,65 @@ mod tests {
         let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(100), dec!(110));
         let e = OhlcvBar::avg_intrabar_efficiency(&[b]).unwrap();
         assert!((e - 1.0).abs() < 1e-9, "expected 1.0, got {}", e);
+    }
+
+    #[test]
+    fn test_range_to_volume_ratio_none_for_zero_volume() {
+        let mut b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        b.volume = dec!(0);
+        assert!(OhlcvBar::range_to_volume_ratio(&[b]).is_none());
+    }
+
+    #[test]
+    fn test_range_to_volume_ratio_basic() {
+        // high=110, low=90 → range=20, volume=1 → ratio=20
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let r = OhlcvBar::range_to_volume_ratio(&[b]).unwrap();
+        assert!((r - 20.0).abs() < 1e-9, "expected 20.0, got {}", r);
+    }
+
+    #[test]
+    fn test_avg_high_low_spread_none_for_empty() {
+        assert!(OhlcvBar::avg_high_low_spread(&[]).is_none());
+    }
+
+    #[test]
+    fn test_avg_high_low_spread_basic() {
+        // high=110, low=90 → spread=20
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let s = OhlcvBar::avg_high_low_spread(&[b]).unwrap();
+        assert!((s - 20.0).abs() < 1e-9, "expected 20.0, got {}", s);
+    }
+
+    #[test]
+    fn test_candle_persistence_none_for_two() {
+        let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let b2 = make_ohlcv_bar(dec!(100), dec!(115), dec!(95), dec!(110));
+        assert!(OhlcvBar::candle_persistence(&[b1, b2]).is_none());
+    }
+
+    #[test]
+    fn test_candle_persistence_basic() {
+        // close sequence: 100→110→120 → both up → persistence=1.0
+        let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100));
+        let b2 = make_ohlcv_bar(dec!(100), dec!(115), dec!(95), dec!(110));
+        let b3 = make_ohlcv_bar(dec!(105), dec!(125), dec!(100), dec!(120));
+        let p = OhlcvBar::candle_persistence(&[b1, b2, b3]).unwrap();
+        assert!((p - 1.0).abs() < 1e-9, "expected 1.0, got {}", p);
+    }
+
+    #[test]
+    fn test_bar_range_zscore_none_for_single() {
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        assert!(OhlcvBar::bar_range_zscore(&[b]).is_none());
+    }
+
+    #[test]
+    fn test_bar_range_zscore_uniform_returns_zero() {
+        // same range → z-score of each = 0 → mean = 0
+        let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let b2 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let z = OhlcvBar::bar_range_zscore(&[b1, b2]).unwrap();
+        assert!(z.abs() < 1e-9, "expected ~0, got {}", z);
     }
 }

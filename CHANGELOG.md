@@ -9,6 +9,36 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.6.4] - 2026-03-20
+
+### Added
+
+**`tick` module — `NormalizedTick` analytics (round 113)**
+- `NormalizedTick::avg_inter_tick_gap(ticks)` — mean inter-tick gap in milliseconds.
+- `NormalizedTick::tick_intensity(ticks)` — number of ticks per second over the time span.
+- `NormalizedTick::price_swing(ticks)` — `(max - min) / min` as a fractional price range.
+- `NormalizedTick::qty_velocity(ticks)` — mean rate of quantity change between consecutive ticks.
+
+**`ohlcv` module — `OhlcvBar` analytics (round 113)**
+- `OhlcvBar::range_to_volume_ratio(bars)` — mean ratio of bar range to volume.
+- `OhlcvBar::avg_high_low_spread(bars)` — mean `high - low` spread across bars.
+- `OhlcvBar::candle_persistence(bars)` — fraction of bars where close direction matches prior bar.
+- `OhlcvBar::bar_range_zscore(bars)` — mean z-score of each bar's range relative to all ranges.
+
+**`norm` module — `MinMaxNormalizer` analytics (round 113)**
+- `MinMaxNormalizer::window_iqr_ratio()` — ratio of IQR to median.
+- `MinMaxNormalizer::window_mean_reversion()` — fraction of steps moving toward the window mean.
+- `MinMaxNormalizer::window_autocorrelation()` — lag-1 autocorrelation of window values.
+- `MinMaxNormalizer::window_slope()` — OLS slope of window values over their index.
+
+**`norm` module — `ZScoreNormalizer` analytics (round 113)**
+- `ZScoreNormalizer::window_iqr_ratio()` — ratio of IQR to median.
+- `ZScoreNormalizer::window_mean_reversion()` — fraction of steps moving toward the window mean.
+- `ZScoreNormalizer::window_autocorrelation()` — lag-1 autocorrelation of window values.
+- `ZScoreNormalizer::window_slope()` — OLS slope of window values over their index.
+
+---
+
 ## [2.6.3] - 2026-03-20
 
 ### Added
