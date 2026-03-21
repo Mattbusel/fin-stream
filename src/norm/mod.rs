@@ -4772,6 +4772,53 @@ impl MinMaxNormalizer {
         Some(vals.iter().map(|&x| (x - mean).abs() / std).sum::<f64>() / vals.len() as f64)
     }
 
+    // ── round-149 ────────────────────────────────────────────────────────────
+
+    /// Deviation of the first window value from the window mean.
+    pub fn window_first_vs_mean(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let first = self.window.front()?.to_f64()?;
+        let mean = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).sum::<f64>()
+            / self.window.len() as f64;
+        Some(first - mean)
+    }
+
+    /// Ratio of the last window value to the first window value.
+    pub fn window_decay_ratio(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let first = self.window.front()?.to_f64()?;
+        if first == 0.0 { return None; }
+        let last = self.window.back()?.to_f64()?;
+        Some(last / first)
+    }
+
+    /// Bimodal score: variance of lower half minus variance of upper half (normalized).
+    pub fn window_bimodal_score(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 4 { return None; }
+        let mut vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        vals.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let mid = vals.len() / 2;
+        let lower = &vals[..mid];
+        let upper = &vals[mid..];
+        let var = |v: &[f64]| -> f64 {
+            let m = v.iter().sum::<f64>() / v.len() as f64;
+            v.iter().map(|x| (x - m).powi(2)).sum::<f64>() / v.len() as f64
+        };
+        let total_var = var(&vals);
+        if total_var == 0.0 { return Some(0.0); }
+        Some((var(lower) + var(upper)) / total_var)
+    }
+
+    /// Sum of absolute values of all window entries.
+    pub fn window_abs_sum(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        Some(self.window.iter().map(|v| v.to_f64().unwrap_or(0.0).abs()).sum())
+    }
+
 }
 
 #[cfg(test)]
@@ -10218,6 +10265,70 @@ mod tests {
         let s = n.window_mean_reversion_strength().unwrap();
         assert!((s - 0.0).abs() < 1e-9, "expected 0.0, got {}", s);
     }
+
+    // ── round-149 ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_minmax_window_first_vs_mean_none_for_empty() {
+        let n = norm(4);
+        assert!(n.window_first_vs_mean().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_first_vs_mean_basic() {
+        let mut n = norm(3);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        // mean=2, first=1 → deviation=-1
+        let d = n.window_first_vs_mean().unwrap();
+        assert!((d - (-1.0)).abs() < 1e-9, "expected -1.0, got {}", d);
+    }
+
+    #[test]
+    fn test_minmax_window_decay_ratio_none_for_single() {
+        let mut n = norm(4);
+        n.update(dec!(5));
+        assert!(n.window_decay_ratio().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_decay_ratio_basic() {
+        let mut n = norm(2);
+        n.update(dec!(4));
+        n.update(dec!(8));
+        // last/first = 8/4 = 2
+        let r = n.window_decay_ratio().unwrap();
+        assert!((r - 2.0).abs() < 1e-9, "expected 2.0, got {}", r);
+    }
+
+    #[test]
+    fn test_minmax_window_bimodal_score_none_for_few() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        assert!(n.window_bimodal_score().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_bimodal_score_returns_some() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(8), dec!(9)] { n.update(v); }
+        let s = n.window_bimodal_score();
+        assert!(s.is_some());
+    }
+
+    #[test]
+    fn test_minmax_window_abs_sum_none_for_empty() {
+        let n = norm(4);
+        assert!(n.window_abs_sum().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_abs_sum_basic() {
+        let mut n = norm(2);
+        for v in [dec!(3), dec!(4)] { n.update(v); }
+        // |3|+|4| = 7
+        let s = n.window_abs_sum().unwrap();
+        assert!((s - 7.0).abs() < 1e-9, "expected 7.0, got {}", s);
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -14934,6 +15045,53 @@ impl ZScoreNormalizer {
         let std = var.sqrt();
         if std == 0.0 { return Some(0.0); }
         Some(vals.iter().map(|&x| (x - mean).abs() / std).sum::<f64>() / vals.len() as f64)
+    }
+
+    // ── round-149 ────────────────────────────────────────────────────────────
+
+    /// Deviation of the first window value from the window mean.
+    pub fn window_first_vs_mean(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let first = self.window.front()?.to_f64()?;
+        let mean = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).sum::<f64>()
+            / self.window.len() as f64;
+        Some(first - mean)
+    }
+
+    /// Ratio of the last window value to the first window value.
+    pub fn window_decay_ratio(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let first = self.window.front()?.to_f64()?;
+        if first == 0.0 { return None; }
+        let last = self.window.back()?.to_f64()?;
+        Some(last / first)
+    }
+
+    /// Bimodal score: variance of lower half minus variance of upper half (normalized).
+    pub fn window_bimodal_score(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 4 { return None; }
+        let mut vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        vals.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let mid = vals.len() / 2;
+        let lower = &vals[..mid];
+        let upper = &vals[mid..];
+        let var = |v: &[f64]| -> f64 {
+            let m = v.iter().sum::<f64>() / v.len() as f64;
+            v.iter().map(|x| (x - m).powi(2)).sum::<f64>() / v.len() as f64
+        };
+        let total_var = var(&vals);
+        if total_var == 0.0 { return Some(0.0); }
+        Some((var(lower) + var(upper)) / total_var)
+    }
+
+    /// Sum of absolute values of all window entries.
+    pub fn window_abs_sum(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        Some(self.window.iter().map(|v| v.to_f64().unwrap_or(0.0).abs()).sum())
     }
 
 }
@@ -20403,5 +20561,66 @@ mod zscore_stability_tests {
         for v in [dec!(5), dec!(5), dec!(5)] { n.update(v); }
         let s = n.window_mean_reversion_strength().unwrap();
         assert!((s - 0.0).abs() < 1e-9, "expected 0.0, got {}", s);
+    }
+
+    // ── round-149 ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_zscore_window_first_vs_mean_none_for_empty() {
+        let n = znorm(4);
+        assert!(n.window_first_vs_mean().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_first_vs_mean_basic() {
+        let mut n = znorm(3);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        let d = n.window_first_vs_mean().unwrap();
+        assert!((d - (-1.0)).abs() < 1e-9, "expected -1.0, got {}", d);
+    }
+
+    #[test]
+    fn test_zscore_window_decay_ratio_none_for_single() {
+        let mut n = znorm(4);
+        n.update(dec!(5));
+        assert!(n.window_decay_ratio().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_decay_ratio_basic() {
+        let mut n = znorm(2);
+        n.update(dec!(4));
+        n.update(dec!(8));
+        let r = n.window_decay_ratio().unwrap();
+        assert!((r - 2.0).abs() < 1e-9, "expected 2.0, got {}", r);
+    }
+
+    #[test]
+    fn test_zscore_window_bimodal_score_none_for_few() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        assert!(n.window_bimodal_score().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_bimodal_score_returns_some() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(8), dec!(9)] { n.update(v); }
+        let s = n.window_bimodal_score();
+        assert!(s.is_some());
+    }
+
+    #[test]
+    fn test_zscore_window_abs_sum_none_for_empty() {
+        let n = znorm(4);
+        assert!(n.window_abs_sum().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_abs_sum_basic() {
+        let mut n = znorm(2);
+        for v in [dec!(3), dec!(4)] { n.update(v); }
+        let s = n.window_abs_sum().unwrap();
+        assert!((s - 7.0).abs() < 1e-9, "expected 7.0, got {}", s);
     }
 }

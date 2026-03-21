@@ -7053,6 +7053,57 @@ impl NormalizedTick {
         Some(above as f64 / ticks.len() as f64)
     }
 
+    // ── round-149 ────────────────────────────────────────────────────────────
+
+    /// Fraction of ticks that are part of a Buy run (consecutive Buy ticks).
+    pub fn tick_buy_run_pct(ticks: &[NormalizedTick]) -> Option<f64> {
+        if ticks.is_empty() { return None; }
+        let buy_run_ticks = ticks.windows(2).filter(|w| {
+            matches!((w[0].side, w[1].side), (Some(TradeSide::Buy), Some(TradeSide::Buy)))
+        }).count() + if matches!(ticks.last().and_then(|t| t.side), Some(TradeSide::Buy)) { 1 } else { 0 };
+        Some(buy_run_ticks as f64 / ticks.len() as f64)
+    }
+
+    /// Fraction of ticks where price crossed above or below its rolling mean.
+    pub fn price_ma_crossover(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 2 { return None; }
+        let prices: Vec<f64> = ticks.iter().filter_map(|t| t.price.to_f64()).collect();
+        if prices.len() < 2 { return None; }
+        let mean = prices.iter().sum::<f64>() / prices.len() as f64;
+        let crossovers = prices.windows(2).filter(|w| {
+            (w[0] - mean) * (w[1] - mean) < 0.0
+        }).count();
+        Some(crossovers as f64 / (prices.len() - 1) as f64)
+    }
+
+    /// Quantity range as a percentage of mean quantity.
+    pub fn qty_range_pct(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() { return None; }
+        let qtys: Vec<f64> = ticks.iter().filter_map(|t| t.quantity.to_f64()).collect();
+        if qtys.is_empty() { return None; }
+        let min = qtys.iter().cloned().fold(f64::INFINITY, f64::min);
+        let max = qtys.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        let mean = qtys.iter().sum::<f64>() / qtys.len() as f64;
+        if mean == 0.0 { return None; }
+        Some((max - min) / mean * 100.0)
+    }
+
+    /// Buy volume minus Sell volume divided by total volume (order flow imbalance).
+    pub fn side_flow_imbalance(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let buy_vol: f64 = ticks.iter()
+            .filter(|t| matches!(t.side, Some(TradeSide::Buy)))
+            .filter_map(|t| t.quantity.to_f64()).sum();
+        let sell_vol: f64 = ticks.iter()
+            .filter(|t| matches!(t.side, Some(TradeSide::Sell)))
+            .filter_map(|t| t.quantity.to_f64()).sum();
+        let total = buy_vol + sell_vol;
+        if total == 0.0 { return None; }
+        Some((buy_vol - sell_vol) / total)
+    }
+
 }
 
 
@@ -16156,5 +16207,79 @@ mod tests {
         // vwap = (100+200)/2 = 150; above: [200] → 1/2 = 0.5
         let f = NormalizedTick::qty_above_vwap_fraction(&ticks).unwrap();
         assert!((f - 0.5).abs() < 1e-9, "expected 0.5, got {}", f);
+    }
+
+    // ── round-149 ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_tick_buy_run_pct_none_for_empty() {
+        assert!(NormalizedTick::tick_buy_run_pct(&[]).is_none());
+    }
+
+    #[test]
+    fn test_tick_buy_run_pct_all_buy() {
+        use rust_decimal_macros::dec;
+        use crate::tick::TradeSide;
+        let mut t1 = make_tick_pq(dec!(100), dec!(1));
+        t1.side = Some(TradeSide::Buy);
+        let mut t2 = make_tick_pq(dec!(101), dec!(1));
+        t2.side = Some(TradeSide::Buy);
+        let pct = NormalizedTick::tick_buy_run_pct(&[t1, t2]).unwrap();
+        assert!(pct > 0.0, "expected positive run pct, got {}", pct);
+    }
+
+    #[test]
+    fn test_price_ma_crossover_none_for_single() {
+        use rust_decimal_macros::dec;
+        assert!(NormalizedTick::price_ma_crossover(&[make_tick_pq(dec!(100), dec!(1))]).is_none());
+    }
+
+    #[test]
+    fn test_price_ma_crossover_no_cross() {
+        use rust_decimal_macros::dec;
+        // all same price → no crossovers
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(100), dec!(1)),
+        ];
+        let c = NormalizedTick::price_ma_crossover(&ticks).unwrap();
+        assert!((c - 0.0).abs() < 1e-9, "expected 0.0, got {}", c);
+    }
+
+    #[test]
+    fn test_qty_range_pct_none_for_empty() {
+        assert!(NormalizedTick::qty_range_pct(&[]).is_none());
+    }
+
+    #[test]
+    fn test_qty_range_pct_basic() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(100), dec!(3)),
+        ];
+        // range=2, mean=2 → 100%
+        let r = NormalizedTick::qty_range_pct(&ticks).unwrap();
+        assert!((r - 100.0).abs() < 1e-9, "expected 100.0, got {}", r);
+    }
+
+    #[test]
+    fn test_side_flow_imbalance_none_for_no_sides() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![make_tick_pq(dec!(100), dec!(1))];
+        assert!(NormalizedTick::side_flow_imbalance(&ticks).is_none());
+    }
+
+    #[test]
+    fn test_side_flow_imbalance_equal() {
+        use rust_decimal_macros::dec;
+        use crate::tick::TradeSide;
+        let mut b = make_tick_pq(dec!(100), dec!(5));
+        b.side = Some(TradeSide::Buy);
+        let mut s = make_tick_pq(dec!(100), dec!(5));
+        s.side = Some(TradeSide::Sell);
+        let fi = NormalizedTick::side_flow_imbalance(&[b, s]).unwrap();
+        assert!((fi - 0.0).abs() < 1e-9, "expected 0.0, got {}", fi);
     }
 }

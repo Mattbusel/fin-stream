@@ -9,6 +9,36 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.10.0] - 2026-03-20
+
+### Added
+
+**`tick` module — `NormalizedTick` analytics (round 149)**
+- `NormalizedTick::tick_buy_run_pct(ticks)` — fraction of ticks in consecutive Buy runs.
+- `NormalizedTick::price_ma_crossover(ticks)` — fraction of tick pairs crossing the overall mean price.
+- `NormalizedTick::qty_range_pct(ticks)` — quantity range as a percentage of mean quantity.
+- `NormalizedTick::side_flow_imbalance(ticks)` — (buy_qty - sell_qty) / total_qty order flow imbalance.
+
+**`ohlcv` module — `OhlcvBar` analytics (round 149)**
+- `OhlcvBar::bar_open_above_prior_close(bars)` — fraction of bars where open > prior bar's close.
+- `OhlcvBar::close_low_ratio(bars)` — mean ratio of close to low across bars.
+- `OhlcvBar::bar_price_acceleration(bars)` — mean second-order change of close prices.
+- `OhlcvBar::bar_body_std(bars)` — standard deviation of bar body sizes.
+
+**`norm` module — `MinMaxNormalizer` analytics (round 149)**
+- `MinMaxNormalizer::window_first_vs_mean()` — deviation of the first window value from the mean.
+- `MinMaxNormalizer::window_decay_ratio()` — ratio of the last window value to the first.
+- `MinMaxNormalizer::window_bimodal_score()` — normalized split variance of lower vs upper half.
+- `MinMaxNormalizer::window_abs_sum()` — sum of absolute values of all window entries.
+
+**`norm` module — `ZScoreNormalizer` analytics (round 149)**
+- `ZScoreNormalizer::window_first_vs_mean()` — deviation of the first window value from the mean.
+- `ZScoreNormalizer::window_decay_ratio()` — ratio of the last window value to the first.
+- `ZScoreNormalizer::window_bimodal_score()` — normalized split variance of lower vs upper half.
+- `ZScoreNormalizer::window_abs_sum()` — sum of absolute values of all window entries.
+
+---
+
 ## [2.9.9] - 2026-03-20
 
 ### Added
