@@ -10387,6 +10387,58 @@ impl NormalizedTick {
         Some(total)
     }
 
+    /// Volume classified as aggressive (market orders, i.e., side = Buy or Sell).
+    pub fn tick_aggressive_vol(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() { return None; }
+        let total: f64 = ticks.iter().filter_map(|t| t.quantity.to_f64()).sum();
+        if total == 0.0 { return None; }
+        let aggressive: f64 = ticks.iter().filter_map(|t| {
+            if t.side.is_some() { t.quantity.to_f64() } else { None }
+        }).sum();
+        Some(aggressive / total)
+    }
+
+    /// Volume with no side (passive/unknown orders) as fraction of total.
+    pub fn tick_passive_vol(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() { return None; }
+        let total: f64 = ticks.iter().filter_map(|t| t.quantity.to_f64()).sum();
+        if total == 0.0 { return None; }
+        let passive: f64 = ticks.iter().filter_map(|t| {
+            if t.side.is_none() { t.quantity.to_f64() } else { None }
+        }).sum();
+        Some(passive / total)
+    }
+
+    /// Price inertia: correlation sign of price changes (1 if same direction, -1 if reversal, 0 otherwise).
+    pub fn tick_price_inertia(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 3 { return None; }
+        let prices: Vec<f64> = ticks.iter().filter_map(|t| t.price.to_f64()).collect();
+        if prices.len() < 3 { return None; }
+        let changes: Vec<f64> = prices.windows(2).map(|w| w[1] - w[0]).collect();
+        let same_dir = changes.windows(2).filter(|w| w[0] * w[1] > 0.0).count() as f64;
+        let rev = changes.windows(2).filter(|w| w[0] * w[1] < 0.0).count() as f64;
+        let n = (changes.len() - 1) as f64;
+        if n == 0.0 { return None; }
+        Some((same_dir - rev) / n)
+    }
+
+    /// Mean rate of change of price between consecutive ticks.
+    pub fn tick_price_roc_mean(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 2 { return None; }
+        let prices: Vec<f64> = ticks.iter().filter_map(|t| t.price.to_f64()).collect();
+        if prices.len() < 2 { return None; }
+        let rocs: Vec<f64> = prices.windows(2).filter_map(|w| {
+            if w[0] == 0.0 { return None; }
+            Some((w[1] - w[0]) / w[0])
+        }).collect();
+        if rocs.is_empty() { return None; }
+        Some(rocs.iter().sum::<f64>() / rocs.len() as f64)
+    }
+
     /// Mean of absolute price differences between consecutive ticks (mean spread).
     pub fn tick_spread_mean(ticks: &[NormalizedTick]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
@@ -25673,5 +25725,81 @@ mod tests {
         // open=100; prices above 100: 102, 104 → 2/3
         let r = NormalizedTick::tick_price_above_open_pct(&ticks).unwrap();
         assert!((r - 2.0 / 3.0).abs() < 1e-6, "expected 2/3 got {}", r);
+    }
+
+    #[test]
+    fn test_tick_aggressive_vol_empty_none() {
+        assert!(NormalizedTick::tick_aggressive_vol(&[]).is_none());
+    }
+
+    #[test]
+    fn test_tick_aggressive_vol_all_unknown_returns_zero() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(5)),
+            make_tick_pq(dec!(101), dec!(5)),
+        ];
+        // all side=None → passive=all, aggressive=0
+        let r = NormalizedTick::tick_aggressive_vol(&ticks).unwrap();
+        assert!(r.abs() < 1e-6, "expected 0 got {}", r);
+    }
+
+    #[test]
+    fn test_tick_passive_vol_empty_none() {
+        assert!(NormalizedTick::tick_passive_vol(&[]).is_none());
+    }
+
+    #[test]
+    fn test_tick_passive_vol_all_unknown_returns_one() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(3)),
+            make_tick_pq(dec!(101), dec!(7)),
+        ];
+        let r = NormalizedTick::tick_passive_vol(&ticks).unwrap();
+        assert!((r - 1.0).abs() < 1e-6, "expected 1.0 got {}", r);
+    }
+
+    #[test]
+    fn test_tick_price_inertia_too_few_none() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(102), dec!(1)),
+        ];
+        assert!(NormalizedTick::tick_price_inertia(&ticks).is_none());
+    }
+
+    #[test]
+    fn test_tick_price_inertia_returns_bounded() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(102), dec!(1)),
+            make_tick_pq(dec!(104), dec!(1)),
+            make_tick_pq(dec!(106), dec!(1)),
+        ];
+        // all same direction → inertia = 1.0
+        let r = NormalizedTick::tick_price_inertia(&ticks).unwrap();
+        assert!((r - 1.0).abs() < 1e-6, "expected 1.0 got {}", r);
+    }
+
+    #[test]
+    fn test_tick_price_roc_mean_too_few_none() {
+        use rust_decimal_macros::dec;
+        let t = make_tick_pq(dec!(100), dec!(1));
+        assert!(NormalizedTick::tick_price_roc_mean(&[t]).is_none());
+    }
+
+    #[test]
+    fn test_tick_price_roc_mean_returns_value() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(110), dec!(1)),
+        ];
+        // roc = (110-100)/100 = 0.1
+        let r = NormalizedTick::tick_price_roc_mean(&ticks).unwrap();
+        assert!((r - 0.1).abs() < 1e-6, "expected 0.1 got {}", r);
     }
 }

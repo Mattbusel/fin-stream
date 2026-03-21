@@ -8197,6 +8197,50 @@ impl MinMaxNormalizer {
         Some(flat as f64 / n as f64)
     }
 
+    /// Mean return (pct change) between consecutive window values.
+    pub fn window_return_mean(&self) -> Option<f64> {
+        if self.window.len() < 2 { return None; }
+        use rust_decimal::prelude::ToPrimitive;
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.len() < 2 { return None; }
+        let rocs: Vec<f64> = vals.windows(2).filter_map(|w| {
+            if w[0] == 0.0 { return None; }
+            Some((w[1] - w[0]) / w[0])
+        }).collect();
+        if rocs.is_empty() { return None; }
+        Some(rocs.iter().sum::<f64>() / rocs.len() as f64)
+    }
+
+    /// Std dev of returns (pct changes) between consecutive window values.
+    pub fn window_return_std(&self) -> Option<f64> {
+        if self.window.len() < 3 { return None; }
+        use rust_decimal::prelude::ToPrimitive;
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.len() < 3 { return None; }
+        let rocs: Vec<f64> = vals.windows(2).filter_map(|w| {
+            if w[0] == 0.0 { return None; }
+            Some((w[1] - w[0]) / w[0])
+        }).collect();
+        if rocs.len() < 2 { return None; }
+        let mean = rocs.iter().sum::<f64>() / rocs.len() as f64;
+        let var = rocs.iter().map(|r| (r - mean).powi(2)).sum::<f64>() / (rocs.len() - 1) as f64;
+        Some(var.sqrt())
+    }
+
+    /// Signed skewness: positive if upper tail heavier, negative if lower tail heavier.
+    pub fn window_signed_skew(&self) -> Option<f64> {
+        if self.window.len() < 3 { return None; }
+        use rust_decimal::prelude::ToPrimitive;
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.len() < 3 { return None; }
+        let n = vals.len() as f64;
+        let mean = vals.iter().sum::<f64>() / n;
+        let m2 = vals.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / n;
+        if m2 == 0.0 { return None; }
+        let m3 = vals.iter().map(|v| (v - mean).powi(3)).sum::<f64>() / n;
+        Some(m3 / m2.powf(1.5))
+    }
+
 }
 
 #[cfg(test)]
@@ -17729,6 +17773,52 @@ mod tests {
         let r = n.window_flatness().unwrap();
         assert!((r - 1.0).abs() < 1e-9, "expected 1.0 got {}", r);
     }
+
+    #[test]
+    fn test_minmax_window_return_mean_none_single() {
+        let mut n = norm(5);
+        n.update(dec!(10));
+        assert!(n.window_return_mean().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_return_mean_returns_value() {
+        let mut n = norm(3);
+        for v in [dec!(100), dec!(110), dec!(121)] { n.update(v); }
+        // rocs: 0.1, 0.1 → mean=0.1
+        let r = n.window_return_mean().unwrap();
+        assert!((r - 0.1).abs() < 1e-6, "expected 0.1 got {}", r);
+    }
+
+    #[test]
+    fn test_minmax_window_return_std_too_few_none() {
+        let mut n = norm(5);
+        for v in [dec!(10), dec!(20)] { n.update(v); }
+        assert!(n.window_return_std().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_return_std_equal_returns_zero() {
+        let mut n = norm(4);
+        for _ in 0..4 { n.update(dec!(100)); }
+        // all rocs = 0 → std = 0
+        let r = n.window_return_std().unwrap();
+        assert!(r.abs() < 1e-9, "expected 0 got {}", r);
+    }
+
+    #[test]
+    fn test_minmax_window_signed_skew_too_few_none() {
+        let mut n = norm(5);
+        for v in [dec!(1), dec!(2)] { n.update(v); }
+        assert!(n.window_signed_skew().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_signed_skew_uniform_none() {
+        let mut n = norm(4);
+        for _ in 0..4 { n.update(dec!(5)); }
+        assert!(n.window_signed_skew().is_none());
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -25871,6 +25961,50 @@ impl ZScoreNormalizer {
         let n = vals.len() - 1;
         let flat = vals.windows(2).filter(|w| (w[1] - w[0]).abs() < 1e-12).count();
         Some(flat as f64 / n as f64)
+    }
+
+    /// Mean return (pct change) between consecutive window values.
+    pub fn window_return_mean(&self) -> Option<f64> {
+        if self.window.len() < 2 { return None; }
+        use rust_decimal::prelude::ToPrimitive;
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.len() < 2 { return None; }
+        let rocs: Vec<f64> = vals.windows(2).filter_map(|w| {
+            if w[0] == 0.0 { return None; }
+            Some((w[1] - w[0]) / w[0])
+        }).collect();
+        if rocs.is_empty() { return None; }
+        Some(rocs.iter().sum::<f64>() / rocs.len() as f64)
+    }
+
+    /// Std dev of returns (pct changes) between consecutive window values.
+    pub fn window_return_std(&self) -> Option<f64> {
+        if self.window.len() < 3 { return None; }
+        use rust_decimal::prelude::ToPrimitive;
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.len() < 3 { return None; }
+        let rocs: Vec<f64> = vals.windows(2).filter_map(|w| {
+            if w[0] == 0.0 { return None; }
+            Some((w[1] - w[0]) / w[0])
+        }).collect();
+        if rocs.len() < 2 { return None; }
+        let mean = rocs.iter().sum::<f64>() / rocs.len() as f64;
+        let var = rocs.iter().map(|r| (r - mean).powi(2)).sum::<f64>() / (rocs.len() - 1) as f64;
+        Some(var.sqrt())
+    }
+
+    /// Signed skewness: positive if upper tail heavier, negative if lower tail heavier.
+    pub fn window_signed_skew(&self) -> Option<f64> {
+        if self.window.len() < 3 { return None; }
+        use rust_decimal::prelude::ToPrimitive;
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.len() < 3 { return None; }
+        let n = vals.len() as f64;
+        let mean = vals.iter().sum::<f64>() / n;
+        let m2 = vals.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / n;
+        if m2 == 0.0 { return None; }
+        let m3 = vals.iter().map(|v| (v - mean).powi(3)).sum::<f64>() / n;
+        Some(m3 / m2.powf(1.5))
     }
 
 }
@@ -35348,5 +35482,50 @@ mod zscore_stability_tests {
         for _ in 0..4 { n.update(dec!(5)); }
         let r = n.window_flatness().unwrap();
         assert!((r - 1.0).abs() < 1e-9, "expected 1.0 got {}", r);
+    }
+
+    #[test]
+    fn test_zscore_window_return_mean_none_single() {
+        let mut n = znorm(5);
+        n.update(dec!(10));
+        assert!(n.window_return_mean().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_return_mean_returns_value() {
+        let mut n = znorm(3);
+        for v in [dec!(100), dec!(110), dec!(121)] { n.update(v); }
+        let r = n.window_return_mean().unwrap();
+        assert!((r - 0.1).abs() < 1e-6, "expected 0.1 got {}", r);
+    }
+
+    #[test]
+    fn test_zscore_window_return_std_too_few_none() {
+        let mut n = znorm(5);
+        for v in [dec!(10), dec!(20)] { n.update(v); }
+        assert!(n.window_return_std().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_return_std_equal_returns_zero() {
+        let mut n = znorm(4);
+        for _ in 0..4 { n.update(dec!(100)); }
+        // all rocs = 0 → std = 0
+        let r = n.window_return_std().unwrap();
+        assert!(r.abs() < 1e-9, "expected 0 got {}", r);
+    }
+
+    #[test]
+    fn test_zscore_window_signed_skew_too_few_none() {
+        let mut n = znorm(5);
+        for v in [dec!(1), dec!(2)] { n.update(v); }
+        assert!(n.window_signed_skew().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_signed_skew_uniform_none() {
+        let mut n = znorm(4);
+        for _ in 0..4 { n.update(dec!(5)); }
+        assert!(n.window_signed_skew().is_none());
     }
 }

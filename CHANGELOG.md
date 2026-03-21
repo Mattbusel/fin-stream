@@ -9,6 +9,28 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.10.73] - 2026-03-20
+
+### Added
+
+**`tick` module — `NormalizedTick` analytics (round 222)**
+- `NormalizedTick::tick_aggressive_vol(ticks)` — fraction of volume with known trade side (aggressive).
+- `NormalizedTick::tick_passive_vol(ticks)` — fraction of volume with unknown trade side (passive).
+- `NormalizedTick::tick_price_inertia(ticks)` — directional momentum: (same-dir pairs - reversal pairs) / n.
+- `NormalizedTick::tick_price_roc_mean(ticks)` — mean percentage price change between consecutive ticks.
+
+**`ohlcv` module — `OhlcvBar` analytics (round 222)**
+- `OhlcvBar::bar_vol_spike_count(bars)` — fraction of bars with volume exceeding mean + 1 std.
+- `OhlcvBar::bar_open_close_corr(bars)` — Pearson correlation between open and close prices.
+- `OhlcvBar::bar_return_mean(bars)` — mean percentage return between consecutive bar closes.
+
+**`norm` module — `MinMaxNormalizer` + `ZScoreNormalizer` analytics (round 222)**
+- `window_return_mean()` — mean percentage change between consecutive window values.
+- `window_return_std()` — std dev of percentage changes between consecutive window values.
+- `window_signed_skew()` — skewness of window values (positive = right-tail heavy).
+
+---
+
 ## [2.10.72] - 2026-03-20
 
 ### Added
