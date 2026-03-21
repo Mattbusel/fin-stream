@@ -8558,6 +8558,75 @@ impl NormalizedTick {
         Some((mean - min).abs() / mean)
     }
 
+    /// Mean absolute deviation of price from its VWAP: mean(|price - vwap|) / vwap.
+    pub fn tick_vwap_deviation(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() { return None; }
+        let mut total_pv = 0.0_f64;
+        let mut total_q = 0.0_f64;
+        for t in ticks {
+            let p = t.price.to_f64()?;
+            let q = t.quantity.to_f64()?;
+            total_pv += p * q;
+            total_q += q;
+        }
+        if total_q == 0.0 { return None; }
+        let vwap = total_pv / total_q;
+        if vwap == 0.0 { return None; }
+        let mad = ticks.iter().filter_map(|t| {
+            let p = t.price.to_f64()?;
+            Some((p - vwap).abs())
+        }).sum::<f64>() / ticks.len() as f64;
+        Some(mad / vwap)
+    }
+
+    /// Shannon entropy proxy of price distribution using 10 equal-width bins.
+    pub fn price_entropy_proxy(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 2 { return None; }
+        let prices: Vec<f64> = ticks.iter().filter_map(|t| t.price.to_f64()).collect();
+        let min = prices.iter().cloned().fold(f64::INFINITY, f64::min);
+        let max = prices.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        if (max - min).abs() < 1e-12 { return Some(0.0); }
+        let bins = 10_usize;
+        let width = (max - min) / bins as f64;
+        let mut counts = vec![0_usize; bins];
+        for &p in &prices {
+            let idx = ((p - min) / width).floor() as usize;
+            counts[idx.min(bins - 1)] += 1;
+        }
+        let n = prices.len() as f64;
+        let entropy = counts.iter().filter(|&&c| c > 0).map(|&c| {
+            let prob = c as f64 / n;
+            -prob * prob.ln()
+        }).sum::<f64>();
+        Some(entropy)
+    }
+
+    /// Fraction of ticks where quantity > mean quantity of the slice.
+    pub fn tick_qty_above_mean(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() { return None; }
+        let qtys: Vec<f64> = ticks.iter().filter_map(|t| t.quantity.to_f64()).collect();
+        if qtys.is_empty() { return None; }
+        let mean = qtys.iter().sum::<f64>() / qtys.len() as f64;
+        let above = qtys.iter().filter(|&&q| q > mean).count();
+        Some(above as f64 / qtys.len() as f64)
+    }
+
+    /// Directional strength: mean(signed_move) / mean(|move|). In [-1, 1].
+    pub fn price_directional_strength(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 2 { return None; }
+        let prices: Vec<f64> = ticks.iter().filter_map(|t| t.price.to_f64()).collect();
+        if prices.len() < 2 { return None; }
+        let moves: Vec<f64> = prices.windows(2).map(|w| w[1] - w[0]).collect();
+        let mean_signed = moves.iter().sum::<f64>() / moves.len() as f64;
+        let mean_abs = moves.iter().map(|m| m.abs()).sum::<f64>() / moves.len() as f64;
+        if mean_abs == 0.0 { return Some(0.0); }
+        Some(mean_signed / mean_abs)
+    }
+
 }
 
 
@@ -19468,5 +19537,82 @@ mod tests {
         ];
         let r = NormalizedTick::price_lower_shadow_ratio(&ticks).unwrap();
         assert!((r - 0.0).abs() < 1e-9, "expected 0.0, got {}", r);
+    }
+
+    // --- round-174 ---
+
+    #[test]
+    fn test_tick_vwap_deviation_none_for_empty() {
+        assert!(NormalizedTick::tick_vwap_deviation(&[]).is_none());
+    }
+
+    #[test]
+    fn test_tick_vwap_deviation_constant_price_zero() {
+        use rust_decimal_macros::dec;
+        // All same price → vwap = price → all deviations = 0
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(2)),
+            make_tick_pq(dec!(100), dec!(3)),
+        ];
+        let r = NormalizedTick::tick_vwap_deviation(&ticks).unwrap();
+        assert!(r.abs() < 1e-9, "expected 0.0, got {}", r);
+    }
+
+    #[test]
+    fn test_price_entropy_proxy_none_for_single() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![make_tick_pq(dec!(100), dec!(1))];
+        assert!(NormalizedTick::price_entropy_proxy(&ticks).is_none());
+    }
+
+    #[test]
+    fn test_price_entropy_proxy_constant_zero() {
+        use rust_decimal_macros::dec;
+        // All same price → no spread → entropy = 0
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(100), dec!(1)),
+        ];
+        let r = NormalizedTick::price_entropy_proxy(&ticks).unwrap();
+        assert!(r.abs() < 1e-9, "expected 0.0, got {}", r);
+    }
+
+    #[test]
+    fn test_tick_qty_above_mean_none_for_empty() {
+        assert!(NormalizedTick::tick_qty_above_mean(&[]).is_none());
+    }
+
+    #[test]
+    fn test_tick_qty_above_mean_equal_qtys() {
+        use rust_decimal_macros::dec;
+        // All equal → none above mean → 0.0
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(5)),
+            make_tick_pq(dec!(101), dec!(5)),
+            make_tick_pq(dec!(102), dec!(5)),
+        ];
+        let r = NormalizedTick::tick_qty_above_mean(&ticks).unwrap();
+        assert!(r.abs() < 1e-9, "expected 0.0, got {}", r);
+    }
+
+    #[test]
+    fn test_price_directional_strength_none_for_single() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![make_tick_pq(dec!(100), dec!(1))];
+        assert!(NormalizedTick::price_directional_strength(&ticks).is_none());
+    }
+
+    #[test]
+    fn test_price_directional_strength_constant_zero() {
+        use rust_decimal_macros::dec;
+        // No moves → all diffs = 0 → strength = 0
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(100), dec!(1)),
+        ];
+        let r = NormalizedTick::price_directional_strength(&ticks).unwrap();
+        assert!(r.abs() < 1e-9, "expected 0.0, got {}", r);
     }
 }

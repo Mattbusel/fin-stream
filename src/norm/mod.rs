@@ -6005,6 +6005,45 @@ impl MinMaxNormalizer {
         Some(second.iter().sum::<f64>() / second.len() as f64)
     }
 
+    /// Fraction of window values that are negative.
+    pub fn window_negative_ratio(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let neg = self.window.iter().filter(|v| v.to_f64().unwrap_or(0.0) < 0.0).count();
+        Some(neg as f64 / self.window.len() as f64)
+    }
+
+    /// Last window value minus window mean.
+    pub fn window_last_minus_mean(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let mean = vals.iter().sum::<f64>() / vals.len() as f64;
+        let last = *vals.last()?;
+        Some(last - mean)
+    }
+
+    /// Mean of second differences (acceleration / curvature) of window values.
+    pub fn window_signed_accel(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 3 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let accels: Vec<f64> = vals.windows(3).map(|w| w[2] - 2.0 * w[1] + w[0]).collect();
+        Some(accels.iter().sum::<f64>() / accels.len() as f64)
+    }
+
+    /// Mean of top quartile (upper 25%) of window values.
+    pub fn window_top_quartile_mean(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let mut vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        vals.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let cutoff = (vals.len() * 3) / 4;
+        let top = &vals[cutoff..];
+        if top.is_empty() { return None; }
+        Some(top.iter().sum::<f64>() / top.len() as f64)
+    }
+
 }
 
 #[cfg(test)]
@@ -12994,6 +13033,67 @@ mod tests {
         let m = n.window_mean_second_half().unwrap();
         assert!((m - 5.0).abs() < 1e-9, "expected 5.0, got {}", m);
     }
+
+    // ── round-174 tests ──────────────────────────────────────────────────────
+
+    #[test]
+    fn test_minmax_window_negative_ratio_none_for_empty() {
+        let n = norm(4);
+        assert!(n.window_negative_ratio().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_negative_ratio_all_positive_zero() {
+        let mut n = norm(3);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        let r = n.window_negative_ratio().unwrap();
+        assert!((r - 0.0).abs() < 1e-9, "expected 0.0, got {}", r);
+    }
+
+    #[test]
+    fn test_minmax_window_last_minus_mean_none_for_empty() {
+        let n = norm(4);
+        assert!(n.window_last_minus_mean().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_last_minus_mean_constant_zero() {
+        let mut n = norm(3);
+        for v in [dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        let r = n.window_last_minus_mean().unwrap();
+        assert!(r.abs() < 1e-9, "expected 0.0, got {}", r);
+    }
+
+    #[test]
+    fn test_minmax_window_signed_accel_none_for_short() {
+        let mut n = norm(4);
+        n.update(dec!(1));
+        n.update(dec!(2));
+        assert!(n.window_signed_accel().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_signed_accel_linear_zero() {
+        // Linear seq: 2nd diff = 0
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let r = n.window_signed_accel().unwrap();
+        assert!(r.abs() < 1e-9, "expected 0.0, got {}", r);
+    }
+
+    #[test]
+    fn test_minmax_window_top_quartile_mean_none_for_empty() {
+        let n = norm(4);
+        assert!(n.window_top_quartile_mean().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_top_quartile_mean_constant() {
+        let mut n = norm(4);
+        for v in [dec!(5), dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        let r = n.window_top_quartile_mean().unwrap();
+        assert!((r - 5.0).abs() < 1e-9, "expected 5.0, got {}", r);
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -18947,6 +19047,45 @@ impl ZScoreNormalizer {
         let second = &vals[half..];
         if second.is_empty() { return None; }
         Some(second.iter().sum::<f64>() / second.len() as f64)
+    }
+
+    /// Fraction of window values that are negative.
+    pub fn window_negative_ratio(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let neg = self.window.iter().filter(|v| v.to_f64().unwrap_or(0.0) < 0.0).count();
+        Some(neg as f64 / self.window.len() as f64)
+    }
+
+    /// Last window value minus window mean.
+    pub fn window_last_minus_mean(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let mean = vals.iter().sum::<f64>() / vals.len() as f64;
+        let last = *vals.last()?;
+        Some(last - mean)
+    }
+
+    /// Mean of second differences (acceleration / curvature) of window values.
+    pub fn window_signed_accel(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 3 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let accels: Vec<f64> = vals.windows(3).map(|w| w[2] - 2.0 * w[1] + w[0]).collect();
+        Some(accels.iter().sum::<f64>() / accels.len() as f64)
+    }
+
+    /// Mean of top quartile (upper 25%) of window values.
+    pub fn window_top_quartile_mean(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let mut vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        vals.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let cutoff = (vals.len() * 3) / 4;
+        let top = &vals[cutoff..];
+        if top.is_empty() { return None; }
+        Some(top.iter().sum::<f64>() / top.len() as f64)
     }
 
 }
@@ -25906,5 +26045,65 @@ mod zscore_stability_tests {
         for v in [dec!(5), dec!(5), dec!(5), dec!(5)] { n.update(v); }
         let m = n.window_mean_second_half().unwrap();
         assert!((m - 5.0).abs() < 1e-9, "expected 5.0, got {}", m);
+    }
+
+    // ── round-174 tests ──────────────────────────────────────────────────────
+
+    #[test]
+    fn test_zscore_window_negative_ratio_none_for_empty() {
+        let n = znorm(4);
+        assert!(n.window_negative_ratio().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_negative_ratio_all_positive_zero() {
+        let mut n = znorm(3);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        let r = n.window_negative_ratio().unwrap();
+        assert!((r - 0.0).abs() < 1e-9, "expected 0.0, got {}", r);
+    }
+
+    #[test]
+    fn test_zscore_window_last_minus_mean_none_for_empty() {
+        let n = znorm(4);
+        assert!(n.window_last_minus_mean().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_last_minus_mean_constant_zero() {
+        let mut n = znorm(3);
+        for v in [dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        let r = n.window_last_minus_mean().unwrap();
+        assert!(r.abs() < 1e-9, "expected 0.0, got {}", r);
+    }
+
+    #[test]
+    fn test_zscore_window_signed_accel_none_for_short() {
+        let mut n = znorm(4);
+        n.update(dec!(1));
+        n.update(dec!(2));
+        assert!(n.window_signed_accel().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_signed_accel_linear_zero() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let r = n.window_signed_accel().unwrap();
+        assert!(r.abs() < 1e-9, "expected 0.0, got {}", r);
+    }
+
+    #[test]
+    fn test_zscore_window_top_quartile_mean_none_for_empty() {
+        let n = znorm(4);
+        assert!(n.window_top_quartile_mean().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_top_quartile_mean_constant() {
+        let mut n = znorm(4);
+        for v in [dec!(5), dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        let r = n.window_top_quartile_mean().unwrap();
+        assert!((r - 5.0).abs() < 1e-9, "expected 5.0, got {}", r);
     }
 }

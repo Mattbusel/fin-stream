@@ -8253,6 +8253,73 @@ impl OhlcvBar {
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
+    /// Mean (total_wick / |close - open|) per bar; None if all bars are doji.
+    pub fn bar_wick_to_body_ratio(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let vals: Vec<f64> = bars.iter().filter_map(|b| {
+            let h = b.high.to_f64()?;
+            let l = b.low.to_f64()?;
+            let o = b.open.to_f64()?;
+            let c = b.close.to_f64()?;
+            let body = (c - o).abs();
+            if body == 0.0 { return None; }
+            let total_wick = (h - l) - body;
+            Some(total_wick.max(0.0) / body)
+        }).collect();
+        if vals.is_empty() { return None; }
+        Some(vals.iter().sum::<f64>() / vals.len() as f64)
+    }
+
+    /// Mean |open - (high + low) / 2| per bar — distance of open from bar midpoint.
+    pub fn bar_open_midpoint_gap(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let vals: Vec<f64> = bars.iter().filter_map(|b| {
+            let h = b.high.to_f64()?;
+            let l = b.low.to_f64()?;
+            let o = b.open.to_f64()?;
+            Some((o - (h + l) / 2.0).abs())
+        }).collect();
+        if vals.is_empty() { return None; }
+        Some(vals.iter().sum::<f64>() / vals.len() as f64)
+    }
+
+    /// Mean low / open per bar.
+    pub fn bar_low_open_ratio(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let vals: Vec<f64> = bars.iter().filter_map(|b| {
+            let l = b.low.to_f64()?;
+            let o = b.open.to_f64()?;
+            if o == 0.0 { return None; }
+            Some(l / o)
+        }).collect();
+        if vals.is_empty() { return None; }
+        Some(vals.iter().sum::<f64>() / vals.len() as f64)
+    }
+
+    /// Correlation between volume and body size (|close-open|) across bars.
+    pub fn bar_volume_body_corr(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.len() < 2 { return None; }
+        let vols: Vec<f64> = bars.iter().filter_map(|b| b.volume.to_f64()).collect();
+        let bodies: Vec<f64> = bars.iter().filter_map(|b| {
+            let o = b.open.to_f64()?;
+            let c = b.close.to_f64()?;
+            Some((c - o).abs())
+        }).collect();
+        if vols.len() != bars.len() || bodies.len() != bars.len() { return None; }
+        let n = vols.len() as f64;
+        let mv = vols.iter().sum::<f64>() / n;
+        let mb = bodies.iter().sum::<f64>() / n;
+        let num: f64 = vols.iter().zip(bodies.iter()).map(|(v, b)| (v - mv) * (b - mb)).sum();
+        let sv: f64 = vols.iter().map(|v| (v - mv).powi(2)).sum::<f64>().sqrt();
+        let sb: f64 = bodies.iter().map(|b| (b - mb).powi(2)).sum::<f64>().sqrt();
+        if sv == 0.0 || sb == 0.0 { return None; }
+        Some(num / (sv * sb))
+    }
+
 }
 
 impl std::fmt::Display for OhlcvBar {
@@ -18774,5 +18841,72 @@ mod tests {
         let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100));
         let r = OhlcvBar::bar_volume_pct_change(&[b0, b1]).unwrap();
         assert!(r.abs() < 1e-9, "expected 0.0, got {}", r);
+    }
+
+    // --- round-174 ---
+
+    #[test]
+    fn test_bar_wick_to_body_ratio_none_for_empty() {
+        assert!(OhlcvBar::bar_wick_to_body_ratio(&[]).is_none());
+    }
+
+    #[test]
+    fn test_bar_wick_to_body_ratio_doji_none() {
+        // open=close → body=0 → filtered out → None
+        let bar = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100));
+        assert!(OhlcvBar::bar_wick_to_body_ratio(&[bar]).is_none());
+    }
+
+    #[test]
+    fn test_bar_wick_to_body_ratio_full_body_zero() {
+        // H=110, L=90, O=90, C=110 → body=20, range=20, wick=0 → ratio=0
+        let bar = make_ohlcv_bar(dec!(90), dec!(110), dec!(90), dec!(110));
+        let r = OhlcvBar::bar_wick_to_body_ratio(&[bar]).unwrap();
+        assert!(r.abs() < 1e-9, "expected 0.0, got {}", r);
+    }
+
+    #[test]
+    fn test_bar_open_midpoint_gap_none_for_empty() {
+        assert!(OhlcvBar::bar_open_midpoint_gap(&[]).is_none());
+    }
+
+    #[test]
+    fn test_bar_open_midpoint_gap_open_at_midpoint_zero() {
+        // H=110, L=90, midpoint=100, O=100 → gap=0
+        let bar = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let r = OhlcvBar::bar_open_midpoint_gap(&[bar]).unwrap();
+        assert!(r.abs() < 1e-9, "expected 0.0, got {}", r);
+    }
+
+    #[test]
+    fn test_bar_low_open_ratio_none_for_empty() {
+        assert!(OhlcvBar::bar_low_open_ratio(&[]).is_none());
+    }
+
+    #[test]
+    fn test_bar_low_open_ratio_low_equals_open() {
+        // L=O=100 → ratio=1.0
+        let bar = make_ohlcv_bar(dec!(100), dec!(110), dec!(100), dec!(105));
+        let r = OhlcvBar::bar_low_open_ratio(&[bar]).unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "expected 1.0, got {}", r);
+    }
+
+    #[test]
+    fn test_bar_volume_body_corr_none_for_empty() {
+        assert!(OhlcvBar::bar_volume_body_corr(&[]).is_none());
+    }
+
+    #[test]
+    fn test_bar_volume_body_corr_single_bar_none() {
+        let bar = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        assert!(OhlcvBar::bar_volume_body_corr(&[bar]).is_none());
+    }
+
+    #[test]
+    fn test_bar_volume_body_corr_constant_none() {
+        // All bars identical → std=0 → None
+        let b0 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        assert!(OhlcvBar::bar_volume_body_corr(&[b0, b1]).is_none());
     }
 }

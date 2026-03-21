@@ -9,6 +9,30 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.10.25] - 2026-03-20
+
+### Added
+
+**`tick` module — `NormalizedTick` analytics (round 174)**
+- `NormalizedTick::tick_vwap_deviation(ticks)` — mean |price - vwap| / vwap.
+- `NormalizedTick::price_entropy_proxy(ticks)` — Shannon entropy of price distribution (10 bins).
+- `NormalizedTick::tick_qty_above_mean(ticks)` — fraction of ticks with quantity > mean quantity.
+- `NormalizedTick::price_directional_strength(ticks)` — mean signed move / mean absolute move, in [-1, 1].
+
+**`ohlcv` module — `OhlcvBar` analytics (round 174)**
+- `OhlcvBar::bar_wick_to_body_ratio(bars)` — mean (total wick / body) per bar.
+- `OhlcvBar::bar_open_midpoint_gap(bars)` — mean |open - (high+low)/2| per bar.
+- `OhlcvBar::bar_low_open_ratio(bars)` — mean low / open per bar.
+- `OhlcvBar::bar_volume_body_corr(bars)` — Pearson correlation of volume vs |close-open|.
+
+**`norm` module — `MinMaxNormalizer` + `ZScoreNormalizer` analytics (round 174)**
+- `window_negative_ratio()` — fraction of window values below zero.
+- `window_last_minus_mean()` — last window value minus the window mean.
+- `window_signed_accel()` — mean second difference (curvature/acceleration) of window.
+- `window_top_quartile_mean()` — mean of top 25% of window values.
+
+---
+
 ## [2.10.24] - 2026-03-20
 
 ### Added
