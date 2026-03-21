@@ -9816,6 +9816,73 @@ impl NormalizedTick {
         Some(last / mean)
     }
 
+    /// Buy momentum minus sell momentum: mean(buy_prices) - mean(sell_prices).
+    pub fn tick_buy_sell_momentum(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() { return None; }
+        let buy_prices: Vec<f64> = ticks.iter()
+            .filter(|t| t.side == Some(TradeSide::Buy))
+            .filter_map(|t| t.price.to_f64())
+            .collect();
+        let sell_prices: Vec<f64> = ticks.iter()
+            .filter(|t| t.side == Some(TradeSide::Sell))
+            .filter_map(|t| t.price.to_f64())
+            .collect();
+        if buy_prices.is_empty() || sell_prices.is_empty() { return None; }
+        let buy_mean = buy_prices.iter().sum::<f64>() / buy_prices.len() as f64;
+        let sell_mean = sell_prices.iter().sum::<f64>() / sell_prices.len() as f64;
+        Some(buy_mean - sell_mean)
+    }
+
+    /// Pearson correlation between log-prices and log-volumes.
+    pub fn price_log_vol_corr(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 2 { return None; }
+        let log_prices: Vec<f64> = ticks.iter()
+            .filter_map(|t| { let p = t.price.to_f64()?; if p > 0.0 { Some(p.ln()) } else { None } })
+            .collect();
+        let log_vols: Vec<f64> = ticks.iter()
+            .filter_map(|t| { let v = t.quantity.to_f64()?; if v > 0.0 { Some(v.ln()) } else { None } })
+            .collect();
+        let n = log_prices.len().min(log_vols.len());
+        if n < 2 { return None; }
+        let (lp, lv) = (&log_prices[..n], &log_vols[..n]);
+        let nf = n as f64;
+        let pm = lp.iter().sum::<f64>() / nf;
+        let vm = lv.iter().sum::<f64>() / nf;
+        let num: f64 = lp.iter().zip(lv.iter()).map(|(p, v)| (p - pm) * (v - vm)).sum();
+        let dp = (lp.iter().map(|p| (p - pm).powi(2)).sum::<f64>()).sqrt();
+        let dv = (lv.iter().map(|v| (v - vm).powi(2)).sum::<f64>()).sqrt();
+        if dp == 0.0 || dv == 0.0 { return None; }
+        Some(num / (dp * dv))
+    }
+
+    /// Ratio of quantity range to mean quantity.
+    pub fn tick_qty_range_ratio(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() { return None; }
+        let qtys: Vec<f64> = ticks.iter().filter_map(|t| t.quantity.to_f64()).collect();
+        if qtys.is_empty() { return None; }
+        let max = qtys.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        let min = qtys.iter().cloned().fold(f64::INFINITY, f64::min);
+        let mean = qtys.iter().sum::<f64>() / qtys.len() as f64;
+        if mean == 0.0 { return None; }
+        Some((max - min) / mean)
+    }
+
+    /// Count of signed momentum events: consecutive same-direction price moves.
+    pub fn tick_signed_momentum_count(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 2 { return None; }
+        let prices: Vec<f64> = ticks.iter().filter_map(|t| t.price.to_f64()).collect();
+        if prices.len() < 2 { return None; }
+        let signs: Vec<f64> = prices.windows(2)
+            .map(|w| if w[1] > w[0] { 1.0 } else if w[1] < w[0] { -1.0 } else { 0.0 })
+            .collect();
+        let momentum = signs.windows(2).filter(|w| w[0] == w[1] && w[0] != 0.0).count();
+        Some(momentum as f64)
+    }
+
 }
 
 
@@ -22409,5 +22476,84 @@ mod tests {
         let ticks = vec![make_tick_pq(dec!(100), dec!(5)), make_tick_pq(dec!(101), dec!(5))];
         let r = NormalizedTick::tick_last_vs_mean_qty(&ticks).unwrap();
         assert!((r - 1.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_tick_buy_sell_momentum_no_buys_none() {
+        use rust_decimal_macros::dec;
+        let mut s = make_tick_pq(dec!(100), dec!(1));
+        s.side = Some(TradeSide::Sell);
+        assert!(NormalizedTick::tick_buy_sell_momentum(&[s]).is_none());
+    }
+
+    #[test]
+    fn test_tick_buy_sell_momentum_equal_prices_zero() {
+        use rust_decimal_macros::dec;
+        let mut b = make_tick_pq(dec!(100), dec!(1));
+        b.side = Some(TradeSide::Buy);
+        let mut s = make_tick_pq(dec!(100), dec!(1));
+        s.side = Some(TradeSide::Sell);
+        let r = NormalizedTick::tick_buy_sell_momentum(&[b, s]).unwrap();
+        assert!(r.abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_price_log_vol_corr_single_none() {
+        use rust_decimal_macros::dec;
+        assert!(NormalizedTick::price_log_vol_corr(&[make_tick_pq(dec!(100), dec!(5))]).is_none());
+    }
+
+    #[test]
+    fn test_price_log_vol_corr_returns_value() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(110), dec!(5)),
+            make_tick_pq(dec!(90), dec!(2)),
+        ];
+        assert!(NormalizedTick::price_log_vol_corr(&ticks).is_some());
+    }
+
+    #[test]
+    fn test_tick_qty_range_ratio_empty_none() {
+        assert!(NormalizedTick::tick_qty_range_ratio(&[]).is_none());
+    }
+
+    #[test]
+    fn test_tick_qty_range_ratio_constant_zero() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![make_tick_pq(dec!(100), dec!(5)), make_tick_pq(dec!(101), dec!(5))];
+        let r = NormalizedTick::tick_qty_range_ratio(&ticks).unwrap();
+        assert!(r.abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_tick_signed_momentum_count_single_none() {
+        use rust_decimal_macros::dec;
+        assert!(NormalizedTick::tick_signed_momentum_count(&[make_tick_pq(dec!(100), dec!(1))]).is_none());
+    }
+
+    #[test]
+    fn test_tick_signed_momentum_count_flat_zero() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(100), dec!(1)),
+        ];
+        let r = NormalizedTick::tick_signed_momentum_count(&ticks).unwrap();
+        assert_eq!(r, 0.0);
+    }
+
+    #[test]
+    fn test_tick_signed_momentum_count_monotone() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(101), dec!(1)),
+            make_tick_pq(dec!(102), dec!(1)),
+        ];
+        let r = NormalizedTick::tick_signed_momentum_count(&ticks).unwrap();
+        assert_eq!(r, 1.0);
     }
 }

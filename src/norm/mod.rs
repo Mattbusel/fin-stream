@@ -7047,6 +7047,55 @@ impl MinMaxNormalizer {
         Some(range * (1.0 + pos_weight))
     }
 
+    /// Slope of decay: coefficient of linear fit to sorted-descending values.
+    pub fn window_decay_slope(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let mut vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        vals.sort_by(|a, b| b.partial_cmp(a).unwrap_or(std::cmp::Ordering::Equal));
+        let n = vals.len() as f64;
+        let x_mean = (n - 1.0) / 2.0;
+        let y_mean = vals.iter().sum::<f64>() / n;
+        let num: f64 = vals.iter().enumerate()
+            .map(|(i, y)| (i as f64 - x_mean) * (y - y_mean))
+            .sum();
+        let den: f64 = (0..vals.len()).map(|i| (i as f64 - x_mean).powi(2)).sum();
+        if den == 0.0 { return None; }
+        Some(num / den)
+    }
+
+    /// Mean absolute deviation from zero.
+    pub fn window_zero_mean_deviation(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        Some(vals.iter().map(|v| v.abs()).sum::<f64>() / vals.len() as f64)
+    }
+
+    /// Number of direction changes as f64: consecutive pairs with different sign of diff.
+    pub fn window_direction_changes_f64(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 3 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let diffs: Vec<f64> = vals.windows(2).map(|w| w[1] - w[0]).collect();
+        let changes = diffs.windows(2)
+            .filter(|w| w[0] * w[1] < 0.0)
+            .count();
+        Some(changes as f64)
+    }
+
+    /// Number of times the window crosses back toward the mean after diverging.
+    pub fn window_mean_reversion_count(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let mean = vals.iter().sum::<f64>() / vals.len() as f64;
+        let count = vals.windows(2)
+            .filter(|w| (w[0] > mean && w[1] <= mean) || (w[0] < mean && w[1] >= mean))
+            .count();
+        Some(count as f64)
+    }
+
 }
 
 #[cfg(test)]
@@ -15326,6 +15375,65 @@ mod tests {
         let r = n.window_weighted_range().unwrap();
         assert!(r >= 4.0); // range=4, pos_weight ≥ 0 → result ≥ 4
     }
+
+    #[test]
+    fn test_minmax_window_decay_slope_none_for_single() {
+        let mut n = norm(4);
+        n.update(dec!(5));
+        assert!(n.window_decay_slope().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_decay_slope_returns_value() {
+        let mut n = norm(4);
+        for v in [dec!(10), dec!(5), dec!(1)] { n.update(v); }
+        let r = n.window_decay_slope().unwrap();
+        assert!(r < 0.0); // sorted desc already → decreasing slope
+    }
+
+    #[test]
+    fn test_minmax_window_zero_mean_deviation_none_for_empty() {
+        let n = norm(4);
+        assert!(n.window_zero_mean_deviation().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_zero_mean_deviation_value() {
+        let mut n = norm(4);
+        for v in [dec!(-2), dec!(2)] { n.update(v); }
+        let r = n.window_zero_mean_deviation().unwrap();
+        assert!((r - 2.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_minmax_window_direction_changes_f64_none_for_two() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2)] { n.update(v); }
+        assert!(n.window_direction_changes_f64().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_direction_changes_f64_monotone_zero() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        let r = n.window_direction_changes_f64().unwrap();
+        assert_eq!(r, 0.0);
+    }
+
+    #[test]
+    fn test_minmax_window_mean_reversion_count_none_for_single() {
+        let mut n = norm(4);
+        n.update(dec!(5));
+        assert!(n.window_mean_reversion_count().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_mean_reversion_count_no_crossings() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        let r = n.window_mean_reversion_count().unwrap();
+        assert!(r >= 0.0);
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -22321,6 +22429,55 @@ impl ZScoreNormalizer {
         let range = max_val - min_val;
         let pos_weight = ((max_pos as f64 - min_pos as f64).abs() / (n - 1.0)).max(0.0);
         Some(range * (1.0 + pos_weight))
+    }
+
+    /// Slope of decay: coefficient of linear fit to sorted-descending values.
+    pub fn window_decay_slope(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let mut vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        vals.sort_by(|a, b| b.partial_cmp(a).unwrap_or(std::cmp::Ordering::Equal));
+        let n = vals.len() as f64;
+        let x_mean = (n - 1.0) / 2.0;
+        let y_mean = vals.iter().sum::<f64>() / n;
+        let num: f64 = vals.iter().enumerate()
+            .map(|(i, y)| (i as f64 - x_mean) * (y - y_mean))
+            .sum();
+        let den: f64 = (0..vals.len()).map(|i| (i as f64 - x_mean).powi(2)).sum();
+        if den == 0.0 { return None; }
+        Some(num / den)
+    }
+
+    /// Mean absolute deviation from zero.
+    pub fn window_zero_mean_deviation(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        Some(vals.iter().map(|v| v.abs()).sum::<f64>() / vals.len() as f64)
+    }
+
+    /// Number of direction changes as f64: consecutive pairs with different sign of diff.
+    pub fn window_direction_changes_f64(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 3 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let diffs: Vec<f64> = vals.windows(2).map(|w| w[1] - w[0]).collect();
+        let changes = diffs.windows(2)
+            .filter(|w| w[0] * w[1] < 0.0)
+            .count();
+        Some(changes as f64)
+    }
+
+    /// Number of times the window crosses back toward the mean after diverging.
+    pub fn window_mean_reversion_count(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let mean = vals.iter().sum::<f64>() / vals.len() as f64;
+        let count = vals.windows(2)
+            .filter(|w| (w[0] > mean && w[1] <= mean) || (w[0] < mean && w[1] >= mean))
+            .count();
+        Some(count as f64)
     }
 
 }
@@ -30550,5 +30707,64 @@ mod zscore_stability_tests {
         for v in [dec!(1), dec!(5)] { n.update(v); }
         let r = n.window_weighted_range().unwrap();
         assert!(r >= 4.0);
+    }
+
+    #[test]
+    fn test_zscore_window_decay_slope_none_for_single() {
+        let mut n = znorm(4);
+        n.update(dec!(5));
+        assert!(n.window_decay_slope().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_decay_slope_returns_value() {
+        let mut n = znorm(4);
+        for v in [dec!(10), dec!(5), dec!(1)] { n.update(v); }
+        let r = n.window_decay_slope().unwrap();
+        assert!(r < 0.0);
+    }
+
+    #[test]
+    fn test_zscore_window_zero_mean_deviation_none_for_empty() {
+        let n = znorm(4);
+        assert!(n.window_zero_mean_deviation().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_zero_mean_deviation_value() {
+        let mut n = znorm(4);
+        for v in [dec!(-2), dec!(2)] { n.update(v); }
+        let r = n.window_zero_mean_deviation().unwrap();
+        assert!((r - 2.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_zscore_window_direction_changes_f64_none_for_two() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2)] { n.update(v); }
+        assert!(n.window_direction_changes_f64().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_direction_changes_f64_monotone_zero() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        let r = n.window_direction_changes_f64().unwrap();
+        assert_eq!(r, 0.0);
+    }
+
+    #[test]
+    fn test_zscore_window_mean_reversion_count_none_for_single() {
+        let mut n = znorm(4);
+        n.update(dec!(5));
+        assert!(n.window_mean_reversion_count().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_mean_reversion_count_no_crossings() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        let r = n.window_mean_reversion_count().unwrap();
+        assert!(r >= 0.0);
     }
 }

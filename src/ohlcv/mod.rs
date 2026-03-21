@@ -9528,6 +9528,59 @@ impl OhlcvBar {
         Some(if diff > 0.0 { 1.0 } else if diff < 0.0 { -1.0 } else { 0.0 })
     }
 
+    /// Mean HL range / volume per bar.
+    pub fn bar_vol_per_range(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let vals: Vec<f64> = bars.iter().filter_map(|b| {
+            let range = (b.high - b.low).to_f64()?;
+            if range == 0.0 { return None; }
+            let vol = b.volume.to_f64()?;
+            Some(vol / range)
+        }).collect();
+        if vals.is_empty() { return None; }
+        Some(vals.iter().sum::<f64>() / vals.len() as f64)
+    }
+
+    /// Position of last close within its own HL quartile (0=Q1, 1=Q2, 2=Q3, 3=Q4).
+    pub fn bar_close_quartile(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let mut closes: Vec<f64> = bars.iter().filter_map(|b| b.close.to_f64()).collect();
+        if closes.is_empty() { return None; }
+        let last = *closes.last()?;
+        closes.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let n = closes.len();
+        let rank = closes.partition_point(|&c| c <= last);
+        Some((rank.min(n) as f64 / n as f64 * 4.0).floor().min(3.0))
+    }
+
+    /// Standard deviation of total wick length across bars.
+    pub fn bar_wicks_std(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.len() < 2 { return None; }
+        let wicks: Vec<f64> = bars.iter().filter_map(|b| {
+            let top = b.open.max(b.close);
+            let bot = b.open.min(b.close);
+            let w = (b.high - top).to_f64()? + (bot - b.low).to_f64()?;
+            Some(w)
+        }).collect();
+        if wicks.len() < 2 { return None; }
+        let mean = wicks.iter().sum::<f64>() / wicks.len() as f64;
+        let var = wicks.iter().map(|w| (w - mean).powi(2)).sum::<f64>() / wicks.len() as f64;
+        Some(var.sqrt())
+    }
+
+    /// Mean change in open prices between consecutive bars.
+    pub fn bar_open_velocity(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.len() < 2 { return None; }
+        let opens: Vec<f64> = bars.iter().filter_map(|b| b.open.to_f64()).collect();
+        if opens.len() < 2 { return None; }
+        let diffs: Vec<f64> = opens.windows(2).map(|w| w[1] - w[0]).collect();
+        Some(diffs.iter().sum::<f64>() / diffs.len() as f64)
+    }
+
 }
 
 impl std::fmt::Display for OhlcvBar {
@@ -21329,5 +21382,67 @@ mod tests {
         let b = make_ohlcv_bar(dec!(110), dec!(120), dec!(90), dec!(100));
         let r = OhlcvBar::bar_close_momentum_sign(&[b]).unwrap();
         assert_eq!(r, -1.0);
+    }
+
+    #[test]
+    fn test_bar_vol_per_range_empty_none() {
+        assert!(OhlcvBar::bar_vol_per_range(&[]).is_none());
+    }
+
+    #[test]
+    fn test_bar_vol_per_range_doji_skipped_none() {
+        let b = make_ohlcv_bar(dec!(100), dec!(100), dec!(100), dec!(100));
+        assert!(OhlcvBar::bar_vol_per_range(&[b]).is_none());
+    }
+
+    #[test]
+    fn test_bar_vol_per_range_returns_value() {
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let r = OhlcvBar::bar_vol_per_range(&[b]).unwrap();
+        // vol=1, range=20 → 1/20=0.05
+        assert!((r - 0.05).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_bar_close_quartile_empty_none() {
+        assert!(OhlcvBar::bar_close_quartile(&[]).is_none());
+    }
+
+    #[test]
+    fn test_bar_close_quartile_returns_0_to_3() {
+        let b0 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100));
+        let b1 = make_ohlcv_bar(dec!(100), dec!(115), dec!(95), dec!(105));
+        let b2 = make_ohlcv_bar(dec!(100), dec!(120), dec!(90), dec!(110));
+        let b3 = make_ohlcv_bar(dec!(100), dec!(125), dec!(90), dec!(120));
+        let r = OhlcvBar::bar_close_quartile(&[b0, b1, b2, b3]).unwrap();
+        assert!(r >= 0.0 && r <= 3.0);
+    }
+
+    #[test]
+    fn test_bar_wicks_std_single_none() {
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        assert!(OhlcvBar::bar_wicks_std(&[b]).is_none());
+    }
+
+    #[test]
+    fn test_bar_wicks_std_constant_zero() {
+        let b0 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100));
+        let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100));
+        let r = OhlcvBar::bar_wicks_std(&[b0, b1]).unwrap();
+        assert!(r.abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_bar_open_velocity_single_none() {
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        assert!(OhlcvBar::bar_open_velocity(&[b]).is_none());
+    }
+
+    #[test]
+    fn test_bar_open_velocity_constant_zero() {
+        let b0 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let b1 = make_ohlcv_bar(dec!(100), dec!(115), dec!(90), dec!(110));
+        let r = OhlcvBar::bar_open_velocity(&[b0, b1]).unwrap();
+        assert!(r.abs() < 1e-9);
     }
 }

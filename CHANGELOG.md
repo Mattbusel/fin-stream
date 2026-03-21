@@ -9,6 +9,30 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.10.47] - 2026-03-20
+
+### Added
+
+**`tick` module — `NormalizedTick` analytics (round 196)**
+- `NormalizedTick::tick_buy_sell_momentum(ticks)` — mean buy price minus mean sell price.
+- `NormalizedTick::price_log_vol_corr(ticks)` — Pearson correlation between log-prices and log-volumes.
+- `NormalizedTick::tick_qty_range_ratio(ticks)` — quantity range / mean quantity.
+- `NormalizedTick::tick_signed_momentum_count(ticks)` — count of consecutive same-direction price moves.
+
+**`ohlcv` module — `OhlcvBar` analytics (round 196)**
+- `OhlcvBar::bar_vol_per_range(bars)` — mean volume / HL range per bar.
+- `OhlcvBar::bar_close_quartile(bars)` — quartile (0-3) of the last close within the close distribution.
+- `OhlcvBar::bar_wicks_std(bars)` — standard deviation of total wick length across bars.
+- `OhlcvBar::bar_open_velocity(bars)` — mean change in open price between consecutive bars.
+
+**`norm` module — `MinMaxNormalizer` + `ZScoreNormalizer` analytics (round 196)**
+- `window_decay_slope()` — slope of linear fit to sorted-descending window values.
+- `window_zero_mean_deviation()` — mean absolute deviation from zero.
+- `window_direction_changes_f64()` — count of sign reversals in successive differences.
+- `window_mean_reversion_count()` — count of mean crossings in the window.
+
+---
+
 ## [2.10.46] - 2026-03-20
 
 ### Added
