@@ -9856,6 +9856,46 @@ impl OhlcvBar {
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
+    /// Mean relative close-to-close gap: mean of (close[i] - close[i-1]) / close[i-1].
+    pub fn bar_close_gap_pct(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.len() < 2 { return None; }
+        let vals: Vec<f64> = bars.windows(2).filter_map(|w| {
+            let prev = w[0].close.to_f64()?;
+            let curr = w[1].close.to_f64()?;
+            if prev == 0.0 { return None; }
+            Some((curr - prev) / prev)
+        }).collect();
+        if vals.is_empty() { return None; }
+        Some(vals.iter().sum::<f64>() / vals.len() as f64)
+    }
+
+    /// Mean fraction of range below open: mean of (open - low) / (high - low) where range > 0.
+    pub fn bar_low_wick_ratio(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let vals: Vec<f64> = bars.iter().filter_map(|b| {
+            let range = (b.high - b.low).to_f64()?;
+            if range == 0.0 { return None; }
+            let low_wick = (b.open - b.low).to_f64()?;
+            Some(low_wick.max(0.0) / range)
+        }).collect();
+        if vals.is_empty() { return None; }
+        Some(vals.iter().sum::<f64>() / vals.len() as f64)
+    }
+
+    /// Volume coefficient of variation: std_dev(volume) / mean(volume).
+    pub fn bar_vol_surprise(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.len() < 2 { return None; }
+        let vols: Vec<f64> = bars.iter().filter_map(|b| b.volume.to_f64()).collect();
+        if vols.len() < 2 { return None; }
+        let mean = vols.iter().sum::<f64>() / vols.len() as f64;
+        if mean == 0.0 { return None; }
+        let var = vols.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / (vols.len() - 1) as f64;
+        Some(var.sqrt() / mean)
+    }
+
     /// Mean volume change between consecutive bars normalized by mean volume (decay rate).
     pub fn bar_vol_decay(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
@@ -24239,6 +24279,56 @@ mod tests {
         let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
         let r = OhlcvBar::bar_body_vs_wick(&[b]).unwrap();
         assert!((r - 5.0 / 15.0).abs() < 1e-9, "expected 1/3 got {}", r);
+    }
+
+    #[test]
+    fn test_bar_close_gap_pct_too_few_none() {
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        assert!(OhlcvBar::bar_close_gap_pct(&[b]).is_none());
+    }
+
+    #[test]
+    fn test_bar_close_gap_pct_flat_zero() {
+        let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100));
+        let b2 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100));
+        let r = OhlcvBar::bar_close_gap_pct(&[b1, b2]).unwrap();
+        assert!(r.abs() < 1e-9, "expected 0 got {}", r);
+    }
+
+    #[test]
+    fn test_bar_close_gap_pct_up_positive() {
+        let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100));
+        let b2 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(110));
+        let r = OhlcvBar::bar_close_gap_pct(&[b1, b2]).unwrap();
+        assert!(r > 0.0, "expected positive got {}", r);
+    }
+
+    #[test]
+    fn test_bar_low_wick_ratio_empty_none() {
+        assert!(OhlcvBar::bar_low_wick_ratio(&[]).is_none());
+    }
+
+    #[test]
+    fn test_bar_low_wick_ratio_no_wick_zero() {
+        // open == low, so low wick = 0
+        let b = make_ohlcv_bar(dec!(90), dec!(110), dec!(90), dec!(100));
+        let r = OhlcvBar::bar_low_wick_ratio(&[b]).unwrap();
+        assert!(r.abs() < 1e-9, "expected 0 got {}", r);
+    }
+
+    #[test]
+    fn test_bar_vol_surprise_too_few_none() {
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        assert!(OhlcvBar::bar_vol_surprise(&[b]).is_none());
+    }
+
+    #[test]
+    fn test_bar_vol_surprise_constant_vol_zero() {
+        let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let b2 = make_ohlcv_bar(dec!(105), dec!(115), dec!(95), dec!(110));
+        // both have volume=dec!(1) from helper
+        let r = OhlcvBar::bar_vol_surprise(&[b1, b2]).unwrap();
+        assert!(r.abs() < 1e-9, "expected 0 got {}", r);
     }
 
     #[test]

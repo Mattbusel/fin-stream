@@ -8334,6 +8334,46 @@ impl MinMaxNormalizer {
         Some(upper as f64 / vals.len() as f64)
     }
 
+    /// Fraction of values in the lower quartile of the window range.
+    pub fn window_lower_vol_ratio(&self) -> Option<f64> {
+        if self.window.len() < 4 { return None; }
+        use rust_decimal::prelude::ToPrimitive;
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.len() < 4 { return None; }
+        let min = vals.iter().cloned().fold(f64::INFINITY, f64::min);
+        let max = vals.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        let range = max - min;
+        if range == 0.0 { return None; }
+        let threshold = min + 0.25 * range;
+        let lower = vals.iter().filter(|&&v| v <= threshold).count();
+        Some(lower as f64 / vals.len() as f64)
+    }
+
+    /// Standard deviation of consecutive differences (volatility of changes).
+    pub fn window_delta_std(&self) -> Option<f64> {
+        if self.window.len() < 3 { return None; }
+        use rust_decimal::prelude::ToPrimitive;
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.len() < 3 { return None; }
+        let deltas: Vec<f64> = vals.windows(2).map(|w| w[1] - w[0]).collect();
+        let mean = deltas.iter().sum::<f64>() / deltas.len() as f64;
+        let var = deltas.iter().map(|d| (d - mean).powi(2)).sum::<f64>() / (deltas.len() - 1) as f64;
+        Some(var.sqrt())
+    }
+
+    /// Fraction of values within 5% of the window maximum (near-peak concentration).
+    pub fn window_peak_pct(&self) -> Option<f64> {
+        if self.window.is_empty() { return None; }
+        use rust_decimal::prelude::ToPrimitive;
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.is_empty() { return None; }
+        let max = vals.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        if max == 0.0 { return None; }
+        let threshold = max * 0.95;
+        let near_peak = vals.iter().filter(|&&v| v >= threshold).count();
+        Some(near_peak as f64 / vals.len() as f64)
+    }
+
 }
 
 #[cfg(test)]
@@ -17961,6 +18001,58 @@ mod tests {
     }
 
     #[test]
+    fn test_minmax_window_lower_vol_ratio_too_few_none() {
+        let mut n = norm(5);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        assert!(n.window_lower_vol_ratio().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_lower_vol_ratio_all_low() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(1), dec!(1), dec!(5)] { n.update(v); }
+        let r = n.window_lower_vol_ratio().unwrap();
+        assert!(r >= 0.0 && r <= 1.0, "expected [0,1] got {}", r);
+    }
+
+    #[test]
+    fn test_minmax_window_delta_std_too_few_none() {
+        let mut n = norm(5);
+        for v in [dec!(1), dec!(2)] { n.update(v); }
+        assert!(n.window_delta_std().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_delta_std_constant_zero() {
+        let mut n = norm(4);
+        for v in [dec!(5), dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        let r = n.window_delta_std().unwrap();
+        assert!(r.abs() < 1e-9, "expected 0 got {}", r);
+    }
+
+    #[test]
+    fn test_minmax_window_peak_pct_empty_none() {
+        let n = norm(4);
+        assert!(n.window_peak_pct().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_peak_pct_all_equal_none_zero_max() {
+        let mut n = norm(4);
+        for v in [dec!(0), dec!(0), dec!(0), dec!(0)] { n.update(v); }
+        // max == 0 => None
+        assert!(n.window_peak_pct().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_peak_pct_all_at_max() {
+        let mut n = norm(4);
+        for v in [dec!(10), dec!(10), dec!(10), dec!(10)] { n.update(v); }
+        let r = n.window_peak_pct().unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "expected 1.0 got {}", r);
+    }
+
+    #[test]
     fn test_minmax_window_inertia_score_too_few_none() {
         let mut n = norm(5);
         for v in [dec!(1), dec!(2)] { n.update(v); }
@@ -26284,6 +26376,46 @@ impl ZScoreNormalizer {
         let threshold = min + 0.75 * range;
         let upper = vals.iter().filter(|&&v| v >= threshold).count();
         Some(upper as f64 / vals.len() as f64)
+    }
+
+    /// Fraction of values in the lower quartile of the window range.
+    pub fn window_lower_vol_ratio(&self) -> Option<f64> {
+        if self.window.len() < 4 { return None; }
+        use rust_decimal::prelude::ToPrimitive;
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.len() < 4 { return None; }
+        let min = vals.iter().cloned().fold(f64::INFINITY, f64::min);
+        let max = vals.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        let range = max - min;
+        if range == 0.0 { return None; }
+        let threshold = min + 0.25 * range;
+        let lower = vals.iter().filter(|&&v| v <= threshold).count();
+        Some(lower as f64 / vals.len() as f64)
+    }
+
+    /// Standard deviation of consecutive differences (volatility of changes).
+    pub fn window_delta_std(&self) -> Option<f64> {
+        if self.window.len() < 3 { return None; }
+        use rust_decimal::prelude::ToPrimitive;
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.len() < 3 { return None; }
+        let deltas: Vec<f64> = vals.windows(2).map(|w| w[1] - w[0]).collect();
+        let mean = deltas.iter().sum::<f64>() / deltas.len() as f64;
+        let var = deltas.iter().map(|d| (d - mean).powi(2)).sum::<f64>() / (deltas.len() - 1) as f64;
+        Some(var.sqrt())
+    }
+
+    /// Fraction of values within 5% of the window maximum (near-peak concentration).
+    pub fn window_peak_pct(&self) -> Option<f64> {
+        if self.window.is_empty() { return None; }
+        use rust_decimal::prelude::ToPrimitive;
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.is_empty() { return None; }
+        let max = vals.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        if max == 0.0 { return None; }
+        let threshold = max * 0.95;
+        let near_peak = vals.iter().filter(|&&v| v >= threshold).count();
+        Some(near_peak as f64 / vals.len() as f64)
     }
 
 }
@@ -35850,6 +35982,50 @@ mod zscore_stability_tests {
         let mut n = znorm(4);
         for _ in 0..4 { n.update(dec!(7)); }
         let r = n.window_consecutive_flat().unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "expected 1.0 got {}", r);
+    }
+
+    #[test]
+    fn test_zscore_window_lower_vol_ratio_too_few_none() {
+        let mut n = znorm(5);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        assert!(n.window_lower_vol_ratio().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_lower_vol_ratio_all_low() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(1), dec!(1), dec!(5)] { n.update(v); }
+        let r = n.window_lower_vol_ratio().unwrap();
+        assert!(r >= 0.0 && r <= 1.0, "expected [0,1] got {}", r);
+    }
+
+    #[test]
+    fn test_zscore_window_delta_std_too_few_none() {
+        let mut n = znorm(5);
+        for v in [dec!(1), dec!(2)] { n.update(v); }
+        assert!(n.window_delta_std().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_delta_std_constant_zero() {
+        let mut n = znorm(4);
+        for v in [dec!(5), dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        let r = n.window_delta_std().unwrap();
+        assert!(r.abs() < 1e-9, "expected 0 got {}", r);
+    }
+
+    #[test]
+    fn test_zscore_window_peak_pct_empty_none() {
+        let n = znorm(4);
+        assert!(n.window_peak_pct().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_peak_pct_all_at_max() {
+        let mut n = znorm(4);
+        for v in [dec!(10), dec!(10), dec!(10), dec!(10)] { n.update(v); }
+        let r = n.window_peak_pct().unwrap();
         assert!((r - 1.0).abs() < 1e-9, "expected 1.0 got {}", r);
     }
 
