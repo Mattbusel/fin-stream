@@ -5508,6 +5508,50 @@ impl MinMaxNormalizer {
         Some((max - min) / std)
     }
 
+    // ── round-164 ────────────────────────────────────────────────────────────
+
+    /// Coefficient of variation: std / mean * 100; None if mean is zero.
+    pub fn window_cv(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let mean = vals.iter().sum::<f64>() / vals.len() as f64;
+        if mean == 0.0 { return None; }
+        let std = (vals.iter().map(|&v| (v - mean).powi(2)).sum::<f64>() / vals.len() as f64).sqrt();
+        Some(std / mean * 100.0)
+    }
+
+    /// Fraction of window values that are non-zero.
+    pub fn window_non_zero_fraction(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let non_zero = self.window.iter()
+            .filter(|v| v.to_f64().unwrap_or(0.0) != 0.0)
+            .count();
+        Some(non_zero as f64 / self.window.len() as f64)
+    }
+
+    /// Root mean square of absolute window values (same as RMS but renamed to avoid dup).
+    pub fn window_rms_abs(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let mean_sq = vals.iter().map(|&v| v * v).sum::<f64>() / vals.len() as f64;
+        Some(mean_sq.sqrt())
+    }
+
+    /// Kurtosis proxy: mean of (x - mean)^4 / std^4; None if std is zero.
+    pub fn window_kurtosis_proxy(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 4 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let mean = vals.iter().sum::<f64>() / vals.len() as f64;
+        let var = vals.iter().map(|&v| (v - mean).powi(2)).sum::<f64>() / vals.len() as f64;
+        if var == 0.0 { return None; }
+        let kurt = vals.iter().map(|&v| (v - mean).powi(4)).sum::<f64>() / (vals.len() as f64 * var.powi(2));
+        Some(kurt)
+    }
+
 }
 
 #[cfg(test)]
@@ -11887,6 +11931,66 @@ mod tests {
         // std=0 → None
         assert!(n.window_range_to_std().is_none());
     }
+
+    // ── round-164 ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_minmax_window_cv_none_for_empty() {
+        let n = norm(4);
+        assert!(n.window_cv().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_cv_constant_zero() {
+        let mut n = norm(3);
+        for v in [dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        // std=0 → cv=0
+        let cv = n.window_cv().unwrap();
+        assert!((cv - 0.0).abs() < 1e-9, "expected 0.0, got {}", cv);
+    }
+
+    #[test]
+    fn test_minmax_window_non_zero_fraction_none_for_empty() {
+        let n = norm(4);
+        assert!(n.window_non_zero_fraction().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_non_zero_fraction_all_nonzero() {
+        let mut n = norm(3);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        let f = n.window_non_zero_fraction().unwrap();
+        assert!((f - 1.0).abs() < 1e-9, "expected 1.0, got {}", f);
+    }
+
+    #[test]
+    fn test_minmax_window_rms_abs_none_for_empty() {
+        let n = norm(4);
+        assert!(n.window_rms_abs().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_rms_abs_constant() {
+        let mut n = norm(3);
+        for v in [dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        let m = n.window_rms_abs().unwrap();
+        assert!((m - 5.0).abs() < 1e-9, "expected 5.0, got {}", m);
+    }
+
+    #[test]
+    fn test_minmax_window_kurtosis_proxy_none_for_three() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        assert!(n.window_kurtosis_proxy().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_kurtosis_proxy_constant_none() {
+        let mut n = norm(4);
+        for v in [dec!(5), dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        // var=0 → None
+        assert!(n.window_kurtosis_proxy().is_none());
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -17343,6 +17447,50 @@ impl ZScoreNormalizer {
         let min = vals.iter().cloned().fold(f64::INFINITY, f64::min);
         let max = vals.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
         Some((max - min) / std)
+    }
+
+    // ── round-164 ────────────────────────────────────────────────────────────
+
+    /// Coefficient of variation: std / mean * 100; None if mean is zero.
+    pub fn window_cv(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let mean = vals.iter().sum::<f64>() / vals.len() as f64;
+        if mean == 0.0 { return None; }
+        let std = (vals.iter().map(|&v| (v - mean).powi(2)).sum::<f64>() / vals.len() as f64).sqrt();
+        Some(std / mean * 100.0)
+    }
+
+    /// Fraction of window values that are non-zero.
+    pub fn window_non_zero_fraction(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let non_zero = self.window.iter()
+            .filter(|v| v.to_f64().unwrap_or(0.0) != 0.0)
+            .count();
+        Some(non_zero as f64 / self.window.len() as f64)
+    }
+
+    /// Root mean square of window values.
+    pub fn window_rms_abs(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let mean_sq = vals.iter().map(|&v| v * v).sum::<f64>() / vals.len() as f64;
+        Some(mean_sq.sqrt())
+    }
+
+    /// Kurtosis proxy: mean of (x - mean)^4 / std^4; None if std is zero.
+    pub fn window_kurtosis_proxy(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 4 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let mean = vals.iter().sum::<f64>() / vals.len() as f64;
+        let var = vals.iter().map(|&v| (v - mean).powi(2)).sum::<f64>() / vals.len() as f64;
+        if var == 0.0 { return None; }
+        let kurt = vals.iter().map(|&v| (v - mean).powi(4)).sum::<f64>() / (vals.len() as f64 * var.powi(2));
+        Some(kurt)
     }
 
 }
@@ -23703,5 +23851,63 @@ mod zscore_stability_tests {
         let mut n = znorm(3);
         for v in [dec!(5), dec!(5), dec!(5)] { n.update(v); }
         assert!(n.window_range_to_std().is_none());
+    }
+
+    // ── round-164 ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_zscore_window_cv_none_for_empty() {
+        let n = znorm(4);
+        assert!(n.window_cv().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_cv_constant_zero() {
+        let mut n = znorm(3);
+        for v in [dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        let cv = n.window_cv().unwrap();
+        assert!((cv - 0.0).abs() < 1e-9, "expected 0.0, got {}", cv);
+    }
+
+    #[test]
+    fn test_zscore_window_non_zero_fraction_none_for_empty() {
+        let n = znorm(4);
+        assert!(n.window_non_zero_fraction().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_non_zero_fraction_all_nonzero() {
+        let mut n = znorm(3);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        let f = n.window_non_zero_fraction().unwrap();
+        assert!((f - 1.0).abs() < 1e-9, "expected 1.0, got {}", f);
+    }
+
+    #[test]
+    fn test_zscore_window_rms_abs_none_for_empty() {
+        let n = znorm(4);
+        assert!(n.window_rms_abs().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_rms_abs_constant() {
+        let mut n = znorm(3);
+        for v in [dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        let m = n.window_rms_abs().unwrap();
+        assert!((m - 5.0).abs() < 1e-9, "expected 5.0, got {}", m);
+    }
+
+    #[test]
+    fn test_zscore_window_kurtosis_proxy_none_for_three() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        assert!(n.window_kurtosis_proxy().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_kurtosis_proxy_constant_none() {
+        let mut n = znorm(4);
+        for v in [dec!(5), dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        assert!(n.window_kurtosis_proxy().is_none());
     }
 }

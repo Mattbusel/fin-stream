@@ -7896,6 +7896,60 @@ impl NormalizedTick {
         Some(total_qty / ticks.len() as f64)
     }
 
+    // ── round-164 ────────────────────────────────────────────────────────────
+
+    /// Std dev of z-scores of prices (how spread the normalized prices are).
+    pub fn price_zscore_std(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 2 { return None; }
+        let prices: Vec<f64> = ticks.iter().filter_map(|t| t.price.to_f64()).collect();
+        if prices.len() < 2 { return None; }
+        let mean = prices.iter().sum::<f64>() / prices.len() as f64;
+        let std = (prices.iter().map(|p| (p - mean).powi(2)).sum::<f64>() / prices.len() as f64).sqrt();
+        if std == 0.0 { return None; }
+        let zscores: Vec<f64> = prices.iter().map(|p| (p - mean) / std).collect();
+        let z_mean = zscores.iter().sum::<f64>() / zscores.len() as f64;
+        let z_var = zscores.iter().map(|z| (z - z_mean).powi(2)).sum::<f64>() / zscores.len() as f64;
+        Some(z_var.sqrt())
+    }
+
+    /// (max_qty - min_qty) / mean_qty as a percentage range of quantities.
+    pub fn tick_qty_range_pct(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() { return None; }
+        let qtys: Vec<f64> = ticks.iter().filter_map(|t| t.quantity.to_f64()).collect();
+        if qtys.is_empty() { return None; }
+        let mean = qtys.iter().sum::<f64>() / qtys.len() as f64;
+        if mean == 0.0 { return None; }
+        let min = qtys.iter().cloned().fold(f64::INFINITY, f64::min);
+        let max = qtys.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        Some((max - min) / mean * 100.0)
+    }
+
+    /// Coefficient of variation of tick prices (std / mean * 100).
+    pub fn tick_price_cv(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() { return None; }
+        let prices: Vec<f64> = ticks.iter().filter_map(|t| t.price.to_f64()).collect();
+        if prices.is_empty() { return None; }
+        let mean = prices.iter().sum::<f64>() / prices.len() as f64;
+        if mean == 0.0 { return None; }
+        let std = (prices.iter().map(|p| (p - mean).powi(2)).sum::<f64>() / prices.len() as f64).sqrt();
+        Some(std / mean * 100.0)
+    }
+
+    /// Count of times price crosses zero (sign changes from positive to negative or vice versa).
+    pub fn price_cross_zero_count(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 2 { return None; }
+        let prices: Vec<f64> = ticks.iter().filter_map(|t| t.price.to_f64()).collect();
+        if prices.len() < 2 { return None; }
+        let crosses = prices.windows(2)
+            .filter(|w| w[0] * w[1] < 0.0)
+            .count();
+        Some(crosses as f64)
+    }
+
 }
 
 
@@ -18044,5 +18098,71 @@ mod tests {
         ];
         let r = NormalizedTick::tick_turnover_rate(&ticks).unwrap();
         assert!((r - 5.0).abs() < 1e-9, "expected 5.0, got {}", r);
+    }
+
+    // ── round-164 ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_price_zscore_std_none_for_single() {
+        use rust_decimal_macros::dec;
+        assert!(NormalizedTick::price_zscore_std(&[make_tick_pq(dec!(100), dec!(1))]).is_none());
+    }
+
+    #[test]
+    fn test_price_zscore_std_constant_none() {
+        use rust_decimal_macros::dec;
+        // constant → std=0 → None
+        let ticks = vec![make_tick_pq(dec!(100), dec!(1)), make_tick_pq(dec!(100), dec!(1))];
+        assert!(NormalizedTick::price_zscore_std(&ticks).is_none());
+    }
+
+    #[test]
+    fn test_tick_qty_range_pct_none_for_empty() {
+        assert!(NormalizedTick::tick_qty_range_pct(&[]).is_none());
+    }
+
+    #[test]
+    fn test_tick_qty_range_pct_constant_zero() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(5)),
+            make_tick_pq(dec!(101), dec!(5)),
+        ];
+        let r = NormalizedTick::tick_qty_range_pct(&ticks).unwrap();
+        assert!((r - 0.0).abs() < 1e-9, "expected 0.0, got {}", r);
+    }
+
+    #[test]
+    fn test_tick_price_cv_none_for_empty() {
+        assert!(NormalizedTick::tick_price_cv(&[]).is_none());
+    }
+
+    #[test]
+    fn test_tick_price_cv_constant_zero() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(100), dec!(1)),
+        ];
+        let cv = NormalizedTick::tick_price_cv(&ticks).unwrap();
+        assert!((cv - 0.0).abs() < 1e-9, "expected 0.0, got {}", cv);
+    }
+
+    #[test]
+    fn test_price_cross_zero_count_none_for_single() {
+        use rust_decimal_macros::dec;
+        assert!(NormalizedTick::price_cross_zero_count(&[make_tick_pq(dec!(1), dec!(1))]).is_none());
+    }
+
+    #[test]
+    fn test_price_cross_zero_count_no_crosses() {
+        use rust_decimal_macros::dec;
+        // all positive → no zero crosses
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(101), dec!(1)),
+        ];
+        let c = NormalizedTick::price_cross_zero_count(&ticks).unwrap();
+        assert!((c - 0.0).abs() < 1e-9, "expected 0.0, got {}", c);
     }
 }

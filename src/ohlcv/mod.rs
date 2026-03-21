@@ -7618,6 +7618,75 @@ impl OhlcvBar {
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
+    // ── round-164 ────────────────────────────────────────────────────────────
+
+    /// Mean of HLC3 = (high + low + close) / 3 across bars.
+    pub fn bar_hlc3_mean(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let vals: Vec<f64> = bars.iter()
+            .filter_map(|b| {
+                let h = b.high.to_f64()?;
+                let l = b.low.to_f64()?;
+                let c = b.close.to_f64()?;
+                Some((h + l + c) / 3.0)
+            })
+            .collect();
+        if vals.is_empty() { return None; }
+        Some(vals.iter().sum::<f64>() / vals.len() as f64)
+    }
+
+    /// Mean of OHLC4 = (open + high + low + close) / 4 across bars.
+    pub fn bar_ohlc4_mean(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let vals: Vec<f64> = bars.iter()
+            .filter_map(|b| {
+                let o = b.open.to_f64()?;
+                let h = b.high.to_f64()?;
+                let l = b.low.to_f64()?;
+                let c = b.close.to_f64()?;
+                Some((o + h + l + c) / 4.0)
+            })
+            .collect();
+        if vals.is_empty() { return None; }
+        Some(vals.iter().sum::<f64>() / vals.len() as f64)
+    }
+
+    /// Mean of midprice = (high + low) / 2 across bars.
+    pub fn bar_mid_price(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let vals: Vec<f64> = bars.iter()
+            .filter_map(|b| {
+                let h = b.high.to_f64()?;
+                let l = b.low.to_f64()?;
+                Some((h + l) / 2.0)
+            })
+            .collect();
+        if vals.is_empty() { return None; }
+        Some(vals.iter().sum::<f64>() / vals.len() as f64)
+    }
+
+    /// Mean of body as fraction of range: |close-open|/(high-low); None if any range=0.
+    pub fn bar_body_pct(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let vals: Vec<f64> = bars.iter()
+            .filter_map(|b| {
+                let o = b.open.to_f64()?;
+                let h = b.high.to_f64()?;
+                let l = b.low.to_f64()?;
+                let c = b.close.to_f64()?;
+                let range = h - l;
+                if range == 0.0 { return None; }
+                Some((c - o).abs() / range)
+            })
+            .collect();
+        if vals.is_empty() { return None; }
+        Some(vals.iter().sum::<f64>() / vals.len() as f64)
+    }
+
 }
 
 impl std::fmt::Display for OhlcvBar {
@@ -17499,5 +17568,61 @@ mod tests {
         let bars = vec![make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100))];
         let s = OhlcvBar::bar_speed_mean(&bars).unwrap();
         assert!((s - 0.0).abs() < 1e-9, "expected 0.0, got {}", s);
+    }
+
+    // ── round-164 ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_bar_hlc3_mean_none_for_empty() {
+        assert!(OhlcvBar::bar_hlc3_mean(&[]).is_none());
+    }
+
+    #[test]
+    fn test_bar_hlc3_mean_basic() {
+        // high=110, low=90, close=105 → hlc3=101.67
+        let bars = vec![make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105))];
+        let m = OhlcvBar::bar_hlc3_mean(&bars).unwrap();
+        let expected = (110.0 + 90.0 + 105.0) / 3.0;
+        assert!((m - expected).abs() < 1e-9, "expected {}, got {}", expected, m);
+    }
+
+    #[test]
+    fn test_bar_ohlc4_mean_none_for_empty() {
+        assert!(OhlcvBar::bar_ohlc4_mean(&[]).is_none());
+    }
+
+    #[test]
+    fn test_bar_ohlc4_mean_basic() {
+        // open=100, high=110, low=90, close=105 → ohlc4=101.25
+        let bars = vec![make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105))];
+        let m = OhlcvBar::bar_ohlc4_mean(&bars).unwrap();
+        let expected = (100.0 + 110.0 + 90.0 + 105.0) / 4.0;
+        assert!((m - expected).abs() < 1e-9, "expected {}, got {}", expected, m);
+    }
+
+    #[test]
+    fn test_bar_mid_price_none_for_empty() {
+        assert!(OhlcvBar::bar_mid_price(&[]).is_none());
+    }
+
+    #[test]
+    fn test_bar_mid_price_basic() {
+        // high=110, low=90 → mid=100
+        let bars = vec![make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105))];
+        let m = OhlcvBar::bar_mid_price(&bars).unwrap();
+        assert!((m - 100.0).abs() < 1e-9, "expected 100.0, got {}", m);
+    }
+
+    #[test]
+    fn test_bar_body_pct_none_for_empty() {
+        assert!(OhlcvBar::bar_body_pct(&[]).is_none());
+    }
+
+    #[test]
+    fn test_bar_body_pct_full_body_one() {
+        // open=90, close=110, high=110, low=90 → body=range → pct=1.0
+        let bars = vec![make_ohlcv_bar(dec!(90), dec!(110), dec!(90), dec!(110))];
+        let p = OhlcvBar::bar_body_pct(&bars).unwrap();
+        assert!((p - 1.0).abs() < 1e-9, "expected 1.0, got {}", p);
     }
 }

@@ -9,6 +9,30 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.10.15] - 2026-03-20
+
+### Added
+
+**`tick` module — `NormalizedTick` analytics (round 164)**
+- `NormalizedTick::price_zscore_std(ticks)` — std dev of z-scored prices.
+- `NormalizedTick::tick_qty_range_pct(ticks)` — (max_qty - min_qty) / mean_qty * 100.
+- `NormalizedTick::tick_price_cv(ticks)` — coefficient of variation of tick prices.
+- `NormalizedTick::price_cross_zero_count(ticks)` — count of times price crosses zero.
+
+**`ohlcv` module — `OhlcvBar` analytics (round 164)**
+- `OhlcvBar::bar_hlc3_mean(bars)` — mean of (high + low + close) / 3 per bar.
+- `OhlcvBar::bar_ohlc4_mean(bars)` — mean of (open + high + low + close) / 4 per bar.
+- `OhlcvBar::bar_mid_price(bars)` — mean of (high + low) / 2 per bar.
+- `OhlcvBar::bar_body_pct(bars)` — mean of |close-open|/(high-low) per bar.
+
+**`norm` module — `MinMaxNormalizer` + `ZScoreNormalizer` analytics (round 164)**
+- `window_cv()` — coefficient of variation (std / mean * 100).
+- `window_non_zero_fraction()` — fraction of window values that are non-zero.
+- `window_rms_abs()` — root mean square of all window values.
+- `window_kurtosis_proxy()` — kurtosis proxy (fourth standardized moment).
+
+---
+
 ## [2.10.14] - 2026-03-20
 
 ### Added
