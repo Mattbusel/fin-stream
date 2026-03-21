@@ -6264,6 +6264,42 @@ impl MinMaxNormalizer {
         Some(last / max)
     }
 
+    /// Sum of absolute values in the window.
+    pub fn window_abs_sum_f64(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        Some(self.window.iter().map(|v| v.to_f64().unwrap_or(0.0).abs()).sum())
+    }
+
+    /// Mean of lower half of window values.
+    pub fn window_lower_half_mean_f64(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let half = vals.len() / 2;
+        let lower = &vals[..half];
+        if lower.is_empty() { return None; }
+        Some(lower.iter().sum::<f64>() / lower.len() as f64)
+    }
+
+    /// Sum of consecutive differences (last - first, via cumsum of diffs).
+    pub fn window_sum_diff(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let diffs_sum: f64 = vals.windows(2).map(|w| w[1] - w[0]).sum();
+        Some(diffs_sum)
+    }
+
+    /// Count of local minima (valleys) in the window.
+    pub fn window_valley_count(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 3 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let valleys = vals.windows(3).filter(|w| w[1] < w[0] && w[1] < w[2]).count();
+        Some(valleys as f64)
+    }
+
 }
 
 #[cfg(test)]
@@ -13614,6 +13650,67 @@ mod tests {
         let r = n.window_last_to_max().unwrap();
         assert!((r - 1.0).abs() < 1e-9, "expected 1.0, got {}", r);
     }
+
+    // ── round-180 tests ──────────────────────────────────────────────────────
+
+    #[test]
+    fn test_minmax_window_abs_sum_f64_none_for_empty() {
+        let n = norm(4);
+        assert!(n.window_abs_sum_f64().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_abs_sum_f64_positive() {
+        let mut n = norm(3);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        let r = n.window_abs_sum_f64().unwrap();
+        assert!((r - 6.0).abs() < 1e-9, "expected 6.0, got {}", r);
+    }
+
+    #[test]
+    fn test_minmax_window_lower_half_mean_f64_none_for_single() {
+        let mut n = norm(4);
+        n.update(dec!(5));
+        assert!(n.window_lower_half_mean_f64().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_lower_half_mean_f64_constant() {
+        let mut n = norm(4);
+        for v in [dec!(5), dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        let r = n.window_lower_half_mean_f64().unwrap();
+        assert!((r - 5.0).abs() < 1e-9, "expected 5.0, got {}", r);
+    }
+
+    #[test]
+    fn test_minmax_window_sum_diff_none_for_single() {
+        let mut n = norm(4);
+        n.update(dec!(5));
+        assert!(n.window_sum_diff().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_sum_diff_constant_zero() {
+        let mut n = norm(3);
+        for v in [dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        let r = n.window_sum_diff().unwrap();
+        assert!(r.abs() < 1e-9, "expected 0.0, got {}", r);
+    }
+
+    #[test]
+    fn test_minmax_window_valley_count_none_for_short() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2)] { n.update(v); }
+        assert!(n.window_valley_count().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_valley_count_monotone_zero() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let r = n.window_valley_count().unwrap();
+        assert!((r - 0.0).abs() < 1e-9, "expected 0.0, got {}", r);
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -19826,6 +19923,42 @@ impl ZScoreNormalizer {
         if max == 0.0 { return None; }
         let last = *vals.last()?;
         Some(last / max)
+    }
+
+    /// Sum of absolute values in the window.
+    pub fn window_abs_sum_f64(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        Some(self.window.iter().map(|v| v.to_f64().unwrap_or(0.0).abs()).sum())
+    }
+
+    /// Mean of lower half of window values.
+    pub fn window_lower_half_mean_f64(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let half = vals.len() / 2;
+        let lower = &vals[..half];
+        if lower.is_empty() { return None; }
+        Some(lower.iter().sum::<f64>() / lower.len() as f64)
+    }
+
+    /// Sum of consecutive differences (last - first, via cumsum of diffs).
+    pub fn window_sum_diff(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let diffs_sum: f64 = vals.windows(2).map(|w| w[1] - w[0]).sum();
+        Some(diffs_sum)
+    }
+
+    /// Count of local minima (valleys) in the window.
+    pub fn window_valley_count(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 3 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let valleys = vals.windows(3).filter(|w| w[1] < w[0] && w[1] < w[2]).count();
+        Some(valleys as f64)
     }
 
 }
@@ -27139,5 +27272,66 @@ mod zscore_stability_tests {
         for v in [dec!(1), dec!(2), dec!(5)] { n.update(v); }
         let r = n.window_last_to_max().unwrap();
         assert!((r - 1.0).abs() < 1e-9, "expected 1.0, got {}", r);
+    }
+
+    // ── round-180 tests ──────────────────────────────────────────────────────
+
+    #[test]
+    fn test_zscore_window_abs_sum_f64_none_for_empty() {
+        let n = znorm(4);
+        assert!(n.window_abs_sum_f64().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_abs_sum_f64_positive() {
+        let mut n = znorm(3);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        let r = n.window_abs_sum_f64().unwrap();
+        assert!((r - 6.0).abs() < 1e-9, "expected 6.0, got {}", r);
+    }
+
+    #[test]
+    fn test_zscore_window_lower_half_mean_f64_none_for_single() {
+        let mut n = znorm(4);
+        n.update(dec!(5));
+        assert!(n.window_lower_half_mean_f64().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_lower_half_mean_f64_constant() {
+        let mut n = znorm(4);
+        for v in [dec!(5), dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        let r = n.window_lower_half_mean_f64().unwrap();
+        assert!((r - 5.0).abs() < 1e-9, "expected 5.0, got {}", r);
+    }
+
+    #[test]
+    fn test_zscore_window_sum_diff_none_for_single() {
+        let mut n = znorm(4);
+        n.update(dec!(5));
+        assert!(n.window_sum_diff().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_sum_diff_constant_zero() {
+        let mut n = znorm(3);
+        for v in [dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        let r = n.window_sum_diff().unwrap();
+        assert!(r.abs() < 1e-9, "expected 0.0, got {}", r);
+    }
+
+    #[test]
+    fn test_zscore_window_valley_count_none_for_short() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2)] { n.update(v); }
+        assert!(n.window_valley_count().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_valley_count_monotone_zero() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let r = n.window_valley_count().unwrap();
+        assert!((r - 0.0).abs() < 1e-9, "expected 0.0, got {}", r);
     }
 }

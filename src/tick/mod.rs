@@ -8919,6 +8919,55 @@ impl NormalizedTick {
         Some(entropy)
     }
 
+    /// Mean |price_change| * quantity: trade impact proxy per tick pair.
+    pub fn tick_price_impact(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 2 { return None; }
+        let impacts: Vec<f64> = ticks.windows(2).filter_map(|w| {
+            let dp = (w[1].price - w[0].price).to_f64()?.abs();
+            let q = w[1].quantity.to_f64()?;
+            Some(dp * q)
+        }).collect();
+        if impacts.is_empty() { return None; }
+        Some(impacts.iter().sum::<f64>() / impacts.len() as f64)
+    }
+
+    /// Mean second difference of prices: convexity of the price path.
+    pub fn price_convexity(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 3 { return None; }
+        let prices: Vec<f64> = ticks.iter().filter_map(|t| t.price.to_f64()).collect();
+        if prices.len() < 3 { return None; }
+        let accels: Vec<f64> = prices.windows(3).map(|w| w[2] - 2.0 * w[1] + w[0]).collect();
+        Some(accels.iter().sum::<f64>() / accels.len() as f64)
+    }
+
+    /// Fraction of ticks where quantity exceeds the 75th percentile.
+    pub fn tick_size_regime(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() { return None; }
+        let mut qtys: Vec<f64> = ticks.iter().filter_map(|t| t.quantity.to_f64()).collect();
+        if qtys.is_empty() { return None; }
+        qtys.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let q75_idx = (qtys.len() * 3) / 4;
+        let q75 = qtys[q75_idx.min(qtys.len() - 1)];
+        let large = qtys.iter().filter(|&&q| q > q75).count();
+        Some(large as f64 / qtys.len() as f64)
+    }
+
+    /// Excess kurtosis proxy: mean(|price - mean|^4) / std^4 - 3.
+    pub fn price_kurtosis_proxy(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 4 { return None; }
+        let prices: Vec<f64> = ticks.iter().filter_map(|t| t.price.to_f64()).collect();
+        if prices.len() < 4 { return None; }
+        let mean = prices.iter().sum::<f64>() / prices.len() as f64;
+        let var = prices.iter().map(|p| (p - mean).powi(2)).sum::<f64>() / prices.len() as f64;
+        if var == 0.0 { return None; }
+        let m4 = prices.iter().map(|p| (p - mean).powi(4)).sum::<f64>() / prices.len() as f64;
+        Some(m4 / var.powi(2) - 3.0)
+    }
+
 }
 
 
@@ -20296,5 +20345,92 @@ mod tests {
             make_tick_pq(dec!(101), dec!(1)),
         ];
         assert!(NormalizedTick::tick_side_balance_entropy(&ticks).is_none());
+    }
+
+    // --- round-180 ---
+
+    #[test]
+    fn test_tick_price_impact_none_for_single() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![make_tick_pq(dec!(100), dec!(1))];
+        assert!(NormalizedTick::tick_price_impact(&ticks).is_none());
+    }
+
+    #[test]
+    fn test_tick_price_impact_constant_zero() {
+        use rust_decimal_macros::dec;
+        // No price change → impact = 0
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(5)),
+            make_tick_pq(dec!(100), dec!(5)),
+            make_tick_pq(dec!(100), dec!(5)),
+        ];
+        let r = NormalizedTick::tick_price_impact(&ticks).unwrap();
+        assert!(r.abs() < 1e-9, "expected 0.0, got {}", r);
+    }
+
+    #[test]
+    fn test_price_convexity_none_for_short() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(101), dec!(1)),
+        ];
+        assert!(NormalizedTick::price_convexity(&ticks).is_none());
+    }
+
+    #[test]
+    fn test_price_convexity_linear_zero() {
+        use rust_decimal_macros::dec;
+        // Linear prices → 2nd diff = 0
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(101), dec!(1)),
+            make_tick_pq(dec!(102), dec!(1)),
+        ];
+        let r = NormalizedTick::price_convexity(&ticks).unwrap();
+        assert!(r.abs() < 1e-9, "expected 0.0, got {}", r);
+    }
+
+    #[test]
+    fn test_tick_size_regime_none_for_empty() {
+        assert!(NormalizedTick::tick_size_regime(&[]).is_none());
+    }
+
+    #[test]
+    fn test_tick_size_regime_all_equal() {
+        use rust_decimal_macros::dec;
+        // All same size → none strictly above q75 → 0.0
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(5)),
+            make_tick_pq(dec!(101), dec!(5)),
+            make_tick_pq(dec!(102), dec!(5)),
+            make_tick_pq(dec!(103), dec!(5)),
+        ];
+        let r = NormalizedTick::tick_size_regime(&ticks).unwrap();
+        assert!(r.abs() < 1e-9, "expected 0.0, got {}", r);
+    }
+
+    #[test]
+    fn test_price_kurtosis_proxy_none_for_short() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(101), dec!(1)),
+        ];
+        assert!(NormalizedTick::price_kurtosis_proxy(&ticks).is_none());
+    }
+
+    #[test]
+    fn test_price_kurtosis_proxy_constant_none() {
+        use rust_decimal_macros::dec;
+        // All same → var=0 → None
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(100), dec!(1)),
+        ];
+        assert!(NormalizedTick::price_kurtosis_proxy(&ticks).is_none());
     }
 }

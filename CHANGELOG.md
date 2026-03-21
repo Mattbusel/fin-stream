@@ -9,6 +9,30 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.10.31] - 2026-03-20
+
+### Added
+
+**`tick` module — `NormalizedTick` analytics (round 180)**
+- `NormalizedTick::tick_price_impact(ticks)` — mean |price_change| * quantity per tick pair.
+- `NormalizedTick::price_convexity(ticks)` — mean second difference (curvature) of price path.
+- `NormalizedTick::tick_size_regime(ticks)` — fraction of ticks with quantity above 75th percentile.
+- `NormalizedTick::price_kurtosis_proxy(ticks)` — excess kurtosis proxy of price distribution.
+
+**`ohlcv` module — `OhlcvBar` analytics (round 180)**
+- `OhlcvBar::bar_volume_range_corr(bars)` — Pearson correlation between volume and (high - low).
+- `OhlcvBar::bar_open_vol_ratio(bars)` — mean open / volume per bar.
+- `OhlcvBar::bar_close_trend_accel(bars)` — mean second difference of close prices.
+- `OhlcvBar::bar_net_trend_strength(bars)` — fraction of bars where close > previous close.
+
+**`norm` module — `MinMaxNormalizer` + `ZScoreNormalizer` analytics (round 180)**
+- `window_abs_sum_f64()` — sum of absolute values in the window.
+- `window_lower_half_mean_f64()` — mean of the lower half of window values.
+- `window_sum_diff()` — sum of consecutive differences (equivalent to last - first).
+- `window_valley_count()` — count of local minima in the window.
+
+---
+
 ## [2.10.30] - 2026-03-20
 
 ### Added
