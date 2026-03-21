@@ -8087,6 +8087,20 @@ impl MinMaxNormalizer {
         Some(mse)
     }
 
+    /// Excess kurtosis of window values (measures heavy-tailedness beyond normal distribution).
+    pub fn window_kurtosis_excess(&self) -> Option<f64> {
+        if self.window.len() < 4 { return None; }
+        use rust_decimal::prelude::ToPrimitive;
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.len() < 4 { return None; }
+        let n = vals.len() as f64;
+        let mean = vals.iter().sum::<f64>() / n;
+        let m2 = vals.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / n;
+        if m2 == 0.0 { return None; }
+        let m4 = vals.iter().map(|v| (v - mean).powi(4)).sum::<f64>() / n;
+        Some(m4 / m2.powi(2) - 3.0)
+    }
+
 }
 
 #[cfg(test)]
@@ -17507,6 +17521,28 @@ mod tests {
         let r = n.window_mean_sq_error().unwrap();
         assert!(r.abs() < 1e-9, "expected 0 got {}", r);
     }
+
+    #[test]
+    fn test_minmax_window_kurtosis_excess_too_few_none() {
+        let mut n = norm(5);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        assert!(n.window_kurtosis_excess().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_kurtosis_excess_uniform_none() {
+        let mut n = norm(5);
+        for _ in 0..5 { n.update(dec!(7)); }
+        assert!(n.window_kurtosis_excess().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_kurtosis_excess_returns_value() {
+        let mut n = norm(6);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4), dec!(5), dec!(6)] { n.update(v); }
+        let r = n.window_kurtosis_excess();
+        assert!(r.is_some());
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -25539,6 +25575,20 @@ impl ZScoreNormalizer {
         let mean = vals.iter().sum::<f64>() / vals.len() as f64;
         let mse = vals.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / vals.len() as f64;
         Some(mse)
+    }
+
+    /// Excess kurtosis of window values (measures heavy-tailedness beyond normal distribution).
+    pub fn window_kurtosis_excess(&self) -> Option<f64> {
+        if self.window.len() < 4 { return None; }
+        use rust_decimal::prelude::ToPrimitive;
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.len() < 4 { return None; }
+        let n = vals.len() as f64;
+        let mean = vals.iter().sum::<f64>() / n;
+        let m2 = vals.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / n;
+        if m2 == 0.0 { return None; }
+        let m4 = vals.iter().map(|v| (v - mean).powi(4)).sum::<f64>() / n;
+        Some(m4 / m2.powi(2) - 3.0)
     }
 
 }
@@ -34905,5 +34955,27 @@ mod zscore_stability_tests {
         for _ in 0..3 { n.update(dec!(5)); }
         let r = n.window_mean_sq_error().unwrap();
         assert!(r.abs() < 1e-9, "expected 0 got {}", r);
+    }
+
+    #[test]
+    fn test_zscore_window_kurtosis_excess_too_few_none() {
+        let mut n = znorm(5);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        assert!(n.window_kurtosis_excess().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_kurtosis_excess_uniform_none() {
+        let mut n = znorm(5);
+        for _ in 0..5 { n.update(dec!(7)); }
+        assert!(n.window_kurtosis_excess().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_kurtosis_excess_returns_value() {
+        let mut n = znorm(6);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4), dec!(5), dec!(6)] { n.update(v); }
+        let r = n.window_kurtosis_excess();
+        assert!(r.is_some());
     }
 }

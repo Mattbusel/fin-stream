@@ -9,6 +9,27 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.10.70] - 2026-03-20
+
+### Added
+
+**`tick` module — `NormalizedTick` analytics (round 219)**
+- `NormalizedTick::tick_price_midpoint(ticks)` — midpoint of tick price range (min + max) / 2.
+- `NormalizedTick::tick_buy_dominance(ticks)` — (buy_vol - sell_vol) / total_vol.
+- `NormalizedTick::tick_vol_std_dev(ticks)` — sample standard deviation of tick quantities.
+- `NormalizedTick::tick_price_stability(ticks)` — fraction of ticks within one std dev of mean price.
+
+**`ohlcv` module — `OhlcvBar` analytics (round 219)**
+- `OhlcvBar::bar_vol_consistency(bars)` — std dev of volume normalized by mean (volume CV).
+- `OhlcvBar::bar_close_to_low_pct(bars)` — mean (close - low) / range across bars.
+- `OhlcvBar::bar_inside_bar_pct(bars)` — fraction of bars fully inside prior bar's range.
+- `OhlcvBar::bar_upper_body_pct(bars)` — fraction of range occupied by body above midpoint.
+
+**`norm` module — `MinMaxNormalizer` + `ZScoreNormalizer` analytics (round 219)**
+- `window_kurtosis_excess()` — excess kurtosis of window values (measures heavy-tailedness).
+
+---
+
 ## [2.10.69] - 2026-03-20
 
 ### Added
