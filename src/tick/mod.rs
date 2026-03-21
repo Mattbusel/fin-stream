@@ -7669,6 +7669,71 @@ impl NormalizedTick {
         Some((max - min) / mean * 100.0)
     }
 
+    // ── round-160 ────────────────────────────────────────────────────────────
+
+    /// Mean price change per tick for upward moves only (price increases).
+    pub fn price_up_velocity(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 2 { return None; }
+        let prices: Vec<f64> = ticks.iter().filter_map(|t| t.price.to_f64()).collect();
+        if prices.len() < 2 { return None; }
+        let ups: Vec<f64> = prices.windows(2)
+            .filter(|w| w[1] > w[0])
+            .map(|w| w[1] - w[0])
+            .collect();
+        if ups.is_empty() { return None; }
+        Some(ups.iter().sum::<f64>() / ups.len() as f64)
+    }
+
+    /// Mean price change per tick for downward moves only (price decreases, returned as positive).
+    pub fn price_down_velocity(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 2 { return None; }
+        let prices: Vec<f64> = ticks.iter().filter_map(|t| t.price.to_f64()).collect();
+        if prices.len() < 2 { return None; }
+        let downs: Vec<f64> = prices.windows(2)
+            .filter(|w| w[1] < w[0])
+            .map(|w| w[0] - w[1])
+            .collect();
+        if downs.is_empty() { return None; }
+        Some(downs.iter().sum::<f64>() / downs.len() as f64)
+    }
+
+    /// Price curvature: mean of second differences (price[i+2] - 2*price[i+1] + price[i]).
+    pub fn price_curvature(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 3 { return None; }
+        let prices: Vec<f64> = ticks.iter().filter_map(|t| t.price.to_f64()).collect();
+        if prices.len() < 3 { return None; }
+        let curvs: Vec<f64> = prices.windows(3)
+            .map(|w| w[2] - 2.0 * w[1] + w[0])
+            .collect();
+        Some(curvs.iter().sum::<f64>() / curvs.len() as f64)
+    }
+
+    /// Shannon entropy of quantity distribution (8 bins).
+    pub fn tick_qty_entropy(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() { return None; }
+        let qtys: Vec<f64> = ticks.iter().filter_map(|t| t.quantity.to_f64()).collect();
+        if qtys.is_empty() { return None; }
+        let min = qtys.iter().cloned().fold(f64::INFINITY, f64::min);
+        let max = qtys.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        if (max - min).abs() < 1e-12 { return Some(0.0); }
+        let bins = 8usize;
+        let mut counts = vec![0usize; bins];
+        for &q in &qtys {
+            let idx = ((q - min) / (max - min) * bins as f64).min(bins as f64 - 1.0) as usize;
+            counts[idx] += 1;
+        }
+        let n = qtys.len() as f64;
+        let entropy = counts.iter()
+            .filter(|&&c| c > 0)
+            .map(|&c| { let p = c as f64 / n; -p * p.ln() })
+            .sum();
+        Some(entropy)
+    }
+
 }
 
 
@@ -17519,5 +17584,88 @@ mod tests {
         ];
         let r = NormalizedTick::price_range_pct_mean(&ticks).unwrap();
         assert!((r - 0.0).abs() < 1e-9, "expected 0.0, got {}", r);
+    }
+
+    // ── round-160 ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_price_up_velocity_none_for_single() {
+        use rust_decimal_macros::dec;
+        assert!(NormalizedTick::price_up_velocity(&[make_tick_pq(dec!(100), dec!(1))]).is_none());
+    }
+
+    #[test]
+    fn test_price_up_velocity_none_when_only_down() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(99), dec!(1)),
+        ];
+        assert!(NormalizedTick::price_up_velocity(&ticks).is_none());
+    }
+
+    #[test]
+    fn test_price_up_velocity_basic() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(105), dec!(1)),
+        ];
+        let v = NormalizedTick::price_up_velocity(&ticks).unwrap();
+        assert!((v - 5.0).abs() < 1e-9, "expected 5.0, got {}", v);
+    }
+
+    #[test]
+    fn test_price_down_velocity_none_for_single() {
+        use rust_decimal_macros::dec;
+        assert!(NormalizedTick::price_down_velocity(&[make_tick_pq(dec!(100), dec!(1))]).is_none());
+    }
+
+    #[test]
+    fn test_price_down_velocity_none_when_only_up() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(105), dec!(1)),
+        ];
+        assert!(NormalizedTick::price_down_velocity(&ticks).is_none());
+    }
+
+    #[test]
+    fn test_price_curvature_none_for_two() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![make_tick_pq(dec!(100), dec!(1)), make_tick_pq(dec!(101), dec!(1))];
+        assert!(NormalizedTick::price_curvature(&ticks).is_none());
+    }
+
+    #[test]
+    fn test_price_curvature_linear_zero() {
+        use rust_decimal_macros::dec;
+        // linear sequence → curvature=0
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(101), dec!(1)),
+            make_tick_pq(dec!(102), dec!(1)),
+        ];
+        let c = NormalizedTick::price_curvature(&ticks).unwrap();
+        assert!((c - 0.0).abs() < 1e-9, "expected 0.0, got {}", c);
+    }
+
+    #[test]
+    fn test_tick_qty_entropy_none_for_empty() {
+        assert!(NormalizedTick::tick_qty_entropy(&[]).is_none());
+    }
+
+    #[test]
+    fn test_tick_qty_entropy_constant_zero() {
+        use rust_decimal_macros::dec;
+        // all same qty → no spread → entropy=0
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(5)),
+            make_tick_pq(dec!(101), dec!(5)),
+            make_tick_pq(dec!(102), dec!(5)),
+        ];
+        let e = NormalizedTick::tick_qty_entropy(&ticks).unwrap();
+        assert!((e - 0.0).abs() < 1e-9, "expected 0.0, got {}", e);
     }
 }

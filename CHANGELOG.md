@@ -9,6 +9,30 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.10.11] - 2026-03-20
+
+### Added
+
+**`tick` module — `NormalizedTick` analytics (round 160)**
+- `NormalizedTick::price_up_velocity(ticks)` — mean price change per tick for upward moves.
+- `NormalizedTick::price_down_velocity(ticks)` — mean price change per tick for downward moves.
+- `NormalizedTick::price_curvature(ticks)` — mean second difference of prices (price convexity).
+- `NormalizedTick::tick_qty_entropy(ticks)` — Shannon entropy of quantity distribution (8 bins).
+
+**`ohlcv` module — `OhlcvBar` analytics (round 160)**
+- `OhlcvBar::bar_close_to_high_mean(bars)` — mean of (high - close) across bars.
+- `OhlcvBar::bar_high_std(bars)` — standard deviation of high prices across bars.
+- `OhlcvBar::bar_low_std(bars)` — standard deviation of low prices across bars.
+- `OhlcvBar::bar_close_std(bars)` — standard deviation of close prices across bars.
+
+**`norm` module — `MinMaxNormalizer` + `ZScoreNormalizer` analytics (round 160)**
+- `window_ema_slope()` — slope of EMA (alpha=0.1) from first to last window value divided by n.
+- `window_range_ratio()` — ratio of window max to window min.
+- `window_above_mean_streak()` — longest consecutive run of values strictly above the window mean.
+- `window_mean_abs_diff()` — mean absolute difference between consecutive window values.
+
+---
+
 ## [2.10.10] - 2026-03-20
 
 ### Added

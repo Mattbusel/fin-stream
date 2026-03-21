@@ -5288,6 +5288,57 @@ impl MinMaxNormalizer {
         Some(var(&vals[mid..]) - var(&vals[..mid]))
     }
 
+    // ── round-160 ────────────────────────────────────────────────────────────
+
+    /// Slope of EMA of window values (alpha=0.1), computed as (last_ema - first_ema) / n.
+    pub fn window_ema_slope(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let alpha = 0.1_f64;
+        let mut ema = vals[0];
+        let first_ema = ema;
+        for &v in &vals[1..] {
+            ema = alpha * v + (1.0 - alpha) * ema;
+        }
+        Some((ema - first_ema) / (vals.len() - 1) as f64)
+    }
+
+    /// Ratio of window max to window min (returns None if min is 0).
+    pub fn window_range_ratio(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let min = vals.iter().cloned().fold(f64::INFINITY, f64::min);
+        let max = vals.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        if min == 0.0 { return None; }
+        Some(max / min)
+    }
+
+    /// Longest consecutive run of values above the window mean.
+    pub fn window_above_mean_streak(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let mean = vals.iter().sum::<f64>() / vals.len() as f64;
+        let mut max_streak = 0usize;
+        let mut cur = 0usize;
+        for &v in &vals {
+            if v > mean { cur += 1; if cur > max_streak { max_streak = cur; } }
+            else { cur = 0; }
+        }
+        Some(max_streak as f64)
+    }
+
+    /// Mean absolute difference between consecutive window values.
+    pub fn window_mean_abs_diff(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let diffs: Vec<f64> = vals.windows(2).map(|w| (w[1] - w[0]).abs()).collect();
+        Some(diffs.iter().sum::<f64>() / diffs.len() as f64)
+    }
+
 }
 
 #[cfg(test)]
@@ -11419,6 +11470,74 @@ mod tests {
         let vc = n.window_variance_change().unwrap();
         assert!((vc - 0.0).abs() < 1e-9, "expected 0.0, got {}", vc);
     }
+
+    // ── round-160 ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_minmax_window_ema_slope_none_for_single() {
+        let mut n = norm(4);
+        n.update(dec!(5));
+        assert!(n.window_ema_slope().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_ema_slope_constant_zero() {
+        let mut n = norm(3);
+        for v in [dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        let s = n.window_ema_slope().unwrap();
+        assert!((s - 0.0).abs() < 1e-9, "expected 0.0, got {}", s);
+    }
+
+    #[test]
+    fn test_minmax_window_range_ratio_none_for_empty() {
+        let n = norm(4);
+        assert!(n.window_range_ratio().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_range_ratio_constant_none_for_zero() {
+        let mut n = norm(3);
+        for v in [dec!(0), dec!(0), dec!(0)] { n.update(v); }
+        assert!(n.window_range_ratio().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_range_ratio_equal_values() {
+        let mut n = norm(3);
+        for v in [dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        let r = n.window_range_ratio().unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "expected 1.0, got {}", r);
+    }
+
+    #[test]
+    fn test_minmax_window_above_mean_streak_none_for_empty() {
+        let n = norm(4);
+        assert!(n.window_above_mean_streak().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_above_mean_streak_constant_zero() {
+        let mut n = norm(3);
+        for v in [dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        // nothing strictly > mean → streak=0
+        let s = n.window_above_mean_streak().unwrap();
+        assert!((s - 0.0).abs() < 1e-9, "expected 0.0, got {}", s);
+    }
+
+    #[test]
+    fn test_minmax_window_mean_abs_diff_none_for_single() {
+        let mut n = norm(4);
+        n.update(dec!(5));
+        assert!(n.window_mean_abs_diff().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_mean_abs_diff_constant_zero() {
+        let mut n = norm(3);
+        for v in [dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        let d = n.window_mean_abs_diff().unwrap();
+        assert!((d - 0.0).abs() < 1e-9, "expected 0.0, got {}", d);
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -16655,6 +16774,57 @@ impl ZScoreNormalizer {
             s.iter().map(|&v| (v - m).powi(2)).sum::<f64>() / s.len() as f64
         };
         Some(var(&vals[mid..]) - var(&vals[..mid]))
+    }
+
+    // ── round-160 ────────────────────────────────────────────────────────────
+
+    /// Slope of EMA of window values (alpha=0.1), computed as (last_ema - first_ema) / n.
+    pub fn window_ema_slope(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let alpha = 0.1_f64;
+        let mut ema = vals[0];
+        let first_ema = ema;
+        for &v in &vals[1..] {
+            ema = alpha * v + (1.0 - alpha) * ema;
+        }
+        Some((ema - first_ema) / (vals.len() - 1) as f64)
+    }
+
+    /// Ratio of window max to window min (returns None if min is 0).
+    pub fn window_range_ratio(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let min = vals.iter().cloned().fold(f64::INFINITY, f64::min);
+        let max = vals.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        if min == 0.0 { return None; }
+        Some(max / min)
+    }
+
+    /// Longest consecutive run of values above the window mean.
+    pub fn window_above_mean_streak(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let mean = vals.iter().sum::<f64>() / vals.len() as f64;
+        let mut max_streak = 0usize;
+        let mut cur = 0usize;
+        for &v in &vals {
+            if v > mean { cur += 1; if cur > max_streak { max_streak = cur; } }
+            else { cur = 0; }
+        }
+        Some(max_streak as f64)
+    }
+
+    /// Mean absolute difference between consecutive window values.
+    pub fn window_mean_abs_diff(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let diffs: Vec<f64> = vals.windows(2).map(|w| (w[1] - w[0]).abs()).collect();
+        Some(diffs.iter().sum::<f64>() / diffs.len() as f64)
     }
 
 }
@@ -22780,5 +22950,65 @@ mod zscore_stability_tests {
         for v in [dec!(5), dec!(5), dec!(5), dec!(5)] { n.update(v); }
         let vc = n.window_variance_change().unwrap();
         assert!((vc - 0.0).abs() < 1e-9, "expected 0.0, got {}", vc);
+    }
+
+    // ── round-160 ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_zscore_window_ema_slope_none_for_single() {
+        let mut n = znorm(4);
+        n.update(dec!(5));
+        assert!(n.window_ema_slope().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_ema_slope_constant_zero() {
+        let mut n = znorm(3);
+        for v in [dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        let s = n.window_ema_slope().unwrap();
+        assert!((s - 0.0).abs() < 1e-9, "expected 0.0, got {}", s);
+    }
+
+    #[test]
+    fn test_zscore_window_range_ratio_none_for_empty() {
+        let n = znorm(4);
+        assert!(n.window_range_ratio().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_range_ratio_equal_values() {
+        let mut n = znorm(3);
+        for v in [dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        let r = n.window_range_ratio().unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "expected 1.0, got {}", r);
+    }
+
+    #[test]
+    fn test_zscore_window_above_mean_streak_none_for_empty() {
+        let n = znorm(4);
+        assert!(n.window_above_mean_streak().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_above_mean_streak_constant_zero() {
+        let mut n = znorm(3);
+        for v in [dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        let s = n.window_above_mean_streak().unwrap();
+        assert!((s - 0.0).abs() < 1e-9, "expected 0.0, got {}", s);
+    }
+
+    #[test]
+    fn test_zscore_window_mean_abs_diff_none_for_single() {
+        let mut n = znorm(4);
+        n.update(dec!(5));
+        assert!(n.window_mean_abs_diff().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_mean_abs_diff_constant_zero() {
+        let mut n = znorm(3);
+        for v in [dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        let d = n.window_mean_abs_diff().unwrap();
+        assert!((d - 0.0).abs() < 1e-9, "expected 0.0, got {}", d);
     }
 }
