@@ -9856,6 +9856,41 @@ impl OhlcvBar {
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
+    /// Mean body size as fraction of range: |close - open| / (high - low).
+    pub fn bar_candle_body_pct(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let vals: Vec<f64> = bars.iter().filter_map(|b| {
+            let range = (b.high - b.low).to_f64()?;
+            if range == 0.0 { return None; }
+            let body = (b.close - b.open).abs().to_f64()?;
+            Some(body / range)
+        }).collect();
+        if vals.is_empty() { return None; }
+        Some(vals.iter().sum::<f64>() / vals.len() as f64)
+    }
+
+    /// Fraction of bars with volume above the mean bar volume.
+    pub fn bar_vol_above_avg_pct(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let vols: Vec<f64> = bars.iter().filter_map(|b| b.volume.to_f64()).collect();
+        if vols.is_empty() { return None; }
+        let mean = vols.iter().sum::<f64>() / vols.len() as f64;
+        let above = vols.iter().filter(|&&v| v > mean).count();
+        Some(above as f64 / vols.len() as f64)
+    }
+
+    /// Fraction of consecutive bar pairs where close direction is consistent (trend persistence).
+    pub fn bar_trend_consistency(bars: &[OhlcvBar]) -> Option<f64> {
+        if bars.len() < 2 { return None; }
+        let n = bars.len() - 1;
+        let consistent = bars.windows(2).filter(|w| {
+            (w[0].close > w[0].open) == (w[1].close > w[1].open)
+        }).count();
+        Some(consistent as f64 / n as f64)
+    }
+
     /// Volume trend acceleration: change in volume growth rate between halves.
     pub fn bar_vol_trend_acc(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
@@ -23913,5 +23948,49 @@ mod tests {
         let b2 = make_ohlcv_bar(dec!(105), dec!(115), dec!(95), dec!(110));
         let r = OhlcvBar::bar_high_low_std(&[b1, b2]).unwrap();
         assert!(r.abs() < 1e-9, "expected 0 got {}", r);
+    }
+
+    #[test]
+    fn test_bar_candle_body_pct_empty_none() {
+        assert!(OhlcvBar::bar_candle_body_pct(&[]).is_none());
+    }
+
+    #[test]
+    fn test_bar_candle_body_pct_returns_bounded() {
+        // body=|105-100|=5, range=20 → 0.25
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let r = OhlcvBar::bar_candle_body_pct(&[b]).unwrap();
+        assert!((r - 0.25).abs() < 1e-9, "expected 0.25 got {}", r);
+    }
+
+    #[test]
+    fn test_bar_vol_above_avg_pct_empty_none() {
+        assert!(OhlcvBar::bar_vol_above_avg_pct(&[]).is_none());
+    }
+
+    #[test]
+    fn test_bar_vol_above_avg_pct_returns_bounded() {
+        let mut b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        b1.volume = dec!(2);
+        let mut b2 = make_ohlcv_bar(dec!(105), dec!(115), dec!(95), dec!(110));
+        b2.volume = dec!(10);
+        // mean=6, above: b2 → 1/2=0.5
+        let r = OhlcvBar::bar_vol_above_avg_pct(&[b1, b2]).unwrap();
+        assert!((r - 0.5).abs() < 1e-9, "expected 0.5 got {}", r);
+    }
+
+    #[test]
+    fn test_bar_trend_consistency_too_few_none() {
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        assert!(OhlcvBar::bar_trend_consistency(&[b]).is_none());
+    }
+
+    #[test]
+    fn test_bar_trend_consistency_all_bull() {
+        let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let b2 = make_ohlcv_bar(dec!(105), dec!(115), dec!(95), dec!(112));
+        let b3 = make_ohlcv_bar(dec!(112), dec!(122), dec!(102), dec!(118));
+        let r = OhlcvBar::bar_trend_consistency(&[b1, b2, b3]).unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "expected 1.0 got {}", r);
     }
 }

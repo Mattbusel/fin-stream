@@ -8151,6 +8151,52 @@ impl MinMaxNormalizer {
         Some((max - min) / mean)
     }
 
+    /// Fraction of values crossing above EMA at any point in the window.
+    pub fn window_cross_ema(&self) -> Option<f64> {
+        if self.window.len() < 2 { return None; }
+        use rust_decimal::prelude::ToPrimitive;
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.len() < 2 { return None; }
+        let alpha = 2.0 / (vals.len() as f64 + 1.0);
+        let mut ema = vals[0];
+        let mut crossings = 0usize;
+        let mut prev_above = vals[0] > ema;
+        for &v in &vals[1..] {
+            ema = alpha * v + (1.0 - alpha) * ema;
+            let curr_above = v > ema;
+            if curr_above != prev_above { crossings += 1; }
+            prev_above = curr_above;
+        }
+        Some(crossings as f64 / (vals.len() - 1) as f64)
+    }
+
+    /// Mean length of consecutive up-runs (rising sequences).
+    pub fn window_mean_run_up(&self) -> Option<f64> {
+        if self.window.len() < 2 { return None; }
+        use rust_decimal::prelude::ToPrimitive;
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.len() < 2 { return None; }
+        let mut runs: Vec<usize> = Vec::new();
+        let mut cur = 0usize;
+        for w in vals.windows(2) {
+            if w[1] > w[0] { cur += 1; } else if cur > 0 { runs.push(cur); cur = 0; }
+        }
+        if cur > 0 { runs.push(cur); }
+        if runs.is_empty() { return Some(0.0); }
+        Some(runs.iter().sum::<usize>() as f64 / runs.len() as f64)
+    }
+
+    /// Flatness score: fraction of consecutive pairs with no change.
+    pub fn window_flatness(&self) -> Option<f64> {
+        if self.window.len() < 2 { return None; }
+        use rust_decimal::prelude::ToPrimitive;
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.len() < 2 { return None; }
+        let n = vals.len() - 1;
+        let flat = vals.windows(2).filter(|w| (w[1] - w[0]).abs() < 1e-12).count();
+        Some(flat as f64 / n as f64)
+    }
+
 }
 
 #[cfg(test)]
@@ -17637,6 +17683,52 @@ mod tests {
         let r = n.window_norm_range().unwrap();
         assert!(r.abs() < 1e-9, "expected 0 got {}", r);
     }
+
+    #[test]
+    fn test_minmax_window_cross_ema_none_single() {
+        let mut n = norm(5);
+        n.update(dec!(10));
+        assert!(n.window_cross_ema().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_cross_ema_returns_bounded() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(10), dec!(1), dec!(10)] { n.update(v); }
+        let r = n.window_cross_ema().unwrap();
+        assert!(r >= 0.0 && r <= 1.0);
+    }
+
+    #[test]
+    fn test_minmax_window_mean_run_up_none_single() {
+        let mut n = norm(5);
+        n.update(dec!(5));
+        assert!(n.window_mean_run_up().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_mean_run_up_all_down_zero() {
+        let mut n = norm(4);
+        for v in [dec!(4), dec!(3), dec!(2), dec!(1)] { n.update(v); }
+        // no up-runs → returns 0.0
+        let r = n.window_mean_run_up().unwrap();
+        assert!(r.abs() < 1e-9, "expected 0 got {}", r);
+    }
+
+    #[test]
+    fn test_minmax_window_flatness_none_single() {
+        let mut n = norm(5);
+        n.update(dec!(5));
+        assert!(n.window_flatness().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_flatness_all_flat_one() {
+        let mut n = norm(4);
+        for _ in 0..4 { n.update(dec!(5)); }
+        let r = n.window_flatness().unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "expected 1.0 got {}", r);
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -25733,6 +25825,52 @@ impl ZScoreNormalizer {
         let min = vals.iter().cloned().fold(f64::INFINITY, f64::min);
         let max = vals.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
         Some((max - min) / mean)
+    }
+
+    /// Fraction of values crossing above EMA at any point in the window.
+    pub fn window_cross_ema(&self) -> Option<f64> {
+        if self.window.len() < 2 { return None; }
+        use rust_decimal::prelude::ToPrimitive;
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.len() < 2 { return None; }
+        let alpha = 2.0 / (vals.len() as f64 + 1.0);
+        let mut ema = vals[0];
+        let mut crossings = 0usize;
+        let mut prev_above = vals[0] > ema;
+        for &v in &vals[1..] {
+            ema = alpha * v + (1.0 - alpha) * ema;
+            let curr_above = v > ema;
+            if curr_above != prev_above { crossings += 1; }
+            prev_above = curr_above;
+        }
+        Some(crossings as f64 / (vals.len() - 1) as f64)
+    }
+
+    /// Mean length of consecutive up-runs (rising sequences).
+    pub fn window_mean_run_up(&self) -> Option<f64> {
+        if self.window.len() < 2 { return None; }
+        use rust_decimal::prelude::ToPrimitive;
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.len() < 2 { return None; }
+        let mut runs: Vec<usize> = Vec::new();
+        let mut cur = 0usize;
+        for w in vals.windows(2) {
+            if w[1] > w[0] { cur += 1; } else if cur > 0 { runs.push(cur); cur = 0; }
+        }
+        if cur > 0 { runs.push(cur); }
+        if runs.is_empty() { return Some(0.0); }
+        Some(runs.iter().sum::<usize>() as f64 / runs.len() as f64)
+    }
+
+    /// Flatness score: fraction of consecutive pairs with no change.
+    pub fn window_flatness(&self) -> Option<f64> {
+        if self.window.len() < 2 { return None; }
+        use rust_decimal::prelude::ToPrimitive;
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.len() < 2 { return None; }
+        let n = vals.len() - 1;
+        let flat = vals.windows(2).filter(|w| (w[1] - w[0]).abs() < 1e-12).count();
+        Some(flat as f64 / n as f64)
     }
 
 }
@@ -35165,5 +35303,50 @@ mod zscore_stability_tests {
         for _ in 0..3 { n.update(dec!(10)); }
         let r = n.window_norm_range().unwrap();
         assert!(r.abs() < 1e-9, "expected 0 got {}", r);
+    }
+
+    #[test]
+    fn test_zscore_window_cross_ema_none_single() {
+        let mut n = znorm(5);
+        n.update(dec!(10));
+        assert!(n.window_cross_ema().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_cross_ema_returns_bounded() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(10), dec!(1), dec!(10)] { n.update(v); }
+        let r = n.window_cross_ema().unwrap();
+        assert!(r >= 0.0 && r <= 1.0);
+    }
+
+    #[test]
+    fn test_zscore_window_mean_run_up_none_single() {
+        let mut n = znorm(5);
+        n.update(dec!(5));
+        assert!(n.window_mean_run_up().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_mean_run_up_all_down_zero() {
+        let mut n = znorm(4);
+        for v in [dec!(4), dec!(3), dec!(2), dec!(1)] { n.update(v); }
+        let r = n.window_mean_run_up().unwrap();
+        assert!(r.abs() < 1e-9, "expected 0 got {}", r);
+    }
+
+    #[test]
+    fn test_zscore_window_flatness_none_single() {
+        let mut n = znorm(5);
+        n.update(dec!(5));
+        assert!(n.window_flatness().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_flatness_all_flat_one() {
+        let mut n = znorm(4);
+        for _ in 0..4 { n.update(dec!(5)); }
+        let r = n.window_flatness().unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "expected 1.0 got {}", r);
     }
 }

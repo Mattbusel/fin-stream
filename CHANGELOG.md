@@ -9,6 +9,28 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.10.72] - 2026-03-20
+
+### Added
+
+**`tick` module — `NormalizedTick` analytics (round 221)**
+- `NormalizedTick::tick_spread_mean(ticks)` — mean absolute price gap between consecutive ticks.
+- `NormalizedTick::tick_buy_qty_pct(ticks)` — buy-side quantity as fraction of total quantity.
+- `NormalizedTick::tick_last_qty_rel(ticks)` — last tick quantity relative to window mean.
+- `NormalizedTick::tick_price_above_open_pct(ticks)` — fraction of ticks priced above the opening tick.
+
+**`ohlcv` module — `OhlcvBar` analytics (round 221)**
+- `OhlcvBar::bar_candle_body_pct(bars)` — mean body size as fraction of bar range.
+- `OhlcvBar::bar_vol_above_avg_pct(bars)` — fraction of bars with volume above mean bar volume.
+- `OhlcvBar::bar_trend_consistency(bars)` — fraction of consecutive bar pairs with same close direction.
+
+**`norm` module — `MinMaxNormalizer` + `ZScoreNormalizer` analytics (round 221)**
+- `window_cross_ema()` — fraction of window pairs where value crosses above/below EMA.
+- `window_mean_run_up()` — mean length of consecutive rising sub-sequences.
+- `window_flatness()` — fraction of consecutive pairs with no change (flatness score).
+
+---
+
 ## [2.10.71] - 2026-03-20
 
 ### Added
