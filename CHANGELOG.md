@@ -9,6 +9,30 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.10.43] - 2026-03-20
+
+### Added
+
+**`tick` module — `NormalizedTick` analytics (round 192)**
+- `NormalizedTick::tick_buy_qty_mean(ticks)` — mean quantity of buy-side ticks.
+- `NormalizedTick::tick_sell_qty_mean(ticks)` — mean quantity of sell-side ticks.
+- `NormalizedTick::price_return_autocorr(ticks)` — lag-1 autocorrelation of price returns.
+- `NormalizedTick::tick_side_vol_entropy(ticks)` — Shannon entropy of buy/sell volume split.
+
+**`ohlcv` module — `OhlcvBar` analytics (round 192)**
+- `OhlcvBar::bar_close_prev_midpoint(bars)` — mean |close - (prev_high + prev_low) / 2|.
+- `OhlcvBar::bar_wicks_to_range(bars)` — mean total wick / HL range per bar.
+- `OhlcvBar::bar_high_to_open_close(bars)` — mean upper shadow / HL range per bar.
+- `OhlcvBar::bar_body_progression(bars)` — mean change in (close - open) between bars.
+
+**`norm` module — `MinMaxNormalizer` + `ZScoreNormalizer` analytics (round 192)**
+- `window_decreasing_run()` — length of the longest consecutive decreasing run.
+- `window_flat_fraction()` — fraction of consecutive pairs with equal values.
+- `window_signed_momentum()` — signed change from first to last window value.
+- `window_value_concentration()` — max value / sum of absolute values.
+
+---
+
 ## [2.10.42] - 2026-03-20
 
 ### Added

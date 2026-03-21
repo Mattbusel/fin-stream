@@ -9596,6 +9596,62 @@ impl NormalizedTick {
         Some(ups as f64 / (prices.len() - 1) as f64)
     }
 
+    /// Mean quantity of buy-side ticks.
+    pub fn tick_buy_qty_mean(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let buys: Vec<f64> = ticks.iter()
+            .filter(|t| t.side == Some(TradeSide::Buy))
+            .filter_map(|t| t.quantity.to_f64())
+            .collect();
+        if buys.is_empty() { return None; }
+        Some(buys.iter().sum::<f64>() / buys.len() as f64)
+    }
+
+    /// Mean quantity of sell-side ticks.
+    pub fn tick_sell_qty_mean(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let sells: Vec<f64> = ticks.iter()
+            .filter(|t| t.side == Some(TradeSide::Sell))
+            .filter_map(|t| t.quantity.to_f64())
+            .collect();
+        if sells.is_empty() { return None; }
+        Some(sells.iter().sum::<f64>() / sells.len() as f64)
+    }
+
+    /// Lag-1 autocorrelation of price returns.
+    pub fn price_return_autocorr(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 3 { return None; }
+        let prices: Vec<f64> = ticks.iter().filter_map(|t| t.price.to_f64()).collect();
+        if prices.len() < 3 { return None; }
+        let rets: Vec<f64> = prices.windows(2).map(|w| w[1] - w[0]).collect();
+        if rets.len() < 2 { return None; }
+        let n = (rets.len() - 1) as f64;
+        let mean = rets.iter().sum::<f64>() / rets.len() as f64;
+        let num: f64 = rets.windows(2).map(|w| (w[0] - mean) * (w[1] - mean)).sum();
+        let den: f64 = rets.iter().map(|r| (r - mean).powi(2)).sum();
+        if den == 0.0 { return None; }
+        Some(num / den * rets.len() as f64 / n)
+    }
+
+    /// Shannon entropy of buy/sell volume distribution.
+    pub fn tick_side_vol_entropy(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() { return None; }
+        let buy_vol: f64 = ticks.iter()
+            .filter(|t| t.side == Some(TradeSide::Buy))
+            .filter_map(|t| t.quantity.to_f64())
+            .sum();
+        let sell_vol: f64 = ticks.iter()
+            .filter(|t| t.side == Some(TradeSide::Sell))
+            .filter_map(|t| t.quantity.to_f64())
+            .sum();
+        let total = buy_vol + sell_vol;
+        if total == 0.0 { return None; }
+        let entropy = |p: f64| if p > 0.0 { -p * p.ln() } else { 0.0 };
+        Some(entropy(buy_vol / total) + entropy(sell_vol / total))
+    }
+
 }
 
 
@@ -21861,5 +21917,100 @@ mod tests {
         ];
         let p = NormalizedTick::price_consecutive_up_pct(&ticks).unwrap();
         assert!(p.abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_tick_buy_qty_mean_empty_none() {
+        assert!(NormalizedTick::tick_buy_qty_mean(&[]).is_none());
+    }
+
+    #[test]
+    fn test_tick_buy_qty_mean_no_buys_none() {
+        use rust_decimal_macros::dec;
+        let mut t = make_tick_pq(dec!(100), dec!(5));
+        t.side = Some(TradeSide::Sell);
+        assert!(NormalizedTick::tick_buy_qty_mean(&[t]).is_none());
+    }
+
+    #[test]
+    fn test_tick_buy_qty_mean_value() {
+        use rust_decimal_macros::dec;
+        let mut b1 = make_tick_pq(dec!(100), dec!(4));
+        b1.side = Some(TradeSide::Buy);
+        let mut b2 = make_tick_pq(dec!(101), dec!(6));
+        b2.side = Some(TradeSide::Buy);
+        let r = NormalizedTick::tick_buy_qty_mean(&[b1, b2]).unwrap();
+        assert!((r - 5.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_tick_sell_qty_mean_empty_none() {
+        assert!(NormalizedTick::tick_sell_qty_mean(&[]).is_none());
+    }
+
+    #[test]
+    fn test_tick_sell_qty_mean_value() {
+        use rust_decimal_macros::dec;
+        let mut s = make_tick_pq(dec!(100), dec!(10));
+        s.side = Some(TradeSide::Sell);
+        let r = NormalizedTick::tick_sell_qty_mean(&[s]).unwrap();
+        assert!((r - 10.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_price_return_autocorr_too_few_none() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![make_tick_pq(dec!(100), dec!(1)), make_tick_pq(dec!(101), dec!(1))];
+        assert!(NormalizedTick::price_return_autocorr(&ticks).is_none());
+    }
+
+    #[test]
+    fn test_price_return_autocorr_constant_none() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(100), dec!(1)),
+        ];
+        assert!(NormalizedTick::price_return_autocorr(&ticks).is_none());
+    }
+
+    #[test]
+    fn test_price_return_autocorr_returns_value() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(102), dec!(1)),
+            make_tick_pq(dec!(101), dec!(1)),
+            make_tick_pq(dec!(103), dec!(1)),
+        ];
+        assert!(NormalizedTick::price_return_autocorr(&ticks).is_some());
+    }
+
+    #[test]
+    fn test_tick_side_vol_entropy_empty_none() {
+        assert!(NormalizedTick::tick_side_vol_entropy(&[]).is_none());
+    }
+
+    #[test]
+    fn test_tick_side_vol_entropy_all_one_side_zero() {
+        use rust_decimal_macros::dec;
+        let mut t = make_tick_pq(dec!(100), dec!(5));
+        t.side = Some(TradeSide::Buy);
+        // Only buy → entropy = 0 (max imbalance)
+        let r = NormalizedTick::tick_side_vol_entropy(&[t]).unwrap();
+        assert!(r.abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_tick_side_vol_entropy_balanced_max() {
+        use rust_decimal_macros::dec;
+        let mut buy = make_tick_pq(dec!(100), dec!(5));
+        buy.side = Some(TradeSide::Buy);
+        let mut sell = make_tick_pq(dec!(100), dec!(5));
+        sell.side = Some(TradeSide::Sell);
+        let r = NormalizedTick::tick_side_vol_entropy(&[buy, sell]).unwrap();
+        // balanced → entropy = ln(2)
+        assert!((r - std::f64::consts::LN_2).abs() < 1e-9);
     }
 }

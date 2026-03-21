@@ -6850,6 +6850,49 @@ impl MinMaxNormalizer {
         Some((mean - min) / range)
     }
 
+    /// Length of the longest consecutive decreasing run in the window.
+    pub fn window_decreasing_run(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let mut max_run = 1usize;
+        let mut cur_run = 1usize;
+        for i in 1..vals.len() {
+            if vals[i] < vals[i - 1] { cur_run += 1; } else { cur_run = 1; }
+            if cur_run > max_run { max_run = cur_run; }
+        }
+        Some(max_run as f64)
+    }
+
+    /// Fraction of consecutive pairs where values are equal.
+    pub fn window_flat_fraction(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let flat = vals.windows(2).filter(|w| (w[0] - w[1]).abs() < 1e-12).count();
+        Some(flat as f64 / (vals.len() - 1) as f64)
+    }
+
+    /// Signed momentum: last - first.
+    pub fn window_signed_momentum(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let first = self.window.front()?.to_f64()?;
+        let last = self.window.back()?.to_f64()?;
+        Some(last - first)
+    }
+
+    /// Value concentration: max value / sum of values.
+    pub fn window_value_concentration(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let total: f64 = vals.iter().map(|v| v.abs()).sum();
+        if total == 0.0 { return None; }
+        let max = vals.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        Some(max / total)
+    }
+
 }
 
 #[cfg(test)]
@@ -14896,6 +14939,65 @@ mod tests {
         let r = n.window_range_bias().unwrap();
         assert!((r - 0.5).abs() < 1e-9);
     }
+
+    #[test]
+    fn test_minmax_window_decreasing_run_none_for_single() {
+        let mut n = norm(4);
+        n.update(dec!(5));
+        assert!(n.window_decreasing_run().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_decreasing_run_all_decreasing() {
+        let mut n = norm(4);
+        for v in [dec!(3), dec!(2), dec!(1)] { n.update(v); }
+        let r = n.window_decreasing_run().unwrap();
+        assert_eq!(r, 3.0);
+    }
+
+    #[test]
+    fn test_minmax_window_flat_fraction_none_for_single() {
+        let mut n = norm(4);
+        n.update(dec!(5));
+        assert!(n.window_flat_fraction().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_flat_fraction_all_flat() {
+        let mut n = norm(4);
+        for v in [dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        let r = n.window_flat_fraction().unwrap();
+        assert!((r - 1.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_minmax_window_signed_momentum_none_for_single() {
+        let mut n = norm(4);
+        n.update(dec!(5));
+        assert!(n.window_signed_momentum().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_signed_momentum_value() {
+        let mut n = norm(4);
+        for v in [dec!(3), dec!(7)] { n.update(v); }
+        let r = n.window_signed_momentum().unwrap();
+        assert!((r - 4.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_minmax_window_value_concentration_none_for_empty() {
+        let n = norm(4);
+        assert!(n.window_value_concentration().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_value_concentration_equal_values() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(1), dec!(1), dec!(1)] { n.update(v); }
+        let r = n.window_value_concentration().unwrap();
+        assert!((r - 0.25).abs() < 1e-9);
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -21694,6 +21796,49 @@ impl ZScoreNormalizer {
         if range == 0.0 { return None; }
         let mean = vals.iter().sum::<f64>() / vals.len() as f64;
         Some((mean - min) / range)
+    }
+
+    /// Length of the longest consecutive decreasing run in the window.
+    pub fn window_decreasing_run(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let mut max_run = 1usize;
+        let mut cur_run = 1usize;
+        for i in 1..vals.len() {
+            if vals[i] < vals[i - 1] { cur_run += 1; } else { cur_run = 1; }
+            if cur_run > max_run { max_run = cur_run; }
+        }
+        Some(max_run as f64)
+    }
+
+    /// Fraction of consecutive pairs where values are equal.
+    pub fn window_flat_fraction(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let flat = vals.windows(2).filter(|w| (w[0] - w[1]).abs() < 1e-12).count();
+        Some(flat as f64 / (vals.len() - 1) as f64)
+    }
+
+    /// Signed momentum: last - first.
+    pub fn window_signed_momentum(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let first = self.window.front()?.to_f64()?;
+        let last = self.window.back()?.to_f64()?;
+        Some(last - first)
+    }
+
+    /// Value concentration: max value / sum of values.
+    pub fn window_value_concentration(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let total: f64 = vals.iter().map(|v| v.abs()).sum();
+        if total == 0.0 { return None; }
+        let max = vals.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        Some(max / total)
     }
 
 }
@@ -29690,5 +29835,64 @@ mod zscore_stability_tests {
         for v in [dec!(0), dec!(10)] { n.update(v); }
         let r = n.window_range_bias().unwrap();
         assert!((r - 0.5).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_zscore_window_decreasing_run_none_for_single() {
+        let mut n = znorm(4);
+        n.update(dec!(5));
+        assert!(n.window_decreasing_run().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_decreasing_run_all_decreasing() {
+        let mut n = znorm(4);
+        for v in [dec!(3), dec!(2), dec!(1)] { n.update(v); }
+        let r = n.window_decreasing_run().unwrap();
+        assert_eq!(r, 3.0);
+    }
+
+    #[test]
+    fn test_zscore_window_flat_fraction_none_for_single() {
+        let mut n = znorm(4);
+        n.update(dec!(5));
+        assert!(n.window_flat_fraction().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_flat_fraction_all_flat() {
+        let mut n = znorm(4);
+        for v in [dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        let r = n.window_flat_fraction().unwrap();
+        assert!((r - 1.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_zscore_window_signed_momentum_none_for_single() {
+        let mut n = znorm(4);
+        n.update(dec!(5));
+        assert!(n.window_signed_momentum().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_signed_momentum_value() {
+        let mut n = znorm(4);
+        for v in [dec!(3), dec!(7)] { n.update(v); }
+        let r = n.window_signed_momentum().unwrap();
+        assert!((r - 4.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_zscore_window_value_concentration_none_for_empty() {
+        let n = znorm(4);
+        assert!(n.window_value_concentration().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_value_concentration_equal_values() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(1), dec!(1), dec!(1)] { n.update(v); }
+        let r = n.window_value_concentration().unwrap();
+        assert!((r - 0.25).abs() < 1e-9);
     }
 }
