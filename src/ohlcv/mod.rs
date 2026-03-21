@@ -4558,6 +4558,86 @@ impl OhlcvBar {
         Some(ratios.iter().sum::<f64>() / ratios.len() as f64)
     }
 
+    // ── round-104 ────────────────────────────────────────────────────────────
+
+    /// Count of bars where the close re-enters the prior bar's range after
+    /// gapping away (gap fill): prior bar gaps up/down and current close falls
+    /// back inside the prior bar's high–low range.
+    /// Returns `None` for fewer than 2 bars.
+    pub fn gap_fill_count(bars: &[OhlcvBar]) -> Option<usize> {
+        if bars.len() < 2 {
+            return None;
+        }
+        let count = bars.windows(2).filter(|w| {
+            let prev = &w[0];
+            let curr = &w[1];
+            // Gap up then close comes back inside prior range
+            let gap_up = curr.open > prev.high && curr.close <= prev.high;
+            // Gap down then close comes back inside prior range
+            let gap_dn = curr.open < prev.low && curr.close >= prev.low;
+            gap_up || gap_dn
+        }).count();
+        Some(count)
+    }
+
+    /// Mean ratio of candle body size to bar volume across bars with non-zero volume.
+    /// Body = |close - open|. Returns `None` for an empty slice.
+    pub fn avg_body_to_volume(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let ratios: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                if b.volume.is_zero() {
+                    None
+                } else {
+                    Some(((b.close - b.open).abs() / b.volume).to_f64().unwrap_or(0.0))
+                }
+            })
+            .collect();
+        if ratios.is_empty() {
+            return None;
+        }
+        Some(ratios.iter().sum::<f64>() / ratios.len() as f64)
+    }
+
+    /// Fraction of bars where close > open of the *same* bar (bullish bars)
+    /// that also have a higher close than the previous bar (price recovery).
+    /// Returns `None` for fewer than 2 bars.
+    pub fn price_recovery_ratio(bars: &[OhlcvBar]) -> Option<f64> {
+        if bars.len() < 2 {
+            return None;
+        }
+        let bullish_count = bars[1..].iter().zip(bars.iter()).filter(|(curr, prev)| {
+            curr.close > curr.open && curr.close > prev.close
+        }).count();
+        let total = bars.len() - 1;
+        Some(bullish_count as f64 / total as f64)
+    }
+
+    /// Pearson correlation between open and close prices across bars.
+    /// Returns `None` for fewer than 2 bars or zero variance.
+    pub fn open_close_correlation(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.len() < 2 {
+            return None;
+        }
+        let n = bars.len() as f64;
+        let opens: Vec<f64> = bars.iter().filter_map(|b| b.open.to_f64()).collect();
+        let closes: Vec<f64> = bars.iter().filter_map(|b| b.close.to_f64()).collect();
+        if opens.len() != bars.len() || closes.len() != bars.len() {
+            return None;
+        }
+        let mean_o = opens.iter().sum::<f64>() / n;
+        let mean_c = closes.iter().sum::<f64>() / n;
+        let cov: f64 = opens.iter().zip(closes.iter()).map(|(o, c)| (o - mean_o) * (c - mean_c)).sum::<f64>() / n;
+        let std_o = (opens.iter().map(|o| (o - mean_o).powi(2)).sum::<f64>() / n).sqrt();
+        let std_c = (closes.iter().map(|c| (c - mean_c).powi(2)).sum::<f64>() / n).sqrt();
+        if std_o == 0.0 || std_c == 0.0 {
+            return None;
+        }
+        Some(cov / (std_o * std_c))
+    }
+
 }
 
 impl std::fmt::Display for OhlcvBar {
@@ -10942,5 +11022,66 @@ mod tests {
         let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(95), dec!(105));
         let s = OhlcvBar::shadow_ratio_score(&[b]).unwrap();
         assert!((s - 1.0).abs() < 1e-9, "expected 1.0, got {}", s);
+    }
+
+    // ── round-104 tests ───────────────────────────────────────────────────────
+
+    #[test]
+    fn test_gap_fill_count_none_for_single() {
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        assert!(OhlcvBar::gap_fill_count(&[b]).is_none());
+    }
+
+    #[test]
+    fn test_gap_fill_count_basic() {
+        // prev: high=110; curr opens at 115 (gap up) and closes at 108 (back inside prev high)
+        let prev = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let curr = make_ohlcv_bar(dec!(115), dec!(120), dec!(100), dec!(108));
+        let c = OhlcvBar::gap_fill_count(&[prev, curr]).unwrap();
+        assert_eq!(c, 1);
+    }
+
+    #[test]
+    fn test_avg_body_to_volume_none_for_empty() {
+        assert!(OhlcvBar::avg_body_to_volume(&[]).is_none());
+    }
+
+    #[test]
+    fn test_avg_body_to_volume_basic() {
+        // body = |105-100| = 5, volume = 50 → ratio = 0.1
+        let mut b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        b.volume = dec!(50);
+        let r = OhlcvBar::avg_body_to_volume(&[b]).unwrap();
+        assert!((r - 0.1).abs() < 1e-9, "expected 0.1, got {}", r);
+    }
+
+    #[test]
+    fn test_price_recovery_ratio_none_for_single() {
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        assert!(OhlcvBar::price_recovery_ratio(&[b]).is_none());
+    }
+
+    #[test]
+    fn test_price_recovery_ratio_basic() {
+        // prev close=95; curr close=108>open=100 (bullish) and 108>95 (recovery)
+        let prev = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(95));
+        let curr = make_ohlcv_bar(dec!(100), dec!(115), dec!(90), dec!(108));
+        let r = OhlcvBar::price_recovery_ratio(&[prev, curr]).unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "expected 1.0, got {}", r);
+    }
+
+    #[test]
+    fn test_open_close_correlation_none_for_single() {
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        assert!(OhlcvBar::open_close_correlation(&[b]).is_none());
+    }
+
+    #[test]
+    fn test_open_close_correlation_perfect() {
+        // open and close move together perfectly → correlation = 1
+        let b1 = make_ohlcv_bar(dec!(100), dec!(120), dec!(90), dec!(110));
+        let b2 = make_ohlcv_bar(dec!(110), dec!(130), dec!(100), dec!(120));
+        let corr = OhlcvBar::open_close_correlation(&[b1, b2]).unwrap();
+        assert!((corr - 1.0).abs() < 1e-9, "expected 1.0, got {}", corr);
     }
 }

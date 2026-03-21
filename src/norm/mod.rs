@@ -2489,6 +2489,80 @@ impl MinMaxNormalizer {
         self.window.iter().copied().sum()
     }
 
+    // ── round-104 ────────────────────────────────────────────────────────────
+
+    /// Convexity: mean second difference `(v[i+2] - 2*v[i+1] + v[i])` across
+    /// the window. Positive = accelerating upward (concave up); negative = decelerating.
+    /// Returns `None` for fewer than 3 values.
+    pub fn window_convexity(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 3 {
+            return None;
+        }
+        let vals: Vec<Decimal> = self.window.iter().copied().collect();
+        let second_diffs: Vec<Decimal> = vals.windows(3)
+            .map(|w| w[2] - Decimal::TWO * w[1] + w[0])
+            .collect();
+        let n = second_diffs.len();
+        let mean: Decimal = second_diffs.iter().copied().sum::<Decimal>() / Decimal::from(n);
+        mean.to_f64()
+    }
+
+    /// Fraction of window values that are strictly below their immediate predecessor.
+    /// Returns `None` for fewer than 2 values.
+    pub fn below_previous_fraction(&self) -> Option<f64> {
+        if self.window.len() < 2 {
+            return None;
+        }
+        let vals: Vec<Decimal> = self.window.iter().copied().collect();
+        let count = vals.windows(2).filter(|w| w[1] < w[0]).count();
+        Some(count as f64 / (vals.len() - 1) as f64)
+    }
+
+    /// Ratio of the standard deviation of the second half of the window to the first half.
+    /// Returns `None` for fewer than 4 values or zero first-half std dev.
+    pub fn window_volatility_ratio(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 4 {
+            return None;
+        }
+        let vals: Vec<Decimal> = self.window.iter().copied().collect();
+        let mid = vals.len() / 2;
+        let std_dev = |slice: &[Decimal]| -> Option<f64> {
+            let n = slice.len() as f64;
+            let mean: f64 = slice.iter().filter_map(|v| v.to_f64()).sum::<f64>() / n;
+            let var = slice.iter().filter_map(|v| v.to_f64()).map(|v| (v - mean).powi(2)).sum::<f64>() / n;
+            Some(var.sqrt())
+        };
+        let s1 = std_dev(&vals[..mid])?;
+        let s2 = std_dev(&vals[mid..])?;
+        if s1 == 0.0 {
+            return None;
+        }
+        Some(s2 / s1)
+    }
+
+    /// Gini coefficient of the window values (measures inequality/spread).
+    /// Values in [0, 1]: 0 = all equal, 1 = maximally unequal.
+    /// Returns `None` for fewer than 2 values or zero sum.
+    pub fn window_gini(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 {
+            return None;
+        }
+        let mut vals: Vec<Decimal> = self.window.iter().copied().collect();
+        vals.sort();
+        let n = vals.len();
+        let sum: Decimal = vals.iter().copied().sum();
+        if sum.is_zero() {
+            return None;
+        }
+        let weighted: Decimal = vals.iter().enumerate()
+            .map(|(i, &v)| Decimal::from(2 * (i as i64 + 1) - n as i64 - 1) * v)
+            .sum();
+        Some((weighted / (sum * Decimal::from(n))).to_f64().unwrap_or(0.0).abs())
+    }
+
 }
 
 #[cfg(test)]
@@ -5201,6 +5275,63 @@ mod tests {
         for v in [dec!(10), dec!(20), dec!(30)] { n.update(v); }
         assert_eq!(n.window_running_total(), dec!(60));
     }
+
+    // ── round-104 tests ───────────────────────────────────────────────────────
+
+    #[test]
+    fn test_minmax_window_convexity_none_for_two_vals() {
+        let mut n = norm(5);
+        for v in [dec!(10), dec!(20)] { n.update(v); }
+        assert!(n.window_convexity().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_convexity_linear() {
+        let mut n = norm(5);
+        // Linear sequence: second differences = 0
+        for v in [dec!(10), dec!(20), dec!(30)] { n.update(v); }
+        let c = n.window_convexity().unwrap();
+        assert!(c.abs() < 1e-9, "expected ~0, got {}", c);
+    }
+
+    #[test]
+    fn test_minmax_below_previous_fraction_none_for_single() {
+        let mut n = norm(5);
+        n.update(dec!(10));
+        assert!(n.below_previous_fraction().is_none());
+    }
+
+    #[test]
+    fn test_minmax_below_previous_fraction_basic() {
+        let mut n = norm(5);
+        for v in [dec!(30), dec!(20), dec!(10)] { n.update(v); }
+        // all steps go down: 2/2 = 1.0
+        let f = n.below_previous_fraction().unwrap();
+        assert!((f - 1.0).abs() < 1e-9, "expected 1.0, got {}", f);
+    }
+
+    #[test]
+    fn test_minmax_window_volatility_ratio_none_for_three() {
+        let mut n = norm(5);
+        for v in [dec!(10), dec!(20), dec!(30)] { n.update(v); }
+        assert!(n.window_volatility_ratio().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_gini_none_for_single() {
+        let mut n = norm(5);
+        n.update(dec!(10));
+        assert!(n.window_gini().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_gini_equal_values() {
+        let mut n = norm(5);
+        for v in [dec!(10), dec!(10), dec!(10)] { n.update(v); }
+        // all equal → gini ≈ 0
+        let g = n.window_gini().unwrap();
+        assert!(g.abs() < 1e-9, "expected ~0, got {}", g);
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -7646,6 +7777,80 @@ impl ZScoreNormalizer {
     /// Running total (sum) of all values in the window.
     pub fn window_running_total(&self) -> Decimal {
         self.window.iter().copied().sum()
+    }
+
+    // ── round-104 ────────────────────────────────────────────────────────────
+
+    /// Convexity: mean second difference `(v[i+2] - 2*v[i+1] + v[i])` across
+    /// the window. Positive = accelerating upward; negative = decelerating.
+    /// Returns `None` for fewer than 3 values.
+    pub fn window_convexity(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 3 {
+            return None;
+        }
+        let vals: Vec<Decimal> = self.window.iter().copied().collect();
+        let second_diffs: Vec<Decimal> = vals.windows(3)
+            .map(|w| w[2] - Decimal::TWO * w[1] + w[0])
+            .collect();
+        let n = second_diffs.len();
+        let mean: Decimal = second_diffs.iter().copied().sum::<Decimal>() / Decimal::from(n);
+        mean.to_f64()
+    }
+
+    /// Fraction of window values that are strictly below their immediate predecessor.
+    /// Returns `None` for fewer than 2 values.
+    pub fn below_previous_fraction(&self) -> Option<f64> {
+        if self.window.len() < 2 {
+            return None;
+        }
+        let vals: Vec<Decimal> = self.window.iter().copied().collect();
+        let count = vals.windows(2).filter(|w| w[1] < w[0]).count();
+        Some(count as f64 / (vals.len() - 1) as f64)
+    }
+
+    /// Ratio of the standard deviation of the second half of the window to the first half.
+    /// Returns `None` for fewer than 4 values or zero first-half std dev.
+    pub fn window_volatility_ratio(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 4 {
+            return None;
+        }
+        let vals: Vec<Decimal> = self.window.iter().copied().collect();
+        let mid = vals.len() / 2;
+        let std_dev = |slice: &[Decimal]| -> Option<f64> {
+            let n = slice.len() as f64;
+            let mean: f64 = slice.iter().filter_map(|v| v.to_f64()).sum::<f64>() / n;
+            let var = slice.iter().filter_map(|v| v.to_f64()).map(|v| (v - mean).powi(2)).sum::<f64>() / n;
+            Some(var.sqrt())
+        };
+        let s1 = std_dev(&vals[..mid])?;
+        let s2 = std_dev(&vals[mid..])?;
+        if s1 == 0.0 {
+            return None;
+        }
+        Some(s2 / s1)
+    }
+
+    /// Gini coefficient of the window values (measures inequality/spread).
+    /// Values in [0, 1]: 0 = all equal, 1 = maximally unequal.
+    /// Returns `None` for fewer than 2 values or zero sum.
+    pub fn window_gini(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 {
+            return None;
+        }
+        let mut vals: Vec<Decimal> = self.window.iter().copied().collect();
+        vals.sort();
+        let n = vals.len();
+        let sum: Decimal = vals.iter().copied().sum();
+        if sum.is_zero() {
+            return None;
+        }
+        let weighted: Decimal = vals.iter().enumerate()
+            .map(|(i, &v)| Decimal::from(2 * (i as i64 + 1) - n as i64 - 1) * v)
+            .sum();
+        Some((weighted / (sum * Decimal::from(n))).to_f64().unwrap_or(0.0).abs())
     }
 
 }
@@ -10499,5 +10704,59 @@ mod zscore_stability_tests {
         let mut n = znorm(5);
         for v in [dec!(10), dec!(20), dec!(30)] { n.update(v); }
         assert_eq!(n.window_running_total(), dec!(60));
+    }
+
+    // ── round-104 tests ───────────────────────────────────────────────────────
+
+    #[test]
+    fn test_zscore_window_convexity_none_for_two_vals() {
+        let mut n = znorm(5);
+        for v in [dec!(10), dec!(20)] { n.update(v); }
+        assert!(n.window_convexity().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_convexity_linear() {
+        let mut n = znorm(5);
+        for v in [dec!(10), dec!(20), dec!(30)] { n.update(v); }
+        let c = n.window_convexity().unwrap();
+        assert!(c.abs() < 1e-9, "expected ~0, got {}", c);
+    }
+
+    #[test]
+    fn test_zscore_below_previous_fraction_none_for_single() {
+        let mut n = znorm(5);
+        n.update(dec!(10));
+        assert!(n.below_previous_fraction().is_none());
+    }
+
+    #[test]
+    fn test_zscore_below_previous_fraction_basic() {
+        let mut n = znorm(5);
+        for v in [dec!(30), dec!(20), dec!(10)] { n.update(v); }
+        let f = n.below_previous_fraction().unwrap();
+        assert!((f - 1.0).abs() < 1e-9, "expected 1.0, got {}", f);
+    }
+
+    #[test]
+    fn test_zscore_window_volatility_ratio_none_for_three() {
+        let mut n = znorm(5);
+        for v in [dec!(10), dec!(20), dec!(30)] { n.update(v); }
+        assert!(n.window_volatility_ratio().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_gini_none_for_single() {
+        let mut n = znorm(5);
+        n.update(dec!(10));
+        assert!(n.window_gini().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_gini_equal_values() {
+        let mut n = znorm(5);
+        for v in [dec!(10), dec!(10), dec!(10)] { n.update(v); }
+        let g = n.window_gini().unwrap();
+        assert!(g.abs() < 1e-9, "expected ~0, got {}", g);
     }
 }

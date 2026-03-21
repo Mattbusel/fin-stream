@@ -4620,6 +4620,56 @@ impl NormalizedTick {
         Some(range / span_ms as f64)
     }
 
+    // ── round-104 ────────────────────────────────────────────────────────────
+
+    /// 75th-percentile trade quantity across the slice.
+    /// Returns `None` for an empty slice.
+    pub fn qty_percentile_75(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() {
+            return None;
+        }
+        let mut sorted: Vec<Decimal> = ticks.iter().map(|t| t.quantity).collect();
+        sorted.sort();
+        let idx = ((sorted.len() as f64 * 0.75).ceil() as usize).saturating_sub(1);
+        sorted[idx.min(sorted.len() - 1)].to_f64()
+    }
+
+    /// Count of ticks whose quantity exceeds the mean quantity of the slice.
+    /// Returns `None` for an empty slice.
+    pub fn large_qty_count(ticks: &[NormalizedTick]) -> Option<usize> {
+        if ticks.is_empty() {
+            return None;
+        }
+        let total: Decimal = ticks.iter().map(|t| t.quantity).sum();
+        let mean = total / Decimal::from(ticks.len());
+        Some(ticks.iter().filter(|t| t.quantity > mean).count())
+    }
+
+    /// Root mean square of prices: `sqrt(mean(price^2))`.
+    /// Returns `None` for an empty slice.
+    pub fn price_rms(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() {
+            return None;
+        }
+        let sum_sq: Decimal = ticks.iter().map(|t| t.price * t.price).sum();
+        let mean_sq = sum_sq / Decimal::from(ticks.len());
+        mean_sq.to_f64().map(f64::sqrt)
+    }
+
+    /// Count of ticks, weighted by quantity — i.e. the total quantity,
+    /// expressed as a simple scalar (equivalent to `sum(quantity)`).
+    /// Returns `None` for an empty slice.
+    pub fn weighted_tick_count(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() {
+            return None;
+        }
+        let total: Decimal = ticks.iter().map(|t| t.quantity).sum();
+        total.to_f64()
+    }
+
 }
 
 
@@ -10636,5 +10686,77 @@ mod tests {
         // speed = (110-100) / 100ms = 0.1
         let s = NormalizedTick::tick_speed(&[t1, t2]).unwrap();
         assert!((s - 0.1).abs() < 1e-9, "expected 0.1, got {}", s);
+    }
+
+    // ── round-104 tests ───────────────────────────────────────────────────────
+
+    #[test]
+    fn test_qty_percentile_75_none_for_empty() {
+        assert!(NormalizedTick::qty_percentile_75(&[]).is_none());
+    }
+
+    #[test]
+    fn test_qty_percentile_75_basic() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(100), dec!(2)),
+            make_tick_pq(dec!(100), dec!(3)),
+            make_tick_pq(dec!(100), dec!(4)),
+        ];
+        // sorted: [1,2,3,4], 75th percentile index = ceil(4*0.75)-1 = 3-1=2 → val=3
+        let p = NormalizedTick::qty_percentile_75(&ticks).unwrap();
+        assert!((p - 3.0).abs() < 1e-9, "expected 3.0, got {}", p);
+    }
+
+    #[test]
+    fn test_large_qty_count_none_for_empty() {
+        assert!(NormalizedTick::large_qty_count(&[]).is_none());
+    }
+
+    #[test]
+    fn test_large_qty_count_basic() {
+        use rust_decimal_macros::dec;
+        // mean = (1+2+3)/3 = 2; only qty=3 is above mean
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(100), dec!(2)),
+            make_tick_pq(dec!(100), dec!(3)),
+        ];
+        let c = NormalizedTick::large_qty_count(&ticks).unwrap();
+        assert_eq!(c, 1);
+    }
+
+    #[test]
+    fn test_price_rms_none_for_empty() {
+        assert!(NormalizedTick::price_rms(&[]).is_none());
+    }
+
+    #[test]
+    fn test_price_rms_basic() {
+        use rust_decimal_macros::dec;
+        // rms of [3, 4] = sqrt((9+16)/2) = sqrt(12.5) ≈ 3.5355
+        let ticks = vec![
+            make_tick_pq(dec!(3), dec!(1)),
+            make_tick_pq(dec!(4), dec!(1)),
+        ];
+        let r = NormalizedTick::price_rms(&ticks).unwrap();
+        assert!((r - 12.5_f64.sqrt()).abs() < 1e-9, "expected sqrt(12.5), got {}", r);
+    }
+
+    #[test]
+    fn test_weighted_tick_count_none_for_empty() {
+        assert!(NormalizedTick::weighted_tick_count(&[]).is_none());
+    }
+
+    #[test]
+    fn test_weighted_tick_count_basic() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(5)),
+            make_tick_pq(dec!(100), dec!(3)),
+        ];
+        let w = NormalizedTick::weighted_tick_count(&ticks).unwrap();
+        assert!((w - 8.0).abs() < 1e-9, "expected 8.0, got {}", w);
     }
 }

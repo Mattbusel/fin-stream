@@ -9,6 +9,36 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.5.5] - 2026-03-20
+
+### Added
+
+**`tick` module — `NormalizedTick` analytics (round 104)**
+- `NormalizedTick::qty_percentile_75(ticks)` — 75th-percentile trade quantity across the slice.
+- `NormalizedTick::large_qty_count(ticks)` — count of ticks whose quantity exceeds the mean.
+- `NormalizedTick::price_rms(ticks)` — root mean square of prices across the slice.
+- `NormalizedTick::weighted_tick_count(ticks)` — total quantity as a quantity-weighted tick count.
+
+**`ohlcv` module — `OhlcvBar` analytics (round 104)**
+- `OhlcvBar::gap_fill_count(bars)` — count of bars where close re-enters the prior bar's range after gapping.
+- `OhlcvBar::avg_body_to_volume(bars)` — mean ratio of candle body size to bar volume.
+- `OhlcvBar::price_recovery_ratio(bars)` — fraction of bullish bars that also close higher than the prior bar.
+- `OhlcvBar::open_close_correlation(bars)` — Pearson correlation between open and close prices across bars.
+
+**`norm` module — `MinMaxNormalizer` analytics (round 104)**
+- `MinMaxNormalizer::window_convexity()` — mean second difference (acceleration) across the window.
+- `MinMaxNormalizer::below_previous_fraction()` — fraction of values strictly below their predecessor.
+- `MinMaxNormalizer::window_volatility_ratio()` — std dev of second half divided by first half of the window.
+- `MinMaxNormalizer::window_gini()` — Gini coefficient measuring inequality among window values.
+
+**`norm` module — `ZScoreNormalizer` analytics (round 104)**
+- `ZScoreNormalizer::window_convexity()` — mean second difference (acceleration) across the window.
+- `ZScoreNormalizer::below_previous_fraction()` — fraction of values strictly below their predecessor.
+- `ZScoreNormalizer::window_volatility_ratio()` — std dev of second half divided by first half of the window.
+- `ZScoreNormalizer::window_gini()` — Gini coefficient measuring inequality among window values.
+
+---
+
 ## [2.5.4] - 2026-03-20
 
 ### Added
