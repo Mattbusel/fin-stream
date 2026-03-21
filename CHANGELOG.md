@@ -9,6 +9,36 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.3.3] - 2026-03-20
+
+### Added
+
+**`tick` module — `NormalizedTick` analytics (round 81)**
+- `NormalizedTick::cumulative_volume(ticks)` — running total of quantity at each tick index; returns a `Vec<Decimal>` of prefix sums.
+- `NormalizedTick::price_volatility_ratio(ticks)` — `std_dev(prices) / mean(prices)`; coefficient of variation for price; requires ≥ 2 ticks.
+- `NormalizedTick::notional_per_tick(ticks)` — mean of `price × quantity` per tick; average dollar value of a single trade.
+- `NormalizedTick::buy_to_total_volume_ratio(ticks)` — `buy_volume / total_volume`; fraction of volume classified as buy-side.
+- `NormalizedTick::avg_latency_ms(ticks)` — mean of `exchange_ts_ms − received_at_ms` for ticks that have both timestamps.
+- `NormalizedTick::price_gini(ticks)` — Gini coefficient of trade prices; 0 = all identical, 1 = maximally unequal.
+- `NormalizedTick::trade_velocity(ticks)` — trades per millisecond over the slice; `count / (last_ts − first_ts)`.
+- `NormalizedTick::floor_price(ticks)` — minimum price seen across the slice (alias for price floor support level).
+
+**`ohlcv` module — `OhlcvBar` analytics (round 81)**
+- `OhlcvBar::close_to_high_std(bars)` — std dev of `(close − low) / range` ratio across bars; requires ≥ 2 bars.
+- `OhlcvBar::avg_open_volume_ratio(bars)` — mean of `open_price / volume` per bar (price-per-unit-volume at open).
+- `OhlcvBar::typical_price_std(bars)` — std dev of `(high + low + close) / 3` across bars; requires ≥ 2 bars.
+- `OhlcvBar::vwap_deviation_avg(bars)` — mean absolute deviation of each bar's close from its VWAP (when set).
+- `OhlcvBar::avg_high_low_ratio(bars)` — mean of `high / low` per bar; > 1.0 always; larger = wider intrabar range.
+- `OhlcvBar::gap_fill_fraction(bars)` — fraction of bars (from the second onward) where the bar fills the gap from the previous close.
+- `OhlcvBar::complete_bar_count(bars)` — count of bars where `is_complete == true`.
+- `OhlcvBar::min_trade_count(bars)` — minimum `trade_count` seen across the slice.
+
+**`norm` module — `MinMaxNormalizer` and `ZScoreNormalizer` analytics (round 81)**
+- `variance_ratio() -> Option<f64>` — ratio of the variance of the first half of the window to the second half; > 1.0 = decreasing volatility.
+- `z_score_trend_slope() -> Option<f64>` — OLS slope of z-scored window values; detects directional drift in standardised space.
+
+---
+
 ## [2.3.2] - 2026-03-20
 
 ### Added
