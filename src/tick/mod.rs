@@ -3757,6 +3757,89 @@ impl NormalizedTick {
         Some(variance)
     }
 
+    // ── round-93 ─────────────────────────────────────────────────────────────
+
+    /// VWAP computed exclusively over buy-side ticks.
+    ///
+    /// Returns `None` if no buy-side ticks or buy volume is zero.
+    pub fn buy_side_vwap(ticks: &[NormalizedTick]) -> Option<Decimal> {
+        let buys: Vec<&NormalizedTick> = ticks
+            .iter()
+            .filter(|t| t.side == Some(TradeSide::Buy))
+            .collect();
+        if buys.is_empty() {
+            return None;
+        }
+        let vol: Decimal = buys.iter().map(|t| t.quantity).sum();
+        if vol.is_zero() {
+            return None;
+        }
+        Some(buys.iter().map(|t| t.price * t.quantity).sum::<Decimal>() / vol)
+    }
+
+    /// VWAP computed exclusively over sell-side ticks.
+    ///
+    /// Returns `None` if no sell-side ticks or sell volume is zero.
+    pub fn sell_side_vwap(ticks: &[NormalizedTick]) -> Option<Decimal> {
+        let sells: Vec<&NormalizedTick> = ticks
+            .iter()
+            .filter(|t| t.side == Some(TradeSide::Sell))
+            .collect();
+        if sells.is_empty() {
+            return None;
+        }
+        let vol: Decimal = sells.iter().map(|t| t.quantity).sum();
+        if vol.is_zero() {
+            return None;
+        }
+        Some(sells.iter().map(|t| t.price * t.quantity).sum::<Decimal>() / vol)
+    }
+
+    /// Coefficient of variation of inter-tick arrival gaps (ms).
+    ///
+    /// Returns `None` for fewer than 3 ticks or zero mean gap.
+    pub fn inter_tick_gap_cv(ticks: &[NormalizedTick]) -> Option<f64> {
+        if ticks.len() < 3 {
+            return None;
+        }
+        let gaps: Vec<f64> = ticks
+            .windows(2)
+            .map(|w| {
+                w[1].received_at_ms.saturating_sub(w[0].received_at_ms) as f64
+            })
+            .collect();
+        let n = gaps.len() as f64;
+        let mean = gaps.iter().sum::<f64>() / n;
+        if mean == 0.0 {
+            return None;
+        }
+        let variance = gaps.iter().map(|g| (g - mean).powi(2)).sum::<f64>() / n;
+        Some(variance.sqrt() / mean)
+    }
+
+    /// Count of ticks where price rose vs. the previous tick minus those where price fell.
+    ///
+    /// Positive = net upward momentum; negative = net downward.
+    /// Returns `None` for fewer than 2 ticks.
+    pub fn signed_tick_count(ticks: &[NormalizedTick]) -> Option<i64> {
+        if ticks.len() < 2 {
+            return None;
+        }
+        let net: i64 = ticks
+            .windows(2)
+            .map(|w| {
+                if w[1].price > w[0].price {
+                    1
+                } else if w[1].price < w[0].price {
+                    -1
+                } else {
+                    0
+                }
+            })
+            .sum();
+        Some(net)
+    }
+
 }
 
 
@@ -9047,5 +9130,56 @@ mod tests {
         ];
         let v = NormalizedTick::tick_price_variance(&ticks).unwrap();
         assert!(v.abs() < 1e-9, "constant price → variance=0, got {}", v);
+    }
+
+    // ── round-93 tests ────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_buy_side_vwap_none_for_no_buys() {
+        use rust_decimal_macros::dec;
+        let t = make_tick_pq(dec!(100), dec!(1)); // no side
+        assert!(NormalizedTick::buy_side_vwap(&[t]).is_none());
+    }
+
+    #[test]
+    fn test_buy_side_vwap_equals_price_for_single_buy() {
+        use rust_decimal_macros::dec;
+        let mut t = make_tick_pq(dec!(100), dec!(5));
+        t.side = Some(TradeSide::Buy);
+        let vwap = NormalizedTick::buy_side_vwap(&[t]).unwrap();
+        assert_eq!(vwap, dec!(100));
+    }
+
+    #[test]
+    fn test_sell_side_vwap_none_for_no_sells() {
+        use rust_decimal_macros::dec;
+        let t = make_tick_pq(dec!(100), dec!(1));
+        assert!(NormalizedTick::sell_side_vwap(&[t]).is_none());
+    }
+
+    #[test]
+    fn test_inter_tick_gap_cv_none_for_two_ticks() {
+        use rust_decimal_macros::dec;
+        let t1 = make_tick_pq(dec!(100), dec!(1));
+        let t2 = make_tick_pq(dec!(100), dec!(1));
+        assert!(NormalizedTick::inter_tick_gap_cv(&[t1, t2]).is_none());
+    }
+
+    #[test]
+    fn test_signed_tick_count_none_for_single_tick() {
+        let t = make_tick_pq(rust_decimal_macros::dec!(100), rust_decimal_macros::dec!(1));
+        assert!(NormalizedTick::signed_tick_count(&[t]).is_none());
+    }
+
+    #[test]
+    fn test_signed_tick_count_positive_for_rising() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(101), dec!(1)),
+            make_tick_pq(dec!(102), dec!(1)),
+        ];
+        let c = NormalizedTick::signed_tick_count(&ticks).unwrap();
+        assert_eq!(c, 2, "two up-ticks → +2");
     }
 }

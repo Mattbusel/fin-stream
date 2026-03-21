@@ -1844,6 +1844,26 @@ impl MinMaxNormalizer {
         Some(variance.sqrt() / mean_f.abs())
     }
 
+    // ── round-93 ─────────────────────────────────────────────────────────────
+
+    /// Sum of squared values in the rolling window.
+    pub fn window_sum_of_squares(&self) -> Decimal {
+        self.window.iter().map(|&v| v * v).sum()
+    }
+
+    /// 75th percentile of the rolling window.
+    ///
+    /// Returns `None` for an empty window.
+    pub fn percentile_75(&self) -> Option<Decimal> {
+        if self.window.is_empty() {
+            return None;
+        }
+        let mut sorted: Vec<Decimal> = self.window.iter().copied().collect();
+        sorted.sort();
+        let idx = (sorted.len() * 3) / 4;
+        Some(sorted[idx.min(sorted.len() - 1)])
+    }
+
 }
 
 #[cfg(test)]
@@ -4111,6 +4131,33 @@ mod tests {
         let cv = n.coeff_variation().unwrap();
         assert!(cv.abs() < 1e-9, "constant window → CV=0, got {}", cv);
     }
+
+    // ── round-93 tests ────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_minmax_window_sum_of_squares_zero_for_empty() {
+        assert_eq!(norm(4).window_sum_of_squares(), rust_decimal::Decimal::ZERO);
+    }
+
+    #[test]
+    fn test_minmax_window_sum_of_squares_correct() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        // 1 + 4 + 9 = 14
+        assert_eq!(n.window_sum_of_squares(), dec!(14));
+    }
+
+    #[test]
+    fn test_minmax_percentile_75_none_for_empty() {
+        assert!(norm(4).percentile_75().is_none());
+    }
+
+    #[test]
+    fn test_minmax_percentile_75_for_constant() {
+        let mut n = norm(4);
+        for _ in 0..4 { n.update(dec!(7)); }
+        assert_eq!(n.percentile_75().unwrap(), dec!(7));
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -5915,6 +5962,26 @@ impl ZScoreNormalizer {
             / n as f64;
         let mean_f = mean.to_f64()?;
         Some(variance.sqrt() / mean_f.abs())
+    }
+
+    // ── round-93 ─────────────────────────────────────────────────────────────
+
+    /// Sum of squared values in the rolling window.
+    pub fn window_sum_of_squares(&self) -> Decimal {
+        self.window.iter().map(|&v| v * v).sum()
+    }
+
+    /// 75th percentile of the rolling window.
+    ///
+    /// Returns `None` for an empty window.
+    pub fn percentile_75(&self) -> Option<Decimal> {
+        if self.window.is_empty() {
+            return None;
+        }
+        let mut sorted: Vec<Decimal> = self.window.iter().copied().collect();
+        sorted.sort();
+        let idx = (sorted.len() * 3) / 4;
+        Some(sorted[idx.min(sorted.len() - 1)])
     }
 
 }
@@ -8336,5 +8403,32 @@ mod zscore_stability_tests {
         for _ in 0..4 { n.update(dec!(5)); }
         let cv = n.coeff_variation().unwrap();
         assert!(cv.abs() < 1e-9, "constant window → CV=0, got {}", cv);
+    }
+
+    // ── round-93 tests ────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_zscore_window_sum_of_squares_zero_for_empty() {
+        assert_eq!(znorm(4).window_sum_of_squares(), rust_decimal::Decimal::ZERO);
+    }
+
+    #[test]
+    fn test_zscore_window_sum_of_squares_correct() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        // 1+4+9 = 14
+        assert_eq!(n.window_sum_of_squares(), dec!(14));
+    }
+
+    #[test]
+    fn test_zscore_percentile_75_none_for_empty() {
+        assert!(znorm(4).percentile_75().is_none());
+    }
+
+    #[test]
+    fn test_zscore_percentile_75_for_constant() {
+        let mut n = znorm(4);
+        for _ in 0..4 { n.update(dec!(7)); }
+        assert_eq!(n.percentile_75().unwrap(), dec!(7));
     }
 }

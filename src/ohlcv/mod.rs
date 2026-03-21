@@ -3721,6 +3721,61 @@ impl OhlcvBar {
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
+    // ── round-93 ─────────────────────────────────────────────────────────────
+
+    /// Mean ratio of total wick length to body size: `(upper+lower) / |close−open|`.
+    ///
+    /// Bars with zero body (doji) are excluded. Returns `None` if no valid bars exist.
+    pub fn avg_wick_to_body_ratio(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter(|b| b.close != b.open)
+            .filter_map(|b| {
+                let body = (b.close - b.open).abs().to_f64()?;
+                let upper = (b.high - b.close.max(b.open)).to_f64()?;
+                let lower = (b.close.min(b.open) - b.low).to_f64()?;
+                Some((upper + lower) / body)
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
+        Some(vals.iter().sum::<f64>() / vals.len() as f64)
+    }
+
+    /// Length of the longest consecutive run of up-close bars (`close > open`).
+    pub fn close_above_open_streak(bars: &[OhlcvBar]) -> usize {
+        let mut max_run = 0usize;
+        let mut run = 0usize;
+        for b in bars {
+            if b.close > b.open {
+                run += 1;
+                if run > max_run {
+                    max_run = run;
+                }
+            } else {
+                run = 0;
+            }
+        }
+        max_run
+    }
+
+    /// Fraction of bars whose volume exceeds the mean bar volume.
+    ///
+    /// Returns `None` for an empty slice.
+    pub fn volume_above_mean_fraction(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() {
+            return None;
+        }
+        let n = bars.len() as u32;
+        let mean_vol: Decimal =
+            bars.iter().map(|b| b.volume).sum::<Decimal>() / Decimal::from(n);
+        let count = bars.iter().filter(|b| b.volume > mean_vol).count();
+        Some(count as f64 / bars.len() as f64)
+    }
+
 }
 
 impl std::fmt::Display for OhlcvBar {
@@ -9522,5 +9577,48 @@ mod tests {
         let b = make_ohlcv_bar(dec!(90), dec!(110), dec!(90), dec!(110));
         let r = OhlcvBar::mean_upper_shadow_pct(&[b]).unwrap();
         assert!(r.abs() < 1e-9, "close=high → 0, got {}", r);
+    }
+
+    // ── round-93 tests ────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_avg_wick_to_body_ratio_none_for_empty() {
+        assert!(OhlcvBar::avg_wick_to_body_ratio(&[]).is_none());
+    }
+
+    #[test]
+    fn test_avg_wick_to_body_ratio_none_for_doji() {
+        // open == close → body = 0, excluded
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100));
+        assert!(OhlcvBar::avg_wick_to_body_ratio(&[b]).is_none());
+    }
+
+    #[test]
+    fn test_close_above_open_streak_zero_for_empty() {
+        assert_eq!(OhlcvBar::close_above_open_streak(&[]), 0);
+    }
+
+    #[test]
+    fn test_close_above_open_streak_two_for_two_up_bars() {
+        let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105)); // up
+        let b2 = make_ohlcv_bar(dec!(105), dec!(115), dec!(95), dec!(110)); // up
+        let b3 = make_ohlcv_bar(dec!(110), dec!(120), dec!(100), dec!(108)); // down
+        assert_eq!(OhlcvBar::close_above_open_streak(&[b1, b2, b3]), 2);
+    }
+
+    #[test]
+    fn test_volume_above_mean_fraction_none_for_empty() {
+        assert!(OhlcvBar::volume_above_mean_fraction(&[]).is_none());
+    }
+
+    #[test]
+    fn test_volume_above_mean_fraction_half_for_balanced() {
+        let mut b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        b1.volume = dec!(100);
+        let mut b2 = make_ohlcv_bar(dec!(105), dec!(115), dec!(95), dec!(110));
+        b2.volume = dec!(200);
+        // mean = 150; b2 (200) > 150 → 1/2 = 0.5
+        let f = OhlcvBar::volume_above_mean_fraction(&[b1, b2]).unwrap();
+        assert!((f - 0.5).abs() < 1e-9, "expected 0.5, got {}", f);
     }
 }

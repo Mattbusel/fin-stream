@@ -9,6 +9,27 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.4.4] - 2026-03-20
+
+### Added
+
+**`tick` module — `NormalizedTick` analytics (round 93)**
+- `NormalizedTick::buy_side_vwap(ticks)` — VWAP computed only over buy-side ticks.
+- `NormalizedTick::sell_side_vwap(ticks)` — VWAP computed only over sell-side ticks.
+- `NormalizedTick::inter_tick_gap_cv(ticks)` — coefficient of variation of inter-tick arrival intervals.
+- `NormalizedTick::signed_tick_count(ticks)` — net count of up-ticks minus down-ticks.
+
+**`ohlcv` module — `OhlcvBar` analytics (round 93)**
+- `OhlcvBar::avg_wick_to_body_ratio(bars)` — mean `(upper+lower shadow) / |body|` for non-doji bars.
+- `OhlcvBar::close_above_open_streak(bars)` — length of the longest consecutive run of up-close bars.
+- `OhlcvBar::volume_above_mean_fraction(bars)` — fraction of bars with above-average volume.
+
+**`norm` module — `MinMaxNormalizer` and `ZScoreNormalizer` analytics (round 93)**
+- `window_sum_of_squares() -> Decimal` — sum of squared values in the rolling window.
+- `percentile_75() -> Option<Decimal>` — 75th percentile of the rolling window.
+
+---
+
 ## [2.4.3] - 2026-03-20
 
 ### Added
