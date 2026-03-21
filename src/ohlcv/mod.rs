@@ -6202,6 +6202,55 @@ impl OhlcvBar {
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
+    // ── round-136 ────────────────────────────────────────────────────────────
+
+    /// Bar open efficiency: mean of |close - open| / (high - low) per bar.
+    pub fn bar_open_efficiency(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let vals: Vec<f64> = bars.iter().filter_map(|b| {
+            let body = (b.close - b.open).abs().to_f64()?;
+            let range = (b.high - b.low).to_f64()?;
+            if range == 0.0 { return None; }
+            Some(body / range)
+        }).collect();
+        if vals.is_empty() { return None; }
+        Some(vals.iter().sum::<f64>() / vals.len() as f64)
+    }
+
+    /// Close oscillation amplitude: std of close prices across bars.
+    pub fn close_oscillation_amplitude(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.len() < 2 { return None; }
+        let closes: Vec<f64> = bars.iter().map(|b| b.close.to_f64().unwrap_or(0.0)).collect();
+        let mean = closes.iter().sum::<f64>() / closes.len() as f64;
+        let std = (closes.iter().map(|&c| (c - mean).powi(2)).sum::<f64>() / closes.len() as f64).sqrt();
+        Some(std)
+    }
+
+    /// Bar high-low score: mean of high / low ratio minus 1.
+    pub fn bar_high_low_score(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let vals: Vec<f64> = bars.iter().filter_map(|b| {
+            let hi = b.high.to_f64()?;
+            let lo = b.low.to_f64()?;
+            if lo == 0.0 { return None; }
+            Some(hi / lo - 1.0)
+        }).collect();
+        if vals.is_empty() { return None; }
+        Some(vals.iter().sum::<f64>() / vals.len() as f64)
+    }
+
+    /// Bar range change: mean of range[i] - range[i-1] across consecutive bars.
+    pub fn bar_range_change(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.len() < 2 { return None; }
+        let ranges: Vec<f64> = bars.iter().map(|b| (b.high - b.low).to_f64().unwrap_or(0.0)).collect();
+        let diffs: Vec<f64> = ranges.windows(2).map(|w| w[1] - w[0]).collect();
+        Some(diffs.iter().sum::<f64>() / diffs.len() as f64)
+    }
+
 }
 
 impl std::fmt::Display for OhlcvBar {
@@ -14408,5 +14457,57 @@ mod tests {
         let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
         let s = OhlcvBar::bar_midpoint_score(&[b]).unwrap();
         assert!(s.abs() < 1e-9, "expected 0.0 for symmetric bar, got {}", s);
+    }
+
+    // ── round-136 ────────────────────────────────────────────────────────────
+    #[test]
+    fn test_bar_open_efficiency_none_for_empty() {
+        assert!(OhlcvBar::bar_open_efficiency(&[]).is_none());
+    }
+
+    #[test]
+    fn test_bar_open_efficiency_full_body() {
+        // body = range → efficiency = 1.0
+        let b = make_ohlcv_bar(dec!(90), dec!(110), dec!(90), dec!(110));
+        let e = OhlcvBar::bar_open_efficiency(&[b]).unwrap();
+        assert!((e - 1.0).abs() < 1e-9, "expected 1.0, got {}", e);
+    }
+
+    #[test]
+    fn test_close_oscillation_amplitude_none_for_single() {
+        assert!(OhlcvBar::close_oscillation_amplitude(&[make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105))]).is_none());
+    }
+
+    #[test]
+    fn test_close_oscillation_amplitude_identical() {
+        let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let b2 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let a = OhlcvBar::close_oscillation_amplitude(&[b1, b2]).unwrap();
+        assert!(a.abs() < 1e-9, "expected 0.0 for identical closes, got {}", a);
+    }
+
+    #[test]
+    fn test_bar_high_low_score_none_for_empty() {
+        assert!(OhlcvBar::bar_high_low_score(&[]).is_none());
+    }
+
+    #[test]
+    fn test_bar_high_low_score_positive() {
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let s = OhlcvBar::bar_high_low_score(&[b]).unwrap();
+        assert!(s > 0.0, "expected positive score, got {}", s);
+    }
+
+    #[test]
+    fn test_bar_range_change_none_for_single() {
+        assert!(OhlcvBar::bar_range_change(&[make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105))]).is_none());
+    }
+
+    #[test]
+    fn test_bar_range_change_expanding() {
+        let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let b2 = make_ohlcv_bar(dec!(100), dec!(120), dec!(80), dec!(105));
+        let c = OhlcvBar::bar_range_change(&[b1, b2]).unwrap();
+        assert!(c > 0.0, "expected positive change for expanding range, got {}", c);
     }
 }

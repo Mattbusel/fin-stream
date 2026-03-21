@@ -9,6 +9,36 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.8.7] - 2026-03-20
+
+### Added
+
+**`tick` module — `NormalizedTick` analytics (round 136)**
+- `NormalizedTick::tick_vol_ratio(ticks)` — std of price changes / mean absolute price change.
+- `NormalizedTick::qty_std_ratio(ticks)` — std / mean of quantities (relative dispersion).
+- `NormalizedTick::side_qty_concentration(ticks)` — dominant side quantity / total sided quantity.
+- `NormalizedTick::price_reversion_speed(ticks)` — fraction of steps moving toward the mean.
+
+**`ohlcv` module — `OhlcvBar` analytics (round 136)**
+- `OhlcvBar::bar_open_efficiency(bars)` — mean of |close - open| / (high - low) per bar.
+- `OhlcvBar::close_oscillation_amplitude(bars)` — std of close prices across bars.
+- `OhlcvBar::bar_high_low_score(bars)` — mean of (high / low - 1) per bar.
+- `OhlcvBar::bar_range_change(bars)` — mean of consecutive bar range differences.
+
+**`norm` module — `MinMaxNormalizer` analytics (round 136)**
+- `MinMaxNormalizer::window_step_dn_fraction()` — fraction of steps that are strictly downward.
+- `MinMaxNormalizer::window_mean_abs_dev_ratio()` — mean absolute deviation / window range.
+- `MinMaxNormalizer::window_recent_high()` — maximum value in the second half of the window.
+- `MinMaxNormalizer::window_recent_low()` — minimum value in the second half of the window.
+
+**`norm` module — `ZScoreNormalizer` analytics (round 136)**
+- `ZScoreNormalizer::window_step_dn_fraction()` — fraction of steps that are strictly downward.
+- `ZScoreNormalizer::window_mean_abs_dev_ratio()` — mean absolute deviation / window range.
+- `ZScoreNormalizer::window_recent_high()` — maximum value in the second half of the window.
+- `ZScoreNormalizer::window_recent_low()` — minimum value in the second half of the window.
+
+---
+
 ## [2.8.6] - 2026-03-20
 
 ### Added

@@ -4118,6 +4118,54 @@ impl MinMaxNormalizer {
         Some(up as f64 / total as f64)
     }
 
+    // ── round-136 ────────────────────────────────────────────────────────────
+
+    /// Fraction of steps that are strictly downward.
+    pub fn window_step_dn_fraction(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let total = vals.len() - 1;
+        let dn = vals.windows(2).filter(|w| w[1] < w[0]).count();
+        Some(dn as f64 / total as f64)
+    }
+
+    /// Mean absolute deviation as ratio to the window range.
+    pub fn window_mean_abs_dev_ratio(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let max = vals.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        let min = vals.iter().cloned().fold(f64::INFINITY, f64::min);
+        let range = max - min;
+        if range == 0.0 { return None; }
+        let mean = vals.iter().sum::<f64>() / vals.len() as f64;
+        let mad = vals.iter().map(|&v| (v - mean).abs()).sum::<f64>() / vals.len() as f64;
+        Some(mad / range)
+    }
+
+    /// Most recent maximum value in the window (same as window_peak_value, reusing pattern).
+    pub fn window_recent_high(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let half = self.window.len() / 2;
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let recent = &vals[half..];
+        if recent.is_empty() { return None; }
+        Some(recent.iter().cloned().fold(f64::NEG_INFINITY, f64::max))
+    }
+
+    /// Most recent minimum value (second half of window).
+    pub fn window_recent_low(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let half = self.window.len() / 2;
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let recent = &vals[half..];
+        if recent.is_empty() { return None; }
+        Some(recent.iter().cloned().fold(f64::INFINITY, f64::min))
+    }
+
 }
 
 #[cfg(test)]
@@ -8754,6 +8802,67 @@ mod tests {
         let f = n.window_step_up_fraction().unwrap();
         assert!((f - 1.0).abs() < 1e-9, "expected 1.0 for all up, got {}", f);
     }
+
+    // ── round-136 ────────────────────────────────────────────────────────────
+    #[test]
+    fn test_minmax_window_step_dn_fraction_none_for_single() {
+        let mut n = norm(3);
+        n.update(dec!(5));
+        assert!(n.window_step_dn_fraction().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_step_dn_fraction_all_dn() {
+        let mut n = norm(3);
+        for v in [dec!(3), dec!(2), dec!(1)] { n.update(v); }
+        let f = n.window_step_dn_fraction().unwrap();
+        assert!((f - 1.0).abs() < 1e-9, "expected 1.0, got {}", f);
+    }
+
+    #[test]
+    fn test_minmax_window_mean_abs_dev_ratio_none_for_empty() {
+        let n = norm(3);
+        assert!(n.window_mean_abs_dev_ratio().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_mean_abs_dev_ratio_basic() {
+        let mut n = norm(2);
+        for v in [dec!(1), dec!(3)] { n.update(v); }
+        // mean=2, mad=1, range=2 → ratio=0.5
+        let r = n.window_mean_abs_dev_ratio().unwrap();
+        assert!((r - 0.5).abs() < 1e-9, "expected 0.5, got {}", r);
+    }
+
+    #[test]
+    fn test_minmax_window_recent_high_none_for_empty() {
+        let n = norm(3);
+        assert!(n.window_recent_high().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_recent_high_basic() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(5), dec!(3)] { n.update(v); }
+        // second half: [5,3] → high=5
+        let h = n.window_recent_high().unwrap();
+        assert!((h - 5.0).abs() < 1e-9, "expected 5.0, got {}", h);
+    }
+
+    #[test]
+    fn test_minmax_window_recent_low_none_for_empty() {
+        let n = norm(3);
+        assert!(n.window_recent_low().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_recent_low_basic() {
+        let mut n = norm(4);
+        for v in [dec!(5), dec!(3), dec!(1), dec!(4)] { n.update(v); }
+        // second half: [1,4] → low=1
+        let l = n.window_recent_low().unwrap();
+        assert!((l - 1.0).abs() < 1e-9, "expected 1.0, got {}", l);
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -12816,6 +12925,54 @@ impl ZScoreNormalizer {
         let total = vals.len() - 1;
         let up = vals.windows(2).filter(|w| w[1] > w[0]).count();
         Some(up as f64 / total as f64)
+    }
+
+    // ── round-136 ────────────────────────────────────────────────────────────
+
+    /// Fraction of steps that are strictly downward.
+    pub fn window_step_dn_fraction(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let total = vals.len() - 1;
+        let dn = vals.windows(2).filter(|w| w[1] < w[0]).count();
+        Some(dn as f64 / total as f64)
+    }
+
+    /// Mean absolute deviation as ratio to the window range.
+    pub fn window_mean_abs_dev_ratio(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let max = vals.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        let min = vals.iter().cloned().fold(f64::INFINITY, f64::min);
+        let range = max - min;
+        if range == 0.0 { return None; }
+        let mean = vals.iter().sum::<f64>() / vals.len() as f64;
+        let mad = vals.iter().map(|&v| (v - mean).abs()).sum::<f64>() / vals.len() as f64;
+        Some(mad / range)
+    }
+
+    /// Most recent maximum value (second half of window).
+    pub fn window_recent_high(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let half = self.window.len() / 2;
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let recent = &vals[half..];
+        if recent.is_empty() { return None; }
+        Some(recent.iter().cloned().fold(f64::NEG_INFINITY, f64::max))
+    }
+
+    /// Most recent minimum value (second half of window).
+    pub fn window_recent_low(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let half = self.window.len() / 2;
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let recent = &vals[half..];
+        if recent.is_empty() { return None; }
+        Some(recent.iter().cloned().fold(f64::INFINITY, f64::min))
     }
 
 }
@@ -17507,5 +17664,63 @@ mod zscore_stability_tests {
         for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
         let f = n.window_step_up_fraction().unwrap();
         assert!((f - 1.0).abs() < 1e-9, "expected 1.0 for all up, got {}", f);
+    }
+
+    // ── round-136 ────────────────────────────────────────────────────────────
+    #[test]
+    fn test_zscore_window_step_dn_fraction_none_for_single() {
+        let mut n = znorm(3);
+        n.update(dec!(5));
+        assert!(n.window_step_dn_fraction().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_step_dn_fraction_all_dn() {
+        let mut n = znorm(3);
+        for v in [dec!(3), dec!(2), dec!(1)] { n.update(v); }
+        let f = n.window_step_dn_fraction().unwrap();
+        assert!((f - 1.0).abs() < 1e-9, "expected 1.0, got {}", f);
+    }
+
+    #[test]
+    fn test_zscore_window_mean_abs_dev_ratio_none_for_empty() {
+        let n = znorm(3);
+        assert!(n.window_mean_abs_dev_ratio().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_mean_abs_dev_ratio_basic() {
+        let mut n = znorm(2);
+        for v in [dec!(1), dec!(3)] { n.update(v); }
+        let r = n.window_mean_abs_dev_ratio().unwrap();
+        assert!((r - 0.5).abs() < 1e-9, "expected 0.5, got {}", r);
+    }
+
+    #[test]
+    fn test_zscore_window_recent_high_none_for_empty() {
+        let n = znorm(3);
+        assert!(n.window_recent_high().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_recent_high_basic() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(5), dec!(3)] { n.update(v); }
+        let h = n.window_recent_high().unwrap();
+        assert!((h - 5.0).abs() < 1e-9, "expected 5.0, got {}", h);
+    }
+
+    #[test]
+    fn test_zscore_window_recent_low_none_for_empty() {
+        let n = znorm(3);
+        assert!(n.window_recent_low().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_recent_low_basic() {
+        let mut n = znorm(4);
+        for v in [dec!(5), dec!(3), dec!(1), dec!(4)] { n.update(v); }
+        let l = n.window_recent_low().unwrap();
+        assert!((l - 1.0).abs() < 1e-9, "expected 1.0, got {}", l);
     }
 }
