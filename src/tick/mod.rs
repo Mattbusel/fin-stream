@@ -5403,6 +5403,81 @@ impl NormalizedTick {
         Some(mean_p / mean_q)
     }
 
+    // ── round-119 ────────────────────────────────────────────────────────────
+
+    /// Fraction of consecutive pairs where price reverses after a prior reversal
+    /// (i.e., rebounds). Returns `None` for fewer than 3 ticks.
+    pub fn price_rebound_rate(ticks: &[NormalizedTick]) -> Option<f64> {
+        if ticks.len() < 3 { return None; }
+        let dirs: Vec<i8> = ticks.windows(2).map(|w| {
+            if w[1].price > w[0].price { 1i8 }
+            else if w[1].price < w[0].price { -1i8 }
+            else { 0i8 }
+        }).collect();
+        let rebounds = dirs.windows(2).filter(|w| w[0] == 0 || w[0] == -w[1]).count();
+        let eligible = dirs.len().saturating_sub(1);
+        if eligible == 0 { None } else { Some(rebounds as f64 / eligible as f64) }
+    }
+
+    /// Volume-weighted mean of absolute price differences between consecutive ticks
+    /// (a spread proxy). Returns `None` for fewer than 2 ticks or zero total volume.
+    pub fn weighted_spread(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 2 { return None; }
+        let mut num = 0f64;
+        let mut denom = 0f64;
+        for w in ticks.windows(2) {
+            let spread = (w[1].price - w[0].price).abs().to_f64().unwrap_or(0.0);
+            let vol = (w[0].quantity + w[1].quantity).to_f64().unwrap_or(0.0);
+            num += spread * vol;
+            denom += vol;
+        }
+        if denom == 0.0 { None } else { Some(num / denom) }
+    }
+
+    /// Mean price of buy-side ticks minus mean price of sell-side ticks.
+    /// Returns `None` if either side has no ticks.
+    pub fn buy_price_advantage(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let buys: Vec<f64> = ticks.iter()
+            .filter(|t| matches!(t.side, Some(TradeSide::Buy)))
+            .map(|t| t.price.to_f64().unwrap_or(0.0))
+            .collect();
+        let sells: Vec<f64> = ticks.iter()
+            .filter(|t| matches!(t.side, Some(TradeSide::Sell)))
+            .map(|t| t.price.to_f64().unwrap_or(0.0))
+            .collect();
+        if buys.is_empty() || sells.is_empty() { return None; }
+        let buy_mean = buys.iter().sum::<f64>() / buys.len() as f64;
+        let sell_mean = sells.iter().sum::<f64>() / sells.len() as f64;
+        Some(buy_mean - sell_mean)
+    }
+
+    /// Shannon entropy of quantity distribution across 8 equal-width buckets.
+    /// Returns `None` for fewer than 2 ticks.
+    pub fn qty_entropy(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 2 { return None; }
+        let vals: Vec<f64> = ticks.iter().map(|t| t.quantity.to_f64().unwrap_or(0.0)).collect();
+        let max = vals.iter().cloned().fold(0f64, f64::max);
+        let min = vals.iter().cloned().fold(f64::INFINITY, f64::min);
+        let range = max - min;
+        const BUCKETS: usize = 8;
+        let mut counts = [0usize; BUCKETS];
+        if range == 0.0 {
+            counts[0] = vals.len();
+        } else {
+            for &v in &vals {
+                let idx = ((v - min) / range * (BUCKETS - 1) as f64) as usize;
+                counts[idx.min(BUCKETS - 1)] += 1;
+            }
+        }
+        let n = vals.len() as f64;
+        Some(counts.iter().map(|&c| {
+            if c == 0 { 0.0 } else { let p = c as f64 / n; -p * p.ln() }
+        }).sum())
+    }
+
 }
 
 
@@ -12393,5 +12468,63 @@ mod tests {
         let t2 = make_tick_pq(dec!(100), dec!(2));
         let v = NormalizedTick::avg_price_per_unit(&[t1, t2]).unwrap();
         assert!((v - 50.0).abs() < 1e-9, "expected 50.0, got {}", v);
+    }
+
+    #[test]
+    fn test_price_rebound_rate_none_for_two() {
+        use rust_decimal_macros::dec;
+        let t1 = make_tick_pq(dec!(100), dec!(1));
+        let t2 = make_tick_pq(dec!(101), dec!(1));
+        assert!(NormalizedTick::price_rebound_rate(&[t1, t2]).is_none());
+    }
+
+    #[test]
+    fn test_price_rebound_rate_basic() {
+        use rust_decimal_macros::dec;
+        let t1 = make_tick_pq(dec!(100), dec!(1));
+        let t2 = make_tick_pq(dec!(105), dec!(1));
+        let t3 = make_tick_pq(dec!(100), dec!(1));
+        let r = NormalizedTick::price_rebound_rate(&[t1, t2, t3]).unwrap();
+        assert!(r >= 0.0 && r <= 1.0, "expected [0,1], got {}", r);
+    }
+
+    #[test]
+    fn test_weighted_spread_none_for_single() {
+        use rust_decimal_macros::dec;
+        let t = make_tick_pq(dec!(100), dec!(1));
+        assert!(NormalizedTick::weighted_spread(&[t]).is_none());
+    }
+
+    #[test]
+    fn test_weighted_spread_basic() {
+        use rust_decimal_macros::dec;
+        // flat price → spread=0
+        let t1 = make_tick_pq(dec!(100), dec!(5));
+        let t2 = make_tick_pq(dec!(100), dec!(5));
+        let s = NormalizedTick::weighted_spread(&[t1, t2]).unwrap();
+        assert!(s.abs() < 1e-9, "expected 0.0, got {}", s);
+    }
+
+    #[test]
+    fn test_buy_price_advantage_none_for_no_sides() {
+        use rust_decimal_macros::dec;
+        let t = make_tick_pq(dec!(100), dec!(1));
+        assert!(NormalizedTick::buy_price_advantage(&[t]).is_none());
+    }
+
+    #[test]
+    fn test_qty_entropy_none_for_single() {
+        use rust_decimal_macros::dec;
+        let t = make_tick_pq(dec!(100), dec!(1));
+        assert!(NormalizedTick::qty_entropy(&[t]).is_none());
+    }
+
+    #[test]
+    fn test_qty_entropy_basic() {
+        use rust_decimal_macros::dec;
+        let t1 = make_tick_pq(dec!(100), dec!(1));
+        let t2 = make_tick_pq(dec!(101), dec!(2));
+        let e = NormalizedTick::qty_entropy(&[t1, t2]).unwrap();
+        assert!(e >= 0.0, "entropy should be non-negative, got {}", e);
     }
 }

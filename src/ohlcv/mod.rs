@@ -5371,6 +5371,61 @@ impl OhlcvBar {
         if cnt == 0 { None } else { Some(sum / cnt as f64) }
     }
 
+    // ── round-119 ────────────────────────────────────────────────────────────
+
+    /// Mean of `(open + close) / 2` across bars. Returns `None` for empty input.
+    pub fn open_close_midpoint(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let sum: f64 = bars.iter().map(|b| {
+            ((b.open + b.close) / Decimal::TWO).to_f64().unwrap_or(0.0)
+        }).sum();
+        Some(sum / bars.len() as f64)
+    }
+
+    /// Volume concentration ratio: fraction of total volume in the top-third of bars
+    /// when sorted by volume (descending). Returns `None` for empty input or zero volume.
+    pub fn volume_concentration_ratio(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let total_vol: f64 = bars.iter().map(|b| b.volume.to_f64().unwrap_or(0.0)).sum();
+        if total_vol == 0.0 { return None; }
+        let mut vols: Vec<f64> = bars.iter().map(|b| b.volume.to_f64().unwrap_or(0.0)).collect();
+        vols.sort_by(|a, b| b.partial_cmp(a).unwrap_or(std::cmp::Ordering::Equal));
+        let top_n = (bars.len() / 3).max(1);
+        let top_vol: f64 = vols[..top_n].iter().sum();
+        Some(top_vol / total_vol)
+    }
+
+    /// Fraction of bars where open is between the prior bar's open and close
+    /// (partial gap fill). Returns `None` for fewer than 2 bars.
+    pub fn bar_gap_fill_ratio(bars: &[OhlcvBar]) -> Option<f64> {
+        if bars.len() < 2 { return None; }
+        let fills = bars.windows(2).filter(|w| {
+            let lo = w[0].open.min(w[0].close);
+            let hi = w[0].open.max(w[0].close);
+            w[1].open >= lo && w[1].open <= hi
+        }).count();
+        Some(fills as f64 / (bars.len() - 1) as f64)
+    }
+
+    /// Net shadow direction score: fraction of bars with longer upper shadow minus
+    /// fraction with longer lower shadow. Range `[-1, 1]`.
+    /// Returns `None` for empty input.
+    pub fn net_shadow_direction(bars: &[OhlcvBar]) -> Option<f64> {
+        if bars.is_empty() { return None; }
+        let mut upper_dom = 0usize;
+        let mut lower_dom = 0usize;
+        for b in bars {
+            let upper = b.high - b.open.max(b.close);
+            let lower = b.open.min(b.close) - b.low;
+            if upper > lower { upper_dom += 1; }
+            else if lower > upper { lower_dom += 1; }
+        }
+        let n = bars.len() as f64;
+        Some((upper_dom as f64 - lower_dom as f64) / n)
+    }
+
 }
 
 impl std::fmt::Display for OhlcvBar {
@@ -12635,5 +12690,59 @@ mod tests {
         let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100));
         let a = OhlcvBar::shadow_asymmetry(&[b]).unwrap();
         assert!(a.abs() < 1e-9, "expected 0.0, got {}", a);
+    }
+
+    #[test]
+    fn test_open_close_midpoint_none_for_empty() {
+        assert!(OhlcvBar::open_close_midpoint(&[]).is_none());
+    }
+
+    #[test]
+    fn test_open_close_midpoint_basic() {
+        // open=100, close=110 → midpoint=105
+        let b = make_ohlcv_bar(dec!(100), dec!(115), dec!(95), dec!(110));
+        let m = OhlcvBar::open_close_midpoint(&[b]).unwrap();
+        assert!((m - 105.0).abs() < 1e-9, "expected 105.0, got {}", m);
+    }
+
+    #[test]
+    fn test_volume_concentration_ratio_none_for_empty() {
+        assert!(OhlcvBar::volume_concentration_ratio(&[]).is_none());
+    }
+
+    #[test]
+    fn test_volume_concentration_ratio_basic() {
+        // single bar → top 1 = all → ratio=1.0
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let r = OhlcvBar::volume_concentration_ratio(&[b]).unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "expected 1.0, got {}", r);
+    }
+
+    #[test]
+    fn test_bar_gap_fill_ratio_none_for_single() {
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        assert!(OhlcvBar::bar_gap_fill_ratio(&[b]).is_none());
+    }
+
+    #[test]
+    fn test_bar_gap_fill_ratio_basic() {
+        // b1 open=100 close=110 → body [100,110]; b2 open=105 → inside → fill
+        let b1 = make_ohlcv_bar(dec!(100), dec!(115), dec!(95), dec!(110));
+        let b2 = make_ohlcv_bar(dec!(105), dec!(120), dec!(95), dec!(115));
+        let r = OhlcvBar::bar_gap_fill_ratio(&[b1, b2]).unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "expected 1.0, got {}", r);
+    }
+
+    #[test]
+    fn test_net_shadow_direction_none_for_empty() {
+        assert!(OhlcvBar::net_shadow_direction(&[]).is_none());
+    }
+
+    #[test]
+    fn test_net_shadow_direction_symmetric() {
+        // upper=lower → net=0
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100));
+        let d = OhlcvBar::net_shadow_direction(&[b]).unwrap();
+        assert!(d.abs() < 1e-9, "expected 0.0, got {}", d);
     }
 }

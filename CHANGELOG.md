@@ -9,6 +9,36 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.7.0] - 2026-03-20
+
+### Added
+
+**`tick` module — `NormalizedTick` analytics (round 119)**
+- `NormalizedTick::price_rebound_rate(ticks)` — fraction of pairs that reverse after a prior reversal.
+- `NormalizedTick::weighted_spread(ticks)` — volume-weighted mean absolute price difference between consecutive ticks.
+- `NormalizedTick::buy_price_advantage(ticks)` — mean buy price minus mean sell price.
+- `NormalizedTick::qty_entropy(ticks)` — Shannon entropy of quantity distribution across 8 buckets.
+
+**`ohlcv` module — `OhlcvBar` analytics (round 119)**
+- `OhlcvBar::open_close_midpoint(bars)` — mean of `(open + close) / 2` across bars.
+- `OhlcvBar::volume_concentration_ratio(bars)` — fraction of total volume in the top-third of bars by volume.
+- `OhlcvBar::bar_gap_fill_ratio(bars)` — fraction of bars where open falls within the prior bar's body.
+- `OhlcvBar::net_shadow_direction(bars)` — net fraction of bars with upper-dominant vs lower-dominant shadows.
+
+**`norm` module — `MinMaxNormalizer` analytics (round 119)**
+- `MinMaxNormalizer::window_max_minus_min()` — range `(max - min)` of window values.
+- `MinMaxNormalizer::window_normalized_mean()` — `(mean - min) / (max - min)` of window values.
+- `MinMaxNormalizer::window_variance_ratio()` — ratio of variance to mean squared.
+- `MinMaxNormalizer::window_max_minus_last()` — maximum window value minus the last value.
+
+**`norm` module — `ZScoreNormalizer` analytics (round 119)**
+- `ZScoreNormalizer::window_max_minus_min()` — range `(max - min)` of window values.
+- `ZScoreNormalizer::window_normalized_mean()` — `(mean - min) / (max - min)` of window values.
+- `ZScoreNormalizer::window_variance_ratio()` — ratio of variance to mean squared.
+- `ZScoreNormalizer::window_max_minus_last()` — maximum window value minus the last value.
+
+---
+
 ## [2.6.9] - 2026-03-20
 
 ### Added
