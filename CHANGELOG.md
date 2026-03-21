@@ -9,6 +9,30 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.5.2] - 2026-03-20
+
+### Added
+
+**`tick` module — `NormalizedTick` analytics (round 101)**
+- `NormalizedTick::avg_buy_price(ticks)` — average price of buy-side ticks.
+- `NormalizedTick::avg_sell_price(ticks)` — average price of sell-side ticks.
+- `NormalizedTick::price_spread_ratio(ticks)` — `(high − low) / VWAP` for the tick window.
+- `NormalizedTick::trade_size_entropy(ticks)` — approximate entropy of trade size distribution (5-bin).
+
+**`ohlcv` module — `OhlcvBar` analytics (round 101)**
+- `OhlcvBar::open_range_ratio(bars)` — mean `(open − low) / (high − low)` per bar.
+- `OhlcvBar::volume_normalized_range(bars)` — mean `volume / (high − low)` per bar.
+- `OhlcvBar::consecutive_flat_count(bars)` — length of trailing run of near-doji bars (body/range < 5%).
+- `OhlcvBar::close_vs_midpoint(bars)` — mean `(close − midpoint) / (high − low)` per bar.
+
+**`norm` module — `MinMaxNormalizer` and `ZScoreNormalizer` analytics (round 101)**
+- `window_signed_area() -> Option<Decimal>` — sum of deviations from the window mean.
+- `up_fraction() -> Option<f64>` — fraction of window values strictly above zero.
+- `threshold_cross_count() -> Option<usize>` — number of mean crossings in the rolling window.
+- `window_entropy_approx() -> Option<f64>` — approximate entropy using 4 equal-width bins.
+
+---
+
 ## [2.5.1] - 2026-03-20
 
 ### Added

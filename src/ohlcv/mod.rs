@@ -4306,6 +4306,107 @@ impl OhlcvBar {
         Some(mean_dev.to_f64().unwrap_or(0.0))
     }
 
+    // ── round-101 ────────────────────────────────────────────────────────────
+
+    /// Mean of `(open − low) / (high − low)` per bar, measuring how far from
+    /// the low the bar opened. Excludes zero-range bars.
+    /// Returns `None` for an empty slice or all zero-range bars.
+    pub fn open_range_ratio(bars: &[OhlcvBar]) -> Option<f64> {
+        if bars.is_empty() {
+            return None;
+        }
+        use rust_decimal::prelude::ToPrimitive;
+        let values: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let range = b.high - b.low;
+                if range.is_zero() {
+                    return None;
+                }
+                Some(((b.open - b.low) / range).to_f64().unwrap_or(0.0))
+            })
+            .collect();
+        if values.is_empty() {
+            return None;
+        }
+        Some(values.iter().sum::<f64>() / values.len() as f64)
+    }
+
+    /// Volume per unit of price range: `volume / (high − low)`, averaged across bars.
+    /// Excludes zero-range bars. Returns `None` for empty slice or all zero-range bars.
+    pub fn volume_normalized_range(bars: &[OhlcvBar]) -> Option<f64> {
+        if bars.is_empty() {
+            return None;
+        }
+        use rust_decimal::prelude::ToPrimitive;
+        let values: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let range = b.high - b.low;
+                if range.is_zero() {
+                    return None;
+                }
+                Some((b.volume / range).to_f64().unwrap_or(0.0))
+            })
+            .collect();
+        if values.is_empty() {
+            return None;
+        }
+        Some(values.iter().sum::<f64>() / values.len() as f64)
+    }
+
+    /// Number of consecutive bars at the end of the slice where
+    /// `|close − open| / (high − low) < 0.05` (near-doji).
+    /// Returns `None` for an empty slice.
+    pub fn consecutive_flat_count(bars: &[OhlcvBar]) -> Option<usize> {
+        if bars.is_empty() {
+            return None;
+        }
+        use rust_decimal::prelude::ToPrimitive;
+        let mut count = 0usize;
+        for b in bars.iter().rev() {
+            let range = b.high - b.low;
+            let flat = if range.is_zero() {
+                true
+            } else {
+                ((b.close - b.open).abs() / range)
+                    .to_f64()
+                    .unwrap_or(1.0)
+                    < 0.05
+            };
+            if flat {
+                count += 1;
+            } else {
+                break;
+            }
+        }
+        Some(count)
+    }
+
+    /// Mean of `(close − midpoint) / (high − low)` where `midpoint = (high + low) / 2`.
+    /// Excludes zero-range bars. Returns `None` for empty slice or all zero-range bars.
+    pub fn close_vs_midpoint(bars: &[OhlcvBar]) -> Option<f64> {
+        if bars.is_empty() {
+            return None;
+        }
+        use rust_decimal::prelude::ToPrimitive;
+        let values: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let range = b.high - b.low;
+                if range.is_zero() {
+                    return None;
+                }
+                let mid = (b.high + b.low) / Decimal::TWO;
+                Some(((b.close - mid) / range).to_f64().unwrap_or(0.0))
+            })
+            .collect();
+        if values.is_empty() {
+            return None;
+        }
+        Some(values.iter().sum::<f64>() / values.len() as f64)
+    }
+
 }
 
 impl std::fmt::Display for OhlcvBar {
@@ -10540,5 +10641,51 @@ mod tests {
         b2.volume = dec!(100);
         let d = OhlcvBar::vwap_deviation_mean(&[b1, b2]).unwrap();
         assert!(d.abs() < 1e-9, "constant close → deviation=0, got {}", d);
+    }
+
+    // ── round-101 tests ───────────────────────────────────────────────────────
+
+    #[test]
+    fn test_open_range_ratio_none_for_empty() {
+        assert!(OhlcvBar::open_range_ratio(&[]).is_none());
+    }
+
+    #[test]
+    fn test_open_range_ratio_zero_for_open_at_low() {
+        // open=low → (low-low)/(high-low) = 0
+        let b = make_ohlcv_bar(dec!(90), dec!(110), dec!(90), dec!(105));
+        let r = OhlcvBar::open_range_ratio(&[b]).unwrap();
+        assert!(r.abs() < 1e-9, "open at low → 0.0, got {}", r);
+    }
+
+    #[test]
+    fn test_volume_normalized_range_none_for_empty() {
+        assert!(OhlcvBar::volume_normalized_range(&[]).is_none());
+    }
+
+    #[test]
+    fn test_consecutive_flat_count_none_for_empty() {
+        assert!(OhlcvBar::consecutive_flat_count(&[]).is_none());
+    }
+
+    #[test]
+    fn test_consecutive_flat_count_zero_for_full_body() {
+        let b = make_ohlcv_bar(dec!(90), dec!(110), dec!(90), dec!(110));
+        // body/range = 1.0 → not flat
+        let c = OhlcvBar::consecutive_flat_count(&[b]).unwrap();
+        assert_eq!(c, 0);
+    }
+
+    #[test]
+    fn test_close_vs_midpoint_none_for_empty() {
+        assert!(OhlcvBar::close_vs_midpoint(&[]).is_none());
+    }
+
+    #[test]
+    fn test_close_vs_midpoint_zero_for_close_at_midpoint() {
+        // high=110, low=90 → mid=100; close=100 → 0
+        let b = make_ohlcv_bar(dec!(95), dec!(110), dec!(90), dec!(100));
+        let r = OhlcvBar::close_vs_midpoint(&[b]).unwrap();
+        assert!(r.abs() < 1e-9, "close at midpoint → 0, got {}", r);
     }
 }

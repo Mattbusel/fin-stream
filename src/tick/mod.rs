@@ -4387,6 +4387,95 @@ impl NormalizedTick {
         Some(ticks.len() as f64 / levels as f64)
     }
 
+    // ── round-101 ────────────────────────────────────────────────────────────
+
+    /// Average price of buy-side ticks.
+    /// Returns `None` if no buy ticks are present.
+    pub fn avg_buy_price(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let buys: Vec<Decimal> = ticks
+            .iter()
+            .filter(|t| t.side == Some(TradeSide::Buy))
+            .map(|t| t.price)
+            .collect();
+        if buys.is_empty() {
+            return None;
+        }
+        let mean = buys.iter().copied().sum::<Decimal>() / Decimal::from(buys.len());
+        Some(mean.to_f64().unwrap_or(0.0))
+    }
+
+    /// Average price of sell-side ticks.
+    /// Returns `None` if no sell ticks are present.
+    pub fn avg_sell_price(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let sells: Vec<Decimal> = ticks
+            .iter()
+            .filter(|t| t.side == Some(TradeSide::Sell))
+            .map(|t| t.price)
+            .collect();
+        if sells.is_empty() {
+            return None;
+        }
+        let mean = sells.iter().copied().sum::<Decimal>() / Decimal::from(sells.len());
+        Some(mean.to_f64().unwrap_or(0.0))
+    }
+
+    /// Ratio of price range to the VWAP: `(high − low) / vwap`.
+    /// Returns `None` for an empty slice or zero VWAP.
+    pub fn price_spread_ratio(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() {
+            return None;
+        }
+        let total_qty: Decimal = ticks.iter().map(|t| t.quantity).sum();
+        if total_qty.is_zero() {
+            return None;
+        }
+        let vwap = ticks.iter().map(|t| t.price * t.quantity).sum::<Decimal>() / total_qty;
+        if vwap.is_zero() {
+            return None;
+        }
+        let high = ticks.iter().map(|t| t.price).max()?;
+        let low = ticks.iter().map(|t| t.price).min()?;
+        Some(((high - low) / vwap).to_f64().unwrap_or(0.0))
+    }
+
+    /// Approximate entropy of trade sizes using 5 equal-width bins.
+    /// Returns `None` for fewer than 3 ticks or all identical quantities.
+    pub fn trade_size_entropy(ticks: &[NormalizedTick]) -> Option<f64> {
+        if ticks.len() < 3 {
+            return None;
+        }
+        use rust_decimal::prelude::ToPrimitive;
+        let qtys: Vec<f64> = ticks
+            .iter()
+            .map(|t| t.quantity.to_f64().unwrap_or(0.0))
+            .collect();
+        let min_q = qtys.iter().cloned().fold(f64::INFINITY, f64::min);
+        let max_q = qtys.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        if (max_q - min_q).abs() < 1e-12 {
+            return None;
+        }
+        let range = max_q - min_q;
+        let n_bins = 5usize;
+        let mut bins = vec![0usize; n_bins];
+        for &q in &qtys {
+            let idx = (((q - min_q) / range) * (n_bins - 1) as f64).round() as usize;
+            bins[idx.min(n_bins - 1)] += 1;
+        }
+        let total = qtys.len() as f64;
+        let entropy = bins
+            .iter()
+            .filter(|&&c| c > 0)
+            .map(|&c| {
+                let p = c as f64 / total;
+                -p * p.ln()
+            })
+            .sum::<f64>();
+        Some(entropy)
+    }
+
 }
 
 
@@ -10220,5 +10309,53 @@ mod tests {
         ];
         let r = NormalizedTick::tick_count_per_price_level(&ticks).unwrap();
         assert!((r - 1.5).abs() < 1e-9, "expected 1.5, got {}", r);
+    }
+
+    // ── round-101 tests ───────────────────────────────────────────────────────
+
+    #[test]
+    fn test_avg_buy_price_none_for_no_buys() {
+        use rust_decimal_macros::dec;
+        assert!(NormalizedTick::avg_buy_price(&[make_tick_pq(dec!(100), dec!(1))]).is_none());
+    }
+
+    #[test]
+    fn test_avg_sell_price_none_for_no_sells() {
+        use rust_decimal_macros::dec;
+        assert!(NormalizedTick::avg_sell_price(&[make_tick_pq(dec!(100), dec!(1))]).is_none());
+    }
+
+    #[test]
+    fn test_price_spread_ratio_none_for_empty() {
+        assert!(NormalizedTick::price_spread_ratio(&[]).is_none());
+    }
+
+    #[test]
+    fn test_price_spread_ratio_zero_for_uniform_price() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(100), dec!(2)),
+        ];
+        let r = NormalizedTick::price_spread_ratio(&ticks).unwrap();
+        assert!(r.abs() < 1e-9, "uniform price → spread_ratio=0, got {}", r);
+    }
+
+    #[test]
+    fn test_trade_size_entropy_none_for_two_ticks() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![make_tick_pq(dec!(100), dec!(1)), make_tick_pq(dec!(101), dec!(2))];
+        assert!(NormalizedTick::trade_size_entropy(&ticks).is_none());
+    }
+
+    #[test]
+    fn test_trade_size_entropy_none_for_identical_sizes() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(5)),
+            make_tick_pq(dec!(101), dec!(5)),
+            make_tick_pq(dec!(102), dec!(5)),
+        ];
+        assert!(NormalizedTick::trade_size_entropy(&ticks).is_none());
     }
 }

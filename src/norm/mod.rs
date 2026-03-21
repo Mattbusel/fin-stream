@@ -2276,6 +2276,78 @@ impl MinMaxNormalizer {
         Some(alternations as f64 / valid_pairs.len() as f64)
     }
 
+    // ── round-101 ────────────────────────────────────────────────────────────
+
+    /// Signed area under the window curve (sum of values minus mean * n).
+    /// Always returns some value; returns `None` only for empty window.
+    pub fn window_signed_area(&self) -> Option<Decimal> {
+        if self.window.is_empty() {
+            return None;
+        }
+        let n = Decimal::from(self.window.len());
+        let mean: Decimal = self.window.iter().copied().sum::<Decimal>() / n;
+        let area: Decimal = self.window.iter().map(|v| *v - mean).sum();
+        Some(area)
+    }
+
+    /// Fraction of window values strictly above zero.
+    /// Returns `None` for an empty window.
+    pub fn up_fraction(&self) -> Option<f64> {
+        if self.window.is_empty() {
+            return None;
+        }
+        let above = self.window.iter().filter(|&&v| v > Decimal::ZERO).count();
+        Some(above as f64 / self.window.len() as f64)
+    }
+
+    /// Number of times the window crosses the mean value (transitions from
+    /// above to below or vice versa).  Returns `None` for fewer than 2 values.
+    pub fn threshold_cross_count(&self) -> Option<usize> {
+        if self.window.len() < 2 {
+            return None;
+        }
+        let n = Decimal::from(self.window.len());
+        let mean: Decimal = self.window.iter().copied().sum::<Decimal>() / n;
+        let vals: Vec<Decimal> = self.window.iter().copied().collect();
+        let crosses = vals
+            .windows(2)
+            .filter(|w| (w[0] > mean) != (w[1] > mean))
+            .count();
+        Some(crosses)
+    }
+
+    /// Approximate entropy using 4 equal-width bins over the window range.
+    /// Returns `None` for an empty window or all identical values.
+    pub fn window_entropy_approx(&self) -> Option<f64> {
+        if self.window.is_empty() {
+            return None;
+        }
+        let min = self.window.iter().copied().min()?;
+        let max = self.window.iter().copied().max()?;
+        if min == max {
+            return None;
+        }
+        use rust_decimal::prelude::ToPrimitive;
+        let range = (max - min).to_f64().unwrap_or(0.0);
+        let n_bins = 4usize;
+        let mut bins = vec![0usize; n_bins];
+        for v in self.window.iter() {
+            let frac = ((*v - min).to_f64().unwrap_or(0.0) / range) * (n_bins - 1) as f64;
+            let idx = frac.round() as usize;
+            bins[idx.min(n_bins - 1)] += 1;
+        }
+        let total = self.window.len() as f64;
+        let entropy = bins
+            .iter()
+            .filter(|&&c| c > 0)
+            .map(|&c| {
+                let p = c as f64 / total;
+                -p * p.ln()
+            })
+            .sum::<f64>();
+        Some(entropy)
+    }
+
 }
 
 #[cfg(test)]
@@ -4847,6 +4919,47 @@ mod tests {
         for _ in 0..4 { n.update(dec!(5)); }
         assert!(n.alternation_rate().is_none());
     }
+
+    // ── round-101 tests ───────────────────────────────────────────────────────
+
+    #[test]
+    fn test_minmax_window_signed_area_none_for_empty() {
+        assert!(norm(4).window_signed_area().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_signed_area_zero_for_constant() {
+        let mut n = norm(4);
+        for _ in 0..4 { n.update(dec!(5)); }
+        assert_eq!(n.window_signed_area().unwrap(), dec!(0));
+    }
+
+    #[test]
+    fn test_minmax_up_fraction_none_for_empty() {
+        assert!(norm(4).up_fraction().is_none());
+    }
+
+    #[test]
+    fn test_minmax_up_fraction_for_all_positive() {
+        let mut n = norm(4);
+        for _ in 0..4 { n.update(dec!(5)); }
+        let f = n.up_fraction().unwrap();
+        assert!((f - 1.0).abs() < 1e-9, "all positive → 1.0, got {}", f);
+    }
+
+    #[test]
+    fn test_minmax_threshold_cross_count_none_for_single() {
+        let mut n = norm(4);
+        n.update(dec!(5));
+        assert!(n.threshold_cross_count().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_entropy_approx_none_for_constant() {
+        let mut n = norm(4);
+        for _ in 0..4 { n.update(dec!(5)); }
+        assert!(n.window_entropy_approx().is_none());
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -7079,6 +7192,78 @@ impl ZScoreNormalizer {
         }
         let alternations = valid_pairs.iter().filter(|d| d[0] != d[1]).count();
         Some(alternations as f64 / valid_pairs.len() as f64)
+    }
+
+    // ── round-101 ────────────────────────────────────────────────────────────
+
+    /// Signed area under the window curve (sum of deviations from mean).
+    /// Returns `None` only for empty window.
+    pub fn window_signed_area(&self) -> Option<Decimal> {
+        if self.window.is_empty() {
+            return None;
+        }
+        let n = Decimal::from(self.window.len());
+        let mean: Decimal = self.window.iter().copied().sum::<Decimal>() / n;
+        let area: Decimal = self.window.iter().map(|v| *v - mean).sum();
+        Some(area)
+    }
+
+    /// Fraction of window values strictly above zero.
+    /// Returns `None` for an empty window.
+    pub fn up_fraction(&self) -> Option<f64> {
+        if self.window.is_empty() {
+            return None;
+        }
+        let above = self.window.iter().filter(|&&v| v > Decimal::ZERO).count();
+        Some(above as f64 / self.window.len() as f64)
+    }
+
+    /// Number of times the window crosses the mean value.
+    /// Returns `None` for fewer than 2 values.
+    pub fn threshold_cross_count(&self) -> Option<usize> {
+        if self.window.len() < 2 {
+            return None;
+        }
+        let n = Decimal::from(self.window.len());
+        let mean: Decimal = self.window.iter().copied().sum::<Decimal>() / n;
+        let vals: Vec<Decimal> = self.window.iter().copied().collect();
+        let crosses = vals
+            .windows(2)
+            .filter(|w| (w[0] > mean) != (w[1] > mean))
+            .count();
+        Some(crosses)
+    }
+
+    /// Approximate entropy using 4 equal-width bins.
+    /// Returns `None` for an empty window or all identical values.
+    pub fn window_entropy_approx(&self) -> Option<f64> {
+        if self.window.is_empty() {
+            return None;
+        }
+        let min = self.window.iter().copied().min()?;
+        let max = self.window.iter().copied().max()?;
+        if min == max {
+            return None;
+        }
+        use rust_decimal::prelude::ToPrimitive;
+        let range = (max - min).to_f64().unwrap_or(0.0);
+        let n_bins = 4usize;
+        let mut bins = vec![0usize; n_bins];
+        for v in self.window.iter() {
+            let frac = ((*v - min).to_f64().unwrap_or(0.0) / range) * (n_bins - 1) as f64;
+            let idx = frac.round() as usize;
+            bins[idx.min(n_bins - 1)] += 1;
+        }
+        let total = self.window.len() as f64;
+        let entropy = bins
+            .iter()
+            .filter(|&&c| c > 0)
+            .map(|&c| {
+                let p = c as f64 / total;
+                -p * p.ln()
+            })
+            .sum::<f64>();
+        Some(entropy)
     }
 
 }
@@ -9802,5 +9987,46 @@ mod zscore_stability_tests {
         for v in [dec!(1), dec!(3), dec!(1), dec!(3)] { n.update(v); }
         let r = n.alternation_rate().unwrap();
         assert!((r - 1.0).abs() < 1e-9, "perfect alternation → 1.0, got {}", r);
+    }
+
+    // ── round-101 tests ───────────────────────────────────────────────────────
+
+    #[test]
+    fn test_zscore_window_signed_area_none_for_empty() {
+        assert!(znorm(4).window_signed_area().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_signed_area_zero_for_constant() {
+        let mut n = znorm(4);
+        for _ in 0..4 { n.update(dec!(5)); }
+        assert_eq!(n.window_signed_area().unwrap(), dec!(0));
+    }
+
+    #[test]
+    fn test_zscore_up_fraction_none_for_empty() {
+        assert!(znorm(4).up_fraction().is_none());
+    }
+
+    #[test]
+    fn test_zscore_up_fraction_for_all_positive() {
+        let mut n = znorm(4);
+        for _ in 0..4 { n.update(dec!(5)); }
+        let f = n.up_fraction().unwrap();
+        assert!((f - 1.0).abs() < 1e-9, "all positive → 1.0, got {}", f);
+    }
+
+    #[test]
+    fn test_zscore_threshold_cross_count_none_for_single() {
+        let mut n = znorm(4);
+        n.update(dec!(5));
+        assert!(n.threshold_cross_count().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_entropy_approx_none_for_constant() {
+        let mut n = znorm(4);
+        for _ in 0..4 { n.update(dec!(5)); }
+        assert!(n.window_entropy_approx().is_none());
     }
 }
