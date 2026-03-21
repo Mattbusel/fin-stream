@@ -10099,6 +10099,58 @@ impl NormalizedTick {
         Some(num / (dp * dq))
     }
 
+    /// Rate of change: (last_price - first_price) / first_price.
+    pub fn tick_price_roc(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 2 { return None; }
+        let first = ticks.first()?.price.to_f64()?;
+        let last = ticks.last()?.price.to_f64()?;
+        if first == 0.0 { return None; }
+        Some((last - first) / first)
+    }
+
+    /// Mean volume-weighted return: sum(qty_i * ret_i) / total_qty.
+    pub fn tick_vol_weighted_return(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 2 { return None; }
+        let prices: Vec<f64> = ticks.iter().filter_map(|t| t.price.to_f64()).collect();
+        let qtys: Vec<f64> = ticks.iter().filter_map(|t| t.quantity.to_f64()).collect();
+        if prices.len() < 2 || qtys.len() < 2 { return None; }
+        let total_qty: f64 = qtys[1..].iter().sum();
+        if total_qty == 0.0 { return None; }
+        let wret: f64 = prices.windows(2).zip(qtys[1..].iter())
+            .filter_map(|(w, &q)| {
+                if w[0] == 0.0 { None } else { Some(q * (w[1] - w[0]) / w[0]) }
+            }).sum();
+        Some(wret / total_qty)
+    }
+
+    /// Maximum price excursion from mean (max |price - mean|).
+    pub fn tick_price_excursion(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() { return None; }
+        let prices: Vec<f64> = ticks.iter().filter_map(|t| t.price.to_f64()).collect();
+        if prices.is_empty() { return None; }
+        let mean = prices.iter().sum::<f64>() / prices.len() as f64;
+        let max_excursion = prices.iter().map(|p| (p - mean).abs())
+            .fold(0.0f64, f64::max);
+        Some(max_excursion)
+    }
+
+    /// Net flow: buy_volume - sell_volume.
+    pub fn tick_net_flow(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() { return None; }
+        let buy_vol: f64 = ticks.iter().filter_map(|t| {
+            if t.side == Some(TradeSide::Buy) { t.quantity.to_f64() } else { None }
+        }).sum();
+        let sell_vol: f64 = ticks.iter().filter_map(|t| {
+            if t.side == Some(TradeSide::Sell) { t.quantity.to_f64() } else { None }
+        }).sum();
+        if buy_vol == 0.0 && sell_vol == 0.0 { return None; }
+        Some(buy_vol - sell_vol)
+    }
+
     /// Sensitivity: absolute price change per unit of quantity traded.
     pub fn tick_price_vol_sensitivity(ticks: &[NormalizedTick]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
@@ -23593,5 +23645,71 @@ mod tests {
         ];
         let r = NormalizedTick::tick_price_fractal(&ticks).unwrap();
         assert!(r >= 0.0 && r <= 1.0);
+    }
+
+    #[test]
+    fn test_tick_price_roc_too_few_none() {
+        use rust_decimal_macros::dec;
+        let t = make_tick_pq(dec!(100), dec!(1));
+        assert!(NormalizedTick::tick_price_roc(&[t]).is_none());
+    }
+
+    #[test]
+    fn test_tick_price_roc_up_positive() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(110), dec!(1)),
+        ];
+        let r = NormalizedTick::tick_price_roc(&ticks).unwrap();
+        assert!(r > 0.0);
+    }
+
+    #[test]
+    fn test_tick_vol_weighted_return_too_few_none() {
+        use rust_decimal_macros::dec;
+        let t = make_tick_pq(dec!(100), dec!(1));
+        assert!(NormalizedTick::tick_vol_weighted_return(&[t]).is_none());
+    }
+
+    #[test]
+    fn test_tick_vol_weighted_return_returns_value() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(2)),
+            make_tick_pq(dec!(110), dec!(3)),
+        ];
+        let r = NormalizedTick::tick_vol_weighted_return(&ticks);
+        assert!(r.is_some());
+    }
+
+    #[test]
+    fn test_tick_price_excursion_empty_none() {
+        assert!(NormalizedTick::tick_price_excursion(&[]).is_none());
+    }
+
+    #[test]
+    fn test_tick_price_excursion_same_price_zero() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(100), dec!(1)),
+        ];
+        let r = NormalizedTick::tick_price_excursion(&ticks).unwrap();
+        assert_eq!(r, 0.0);
+    }
+
+    #[test]
+    fn test_tick_net_flow_empty_none() {
+        assert!(NormalizedTick::tick_net_flow(&[]).is_none());
+    }
+
+    #[test]
+    fn test_tick_net_flow_all_buys_positive() {
+        use rust_decimal_macros::dec;
+        let mut t = make_tick_pq(dec!(100), dec!(5));
+        t.side = Some(TradeSide::Buy);
+        let r = NormalizedTick::tick_net_flow(&[t]).unwrap();
+        assert!(r > 0.0);
     }
 }

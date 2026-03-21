@@ -9,6 +9,28 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.10.56] - 2026-03-20
+
+### Added
+
+**`tick` module — `NormalizedTick` analytics (round 205)**
+- `NormalizedTick::tick_price_roc(ticks)` — rate of change: (last - first) / first price.
+- `NormalizedTick::tick_vol_weighted_return(ticks)` — volume-weighted mean tick return.
+- `NormalizedTick::tick_price_excursion(ticks)` — maximum |price - mean| across all ticks.
+- `NormalizedTick::tick_net_flow(ticks)` — buy volume minus sell volume.
+
+**`ohlcv` module — `OhlcvBar` analytics (round 205)**
+- `OhlcvBar::bar_open_strength(bars)` — mean (open - low) / (high - low) across bars.
+- `OhlcvBar::bar_close_pull(bars)` — mean (close - low) / (high - low) across bars.
+- `OhlcvBar::bar_body_vs_shadow(bars)` — mean body / (body + total_wick) across bars.
+- `OhlcvBar::bar_vol_per_point(bars)` — mean volume per unit of (high - low) range.
+
+**`norm` module — `MinMaxNormalizer` + `ZScoreNormalizer` analytics (round 205)**
+- `window_hurst_approx()` — approximate Hurst exponent via rescaled range (R/S).
+- `window_last_vs_q3()` — last window value relative to Q3.
+
+---
+
 ## [2.10.55] - 2026-03-20
 
 ### Added

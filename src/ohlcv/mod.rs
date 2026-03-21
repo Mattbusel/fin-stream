@@ -9746,6 +9746,65 @@ impl OhlcvBar {
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
+    /// Mean (open - low) / (high - low) — open strength (position of open in range).
+    pub fn bar_open_strength(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let vals: Vec<f64> = bars.iter().filter_map(|b| {
+            let hl = (b.high - b.low).to_f64()?;
+            if hl == 0.0 { return Some(0.5); }
+            let ol = (b.open - b.low).to_f64()?;
+            Some(ol / hl)
+        }).collect();
+        if vals.is_empty() { return None; }
+        Some(vals.iter().sum::<f64>() / vals.len() as f64)
+    }
+
+    /// Mean (close - low) / (high - low) — close pull (position of close in range).
+    pub fn bar_close_pull(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let vals: Vec<f64> = bars.iter().filter_map(|b| {
+            let hl = (b.high - b.low).to_f64()?;
+            if hl == 0.0 { return Some(0.5); }
+            let cl = (b.close - b.low).to_f64()?;
+            Some(cl / hl)
+        }).collect();
+        if vals.is_empty() { return None; }
+        Some(vals.iter().sum::<f64>() / vals.len() as f64)
+    }
+
+    /// Mean body / (body + total_wick) — body vs shadow ratio.
+    pub fn bar_body_vs_shadow(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let vals: Vec<f64> = bars.iter().filter_map(|b| {
+            let body = (b.close - b.open).abs().to_f64()?;
+            let body_top = if b.close > b.open { b.close } else { b.open };
+            let body_bot = if b.close < b.open { b.close } else { b.open };
+            let wicks = ((b.high - body_top) + (body_bot - b.low)).to_f64()?;
+            let total = body + wicks;
+            if total == 0.0 { return None; }
+            Some(body / total)
+        }).collect();
+        if vals.is_empty() { return None; }
+        Some(vals.iter().sum::<f64>() / vals.len() as f64)
+    }
+
+    /// Mean volume per price point (high - low) across bars.
+    pub fn bar_vol_per_point(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let vals: Vec<f64> = bars.iter().filter_map(|b| {
+            let hl = (b.high - b.low).to_f64()?;
+            if hl == 0.0 { return None; }
+            let vol = b.volume.to_f64()?;
+            Some(vol / hl)
+        }).collect();
+        if vals.is_empty() { return None; }
+        Some(vals.iter().sum::<f64>() / vals.len() as f64)
+    }
+
     /// Mean body as a fraction of total volume (body efficiency per volume unit).
     pub fn bar_body_vol_efficiency(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
@@ -22274,5 +22333,53 @@ mod tests {
         let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
         let r = OhlcvBar::bar_high_close_momentum(&[b]).unwrap();
         assert!(r >= 0.0 && r <= 1.0);
+    }
+
+    #[test]
+    fn test_bar_open_strength_empty_none() {
+        assert!(OhlcvBar::bar_open_strength(&[]).is_none());
+    }
+
+    #[test]
+    fn test_bar_open_strength_returns_bounded() {
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let r = OhlcvBar::bar_open_strength(&[b]).unwrap();
+        assert!(r >= 0.0 && r <= 1.0);
+    }
+
+    #[test]
+    fn test_bar_close_pull_empty_none() {
+        assert!(OhlcvBar::bar_close_pull(&[]).is_none());
+    }
+
+    #[test]
+    fn test_bar_close_pull_returns_bounded() {
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let r = OhlcvBar::bar_close_pull(&[b]).unwrap();
+        assert!(r >= 0.0 && r <= 1.0);
+    }
+
+    #[test]
+    fn test_bar_body_vs_shadow_empty_none() {
+        assert!(OhlcvBar::bar_body_vs_shadow(&[]).is_none());
+    }
+
+    #[test]
+    fn test_bar_body_vs_shadow_returns_bounded() {
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let r = OhlcvBar::bar_body_vs_shadow(&[b]).unwrap();
+        assert!(r >= 0.0 && r <= 1.0);
+    }
+
+    #[test]
+    fn test_bar_vol_per_point_empty_none() {
+        assert!(OhlcvBar::bar_vol_per_point(&[]).is_none());
+    }
+
+    #[test]
+    fn test_bar_vol_per_point_returns_positive() {
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let r = OhlcvBar::bar_vol_per_point(&[b]).unwrap();
+        assert!(r > 0.0);
     }
 }

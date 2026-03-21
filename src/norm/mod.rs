@@ -7551,6 +7551,45 @@ impl MinMaxNormalizer {
         Some(score / (n * n))
     }
 
+    /// Approximate Hurst exponent via rescaled range (R/S) on the window.
+    pub fn window_hurst_approx(&self) -> Option<f64> {
+        if self.window.len() < 4 { return None; }
+        use rust_decimal::prelude::ToPrimitive;
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.len() < 4 { return None; }
+        let n = vals.len() as f64;
+        let mean = vals.iter().sum::<f64>() / n;
+        let deviations: Vec<f64> = vals.iter().map(|v| v - mean).collect();
+        let mut cumsum = 0.0f64;
+        let mut min_cs = 0.0f64;
+        let mut max_cs = 0.0f64;
+        for d in &deviations {
+            cumsum += d;
+            if cumsum > max_cs { max_cs = cumsum; }
+            if cumsum < min_cs { min_cs = cumsum; }
+        }
+        let r = max_cs - min_cs;
+        let std = (vals.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / n).sqrt();
+        if std == 0.0 || r == 0.0 { return None; }
+        Some((r / std).ln() / n.ln())
+    }
+
+    /// Last value relative to Q3 (last / Q3).
+    pub fn window_last_vs_q3(&self) -> Option<f64> {
+        if self.window.len() < 4 { return None; }
+        let mut vals: Vec<f64> = self.window.iter().filter_map(|v| {
+            use rust_decimal::prelude::ToPrimitive;
+            v.to_f64()
+        }).collect();
+        if vals.len() < 4 { return None; }
+        let last = *vals.last()?;
+        vals.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let n = vals.len();
+        let q3 = vals[(3 * n) / 4];
+        if q3 == 0.0 { return None; }
+        Some(last / q3)
+    }
+
 }
 
 #[cfg(test)]
@@ -16321,6 +16360,36 @@ mod tests {
         let r = n.window_trend_score().unwrap();
         assert!(r > 0.0);
     }
+
+    #[test]
+    fn test_minmax_window_hurst_approx_too_few_none() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        assert!(n.window_hurst_approx().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_hurst_approx_returns_value() {
+        let mut n = norm(8);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4), dec!(5), dec!(6), dec!(7), dec!(8)] { n.update(v); }
+        let r = n.window_hurst_approx();
+        assert!(r.is_some());
+    }
+
+    #[test]
+    fn test_minmax_window_last_vs_q3_too_few_none() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        assert!(n.window_last_vs_q3().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_last_vs_q3_returns_value() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let r = n.window_last_vs_q3().unwrap();
+        assert!(r.is_finite());
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -23817,6 +23886,45 @@ impl ZScoreNormalizer {
             (i + 1) as f64 * sign
         }).sum();
         Some(score / (n * n))
+    }
+
+    /// Approximate Hurst exponent via rescaled range (R/S) on the window.
+    pub fn window_hurst_approx(&self) -> Option<f64> {
+        if self.window.len() < 4 { return None; }
+        use rust_decimal::prelude::ToPrimitive;
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.len() < 4 { return None; }
+        let n = vals.len() as f64;
+        let mean = vals.iter().sum::<f64>() / n;
+        let deviations: Vec<f64> = vals.iter().map(|v| v - mean).collect();
+        let mut cumsum = 0.0f64;
+        let mut min_cs = 0.0f64;
+        let mut max_cs = 0.0f64;
+        for d in &deviations {
+            cumsum += d;
+            if cumsum > max_cs { max_cs = cumsum; }
+            if cumsum < min_cs { min_cs = cumsum; }
+        }
+        let r = max_cs - min_cs;
+        let std = (vals.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / n).sqrt();
+        if std == 0.0 || r == 0.0 { return None; }
+        Some((r / std).ln() / n.ln())
+    }
+
+    /// Last value relative to Q3 (last / Q3).
+    pub fn window_last_vs_q3(&self) -> Option<f64> {
+        if self.window.len() < 4 { return None; }
+        let mut vals: Vec<f64> = self.window.iter().filter_map(|v| {
+            use rust_decimal::prelude::ToPrimitive;
+            v.to_f64()
+        }).collect();
+        if vals.len() < 4 { return None; }
+        let last = *vals.last()?;
+        vals.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let n = vals.len();
+        let q3 = vals[(3 * n) / 4];
+        if q3 == 0.0 { return None; }
+        Some(last / q3)
     }
 
 }
@@ -32537,5 +32645,35 @@ mod zscore_stability_tests {
         for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
         let r = n.window_trend_score().unwrap();
         assert!(r > 0.0);
+    }
+
+    #[test]
+    fn test_zscore_window_hurst_approx_too_few_none() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        assert!(n.window_hurst_approx().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_hurst_approx_returns_value() {
+        let mut n = znorm(8);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4), dec!(5), dec!(6), dec!(7), dec!(8)] { n.update(v); }
+        let r = n.window_hurst_approx();
+        assert!(r.is_some());
+    }
+
+    #[test]
+    fn test_zscore_window_last_vs_q3_too_few_none() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        assert!(n.window_last_vs_q3().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_last_vs_q3_returns_value() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let r = n.window_last_vs_q3().unwrap();
+        assert!(r.is_finite());
     }
 }
