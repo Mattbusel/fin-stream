@@ -6268,6 +6268,68 @@ impl NormalizedTick {
         Some(count)
     }
 
+    // ── round-135 ────────────────────────────────────────────────────────────
+
+    /// Tick cluster density: ticks per unit time (ticks/ms * 1000).
+    pub fn tick_cluster_density(ticks: &[NormalizedTick]) -> Option<f64> {
+        if ticks.len() < 2 { return None; }
+        let first = ticks.first()?.received_at_ms;
+        let last = ticks.last()?.received_at_ms;
+        if last <= first { return None; }
+        Some(ticks.len() as f64 / (last - first) as f64 * 1000.0)
+    }
+
+    /// Quantity z-score last: z-score of the last quantity in the series.
+    pub fn qty_zscore_last(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 2 { return None; }
+        let qtys: Vec<f64> = ticks.iter().map(|t| t.quantity.to_f64().unwrap_or(0.0)).collect();
+        let mean = qtys.iter().sum::<f64>() / qtys.len() as f64;
+        let std = (qtys.iter().map(|&q| (q - mean).powi(2)).sum::<f64>() / qtys.len() as f64).sqrt();
+        if std == 0.0 { return None; }
+        let last = *qtys.last()?;
+        Some((last - mean) / std)
+    }
+
+    /// Side price ratio: mean price of all sided ticks on buy side relative to sell side (abs ratio).
+    pub fn side_price_ratio(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let buy_mean = {
+            let v: Vec<f64> = ticks.iter()
+                .filter(|t| matches!(t.side, Some(TradeSide::Buy)))
+                .map(|t| t.price.to_f64().unwrap_or(0.0))
+                .collect();
+            if v.is_empty() { return None; }
+            v.iter().sum::<f64>() / v.len() as f64
+        };
+        let sell_mean = {
+            let v: Vec<f64> = ticks.iter()
+                .filter(|t| matches!(t.side, Some(TradeSide::Sell)))
+                .map(|t| t.price.to_f64().unwrap_or(0.0))
+                .collect();
+            if v.is_empty() { return None; }
+            v.iter().sum::<f64>() / v.len() as f64
+        };
+        if sell_mean == 0.0 { return None; }
+        Some((buy_mean - sell_mean).abs() / sell_mean)
+    }
+
+    /// Quantity entropy normalized: entropy of qty distribution / ln(n).
+    pub fn qty_entropy_norm(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 2 { return None; }
+        let qtys: Vec<f64> = ticks.iter().map(|t| t.quantity.to_f64().unwrap_or(0.0)).collect();
+        let total: f64 = qtys.iter().sum();
+        if total == 0.0 { return None; }
+        let entropy: f64 = qtys.iter().map(|&q| {
+            let p = q / total;
+            if p > 0.0 { -p * p.ln() } else { 0.0 }
+        }).sum();
+        let max_entropy = (ticks.len() as f64).ln();
+        if max_entropy == 0.0 { return None; }
+        Some(entropy / max_entropy)
+    }
+
 }
 
 
@@ -14305,5 +14367,76 @@ mod tests {
         ];
         let c = NormalizedTick::price_jump_count(&ticks).unwrap();
         assert_eq!(c, 0);
+    }
+
+    // ── round-135 ────────────────────────────────────────────────────────────
+    #[test]
+    fn test_tick_cluster_density_none_for_single() {
+        use rust_decimal_macros::dec;
+        assert!(NormalizedTick::tick_cluster_density(&[make_tick_pq(dec!(100), dec!(1))]).is_none());
+    }
+
+    #[test]
+    fn test_tick_cluster_density_basic() {
+        use rust_decimal_macros::dec;
+        let mut t1 = make_tick_pq(dec!(100), dec!(1));
+        t1.received_at_ms = 0;
+        let mut t2 = make_tick_pq(dec!(101), dec!(1));
+        t2.received_at_ms = 500;
+        // 2 ticks in 500ms → 2/500*1000 = 4.0 ticks/s
+        let d = NormalizedTick::tick_cluster_density(&[t1, t2]).unwrap();
+        assert!((d - 4.0).abs() < 1e-9, "expected 4.0, got {}", d);
+    }
+
+    #[test]
+    fn test_qty_zscore_last_none_for_single() {
+        use rust_decimal_macros::dec;
+        assert!(NormalizedTick::qty_zscore_last(&[make_tick_pq(dec!(100), dec!(1))]).is_none());
+    }
+
+    #[test]
+    fn test_qty_zscore_last_at_mean() {
+        use rust_decimal_macros::dec;
+        // all identical → std=0 → None
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(2)),
+            make_tick_pq(dec!(101), dec!(2)),
+        ];
+        assert!(NormalizedTick::qty_zscore_last(&ticks).is_none());
+    }
+
+    #[test]
+    fn test_side_price_ratio_none_for_no_sides() {
+        use rust_decimal_macros::dec;
+        assert!(NormalizedTick::side_price_ratio(&[make_tick_pq(dec!(100), dec!(1))]).is_none());
+    }
+
+    #[test]
+    fn test_side_price_ratio_equal() {
+        use rust_decimal_macros::dec;
+        let mut b = make_tick_pq(dec!(100), dec!(1));
+        b.side = Some(TradeSide::Buy);
+        let mut s = make_tick_pq(dec!(100), dec!(1));
+        s.side = Some(TradeSide::Sell);
+        let r = NormalizedTick::side_price_ratio(&[b, s]).unwrap();
+        assert!(r.abs() < 1e-9, "expected 0.0 for equal prices, got {}", r);
+    }
+
+    #[test]
+    fn test_qty_entropy_norm_none_for_single() {
+        use rust_decimal_macros::dec;
+        assert!(NormalizedTick::qty_entropy_norm(&[make_tick_pq(dec!(100), dec!(1))]).is_none());
+    }
+
+    #[test]
+    fn test_qty_entropy_norm_uniform() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(101), dec!(1)),
+        ];
+        let e = NormalizedTick::qty_entropy_norm(&ticks).unwrap();
+        // uniform distribution → max entropy → ratio = 1.0
+        assert!((e - 1.0).abs() < 1e-9, "expected 1.0 for uniform, got {}", e);
     }
 }

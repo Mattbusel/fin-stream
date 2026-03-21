@@ -6156,6 +6156,52 @@ impl OhlcvBar {
         Some(count as f64 / (bars.len() - 1) as f64)
     }
 
+    // ── round-135 ────────────────────────────────────────────────────────────
+
+    /// Bar body count: number of bars with non-zero body (close ≠ open).
+    pub fn bar_body_count(bars: &[OhlcvBar]) -> Option<usize> {
+        if bars.is_empty() { return None; }
+        let count = bars.iter().filter(|b| b.close != b.open).count();
+        Some(count)
+    }
+
+    /// Range contraction ratio: fraction of bars where range < prior range.
+    pub fn range_contraction_ratio(bars: &[OhlcvBar]) -> Option<f64> {
+        if bars.len() < 2 { return None; }
+        let count = bars.windows(2)
+            .filter(|w| (w[1].high - w[1].low) < (w[0].high - w[0].low))
+            .count();
+        Some(count as f64 / (bars.len() - 1) as f64)
+    }
+
+    /// Volume trend ratio: last volume / mean volume.
+    pub fn volume_trend_ratio(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let vols: Vec<f64> = bars.iter().map(|b| b.volume.to_f64().unwrap_or(0.0)).collect();
+        let mean = vols.iter().sum::<f64>() / vols.len() as f64;
+        if mean == 0.0 { return None; }
+        let last = *vols.last()?;
+        Some(last / mean)
+    }
+
+    /// Bar midpoint score: mean of (midpoint - open) / range per bar.
+    pub fn bar_midpoint_score(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let vals: Vec<f64> = bars.iter().filter_map(|b| {
+            let hi = b.high.to_f64()?;
+            let lo = b.low.to_f64()?;
+            let op = b.open.to_f64()?;
+            let range = hi - lo;
+            if range == 0.0 { return None; }
+            let mid = (hi + lo) / 2.0;
+            Some((mid - op) / range)
+        }).collect();
+        if vals.is_empty() { return None; }
+        Some(vals.iter().sum::<f64>() / vals.len() as f64)
+    }
+
 }
 
 impl std::fmt::Display for OhlcvBar {
@@ -14311,5 +14357,56 @@ mod tests {
         let b2 = make_ohlcv_bar(dec!(105), dec!(115), dec!(95), dec!(110));
         let p = OhlcvBar::bar_open_persistence(&[b1, b2]).unwrap();
         assert!((p - 1.0).abs() < 1e-9, "expected 1.0, got {}", p);
+    }
+
+    // ── round-135 ────────────────────────────────────────────────────────────
+    #[test]
+    fn test_bar_body_count_none_for_empty() {
+        assert!(OhlcvBar::bar_body_count(&[]).is_none());
+    }
+
+    #[test]
+    fn test_bar_body_count_all_doji() {
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100));
+        let c = OhlcvBar::bar_body_count(&[b]).unwrap();
+        assert_eq!(c, 0);
+    }
+
+    #[test]
+    fn test_range_contraction_ratio_none_for_single() {
+        assert!(OhlcvBar::range_contraction_ratio(&[make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105))]).is_none());
+    }
+
+    #[test]
+    fn test_range_contraction_ratio_contracting() {
+        let b1 = make_ohlcv_bar(dec!(100), dec!(120), dec!(80), dec!(105));
+        let b2 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let r = OhlcvBar::range_contraction_ratio(&[b1, b2]).unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "expected 1.0, got {}", r);
+    }
+
+    #[test]
+    fn test_volume_trend_ratio_none_for_empty() {
+        assert!(OhlcvBar::volume_trend_ratio(&[]).is_none());
+    }
+
+    #[test]
+    fn test_volume_trend_ratio_equal() {
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let r = OhlcvBar::volume_trend_ratio(&[b]).unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "expected 1.0 for single bar, got {}", r);
+    }
+
+    #[test]
+    fn test_bar_midpoint_score_none_for_empty() {
+        assert!(OhlcvBar::bar_midpoint_score(&[]).is_none());
+    }
+
+    #[test]
+    fn test_bar_midpoint_score_symmetric() {
+        // high=110, low=90, open=100 → mid=100, (100-100)/20 = 0.0
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let s = OhlcvBar::bar_midpoint_score(&[b]).unwrap();
+        assert!(s.abs() < 1e-9, "expected 0.0 for symmetric bar, got {}", s);
     }
 }

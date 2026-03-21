@@ -9,6 +9,36 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.8.6] - 2026-03-20
+
+### Added
+
+**`tick` module — `NormalizedTick` analytics (round 135)**
+- `NormalizedTick::tick_cluster_density(ticks)` — ticks per second based on timestamps.
+- `NormalizedTick::qty_zscore_last(ticks)` — z-score of the last quantity in the series.
+- `NormalizedTick::side_price_ratio(ticks)` — absolute relative spread between mean buy and sell prices.
+- `NormalizedTick::qty_entropy_norm(ticks)` — Shannon entropy of quantity distribution normalized to [0, 1].
+
+**`ohlcv` module — `OhlcvBar` analytics (round 135)**
+- `OhlcvBar::bar_body_count(bars)` — count of bars with non-zero body.
+- `OhlcvBar::range_contraction_ratio(bars)` — fraction of bars where range < prior bar range.
+- `OhlcvBar::volume_trend_ratio(bars)` — last volume / mean volume.
+- `OhlcvBar::bar_midpoint_score(bars)` — mean of (midpoint - open) / range per bar.
+
+**`norm` module — `MinMaxNormalizer` analytics (round 135)**
+- `MinMaxNormalizer::window_mean_crossing_rate()` — fraction of steps crossing the mean.
+- `MinMaxNormalizer::window_var_to_mean()` — variance / |mean| (index of dispersion).
+- `MinMaxNormalizer::window_coeff_var()` — std / |mean| (coefficient of variation).
+- `MinMaxNormalizer::window_step_up_fraction()` — fraction of steps that are strictly upward.
+
+**`norm` module — `ZScoreNormalizer` analytics (round 135)**
+- `ZScoreNormalizer::window_mean_crossing_rate()` — fraction of steps crossing the mean.
+- `ZScoreNormalizer::window_var_to_mean()` — variance / |mean| (index of dispersion).
+- `ZScoreNormalizer::window_coeff_var()` — std / |mean| (coefficient of variation).
+- `ZScoreNormalizer::window_step_up_fraction()` — fraction of steps that are strictly upward.
+
+---
+
 ## [2.8.5] - 2026-03-20
 
 ### Added
