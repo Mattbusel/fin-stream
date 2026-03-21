@@ -9,6 +9,29 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.10.64] - 2026-03-20
+
+### Added
+
+**`tick` module — `NormalizedTick` analytics (round 213)**
+- `NormalizedTick::tick_qty_median(ticks)` — median tick quantity (50th percentile).
+- `NormalizedTick::tick_vol_burst(ticks)` — ratio of late-window max to early-window mean volume.
+- `NormalizedTick::tick_ofi_proxy(ticks)` — order flow imbalance: (buy - sell) / total volume.
+- `NormalizedTick::tick_price_curvature(ticks)` — mean absolute second difference of prices.
+
+**`ohlcv` module — `OhlcvBar` analytics (round 213)**
+- `OhlcvBar::bar_vol_roc(bars)` — mean rate of change of bar volume.
+- `OhlcvBar::bar_vol_weighted_close(bars)` — volume-weighted average close price.
+- `OhlcvBar::bar_high_low_ratio(bars)` — mean high-to-low ratio per bar.
+- `OhlcvBar::bar_oc_skewness(bars)` — skewness of (close - open) body values.
+
+**`norm` module — `MinMaxNormalizer` + `ZScoreNormalizer` analytics (round 213)**
+- `window_last_pct_of_max()` — last value as fraction of window maximum.
+- `window_range_pct_of_mean()` — range (max - min) as fraction of window mean.
+- `window_lag1_corr()` — lag-1 serial autocorrelation of the window.
+
+---
+
 ## [2.10.63] - 2026-03-20
 
 ### Added
