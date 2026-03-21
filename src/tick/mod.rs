@@ -1858,6 +1858,198 @@ impl NormalizedTick {
         Some(variance.sqrt())
     }
 
+    // ── round-79 ─────────────────────────────────────────────────────────────
+
+    /// Fraction of ticks for which the trade side is known (non-`None`).
+    ///
+    /// Returns `None` for an empty slice.
+    ///
+    /// A value near 1.0 indicates the feed reliably reports aggressor side;
+    /// a value near 0.0 means most ticks are neutral.
+    pub fn aggressor_fraction(ticks: &[NormalizedTick]) -> Option<f64> {
+        if ticks.is_empty() {
+            return None;
+        }
+        let known = ticks.iter().filter(|t| t.side.is_some()).count();
+        Some(known as f64 / ticks.len() as f64)
+    }
+
+    /// Signed volume imbalance: `(buy_vol − sell_vol) / (buy_vol + sell_vol)`.
+    ///
+    /// Returns a value in `(−1, +1)`. Positive means net buying pressure,
+    /// negative means net selling pressure. Returns `None` when the total
+    /// known-side volume is zero (all ticks are neutral or the slice is empty).
+    pub fn volume_imbalance_ratio(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let buy = Self::buy_volume(ticks);
+        let sell = Self::sell_volume(ticks);
+        let total = buy + sell;
+        if total.is_zero() {
+            return None;
+        }
+        ((buy - sell) / total).to_f64()
+    }
+
+    /// Covariance between price and quantity across the tick slice.
+    ///
+    /// Returns `None` if fewer than 2 ticks are provided or if any value
+    /// cannot be converted to `f64`.
+    ///
+    /// A positive covariance indicates that larger trades tend to occur at
+    /// higher prices; negative means larger trades skew toward lower prices.
+    pub fn price_quantity_covariance(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 2 {
+            return None;
+        }
+        let prices: Vec<f64> = ticks.iter().filter_map(|t| t.price.to_f64()).collect();
+        let qtys: Vec<f64> = ticks.iter().filter_map(|t| t.quantity.to_f64()).collect();
+        if prices.len() != ticks.len() || qtys.len() != ticks.len() {
+            return None;
+        }
+        let n = prices.len() as f64;
+        let mean_p = prices.iter().sum::<f64>() / n;
+        let mean_q = qtys.iter().sum::<f64>() / n;
+        let cov = prices
+            .iter()
+            .zip(qtys.iter())
+            .map(|(p, q)| (p - mean_p) * (q - mean_q))
+            .sum::<f64>()
+            / (n - 1.0);
+        Some(cov)
+    }
+
+    /// Fraction of ticks whose quantity meets or exceeds `threshold`.
+    ///
+    /// Returns `None` for an empty slice. The result is in `[0.0, 1.0]`.
+    /// Useful for characterising how "institutional" the flow is.
+    pub fn large_trade_fraction(ticks: &[NormalizedTick], threshold: Decimal) -> Option<f64> {
+        if ticks.is_empty() {
+            return None;
+        }
+        let count = Self::large_trade_count(ticks, threshold);
+        Some(count as f64 / ticks.len() as f64)
+    }
+
+    /// Number of unique price levels per unit of price range.
+    ///
+    /// Computed as `unique_price_count / price_range`. Returns `None` when
+    /// the slice is empty or the price range is zero (all ticks at one price).
+    ///
+    /// High density implies granular price action; low density implies
+    /// price jumps between a few discrete levels.
+    pub fn price_level_density(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let range = Self::price_range(ticks)?;
+        if range.is_zero() {
+            return None;
+        }
+        let unique = Self::unique_price_count(ticks) as f64;
+        (Decimal::from(Self::unique_price_count(ticks) as i64) / range).to_f64()
+            .or_else(|| Some(unique / range.to_f64()?))
+    }
+
+    /// Ratio of buy-side notional to sell-side notional.
+    ///
+    /// Returns `None` when there are no sell-side ticks or sell notional is
+    /// zero. A value above 1.0 means buy-side dollar flow dominates.
+    pub fn notional_buy_sell_ratio(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let buy_n = Self::buy_notional(ticks);
+        let sell_n = Self::sell_notional(ticks);
+        if sell_n.is_zero() {
+            return None;
+        }
+        (buy_n / sell_n).to_f64()
+    }
+
+    /// Mean of tick-to-tick log returns: `mean(ln(p_i / p_{i-1}))`.
+    ///
+    /// Returns `None` if fewer than 2 ticks are provided or if any price
+    /// is zero (which would make the log undefined).
+    pub fn log_return_mean(ticks: &[NormalizedTick]) -> Option<f64> {
+        if ticks.len() < 2 {
+            return None;
+        }
+        let returns: Vec<f64> = ticks
+            .windows(2)
+            .filter_map(|w| {
+                use rust_decimal::prelude::ToPrimitive;
+                let prev = w[0].price.to_f64()?;
+                let curr = w[1].price.to_f64()?;
+                if prev <= 0.0 || curr <= 0.0 {
+                    return None;
+                }
+                Some((curr / prev).ln())
+            })
+            .collect();
+        if returns.is_empty() {
+            return None;
+        }
+        Some(returns.iter().sum::<f64>() / returns.len() as f64)
+    }
+
+    /// Standard deviation of tick-to-tick log returns.
+    ///
+    /// Returns `None` if fewer than 3 ticks are provided (need at least 2
+    /// returns for a meaningful std-dev) or if any price is zero.
+    pub fn log_return_std(ticks: &[NormalizedTick]) -> Option<f64> {
+        if ticks.len() < 3 {
+            return None;
+        }
+        let returns: Vec<f64> = ticks
+            .windows(2)
+            .filter_map(|w| {
+                use rust_decimal::prelude::ToPrimitive;
+                let prev = w[0].price.to_f64()?;
+                let curr = w[1].price.to_f64()?;
+                if prev <= 0.0 || curr <= 0.0 {
+                    return None;
+                }
+                Some((curr / prev).ln())
+            })
+            .collect();
+        if returns.len() < 2 {
+            return None;
+        }
+        let n = returns.len() as f64;
+        let mean = returns.iter().sum::<f64>() / n;
+        let variance = returns.iter().map(|r| (r - mean).powi(2)).sum::<f64>() / (n - 1.0);
+        Some(variance.sqrt())
+    }
+
+    /// Ratio of the maximum price to the last price: `max_price / last_price`.
+    ///
+    /// Returns `None` for an empty slice or if the last price is zero.
+    ///
+    /// A value above 1.0 indicates that the price overshot the closing
+    /// level during the window — useful as an intrabar momentum signal.
+    pub fn price_overshoot_ratio(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let max_p = Self::max_price(ticks)?;
+        let last_p = Self::last_price(ticks)?;
+        if last_p.is_zero() {
+            return None;
+        }
+        (max_p / last_p).to_f64()
+    }
+
+    /// Ratio of the first price to the minimum price: `first_price / min_price`.
+    ///
+    /// Returns `None` for an empty slice or if the minimum price is zero.
+    ///
+    /// A value above 1.0 indicates the window opened above its trough,
+    /// meaning the price undershot the opening level at some point.
+    pub fn price_undershoot_ratio(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let first_p = Self::first_price(ticks)?;
+        let min_p = Self::min_price(ticks)?;
+        if min_p.is_zero() {
+            return None;
+        }
+        (first_p / min_p).to_f64()
+    }
+
 }
 
 
@@ -5493,5 +5685,279 @@ mod tests {
         // monotone up → efficiency = 1.0
         let e = NormalizedTick::spread_efficiency(&ticks).unwrap();
         assert!((e - 1.0).abs() < 1e-9, "expected 1.0, got {}", e);
+    }
+
+    // ── round-79 ─────────────────────────────────────────────────────────────
+
+    // ── NormalizedTick::aggressor_fraction ────────────────────────────────────
+
+    #[test]
+    fn test_aggressor_fraction_none_for_empty() {
+        assert!(NormalizedTick::aggressor_fraction(&[]).is_none());
+    }
+
+    #[test]
+    fn test_aggressor_fraction_zero_when_all_neutral() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(101), dec!(1)),
+        ];
+        let f = NormalizedTick::aggressor_fraction(&ticks).unwrap();
+        assert!((f - 0.0).abs() < 1e-9, "all neutral → fraction=0, got {}", f);
+    }
+
+    #[test]
+    fn test_aggressor_fraction_one_when_all_known() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            NormalizedTick { side: Some(TradeSide::Buy), ..make_tick_pq(dec!(100), dec!(1)) },
+            NormalizedTick { side: Some(TradeSide::Sell), ..make_tick_pq(dec!(101), dec!(1)) },
+        ];
+        let f = NormalizedTick::aggressor_fraction(&ticks).unwrap();
+        assert!((f - 1.0).abs() < 1e-9, "all known → fraction=1, got {}", f);
+    }
+
+    // ── NormalizedTick::volume_imbalance_ratio ────────────────────────────────
+
+    #[test]
+    fn test_volume_imbalance_ratio_none_for_neutral_ticks() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![make_tick_pq(dec!(100), dec!(5))];
+        assert!(NormalizedTick::volume_imbalance_ratio(&ticks).is_none());
+    }
+
+    #[test]
+    fn test_volume_imbalance_ratio_positive_for_all_buys() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            NormalizedTick { side: Some(TradeSide::Buy), ..make_tick_pq(dec!(100), dec!(4)) },
+        ];
+        let r = NormalizedTick::volume_imbalance_ratio(&ticks).unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "all buys → ratio=1.0, got {}", r);
+    }
+
+    #[test]
+    fn test_volume_imbalance_ratio_zero_for_equal_sides() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            NormalizedTick { side: Some(TradeSide::Buy), ..make_tick_pq(dec!(100), dec!(5)) },
+            NormalizedTick { side: Some(TradeSide::Sell), ..make_tick_pq(dec!(100), dec!(5)) },
+        ];
+        let r = NormalizedTick::volume_imbalance_ratio(&ticks).unwrap();
+        assert!(r.abs() < 1e-9, "equal buy/sell → ratio=0, got {}", r);
+    }
+
+    // ── NormalizedTick::price_quantity_covariance ─────────────────────────────
+
+    #[test]
+    fn test_price_quantity_covariance_none_for_single_tick() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![make_tick_pq(dec!(100), dec!(1))];
+        assert!(NormalizedTick::price_quantity_covariance(&ticks).is_none());
+    }
+
+    #[test]
+    fn test_price_quantity_covariance_positive_when_correlated() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(200), dec!(2)),
+            make_tick_pq(dec!(300), dec!(3)),
+        ];
+        let c = NormalizedTick::price_quantity_covariance(&ticks).unwrap();
+        assert!(c > 0.0, "price and qty both rise → positive cov, got {}", c);
+    }
+
+    // ── NormalizedTick::large_trade_fraction ──────────────────────────────────
+
+    #[test]
+    fn test_large_trade_fraction_none_for_empty() {
+        use rust_decimal_macros::dec;
+        assert!(NormalizedTick::large_trade_fraction(&[], dec!(10)).is_none());
+    }
+
+    #[test]
+    fn test_large_trade_fraction_zero_when_all_small() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(101), dec!(2)),
+        ];
+        let f = NormalizedTick::large_trade_fraction(&ticks, dec!(10)).unwrap();
+        assert!((f - 0.0).abs() < 1e-9, "all small → fraction=0, got {}", f);
+    }
+
+    #[test]
+    fn test_large_trade_fraction_one_when_all_large() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(20)),
+            make_tick_pq(dec!(101), dec!(30)),
+        ];
+        let f = NormalizedTick::large_trade_fraction(&ticks, dec!(10)).unwrap();
+        assert!((f - 1.0).abs() < 1e-9, "all large → fraction=1, got {}", f);
+    }
+
+    // ── NormalizedTick::price_level_density ───────────────────────────────────
+
+    #[test]
+    fn test_price_level_density_none_for_empty() {
+        assert!(NormalizedTick::price_level_density(&[]).is_none());
+    }
+
+    #[test]
+    fn test_price_level_density_none_when_range_zero() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(100), dec!(2)),
+        ];
+        assert!(NormalizedTick::price_level_density(&ticks).is_none());
+    }
+
+    #[test]
+    fn test_price_level_density_positive_for_varied_prices() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(110), dec!(1)),
+            make_tick_pq(dec!(120), dec!(1)),
+        ];
+        let d = NormalizedTick::price_level_density(&ticks).unwrap();
+        assert!(d > 0.0, "should be positive, got {}", d);
+    }
+
+    // ── NormalizedTick::notional_buy_sell_ratio ───────────────────────────────
+
+    #[test]
+    fn test_notional_buy_sell_ratio_none_when_no_sells() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            NormalizedTick { side: Some(TradeSide::Buy), ..make_tick_pq(dec!(100), dec!(5)) },
+        ];
+        assert!(NormalizedTick::notional_buy_sell_ratio(&ticks).is_none());
+    }
+
+    #[test]
+    fn test_notional_buy_sell_ratio_one_for_equal_notional() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            NormalizedTick { side: Some(TradeSide::Buy), ..make_tick_pq(dec!(100), dec!(5)) },
+            NormalizedTick { side: Some(TradeSide::Sell), ..make_tick_pq(dec!(100), dec!(5)) },
+        ];
+        let r = NormalizedTick::notional_buy_sell_ratio(&ticks).unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "equal notional → ratio=1, got {}", r);
+    }
+
+    // ── NormalizedTick::log_return_mean ───────────────────────────────────────
+
+    #[test]
+    fn test_log_return_mean_none_for_single_tick() {
+        use rust_decimal_macros::dec;
+        assert!(NormalizedTick::log_return_mean(&[make_tick_pq(dec!(100), dec!(1))]).is_none());
+    }
+
+    #[test]
+    fn test_log_return_mean_zero_for_constant_price() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(100), dec!(1)),
+        ];
+        let m = NormalizedTick::log_return_mean(&ticks).unwrap();
+        assert!(m.abs() < 1e-9, "constant price → mean log return=0, got {}", m);
+    }
+
+    // ── NormalizedTick::log_return_std ────────────────────────────────────────
+
+    #[test]
+    fn test_log_return_std_none_for_fewer_than_3_ticks() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(101), dec!(1)),
+        ];
+        assert!(NormalizedTick::log_return_std(&ticks).is_none());
+    }
+
+    #[test]
+    fn test_log_return_std_zero_for_constant_price() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(100), dec!(1)),
+        ];
+        let s = NormalizedTick::log_return_std(&ticks).unwrap();
+        assert!(s.abs() < 1e-9, "constant price → std=0, got {}", s);
+    }
+
+    // ── NormalizedTick::price_overshoot_ratio ─────────────────────────────────
+
+    #[test]
+    fn test_price_overshoot_ratio_none_for_empty() {
+        assert!(NormalizedTick::price_overshoot_ratio(&[]).is_none());
+    }
+
+    #[test]
+    fn test_price_overshoot_ratio_one_for_monotone_up() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(105), dec!(1)),
+            make_tick_pq(dec!(110), dec!(1)),
+        ];
+        // max=110 == last=110 → ratio=1
+        let r = NormalizedTick::price_overshoot_ratio(&ticks).unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "monotone up → ratio=1, got {}", r);
+    }
+
+    #[test]
+    fn test_price_overshoot_ratio_above_one_when_price_retreats() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(120), dec!(1)),
+            make_tick_pq(dec!(110), dec!(1)),
+        ];
+        // max=120, last=110 → ratio > 1
+        let r = NormalizedTick::price_overshoot_ratio(&ticks).unwrap();
+        assert!(r > 1.0, "price retreated → ratio>1, got {}", r);
+    }
+
+    // ── NormalizedTick::price_undershoot_ratio ────────────────────────────────
+
+    #[test]
+    fn test_price_undershoot_ratio_none_for_empty() {
+        assert!(NormalizedTick::price_undershoot_ratio(&[]).is_none());
+    }
+
+    #[test]
+    fn test_price_undershoot_ratio_one_for_monotone_down() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(110), dec!(1)),
+            make_tick_pq(dec!(105), dec!(1)),
+            make_tick_pq(dec!(100), dec!(1)),
+        ];
+        // first=110, min=100 → ratio > 1 (price undershot opening)
+        let r = NormalizedTick::price_undershoot_ratio(&ticks).unwrap();
+        assert!(r > 1.0, "monotone down → ratio>1, got {}", r);
+    }
+
+    #[test]
+    fn test_price_undershoot_ratio_one_for_monotone_up() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(105), dec!(1)),
+            make_tick_pq(dec!(110), dec!(1)),
+        ];
+        // first=100 == min=100 → ratio=1 (never went below open)
+        let r = NormalizedTick::price_undershoot_ratio(&ticks).unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "monotone up → ratio=1, got {}", r);
     }
 }

@@ -2310,6 +2310,214 @@ impl OhlcvBar {
         Some(variance.sqrt())
     }
 
+    // ── round-79 ─────────────────────────────────────────────────────────────
+
+    /// Mean of `(close − low) / range` across bars — where the close lands
+    /// inside each bar's high-low range.
+    ///
+    /// Returns `None` if the slice is empty or every bar has zero range.
+    /// A value near 1.0 means closes are consistently near the high (bullish);
+    /// near 0.0 means closes hug the low (bearish).
+    pub fn close_to_range_position(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let r = b.range();
+                if r.is_zero() {
+                    return None;
+                }
+                ((b.close - b.low) / r).to_f64()
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
+        Some(vals.iter().sum::<f64>() / vals.len() as f64)
+    }
+
+    /// Volume oscillator: `(short_avg_vol − long_avg_vol) / long_avg_vol`.
+    ///
+    /// `short_n` bars are used for the short average and `long_n` for the long.
+    /// Returns `None` if `long_n > bars.len()`, `short_n == 0`, `long_n == 0`,
+    /// `short_n >= long_n`, or the long average is zero.
+    ///
+    /// A positive result means recent volume is above the longer-term average
+    /// (expanding volume); negative means volume is contracting.
+    pub fn volume_oscillator(bars: &[OhlcvBar], short_n: usize, long_n: usize) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if short_n == 0 || long_n == 0 || short_n >= long_n || bars.len() < long_n {
+            return None;
+        }
+        let recent = &bars[bars.len() - short_n..];
+        let long_slice = &bars[bars.len() - long_n..];
+        let short_avg: f64 =
+            recent.iter().filter_map(|b| b.volume.to_f64()).sum::<f64>() / short_n as f64;
+        let long_sum: Vec<f64> = long_slice.iter().filter_map(|b| b.volume.to_f64()).collect();
+        if long_sum.is_empty() {
+            return None;
+        }
+        let long_avg = long_sum.iter().sum::<f64>() / long_sum.len() as f64;
+        if long_avg == 0.0 {
+            return None;
+        }
+        Some((short_avg - long_avg) / long_avg)
+    }
+
+    /// Count of consecutive direction changes: how many times the bar
+    /// sentiment (bullish / bearish) flips from one bar to the next.
+    ///
+    /// Doji bars (open == close) count as a continuation of the previous
+    /// direction. Returns 0 for slices shorter than 2.
+    pub fn direction_reversal_count(bars: &[OhlcvBar]) -> usize {
+        if bars.len() < 2 {
+            return 0;
+        }
+        let mut count = 0usize;
+        let mut prev_bullish: Option<bool> = None;
+        for b in bars {
+            let bullish = b.close > b.open;
+            if let Some(pb) = prev_bullish {
+                if bullish != pb {
+                    count += 1;
+                }
+            }
+            prev_bullish = Some(bullish);
+        }
+        count
+    }
+
+    /// Fraction of bars where the upper wick is strictly longer than the
+    /// lower wick.
+    ///
+    /// Returns `None` for an empty slice.
+    pub fn upper_wick_dominance_fraction(bars: &[OhlcvBar]) -> Option<f64> {
+        if bars.is_empty() {
+            return None;
+        }
+        let count = bars.iter().filter(|b| b.wick_upper() > b.wick_lower()).count();
+        Some(count as f64 / bars.len() as f64)
+    }
+
+    /// Mean of `(high − open) / range` across bars — average fraction of the
+    /// bar the price moved up from the open.
+    ///
+    /// Returns `None` if the slice is empty or every bar has zero range.
+    pub fn avg_open_to_high_ratio(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let r = b.range();
+                if r.is_zero() {
+                    return None;
+                }
+                ((b.high - b.open) / r).to_f64()
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
+        Some(vals.iter().sum::<f64>() / vals.len() as f64)
+    }
+
+    /// Volume-weighted average of bar range: `sum(range × volume) / sum(volume)`.
+    ///
+    /// Returns `None` when the slice is empty or total volume is zero.
+    pub fn volume_weighted_range(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() {
+            return None;
+        }
+        let mut numerator = 0f64;
+        let mut denom = 0f64;
+        for b in bars {
+            let r = b.range().to_f64()?;
+            let v = b.volume.to_f64()?;
+            numerator += r * v;
+            denom += v;
+        }
+        if denom == 0.0 {
+            return None;
+        }
+        Some(numerator / denom)
+    }
+
+    /// Bar strength index: mean close-location value (CLV) across the slice.
+    ///
+    /// CLV for each bar is `(close − low − (high − close)) / range`, which
+    /// is `+1` when close == high and `−1` when close == low. Bars with zero
+    /// range are excluded.
+    ///
+    /// Returns `None` when no bars have non-zero range.
+    pub fn bar_strength_index(bars: &[OhlcvBar]) -> Option<f64> {
+        let vals: Vec<f64> =
+            bars.iter().filter_map(|b| b.close_location_value()).collect();
+        if vals.is_empty() {
+            return None;
+        }
+        Some(vals.iter().sum::<f64>() / vals.len() as f64)
+    }
+
+    /// Ratio of total wick length to total body size across the slice.
+    ///
+    /// Computes `sum(upper_wick + lower_wick) / sum(body)` where body is
+    /// `|close − open|`. Returns `None` when total body is zero (all doji
+    /// or empty slice).
+    pub fn shadow_to_body_ratio(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() {
+            return None;
+        }
+        let total_wick: Decimal = bars.iter().map(|b| b.wick_upper() + b.wick_lower()).sum();
+        let total_body: Decimal = bars.iter().map(|b| b.body()).sum();
+        if total_body.is_zero() {
+            return None;
+        }
+        (total_wick / total_body).to_f64()
+    }
+
+    /// Percentage change from the first bar's close to the last bar's close.
+    ///
+    /// Computed as `(last.close − first.close) / first.close × 100`.
+    /// Returns `None` when the slice is empty or the first close is zero.
+    pub fn first_last_close_pct(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let first = bars.first()?;
+        let last = bars.last()?;
+        if first.close.is_zero() {
+            return None;
+        }
+        ((last.close - first.close) / first.close * Decimal::ONE_HUNDRED).to_f64()
+    }
+
+    /// Standard deviation of per-bar `(close − open) / open` returns.
+    ///
+    /// Measures intrabar volatility consistency. Returns `None` when fewer
+    /// than 2 bars are provided or every open is zero.
+    pub fn open_to_close_volatility(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.len() < 2 {
+            return None;
+        }
+        let returns: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                if b.open.is_zero() {
+                    return None;
+                }
+                ((b.close - b.open) / b.open).to_f64()
+            })
+            .collect();
+        if returns.len() < 2 {
+            return None;
+        }
+        let n = returns.len() as f64;
+        let mean = returns.iter().sum::<f64>() / n;
+        let variance = returns.iter().map(|r| (r - mean).powi(2)).sum::<f64>() / (n - 1.0);
+        Some(variance.sqrt())
+    }
+
 }
 
 impl std::fmt::Display for OhlcvBar {
@@ -6929,5 +7137,194 @@ mod tests {
         ];
         assert_eq!(OhlcvBar::peak_close(&bars).unwrap(), dec!(115));
         assert_eq!(OhlcvBar::trough_close(&bars).unwrap(), dec!(98));
+    }
+
+    // ── round-79 ─────────────────────────────────────────────────────────────
+
+    // ── OhlcvBar::close_to_range_position ────────────────────────────────────
+
+    #[test]
+    fn test_close_to_range_position_none_for_empty() {
+        assert!(OhlcvBar::close_to_range_position(&[]).is_none());
+    }
+
+    #[test]
+    fn test_close_to_range_position_one_when_close_at_high() {
+        let bar = make_ohlcv_bar(dec!(100), dec!(120), dec!(80), dec!(120));
+        let r = OhlcvBar::close_to_range_position(&[bar]).unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "close at high → position=1, got {}", r);
+    }
+
+    #[test]
+    fn test_close_to_range_position_zero_when_close_at_low() {
+        let bar = make_ohlcv_bar(dec!(100), dec!(120), dec!(80), dec!(80));
+        let r = OhlcvBar::close_to_range_position(&[bar]).unwrap();
+        assert!(r.abs() < 1e-9, "close at low → position=0, got {}", r);
+    }
+
+    // ── OhlcvBar::volume_oscillator ───────────────────────────────────────────
+
+    #[test]
+    fn test_volume_oscillator_none_for_insufficient_bars() {
+        let bars = vec![make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105))];
+        assert!(OhlcvBar::volume_oscillator(&bars, 1, 3).is_none());
+    }
+
+    #[test]
+    fn test_volume_oscillator_none_when_short_ge_long() {
+        let bars: Vec<_> = (0..5)
+            .map(|_| make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105)))
+            .collect();
+        assert!(OhlcvBar::volume_oscillator(&bars, 3, 2).is_none());
+    }
+
+    #[test]
+    fn test_volume_oscillator_zero_for_constant_volume() {
+        let bars: Vec<_> = (0..5)
+            .map(|_| make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105)))
+            .collect();
+        let v = OhlcvBar::volume_oscillator(&bars, 2, 4).unwrap();
+        assert!(v.abs() < 1e-9, "constant volume → oscillator=0, got {}", v);
+    }
+
+    // ── OhlcvBar::direction_reversal_count ───────────────────────────────────
+
+    #[test]
+    fn test_direction_reversal_count_zero_for_single_bar() {
+        let bar = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        assert_eq!(OhlcvBar::direction_reversal_count(&[bar]), 0);
+    }
+
+    #[test]
+    fn test_direction_reversal_count_zero_for_all_bullish() {
+        let bars = vec![
+            make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105)),
+            make_ohlcv_bar(dec!(105), dec!(115), dec!(95), dec!(112)),
+        ];
+        assert_eq!(OhlcvBar::direction_reversal_count(&bars), 0);
+    }
+
+    #[test]
+    fn test_direction_reversal_count_two_for_alternating() {
+        let bull = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(108));
+        let bear = make_ohlcv_bar(dec!(108), dec!(112), dec!(95), dec!(102));
+        let bull2 = make_ohlcv_bar(dec!(102), dec!(115), dec!(98), dec!(110));
+        let bear2 = make_ohlcv_bar(dec!(110), dec!(115), dec!(100), dec!(104));
+        assert_eq!(OhlcvBar::direction_reversal_count(&[bull, bear, bull2, bear2]), 3);
+    }
+
+    // ── OhlcvBar::upper_wick_dominance_fraction ───────────────────────────────
+
+    #[test]
+    fn test_upper_wick_dominance_fraction_none_for_empty() {
+        assert!(OhlcvBar::upper_wick_dominance_fraction(&[]).is_none());
+    }
+
+    #[test]
+    fn test_upper_wick_dominance_fraction_one_when_all_upper() {
+        // high > close and close > low, upper > lower
+        let bar = make_ohlcv_bar(dec!(100), dec!(130), dec!(99), dec!(101));
+        let r = OhlcvBar::upper_wick_dominance_fraction(&[bar]).unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "all upper dominant → 1.0, got {}", r);
+    }
+
+    // ── OhlcvBar::avg_open_to_high_ratio ─────────────────────────────────────
+
+    #[test]
+    fn test_avg_open_to_high_ratio_none_for_empty() {
+        assert!(OhlcvBar::avg_open_to_high_ratio(&[]).is_none());
+    }
+
+    #[test]
+    fn test_avg_open_to_high_ratio_one_when_open_at_low() {
+        // open == low → (high - open) / range == 1
+        let bar = make_ohlcv_bar(dec!(80), dec!(120), dec!(80), dec!(100));
+        let r = OhlcvBar::avg_open_to_high_ratio(&[bar]).unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "open at low → ratio=1, got {}", r);
+    }
+
+    // ── OhlcvBar::volume_weighted_range ──────────────────────────────────────
+
+    #[test]
+    fn test_volume_weighted_range_none_for_empty() {
+        assert!(OhlcvBar::volume_weighted_range(&[]).is_none());
+    }
+
+    #[test]
+    fn test_volume_weighted_range_positive() {
+        let b1 = make_ohlcv_bar(dec!(100), dec!(120), dec!(80), dec!(110));
+        let b2 = make_ohlcv_bar(dec!(110), dec!(130), dec!(100), dec!(120));
+        let r = OhlcvBar::volume_weighted_range(&[b1, b2]).unwrap();
+        assert!(r > 0.0, "should be positive, got {}", r);
+    }
+
+    // ── OhlcvBar::bar_strength_index ─────────────────────────────────────────
+
+    #[test]
+    fn test_bar_strength_index_none_for_empty() {
+        assert!(OhlcvBar::bar_strength_index(&[]).is_none());
+    }
+
+    #[test]
+    fn test_bar_strength_index_positive_when_closes_near_high() {
+        let bar = make_ohlcv_bar(dec!(100), dec!(120), dec!(80), dec!(120));
+        let s = OhlcvBar::bar_strength_index(&[bar]).unwrap();
+        assert!(s > 0.0, "close at high → positive strength, got {}", s);
+    }
+
+    // ── OhlcvBar::shadow_to_body_ratio ────────────────────────────────────────
+
+    #[test]
+    fn test_shadow_to_body_ratio_none_for_empty() {
+        assert!(OhlcvBar::shadow_to_body_ratio(&[]).is_none());
+    }
+
+    #[test]
+    fn test_shadow_to_body_ratio_zero_for_marubozu() {
+        // Marubozu: open==low and close==high → no wicks
+        let bar = make_ohlcv_bar(dec!(80), dec!(120), dec!(80), dec!(120));
+        let r = OhlcvBar::shadow_to_body_ratio(&[bar]).unwrap();
+        assert!(r.abs() < 1e-9, "marubozu → ratio=0, got {}", r);
+    }
+
+    // ── OhlcvBar::first_last_close_pct ───────────────────────────────────────
+
+    #[test]
+    fn test_first_last_close_pct_none_for_empty() {
+        assert!(OhlcvBar::first_last_close_pct(&[]).is_none());
+    }
+
+    #[test]
+    fn test_first_last_close_pct_zero_for_same_close() {
+        let bar = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100));
+        let r = OhlcvBar::first_last_close_pct(&[bar]).unwrap();
+        assert!(r.abs() < 1e-9, "same open/close → pct=0, got {}", r);
+    }
+
+    #[test]
+    fn test_first_last_close_pct_positive_for_rise() {
+        let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100));
+        let b2 = make_ohlcv_bar(dec!(100), dec!(120), dec!(95), dec!(110));
+        let r = OhlcvBar::first_last_close_pct(&[b1, b2]).unwrap();
+        assert!(r > 0.0, "price rose → positive pct, got {}", r);
+    }
+
+    // ── OhlcvBar::open_to_close_volatility ───────────────────────────────────
+
+    #[test]
+    fn test_open_to_close_volatility_none_for_single_bar() {
+        let bar = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        assert!(OhlcvBar::open_to_close_volatility(&[bar]).is_none());
+    }
+
+    #[test]
+    fn test_open_to_close_volatility_zero_for_identical_bars() {
+        let bars = vec![
+            make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105)),
+            make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105)),
+            make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105)),
+        ];
+        let v = OhlcvBar::open_to_close_volatility(&bars).unwrap();
+        assert!(v.abs() < 1e-9, "identical bars → volatility=0, got {}", v);
     }
 }

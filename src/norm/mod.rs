@@ -1104,9 +1104,143 @@ impl MinMaxNormalizer {
     /// Returns `None` if the window is empty.
     pub fn quantile_range(&self) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        let q3 = self.percentile_value(75.0)?;
-        let q1 = self.percentile_value(25.0)?;
+        let q3 = self.percentile_value(0.75)?;
+        let q1 = self.percentile_value(0.25)?;
         (q3 - q1).to_f64()
+    }
+
+    /// Upper quartile (Q3, 75th percentile) of the window values.
+    ///
+    /// Returns `None` if the window is empty.
+    pub fn upper_quartile(&self) -> Option<Decimal> {
+        self.percentile_value(0.75)
+    }
+
+    /// Lower quartile (Q1, 25th percentile) of the window values.
+    ///
+    /// Returns `None` if the window is empty.
+    pub fn lower_quartile(&self) -> Option<Decimal> {
+        self.percentile_value(0.25)
+    }
+
+    /// Fraction of consecutive first-difference pairs whose sign flips.
+    ///
+    /// Computes `Δx_i = x_i − x_{i−1}`, then counts pairs `(Δx_i, Δx_{i+1})`
+    /// where both are non-zero and have opposite signs. The result is in
+    /// `[0.0, 1.0]`. A high value indicates a rapidly oscillating series;
+    /// a low value indicates persistent trends. Returns `None` for fewer than
+    /// 3 observations.
+    pub fn sign_change_rate(&self) -> Option<f64> {
+        let n = self.window.len();
+        if n < 3 {
+            return None;
+        }
+        let vals: Vec<&Decimal> = self.window.iter().collect();
+        let diffs: Vec<i32> = vals
+            .windows(2)
+            .map(|w| {
+                if w[1] > w[0] { 1 } else if w[1] < w[0] { -1 } else { 0 }
+            })
+            .collect();
+        let total_pairs = (diffs.len() - 1) as f64;
+        if total_pairs == 0.0 {
+            return None;
+        }
+        let changes = diffs
+            .windows(2)
+            .filter(|w| w[0] != 0 && w[1] != 0 && w[0] != w[1])
+            .count();
+        Some(changes as f64 / total_pairs)
+    }
+
+    // ── round-79 ─────────────────────────────────────────────────────────────
+
+    /// Count of trailing values (from the newest end of the window) that
+    /// are strictly below the window mean.
+    ///
+    /// Returns `None` if the window has fewer than 2 values.
+    pub fn consecutive_below_mean(&self) -> Option<usize> {
+        if self.window.len() < 2 {
+            return None;
+        }
+        let mean = self.mean()?;
+        let count = self.window.iter().rev().take_while(|&&v| v < mean).count();
+        Some(count)
+    }
+
+    /// Drift rate: `(mean_of_second_half − mean_of_first_half) / |mean_of_first_half|`.
+    ///
+    /// Splits the window at its midpoint and compares the two halves.
+    /// Returns `None` if the window has fewer than 2 values or the
+    /// first-half mean is zero.
+    pub fn drift_rate(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let n = self.window.len();
+        if n < 2 {
+            return None;
+        }
+        let mid = n / 2;
+        let first_sum: Decimal = self.window.iter().take(mid).copied().sum();
+        let second_sum: Decimal = self.window.iter().skip(mid).copied().sum();
+        let mean1 = first_sum / Decimal::from(mid as i64);
+        let mean2 = second_sum / Decimal::from((n - mid) as i64);
+        if mean1.is_zero() {
+            return None;
+        }
+        ((mean2 - mean1) / mean1.abs()).to_f64()
+    }
+
+    /// Ratio of the window maximum to the window minimum: `max / min`.
+    ///
+    /// Returns `None` if the window is empty or the minimum is zero.
+    pub fn peak_to_trough_ratio(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let mut tmp = MinMaxNormalizer::new(self.window_size).ok()?;
+        for &v in &self.window {
+            tmp.update(v);
+        }
+        let (min, max) = tmp.min_max()?;
+        if min.is_zero() {
+            return None;
+        }
+        (max / min).to_f64()
+    }
+
+    /// Normalised deviation of the latest value: `(latest − mean) / range`.
+    ///
+    /// Returns `None` if the window is empty, has fewer than 2 values,
+    /// the range is zero, or there is no latest value.
+    pub fn normalized_deviation(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let latest = self.latest()?;
+        let mean = self.mean()?;
+        let range = self.rolling_range()?;
+        if range.is_zero() {
+            return None;
+        }
+        ((latest - mean) / range).to_f64()
+    }
+
+    /// Coefficient of variation as a percentage: `(std_dev / |mean|) × 100`.
+    ///
+    /// Returns `None` if the window has fewer than 2 values or the mean is zero.
+    pub fn window_cv_pct(&self) -> Option<f64> {
+        let cv = self.coefficient_of_variation()?;
+        Some(cv * 100.0)
+    }
+
+    /// Rank of the latest value in the sorted window as a fraction in
+    /// `[0, 1]`. Computed as `(number of values strictly below latest) /
+    /// (window_len − 1)`.
+    ///
+    /// Returns `None` if the window has fewer than 2 values.
+    pub fn latest_rank_pct(&self) -> Option<f64> {
+        if self.window.len() < 2 {
+            return None;
+        }
+        let latest = self.latest()?;
+        let below = self.window.iter().filter(|&&v| v < latest).count();
+        Some(below as f64 / (self.window.len() - 1) as f64)
     }
 
 }
@@ -3806,9 +3940,51 @@ impl ZScoreNormalizer {
     /// Returns `None` if the window is empty.
     pub fn quantile_range(&self) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        let q3 = self.percentile_value(75.0)?;
-        let q1 = self.percentile_value(25.0)?;
+        let q3 = self.percentile_value(0.75)?;
+        let q1 = self.percentile_value(0.25)?;
         (q3 - q1).to_f64()
+    }
+
+    /// Upper quartile (Q3, 75th percentile) of the window values.
+    ///
+    /// Returns `None` if the window is empty.
+    pub fn upper_quartile(&self) -> Option<Decimal> {
+        self.percentile_value(0.75)
+    }
+
+    /// Lower quartile (Q1, 25th percentile) of the window values.
+    ///
+    /// Returns `None` if the window is empty.
+    pub fn lower_quartile(&self) -> Option<Decimal> {
+        self.percentile_value(0.25)
+    }
+
+    /// Fraction of consecutive first-difference pairs whose sign flips.
+    ///
+    /// A high value indicates a rapidly oscillating series;
+    /// a low value indicates persistent trends. Returns `None` for fewer than
+    /// 3 observations.
+    pub fn sign_change_rate(&self) -> Option<f64> {
+        let n = self.window.len();
+        if n < 3 {
+            return None;
+        }
+        let vals: Vec<&Decimal> = self.window.iter().collect();
+        let diffs: Vec<i32> = vals
+            .windows(2)
+            .map(|w| {
+                if w[1] > w[0] { 1 } else if w[1] < w[0] { -1 } else { 0 }
+            })
+            .collect();
+        let total_pairs = (diffs.len() - 1) as f64;
+        if total_pairs == 0.0 {
+            return None;
+        }
+        let changes = diffs
+            .windows(2)
+            .filter(|w| w[0] != 0 && w[1] != 0 && w[0] != w[1])
+            .count();
+        Some(changes as f64 / total_pairs)
     }
 
 }
