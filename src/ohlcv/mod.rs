@@ -9476,6 +9476,58 @@ impl OhlcvBar {
         Some(total_range / bars.len() as f64)
     }
 
+    /// Rate of change in volume: mean (v[i] - v[i-1]) / v[i-1] across bars.
+    pub fn bar_vol_accel(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.len() < 2 { return None; }
+        let vols: Vec<f64> = bars.iter().filter_map(|b| b.volume.to_f64()).collect();
+        if vols.len() < 2 { return None; }
+        let rates: Vec<f64> = vols.windows(2).filter_map(|w| {
+            if w[0] == 0.0 { return None; }
+            Some((w[1] - w[0]) / w[0])
+        }).collect();
+        if rates.is_empty() { return None; }
+        Some(rates.iter().sum::<f64>() / rates.len() as f64)
+    }
+
+    /// Ratio of total wick length to volume, averaged per bar.
+    pub fn bar_shadow_vol_ratio(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let vals: Vec<f64> = bars.iter().filter_map(|b| {
+            let vol = b.volume.to_f64()?;
+            if vol == 0.0 { return None; }
+            let top = b.open.max(b.close);
+            let bot = b.open.min(b.close);
+            let wicks = (b.high - top).to_f64()? + (bot - b.low).to_f64()?;
+            Some(wicks / vol)
+        }).collect();
+        if vals.is_empty() { return None; }
+        Some(vals.iter().sum::<f64>() / vals.len() as f64)
+    }
+
+    /// Mean |open - (prev_high + prev_low) / 2| gap to prev midpoint.
+    pub fn bar_open_midpoint_dist(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.len() < 2 { return None; }
+        let dists: Vec<f64> = bars.windows(2).filter_map(|w| {
+            let prev_mid = ((w[0].high + w[0].low) / rust_decimal::Decimal::TWO).to_f64()?;
+            let open = w[1].open.to_f64()?;
+            Some((open - prev_mid).abs())
+        }).collect();
+        if dists.is_empty() { return None; }
+        Some(dists.iter().sum::<f64>() / dists.len() as f64)
+    }
+
+    /// Sign of (close - open) for the last bar: +1 bullish, -1 bearish, 0 doji.
+    pub fn bar_close_momentum_sign(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let b = bars.last()?;
+        let diff = (b.close - b.open).to_f64()?;
+        Some(if diff > 0.0 { 1.0 } else if diff < 0.0 { -1.0 } else { 0.0 })
+    }
+
 }
 
 impl std::fmt::Display for OhlcvBar {
@@ -21217,5 +21269,65 @@ mod tests {
         let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
         let r = OhlcvBar::bar_candle_speed(&[b]).unwrap();
         assert!((r - 20.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_bar_vol_accel_single_none() {
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        assert!(OhlcvBar::bar_vol_accel(&[b]).is_none());
+    }
+
+    #[test]
+    fn test_bar_vol_accel_constant_zero() {
+        let b0 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let b1 = make_ohlcv_bar(dec!(105), dec!(115), dec!(95), dec!(110));
+        // both have vol=1 → (1-1)/1=0
+        let r = OhlcvBar::bar_vol_accel(&[b0, b1]).unwrap();
+        assert!(r.abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_bar_shadow_vol_ratio_empty_none() {
+        assert!(OhlcvBar::bar_shadow_vol_ratio(&[]).is_none());
+    }
+
+    #[test]
+    fn test_bar_shadow_vol_ratio_returns_value() {
+        let b = make_ohlcv_bar(dec!(100), dec!(120), dec!(90), dec!(110));
+        let r = OhlcvBar::bar_shadow_vol_ratio(&[b]);
+        assert!(r.is_some());
+    }
+
+    #[test]
+    fn test_bar_open_midpoint_dist_single_none() {
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        assert!(OhlcvBar::bar_open_midpoint_dist(&[b]).is_none());
+    }
+
+    #[test]
+    fn test_bar_open_midpoint_dist_returns_value() {
+        let b0 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100));
+        let b1 = make_ohlcv_bar(dec!(102), dec!(115), dec!(95), dec!(110));
+        let r = OhlcvBar::bar_open_midpoint_dist(&[b0, b1]);
+        assert!(r.is_some());
+    }
+
+    #[test]
+    fn test_bar_close_momentum_sign_empty_none() {
+        assert!(OhlcvBar::bar_close_momentum_sign(&[]).is_none());
+    }
+
+    #[test]
+    fn test_bar_close_momentum_sign_bullish() {
+        let b = make_ohlcv_bar(dec!(100), dec!(115), dec!(90), dec!(110));
+        let r = OhlcvBar::bar_close_momentum_sign(&[b]).unwrap();
+        assert_eq!(r, 1.0);
+    }
+
+    #[test]
+    fn test_bar_close_momentum_sign_bearish() {
+        let b = make_ohlcv_bar(dec!(110), dec!(120), dec!(90), dec!(100));
+        let r = OhlcvBar::bar_close_momentum_sign(&[b]).unwrap();
+        assert_eq!(r, -1.0);
     }
 }

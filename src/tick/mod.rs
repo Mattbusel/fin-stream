@@ -9757,6 +9757,65 @@ impl NormalizedTick {
         Some((last - mean) / std)
     }
 
+    /// Price reversal strength: mean magnitude of reversals (direction changes).
+    pub fn tick_price_reversal_strength(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 3 { return None; }
+        let prices: Vec<f64> = ticks.iter().filter_map(|t| t.price.to_f64()).collect();
+        if prices.len() < 3 { return None; }
+        let reversals: Vec<f64> = prices.windows(3)
+            .filter(|w| (w[1] > w[0] && w[1] > w[2]) || (w[1] < w[0] && w[1] < w[2]))
+            .map(|w| ((w[1] - w[0]).abs() + (w[1] - w[2]).abs()) / 2.0)
+            .collect();
+        if reversals.is_empty() { return None; }
+        Some(reversals.iter().sum::<f64>() / reversals.len() as f64)
+    }
+
+    /// Total volume at ticks immediately after a side change.
+    pub fn tick_side_change_vol(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 2 { return None; }
+        let mut total = 0.0_f64;
+        let mut found = false;
+        for i in 1..ticks.len() {
+            let prev = ticks[i - 1].side;
+            let curr = ticks[i].side;
+            if prev.is_some() && curr.is_some() && prev != curr {
+                total += ticks[i].quantity.to_f64().unwrap_or(0.0);
+                found = true;
+            }
+        }
+        if !found { return None; }
+        Some(total)
+    }
+
+    /// Range compression: std_dev of HL ranges relative to mean range.
+    pub fn price_range_compression(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 3 { return None; }
+        let prices: Vec<f64> = ticks.iter().filter_map(|t| t.price.to_f64()).collect();
+        if prices.len() < 3 { return None; }
+        let n = prices.len() as f64;
+        let mean = prices.iter().sum::<f64>() / n;
+        let std = (prices.iter().map(|p| (p - mean).powi(2)).sum::<f64>() / n).sqrt();
+        let range = prices.iter().cloned().fold(f64::NEG_INFINITY, f64::max)
+                  - prices.iter().cloned().fold(f64::INFINITY, f64::min);
+        if range == 0.0 { return None; }
+        Some(std / range)
+    }
+
+    /// Ratio of last tick's quantity to mean quantity.
+    pub fn tick_last_vs_mean_qty(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() { return None; }
+        let qtys: Vec<f64> = ticks.iter().filter_map(|t| t.quantity.to_f64()).collect();
+        if qtys.is_empty() { return None; }
+        let mean = qtys.iter().sum::<f64>() / qtys.len() as f64;
+        if mean == 0.0 { return None; }
+        let last = *qtys.last()?;
+        Some(last / mean)
+    }
+
 }
 
 
@@ -22268,5 +22327,87 @@ mod tests {
             make_tick_pq(dec!(102), dec!(10)),
         ];
         assert!(NormalizedTick::tick_vol_zscore_last(&ticks).is_some());
+    }
+
+    #[test]
+    fn test_tick_price_reversal_strength_too_few_none() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![make_tick_pq(dec!(100), dec!(1)), make_tick_pq(dec!(101), dec!(1))];
+        assert!(NormalizedTick::tick_price_reversal_strength(&ticks).is_none());
+    }
+
+    #[test]
+    fn test_tick_price_reversal_strength_monotone_none() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(101), dec!(1)),
+            make_tick_pq(dec!(102), dec!(1)),
+        ];
+        assert!(NormalizedTick::tick_price_reversal_strength(&ticks).is_none());
+    }
+
+    #[test]
+    fn test_tick_price_reversal_strength_one_reversal() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(110), dec!(1)),
+            make_tick_pq(dec!(100), dec!(1)),
+        ];
+        let r = NormalizedTick::tick_price_reversal_strength(&ticks).unwrap();
+        assert!(r > 0.0);
+    }
+
+    #[test]
+    fn test_tick_side_change_vol_no_change_none() {
+        use rust_decimal_macros::dec;
+        let mut b1 = make_tick_pq(dec!(100), dec!(5));
+        b1.side = Some(TradeSide::Buy);
+        let mut b2 = make_tick_pq(dec!(101), dec!(5));
+        b2.side = Some(TradeSide::Buy);
+        assert!(NormalizedTick::tick_side_change_vol(&[b1, b2]).is_none());
+    }
+
+    #[test]
+    fn test_tick_side_change_vol_one_change() {
+        use rust_decimal_macros::dec;
+        let mut b = make_tick_pq(dec!(100), dec!(5));
+        b.side = Some(TradeSide::Buy);
+        let mut s = make_tick_pq(dec!(101), dec!(3));
+        s.side = Some(TradeSide::Sell);
+        let r = NormalizedTick::tick_side_change_vol(&[b, s]).unwrap();
+        assert!((r - 3.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_price_range_compression_too_few_none() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![make_tick_pq(dec!(100), dec!(1)), make_tick_pq(dec!(101), dec!(1))];
+        assert!(NormalizedTick::price_range_compression(&ticks).is_none());
+    }
+
+    #[test]
+    fn test_price_range_compression_constant_none() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(100), dec!(1)),
+        ];
+        assert!(NormalizedTick::price_range_compression(&ticks).is_none());
+    }
+
+    #[test]
+    fn test_tick_last_vs_mean_qty_empty_none() {
+        assert!(NormalizedTick::tick_last_vs_mean_qty(&[]).is_none());
+    }
+
+    #[test]
+    fn test_tick_last_vs_mean_qty_equal() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![make_tick_pq(dec!(100), dec!(5)), make_tick_pq(dec!(101), dec!(5))];
+        let r = NormalizedTick::tick_last_vs_mean_qty(&ticks).unwrap();
+        assert!((r - 1.0).abs() < 1e-9);
     }
 }

@@ -9,6 +9,30 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.10.46] - 2026-03-20
+
+### Added
+
+**`tick` module — `NormalizedTick` analytics (round 195)**
+- `NormalizedTick::tick_price_reversal_strength(ticks)` — mean magnitude of price reversals.
+- `NormalizedTick::tick_side_change_vol(ticks)` — total volume at ticks immediately after a side change.
+- `NormalizedTick::price_range_compression(ticks)` — std deviation / range of prices.
+- `NormalizedTick::tick_last_vs_mean_qty(ticks)` — last quantity / mean quantity.
+
+**`ohlcv` module — `OhlcvBar` analytics (round 195)**
+- `OhlcvBar::bar_vol_accel(bars)` — mean (v[i] - v[i-1]) / v[i-1] volume acceleration.
+- `OhlcvBar::bar_shadow_vol_ratio(bars)` — mean total wick length / volume per bar.
+- `OhlcvBar::bar_open_midpoint_dist(bars)` — mean |open - prev_midpoint| per bar.
+- `OhlcvBar::bar_close_momentum_sign(bars)` — sign of (close - open) for the last bar.
+
+**`norm` module — `MinMaxNormalizer` + `ZScoreNormalizer` analytics (round 195)**
+- `window_concentration_ratio()` — maximum value / sum of all values.
+- `window_smoothness()` — 1 - mean absolute successive difference / range.
+- `window_median_abs_deviation()` — median absolute deviation (MAD).
+- `window_weighted_range()` — value range scaled by positional spread of extremes.
+
+---
+
 ## [2.10.45] - 2026-03-20
 
 ### Added

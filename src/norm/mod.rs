@@ -6990,6 +6990,63 @@ impl MinMaxNormalizer {
         Some(vals.iter().cloned().fold(f64::NEG_INFINITY, f64::max))
     }
 
+    /// Max value / sum: concentration of the maximum relative to total.
+    pub fn window_concentration_ratio(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let total: f64 = vals.iter().sum();
+        if total == 0.0 { return None; }
+        let max = vals.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        Some(max / total)
+    }
+
+    /// Smoothness: 1 - mean absolute successive difference / range.
+    pub fn window_smoothness(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let max = vals.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        let min = vals.iter().cloned().fold(f64::INFINITY, f64::min);
+        let range = max - min;
+        if range == 0.0 { return Some(1.0); }
+        let mad: f64 = vals.windows(2).map(|w| (w[1] - w[0]).abs()).sum::<f64>()
+                     / (vals.len() - 1) as f64;
+        Some(1.0 - mad / range)
+    }
+
+    /// Median absolute deviation (MAD) of window values.
+    pub fn window_median_abs_deviation(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let mut vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        vals.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let mid = vals.len() / 2;
+        let median = if vals.len() % 2 == 0 { (vals[mid - 1] + vals[mid]) / 2.0 } else { vals[mid] };
+        let mut devs: Vec<f64> = vals.iter().map(|v| (v - median).abs()).collect();
+        devs.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let dm = devs.len() / 2;
+        let mad = if devs.len() % 2 == 0 { (devs[dm - 1] + devs[dm]) / 2.0 } else { devs[dm] };
+        Some(mad)
+    }
+
+    /// Weighted range: range weighted by the position of max and min in the window.
+    pub fn window_weighted_range(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let n = vals.len() as f64;
+        let (max_pos, _) = vals.iter().enumerate()
+            .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))?;
+        let (min_pos, _) = vals.iter().enumerate()
+            .min_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))?;
+        let max_val = vals[max_pos];
+        let min_val = vals[min_pos];
+        let range = max_val - min_val;
+        let pos_weight = ((max_pos as f64 - min_pos as f64).abs() / (n - 1.0)).max(0.0);
+        Some(range * (1.0 + pos_weight))
+    }
+
 }
 
 #[cfg(test)]
@@ -15211,6 +15268,64 @@ mod tests {
         let r = n.window_cumulative_max().unwrap();
         assert!((r - 5.0).abs() < 1e-9);
     }
+
+    #[test]
+    fn test_minmax_window_concentration_ratio_none_for_empty() {
+        let n = norm(4);
+        assert!(n.window_concentration_ratio().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_concentration_ratio_equal() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(1), dec!(1), dec!(1)] { n.update(v); }
+        let r = n.window_concentration_ratio().unwrap();
+        assert!((r - 0.25).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_minmax_window_smoothness_none_for_single() {
+        let mut n = norm(4);
+        n.update(dec!(5));
+        assert!(n.window_smoothness().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_smoothness_constant_one() {
+        let mut n = norm(4);
+        for v in [dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        let r = n.window_smoothness().unwrap();
+        assert!((r - 1.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_minmax_window_median_abs_deviation_none_for_empty() {
+        let n = norm(4);
+        assert!(n.window_median_abs_deviation().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_median_abs_deviation_constant_zero() {
+        let mut n = norm(4);
+        for v in [dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        let r = n.window_median_abs_deviation().unwrap();
+        assert!(r.abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_minmax_window_weighted_range_none_for_single() {
+        let mut n = norm(4);
+        n.update(dec!(5));
+        assert!(n.window_weighted_range().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_weighted_range_returns_value() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(5)] { n.update(v); }
+        let r = n.window_weighted_range().unwrap();
+        assert!(r >= 4.0); // range=4, pos_weight ≥ 0 → result ≥ 4
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -22149,6 +22264,63 @@ impl ZScoreNormalizer {
         if self.window.is_empty() { return None; }
         let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
         Some(vals.iter().cloned().fold(f64::NEG_INFINITY, f64::max))
+    }
+
+    /// Max value / sum: concentration of the maximum relative to total.
+    pub fn window_concentration_ratio(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let total: f64 = vals.iter().sum();
+        if total == 0.0 { return None; }
+        let max = vals.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        Some(max / total)
+    }
+
+    /// Smoothness: 1 - mean absolute successive difference / range.
+    pub fn window_smoothness(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let max = vals.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        let min = vals.iter().cloned().fold(f64::INFINITY, f64::min);
+        let range = max - min;
+        if range == 0.0 { return Some(1.0); }
+        let mad: f64 = vals.windows(2).map(|w| (w[1] - w[0]).abs()).sum::<f64>()
+                     / (vals.len() - 1) as f64;
+        Some(1.0 - mad / range)
+    }
+
+    /// Median absolute deviation (MAD) of window values.
+    pub fn window_median_abs_deviation(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let mut vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        vals.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let mid = vals.len() / 2;
+        let median = if vals.len() % 2 == 0 { (vals[mid - 1] + vals[mid]) / 2.0 } else { vals[mid] };
+        let mut devs: Vec<f64> = vals.iter().map(|v| (v - median).abs()).collect();
+        devs.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let dm = devs.len() / 2;
+        let mad = if devs.len() % 2 == 0 { (devs[dm - 1] + devs[dm]) / 2.0 } else { devs[dm] };
+        Some(mad)
+    }
+
+    /// Weighted range: range weighted by the position of max and min in the window.
+    pub fn window_weighted_range(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let n = vals.len() as f64;
+        let (max_pos, _) = vals.iter().enumerate()
+            .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))?;
+        let (min_pos, _) = vals.iter().enumerate()
+            .min_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))?;
+        let max_val = vals[max_pos];
+        let min_val = vals[min_pos];
+        let range = max_val - min_val;
+        let pos_weight = ((max_pos as f64 - min_pos as f64).abs() / (n - 1.0)).max(0.0);
+        Some(range * (1.0 + pos_weight))
     }
 
 }
@@ -30320,5 +30492,63 @@ mod zscore_stability_tests {
         for v in [dec!(3), dec!(1), dec!(5), dec!(2)] { n.update(v); }
         let r = n.window_cumulative_max().unwrap();
         assert!((r - 5.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_zscore_window_concentration_ratio_none_for_empty() {
+        let n = znorm(4);
+        assert!(n.window_concentration_ratio().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_concentration_ratio_equal() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(1), dec!(1), dec!(1)] { n.update(v); }
+        let r = n.window_concentration_ratio().unwrap();
+        assert!((r - 0.25).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_zscore_window_smoothness_none_for_single() {
+        let mut n = znorm(4);
+        n.update(dec!(5));
+        assert!(n.window_smoothness().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_smoothness_constant_one() {
+        let mut n = znorm(4);
+        for v in [dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        let r = n.window_smoothness().unwrap();
+        assert!((r - 1.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_zscore_window_median_abs_deviation_none_for_empty() {
+        let n = znorm(4);
+        assert!(n.window_median_abs_deviation().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_median_abs_deviation_constant_zero() {
+        let mut n = znorm(4);
+        for v in [dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        let r = n.window_median_abs_deviation().unwrap();
+        assert!(r.abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_zscore_window_weighted_range_none_for_single() {
+        let mut n = znorm(4);
+        n.update(dec!(5));
+        assert!(n.window_weighted_range().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_weighted_range_returns_value() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(5)] { n.update(v); }
+        let r = n.window_weighted_range().unwrap();
+        assert!(r >= 4.0);
     }
 }
