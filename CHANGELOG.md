@@ -9,6 +9,36 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.6.6] - 2026-03-20
+
+### Added
+
+**`tick` module — `NormalizedTick` analytics (round 115)**
+- `NormalizedTick::mid_price_mean(ticks)` — mean mid-price between consecutive tick pairs.
+- `NormalizedTick::tick_qty_range(ticks)` — range `max_qty - min_qty` across the slice.
+- `NormalizedTick::buy_dominance_streak(ticks)` — longest consecutive run of buy-side ticks.
+- `NormalizedTick::price_gap_mean(ticks)` — mean absolute price gap between consecutive ticks.
+
+**`ohlcv` module — `OhlcvBar` analytics (round 115)**
+- `OhlcvBar::avg_open_gap(bars)` — mean absolute `|open - prev_close|` gap across bar pairs.
+- `OhlcvBar::hl_ratio_mean(bars)` — mean ratio of high to low per bar.
+- `OhlcvBar::shadow_to_range_ratio(bars)` — mean ratio of total shadow length to bar range.
+- `OhlcvBar::avg_close_to_low(bars)` — mean `close - low` across bars.
+
+**`norm` module — `MinMaxNormalizer` analytics (round 115)**
+- `MinMaxNormalizer::window_log_return()` — mean log return between consecutive window values.
+- `MinMaxNormalizer::window_signed_rms()` — RMS with the sign of the window mean.
+- `MinMaxNormalizer::window_inflection_count()` — count of local minima and maxima in the window.
+- `MinMaxNormalizer::window_centroid()` — index-weighted centroid position of the window.
+
+**`norm` module — `ZScoreNormalizer` analytics (round 115)**
+- `ZScoreNormalizer::window_log_return()` — mean log return between consecutive window values.
+- `ZScoreNormalizer::window_signed_rms()` — RMS with the sign of the window mean.
+- `ZScoreNormalizer::window_inflection_count()` — count of local minima and maxima in the window.
+- `ZScoreNormalizer::window_centroid()` — index-weighted centroid position of the window.
+
+---
+
 ## [2.6.5] - 2026-03-20
 
 ### Added

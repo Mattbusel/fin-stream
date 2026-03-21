@@ -5161,6 +5161,60 @@ impl OhlcvBar {
         Some(skew)
     }
 
+    // ── round-115 ────────────────────────────────────────────────────────────
+
+    /// Mean absolute open gap `|open - prev_close|` across consecutive bar pairs.
+    /// Returns `None` for fewer than 2 bars.
+    pub fn avg_open_gap(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.len() < 2 { return None; }
+        let sum: f64 = bars.windows(2)
+            .map(|w| (w[1].open - w[0].close).abs().to_f64().unwrap_or(0.0))
+            .sum();
+        Some(sum / (bars.len() - 1) as f64)
+    }
+
+    /// Mean ratio of `high` to `low` for each bar. Bars with zero low are skipped.
+    /// Returns `None` if no eligible bars.
+    pub fn hl_ratio_mean(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let mut sum = 0f64;
+        let mut cnt = 0usize;
+        for b in bars {
+            if b.low.is_zero() { continue; }
+            sum += b.high.to_f64().unwrap_or(0.0) / b.low.to_f64().unwrap_or(1.0);
+            cnt += 1;
+        }
+        if cnt == 0 { None } else { Some(sum / cnt as f64) }
+    }
+
+    /// Mean ratio of total shadow `(high - max(open,close)) + (min(open,close) - low)`
+    /// to bar range `(high - low)`. Bars with zero range are skipped. Returns `None`
+    /// if no eligible bars.
+    pub fn shadow_to_range_ratio(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let mut sum = 0f64;
+        let mut cnt = 0usize;
+        for b in bars {
+            let range = b.high - b.low;
+            if range.is_zero() { continue; }
+            let upper = b.high - b.open.max(b.close);
+            let lower = b.open.min(b.close) - b.low;
+            let shadow = upper + lower;
+            sum += (shadow / range).to_f64().unwrap_or(0.0);
+            cnt += 1;
+        }
+        if cnt == 0 { None } else { Some(sum / cnt as f64) }
+    }
+
+    /// Mean of `close - low` across bars. Returns `None` for empty input.
+    pub fn avg_close_to_low(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let sum: f64 = bars.iter().map(|b| (b.close - b.low).to_f64().unwrap_or(0.0)).sum();
+        Some(sum / bars.len() as f64)
+    }
+
 }
 
 impl std::fmt::Display for OhlcvBar {
@@ -12201,5 +12255,62 @@ mod tests {
         let b3 = make_ohlcv_bar(dec!(100), dec!(120), dec!(95), dec!(115));
         let s = OhlcvBar::body_skew(&[b1, b2, b3]);
         assert!(s.is_some());
+    }
+
+    #[test]
+    fn test_avg_open_gap_none_for_single() {
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        assert!(OhlcvBar::avg_open_gap(&[b]).is_none());
+    }
+
+    #[test]
+    fn test_avg_open_gap_basic() {
+        // bar1 close=105, bar2 open=110 → gap=5
+        let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let b2 = make_ohlcv_bar(dec!(110), dec!(120), dec!(100), dec!(115));
+        let g = OhlcvBar::avg_open_gap(&[b1, b2]).unwrap();
+        assert!((g - 5.0).abs() < 1e-9, "expected 5.0, got {}", g);
+    }
+
+    #[test]
+    fn test_hl_ratio_mean_none_for_zero_low() {
+        let mut b = make_ohlcv_bar(dec!(100), dec!(110), dec!(0), dec!(105));
+        b.low = dec!(0);
+        assert!(OhlcvBar::hl_ratio_mean(&[b]).is_none());
+    }
+
+    #[test]
+    fn test_hl_ratio_mean_basic() {
+        // high=110, low=100 → ratio=1.1
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(100), dec!(105));
+        let r = OhlcvBar::hl_ratio_mean(&[b]).unwrap();
+        assert!((r - 1.1).abs() < 1e-9, "expected 1.1, got {}", r);
+    }
+
+    #[test]
+    fn test_shadow_to_range_ratio_none_for_zero_range() {
+        let b = make_ohlcv_bar(dec!(100), dec!(100), dec!(100), dec!(100));
+        assert!(OhlcvBar::shadow_to_range_ratio(&[b]).is_none());
+    }
+
+    #[test]
+    fn test_shadow_to_range_ratio_full_body() {
+        // open=100, close=110, high=110, low=100 → no shadow → ratio=0
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(100), dec!(110));
+        let r = OhlcvBar::shadow_to_range_ratio(&[b]).unwrap();
+        assert!(r.abs() < 1e-9, "expected 0.0, got {}", r);
+    }
+
+    #[test]
+    fn test_avg_close_to_low_none_for_empty() {
+        assert!(OhlcvBar::avg_close_to_low(&[]).is_none());
+    }
+
+    #[test]
+    fn test_avg_close_to_low_basic() {
+        // close=105, low=90 → close-low=15
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let c = OhlcvBar::avg_close_to_low(&[b]).unwrap();
+        assert!((c - 15.0).abs() < 1e-9, "expected 15.0, got {}", c);
     }
 }

@@ -3138,6 +3138,55 @@ impl MinMaxNormalizer {
         if denom == 0.0 { None } else { Some(num / denom) }
     }
 
+    // ── round-115 ────────────────────────────────────────────────────────────
+
+    /// Mean log return between consecutive window values.
+    /// Returns `None` for fewer than 2 values or any non-positive value.
+    pub fn window_log_return(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| {
+            let f = v.to_f64()?;
+            if f <= 0.0 { None } else { Some(f) }
+        }).collect::<Option<Vec<_>>>()?;
+        let sum: f64 = vals.windows(2).map(|w| (w[1] / w[0]).ln()).sum();
+        Some(sum / (vals.len() - 1) as f64)
+    }
+
+    /// Signed RMS: RMS with the sign of the window mean. Returns `None` for empty window.
+    pub fn window_signed_rms(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let mean = vals.iter().sum::<f64>() / vals.len() as f64;
+        let rms = (vals.iter().map(|&x| x * x).sum::<f64>() / vals.len() as f64).sqrt();
+        Some(if mean < 0.0 { -rms } else { rms })
+    }
+
+    /// Count of inflection points (local minima or maxima) in the window.
+    /// Returns `None` for fewer than 3 values.
+    pub fn window_inflection_count(&self) -> Option<usize> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 3 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let count = vals.windows(3).filter(|w| {
+            (w[1] > w[0] && w[1] > w[2]) || (w[1] < w[0] && w[1] < w[2])
+        }).count();
+        Some(count)
+    }
+
+    /// Centroid of the window: index-weighted mean position.
+    /// Returns `None` for empty window or zero total weight.
+    pub fn window_centroid(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let total: f64 = vals.iter().sum();
+        if total == 0.0 { return None; }
+        let weighted: f64 = vals.iter().enumerate().map(|(i, &v)| i as f64 * v).sum();
+        Some(weighted / total)
+    }
+
 }
 
 #[cfg(test)]
@@ -6483,6 +6532,71 @@ mod tests {
         let d = n.window_decay_score().unwrap();
         assert!(d > 5.0, "expected decay-weighted value closer to 10, got {}", d);
     }
+
+    #[test]
+    fn test_minmax_window_log_return_none_for_single() {
+        let mut n = norm(3);
+        n.update(dec!(5));
+        assert!(n.window_log_return().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_log_return_basic() {
+        let mut n = norm(2);
+        n.update(dec!(1));
+        n.update(dec!(1));
+        // log(1/1) = 0
+        let r = n.window_log_return().unwrap();
+        assert!(r.abs() < 1e-9, "expected 0.0, got {}", r);
+    }
+
+    #[test]
+    fn test_minmax_window_signed_rms_none_for_empty() {
+        let n = norm(3);
+        assert!(n.window_signed_rms().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_signed_rms_basic() {
+        let mut n = norm(2);
+        n.update(dec!(3));
+        n.update(dec!(4));
+        // rms = sqrt((9+16)/2) = sqrt(12.5) ≈ 3.536; mean>0 → positive
+        let r = n.window_signed_rms().unwrap();
+        assert!(r > 0.0, "expected positive signed_rms, got {}", r);
+    }
+
+    #[test]
+    fn test_minmax_window_inflection_count_none_for_two() {
+        let mut n = norm(3);
+        n.update(dec!(1));
+        n.update(dec!(2));
+        assert!(n.window_inflection_count().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_inflection_count_basic() {
+        let mut n = norm(3);
+        // 1, 3, 2 → 3 is local max → 1 inflection
+        for v in [dec!(1), dec!(3), dec!(2)] { n.update(v); }
+        let c = n.window_inflection_count().unwrap();
+        assert_eq!(c, 1);
+    }
+
+    #[test]
+    fn test_minmax_window_centroid_none_for_empty() {
+        let n = norm(3);
+        assert!(n.window_centroid().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_centroid_basic() {
+        let mut n = norm(3);
+        // values: 0, 0, 10 → total=10, weighted=2*10=20 → centroid=2.0
+        for v in [dec!(0), dec!(0), dec!(10)] { n.update(v); }
+        let c = n.window_centroid().unwrap();
+        assert!((c - 2.0).abs() < 1e-9, "expected 2.0, got {}", c);
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -9566,6 +9680,55 @@ impl ZScoreNormalizer {
             denom += w;
         }
         if denom == 0.0 { None } else { Some(num / denom) }
+    }
+
+    // ── round-115 ────────────────────────────────────────────────────────────
+
+    /// Mean log return between consecutive window values.
+    /// Returns `None` for fewer than 2 values or any non-positive value.
+    pub fn window_log_return(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| {
+            let f = v.to_f64()?;
+            if f <= 0.0 { None } else { Some(f) }
+        }).collect::<Option<Vec<_>>>()?;
+        let sum: f64 = vals.windows(2).map(|w| (w[1] / w[0]).ln()).sum();
+        Some(sum / (vals.len() - 1) as f64)
+    }
+
+    /// Signed RMS: RMS with the sign of the window mean. Returns `None` for empty window.
+    pub fn window_signed_rms(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let mean = vals.iter().sum::<f64>() / vals.len() as f64;
+        let rms = (vals.iter().map(|&x| x * x).sum::<f64>() / vals.len() as f64).sqrt();
+        Some(if mean < 0.0 { -rms } else { rms })
+    }
+
+    /// Count of inflection points (local minima or maxima) in the window.
+    /// Returns `None` for fewer than 3 values.
+    pub fn window_inflection_count(&self) -> Option<usize> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 3 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let count = vals.windows(3).filter(|w| {
+            (w[1] > w[0] && w[1] > w[2]) || (w[1] < w[0] && w[1] < w[2])
+        }).count();
+        Some(count)
+    }
+
+    /// Centroid of the window: index-weighted mean position.
+    /// Returns `None` for empty window or zero total weight.
+    pub fn window_centroid(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let total: f64 = vals.iter().sum();
+        if total == 0.0 { return None; }
+        let weighted: f64 = vals.iter().enumerate().map(|(i, &v)| i as f64 * v).sum();
+        Some(weighted / total)
     }
 
 }
@@ -13014,5 +13177,66 @@ mod zscore_stability_tests {
         n.update(dec!(10));
         let d = n.window_decay_score().unwrap();
         assert!(d > 5.0, "expected decay-weighted value closer to 10, got {}", d);
+    }
+
+    #[test]
+    fn test_zscore_window_log_return_none_for_single() {
+        let mut n = znorm(3);
+        n.update(dec!(5));
+        assert!(n.window_log_return().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_log_return_basic() {
+        let mut n = znorm(2);
+        n.update(dec!(1));
+        n.update(dec!(1));
+        let r = n.window_log_return().unwrap();
+        assert!(r.abs() < 1e-9, "expected 0.0, got {}", r);
+    }
+
+    #[test]
+    fn test_zscore_window_signed_rms_none_for_empty() {
+        let n = znorm(3);
+        assert!(n.window_signed_rms().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_signed_rms_basic() {
+        let mut n = znorm(2);
+        n.update(dec!(3));
+        n.update(dec!(4));
+        let r = n.window_signed_rms().unwrap();
+        assert!(r > 0.0, "expected positive signed_rms, got {}", r);
+    }
+
+    #[test]
+    fn test_zscore_window_inflection_count_none_for_two() {
+        let mut n = znorm(3);
+        n.update(dec!(1));
+        n.update(dec!(2));
+        assert!(n.window_inflection_count().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_inflection_count_basic() {
+        let mut n = znorm(3);
+        for v in [dec!(1), dec!(3), dec!(2)] { n.update(v); }
+        let c = n.window_inflection_count().unwrap();
+        assert_eq!(c, 1);
+    }
+
+    #[test]
+    fn test_zscore_window_centroid_none_for_empty() {
+        let n = znorm(3);
+        assert!(n.window_centroid().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_centroid_basic() {
+        let mut n = znorm(3);
+        for v in [dec!(0), dec!(0), dec!(10)] { n.update(v); }
+        let c = n.window_centroid().unwrap();
+        assert!((c - 2.0).abs() < 1e-9, "expected 2.0, got {}", c);
     }
 }

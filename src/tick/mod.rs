@@ -5202,6 +5202,55 @@ impl NormalizedTick {
         ((last - first).abs() / range).to_f64()
     }
 
+    // ── round-115 ────────────────────────────────────────────────────────────
+
+    /// Mean mid-price `(price + prev_price) / 2` across consecutive tick pairs.
+    /// Returns `None` for fewer than 2 ticks.
+    pub fn mid_price_mean(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 2 { return None; }
+        let sum: f64 = ticks.windows(2).map(|w| {
+            ((w[0].price + w[1].price) / rust_decimal::Decimal::TWO).to_f64().unwrap_or(0.0)
+        }).sum();
+        Some(sum / (ticks.len() - 1) as f64)
+    }
+
+    /// Range of quantities: `max_qty - min_qty`. Returns `None` for empty input.
+    pub fn tick_qty_range(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() { return None; }
+        let max_q = ticks.iter().map(|t| t.quantity).fold(ticks[0].quantity, |a, b| a.max(b));
+        let min_q = ticks.iter().map(|t| t.quantity).fold(ticks[0].quantity, |a, b| a.min(b));
+        (max_q - min_q).to_f64()
+    }
+
+    /// Length of the longest consecutive run of buy-side ticks.
+    /// Returns `None` if no buy-side ticks exist.
+    pub fn buy_dominance_streak(ticks: &[NormalizedTick]) -> Option<usize> {
+        let mut max_run = 0usize;
+        let mut cur_run = 0usize;
+        for t in ticks {
+            if matches!(t.side, Some(TradeSide::Buy)) {
+                cur_run += 1;
+                if cur_run > max_run { max_run = cur_run; }
+            } else {
+                cur_run = 0;
+            }
+        }
+        if max_run == 0 { None } else { Some(max_run) }
+    }
+
+    /// Mean absolute price gap between consecutive ticks.
+    /// Returns `None` for fewer than 2 ticks.
+    pub fn price_gap_mean(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 2 { return None; }
+        let sum: f64 = ticks.windows(2)
+            .map(|w| (w[1].price - w[0].price).abs().to_f64().unwrap_or(0.0))
+            .sum();
+        Some(sum / (ticks.len() - 1) as f64)
+    }
+
 }
 
 
@@ -11965,5 +12014,61 @@ mod tests {
         let t3 = make_tick_pq(dec!(90), dec!(1));
         let e = NormalizedTick::tick_range_efficiency(&[t1, t2, t3]).unwrap();
         assert!((e - 0.5).abs() < 1e-9, "expected 0.5, got {}", e);
+    }
+
+    #[test]
+    fn test_mid_price_mean_none_for_single() {
+        use rust_decimal_macros::dec;
+        let t = make_tick_pq(dec!(100), dec!(1));
+        assert!(NormalizedTick::mid_price_mean(&[t]).is_none());
+    }
+
+    #[test]
+    fn test_mid_price_mean_basic() {
+        use rust_decimal_macros::dec;
+        // pair (100, 110) → mid = 105
+        let t1 = make_tick_pq(dec!(100), dec!(1));
+        let t2 = make_tick_pq(dec!(110), dec!(1));
+        let m = NormalizedTick::mid_price_mean(&[t1, t2]).unwrap();
+        assert!((m - 105.0).abs() < 1e-9, "expected 105.0, got {}", m);
+    }
+
+    #[test]
+    fn test_tick_qty_range_none_for_empty() {
+        assert!(NormalizedTick::tick_qty_range(&[]).is_none());
+    }
+
+    #[test]
+    fn test_tick_qty_range_basic() {
+        use rust_decimal_macros::dec;
+        let t1 = make_tick_pq(dec!(100), dec!(3));
+        let t2 = make_tick_pq(dec!(101), dec!(7));
+        let r = NormalizedTick::tick_qty_range(&[t1, t2]).unwrap();
+        assert!((r - 4.0).abs() < 1e-9, "expected 4.0, got {}", r);
+    }
+
+    #[test]
+    fn test_buy_dominance_streak_none_when_no_buy() {
+        use rust_decimal_macros::dec;
+        let t = make_tick_pq(dec!(100), dec!(1));
+        assert!(NormalizedTick::buy_dominance_streak(&[t]).is_none());
+    }
+
+    #[test]
+    fn test_price_gap_mean_none_for_single() {
+        use rust_decimal_macros::dec;
+        let t = make_tick_pq(dec!(100), dec!(1));
+        assert!(NormalizedTick::price_gap_mean(&[t]).is_none());
+    }
+
+    #[test]
+    fn test_price_gap_mean_basic() {
+        use rust_decimal_macros::dec;
+        // gaps: |110-100|=10, |115-110|=5 → mean=7.5
+        let t1 = make_tick_pq(dec!(100), dec!(1));
+        let t2 = make_tick_pq(dec!(110), dec!(1));
+        let t3 = make_tick_pq(dec!(115), dec!(1));
+        let g = NormalizedTick::price_gap_mean(&[t1, t2, t3]).unwrap();
+        assert!((g - 7.5).abs() < 1e-9, "expected 7.5, got {}", g);
     }
 }
