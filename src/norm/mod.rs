@@ -6469,6 +6469,45 @@ impl MinMaxNormalizer {
         Some(count as f64 / vals.len() as f64)
     }
 
+    /// Mean of log(value) for positive window values.
+    pub fn window_log_mean(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let logs: Vec<f64> = self.window.iter()
+            .filter_map(|v| { let f = v.to_f64()?; if f > 0.0 { Some(f.ln()) } else { None } })
+            .collect();
+        if logs.is_empty() { return None; }
+        Some(logs.iter().sum::<f64>() / logs.len() as f64)
+    }
+
+    /// Sum of exponentially decayed values: sum(value[i] * 0.9^(n-1-i)).
+    pub fn window_decay_sum(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let n = self.window.len();
+        let sum = self.window.iter().enumerate().map(|(i, v)| {
+            v.to_f64().unwrap_or(0.0) * 0.9f64.powi((n - 1 - i) as i32)
+        }).sum();
+        Some(sum)
+    }
+
+    /// Sum of exp(value) for all window values.
+    pub fn window_exp_sum(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let sum: f64 = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0).exp()).sum();
+        Some(sum)
+    }
+
+    /// Count of window values strictly below the mean.
+    pub fn window_below_mean_count(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let mean = vals.iter().sum::<f64>() / vals.len() as f64;
+        Some(vals.iter().filter(|&&v| v < mean).count() as f64)
+    }
+
 }
 
 #[cfg(test)]
@@ -14054,6 +14093,63 @@ mod tests {
         let r = n.window_within_1std_ratio().unwrap();
         assert!((r - 1.0).abs() < 1e-9, "expected 1.0, got {}", r);
     }
+
+    #[test]
+    fn test_minmax_window_log_mean_none_for_empty() {
+        let n = norm(4);
+        assert!(n.window_log_mean().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_log_mean_ln1_zero() {
+        // log(1) = 0
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(1), dec!(1), dec!(1)] { n.update(v); }
+        let r = n.window_log_mean().unwrap();
+        assert!(r.abs() < 1e-9, "expected 0.0, got {}", r);
+    }
+
+    #[test]
+    fn test_minmax_window_decay_sum_none_for_empty() {
+        let n = norm(4);
+        assert!(n.window_decay_sum().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_decay_sum_single_value() {
+        let mut n = norm(4);
+        n.update(dec!(10));
+        let r = n.window_decay_sum().unwrap();
+        assert!((r - 10.0).abs() < 1e-9, "expected 10.0, got {}", r);
+    }
+
+    #[test]
+    fn test_minmax_window_exp_sum_none_for_empty() {
+        let n = norm(4);
+        assert!(n.window_exp_sum().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_exp_sum_single_zero_is_one() {
+        let mut n = norm(4);
+        n.update(dec!(0));
+        let r = n.window_exp_sum().unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "expected 1.0, got {}", r);
+    }
+
+    #[test]
+    fn test_minmax_window_below_mean_count_none_for_empty() {
+        let n = norm(4);
+        assert!(n.window_below_mean_count().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_below_mean_count_constant_zero() {
+        let mut n = norm(4);
+        for v in [dec!(5), dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        let r = n.window_below_mean_count().unwrap();
+        assert!((r - 0.0).abs() < 1e-9, "expected 0.0, got {}", r);
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -20471,6 +20567,45 @@ impl ZScoreNormalizer {
         if std == 0.0 { return Some(1.0); }
         let count = vals.iter().filter(|&&v| (v - mean).abs() <= std).count();
         Some(count as f64 / vals.len() as f64)
+    }
+
+    /// Mean of log(value) for positive window values.
+    pub fn window_log_mean(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let logs: Vec<f64> = self.window.iter()
+            .filter_map(|v| { let f = v.to_f64()?; if f > 0.0 { Some(f.ln()) } else { None } })
+            .collect();
+        if logs.is_empty() { return None; }
+        Some(logs.iter().sum::<f64>() / logs.len() as f64)
+    }
+
+    /// Sum of exponentially decayed values: sum(value[i] * 0.9^(n-1-i)).
+    pub fn window_decay_sum(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let n = self.window.len();
+        let sum = self.window.iter().enumerate().map(|(i, v)| {
+            v.to_f64().unwrap_or(0.0) * 0.9f64.powi((n - 1 - i) as i32)
+        }).sum();
+        Some(sum)
+    }
+
+    /// Sum of exp(value) for all window values.
+    pub fn window_exp_sum(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let sum: f64 = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0).exp()).sum();
+        Some(sum)
+    }
+
+    /// Count of window values strictly below the mean.
+    pub fn window_below_mean_count(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let mean = vals.iter().sum::<f64>() / vals.len() as f64;
+        Some(vals.iter().filter(|&&v| v < mean).count() as f64)
     }
 
 }
@@ -28014,5 +28149,61 @@ mod zscore_stability_tests {
         for v in [dec!(5), dec!(5), dec!(5), dec!(5)] { n.update(v); }
         let r = n.window_within_1std_ratio().unwrap();
         assert!((r - 1.0).abs() < 1e-9, "expected 1.0, got {}", r);
+    }
+
+    #[test]
+    fn test_zscore_window_log_mean_none_for_empty() {
+        let n = znorm(4);
+        assert!(n.window_log_mean().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_log_mean_ln1_zero() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(1), dec!(1), dec!(1)] { n.update(v); }
+        let r = n.window_log_mean().unwrap();
+        assert!(r.abs() < 1e-9, "expected 0.0, got {}", r);
+    }
+
+    #[test]
+    fn test_zscore_window_decay_sum_none_for_empty() {
+        let n = znorm(4);
+        assert!(n.window_decay_sum().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_decay_sum_single_value() {
+        let mut n = znorm(4);
+        n.update(dec!(10));
+        let r = n.window_decay_sum().unwrap();
+        assert!((r - 10.0).abs() < 1e-9, "expected 10.0, got {}", r);
+    }
+
+    #[test]
+    fn test_zscore_window_exp_sum_none_for_empty() {
+        let n = znorm(4);
+        assert!(n.window_exp_sum().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_exp_sum_single_zero_is_one() {
+        let mut n = znorm(4);
+        n.update(dec!(0));
+        let r = n.window_exp_sum().unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "expected 1.0, got {}", r);
+    }
+
+    #[test]
+    fn test_zscore_window_below_mean_count_none_for_empty() {
+        let n = znorm(4);
+        assert!(n.window_below_mean_count().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_below_mean_count_constant_zero() {
+        let mut n = znorm(4);
+        for v in [dec!(5), dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        let r = n.window_below_mean_count().unwrap();
+        assert!((r - 0.0).abs() < 1e-9, "expected 0.0, got {}", r);
     }
 }

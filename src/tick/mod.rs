@@ -9134,6 +9134,57 @@ impl NormalizedTick {
         Some(max - min)
     }
 
+    /// Sum of log returns: sum(log(price[i]/price[i-1])).
+    pub fn price_log_return_sum(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 2 { return None; }
+        let prices: Vec<f64> = ticks.iter().filter_map(|t| t.price.to_f64()).collect();
+        if prices.len() < 2 { return None; }
+        let sum: f64 = prices.windows(2).filter_map(|w| {
+            if w[0] <= 0.0 { return None; }
+            Some((w[1] / w[0]).ln())
+        }).sum();
+        Some(sum)
+    }
+
+    /// Buy volume / total volume ratio.
+    pub fn tick_buy_vol_ratio(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() { return None; }
+        let mut buy_vol = 0.0f64;
+        let mut total_vol = 0.0f64;
+        for t in ticks {
+            if let Some(qty) = t.quantity.to_f64() {
+                total_vol += qty;
+                if t.side == Some(TradeSide::Buy) { buy_vol += qty; }
+            }
+        }
+        if total_vol == 0.0 { return None; }
+        Some(buy_vol / total_vol)
+    }
+
+    /// Number of times the trade side flips (Buy→Sell or Sell→Buy).
+    pub fn tick_side_flip_count(ticks: &[NormalizedTick]) -> Option<f64> {
+        if ticks.len() < 2 { return None; }
+        let sided: Vec<TradeSide> = ticks.iter().filter_map(|t| t.side).collect();
+        if sided.len() < 2 { return Some(0.0); }
+        let flips = sided.windows(2).filter(|w| w[0] != w[1]).count();
+        Some(flips as f64)
+    }
+
+    /// Fraction of ticks where price deviates > 2 std from mean.
+    pub fn price_spike_fraction(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 3 { return None; }
+        let prices: Vec<f64> = ticks.iter().filter_map(|t| t.price.to_f64()).collect();
+        if prices.len() < 3 { return None; }
+        let mean = prices.iter().sum::<f64>() / prices.len() as f64;
+        let std = (prices.iter().map(|p| (p - mean).powi(2)).sum::<f64>() / prices.len() as f64).sqrt();
+        if std == 0.0 { return Some(0.0); }
+        let spikes = prices.iter().filter(|&&p| (p - mean).abs() > 2.0 * std).count();
+        Some(spikes as f64 / prices.len() as f64)
+    }
+
 }
 
 
@@ -20802,6 +20853,67 @@ mod tests {
             make_tick_pq(dec!(102), dec!(5)),
         ];
         let r = NormalizedTick::tick_size_range(&ticks).unwrap();
+        assert!(r.abs() < 1e-9, "expected 0.0, got {}", r);
+    }
+
+    #[test]
+    fn test_price_log_return_sum_empty_none() {
+        use rust_decimal_macros::dec;
+        assert!(NormalizedTick::price_log_return_sum(&[]).is_none());
+    }
+
+    #[test]
+    fn test_price_log_return_sum_constant_zero() {
+        use rust_decimal_macros::dec;
+        // Same price → log(p/p) = 0
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(100), dec!(1)),
+        ];
+        let r = NormalizedTick::price_log_return_sum(&ticks).unwrap();
+        assert!(r.abs() < 1e-9, "expected 0.0, got {}", r);
+    }
+
+    #[test]
+    fn test_tick_buy_vol_ratio_empty_none() {
+        use rust_decimal_macros::dec;
+        assert!(NormalizedTick::tick_buy_vol_ratio(&[]).is_none());
+    }
+
+    #[test]
+    fn test_tick_buy_vol_ratio_no_side_zero() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(5)),
+            make_tick_pq(dec!(101), dec!(3)),
+        ];
+        let r = NormalizedTick::tick_buy_vol_ratio(&ticks).unwrap();
+        assert!(r.abs() < 1e-9, "expected 0.0, got {}", r);
+    }
+
+    #[test]
+    fn test_tick_side_flip_count_empty_none() {
+        use rust_decimal_macros::dec;
+        assert!(NormalizedTick::tick_side_flip_count(&[]).is_none());
+    }
+
+    #[test]
+    fn test_price_spike_fraction_empty_none() {
+        use rust_decimal_macros::dec;
+        assert!(NormalizedTick::price_spike_fraction(&[]).is_none());
+    }
+
+    #[test]
+    fn test_price_spike_fraction_constant_zero() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(100), dec!(1)),
+        ];
+        let r = NormalizedTick::price_spike_fraction(&ticks).unwrap();
         assert!(r.abs() < 1e-9, "expected 0.0, got {}", r);
     }
 }

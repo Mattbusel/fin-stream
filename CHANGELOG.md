@@ -9,6 +9,30 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.10.35] - 2026-03-20
+
+### Added
+
+**`tick` module — `NormalizedTick` analytics (round 184)**
+- `NormalizedTick::price_log_return_sum(ticks)` — sum of log returns: sum(log(price[i]/price[i-1])).
+- `NormalizedTick::tick_buy_vol_ratio(ticks)` — buy volume / total volume ratio.
+- `NormalizedTick::tick_side_flip_count(ticks)` — number of trade side flips (Buy→Sell or Sell→Buy).
+- `NormalizedTick::price_spike_fraction(ticks)` — fraction of ticks with price > 2 std deviations from mean.
+
+**`ohlcv` module — `OhlcvBar` analytics (round 184)**
+- `OhlcvBar::bar_range_vol_corr(bars)` — Pearson correlation between (high-low) and volume.
+- `OhlcvBar::bar_body_accel(bars)` — mean second difference of bar body sizes.
+- `OhlcvBar::bar_shadow_vol_corr(bars)` — Pearson correlation between total shadow length and volume.
+- `OhlcvBar::bar_close_iqr_position(bars)` — mean close position within the IQR of closes.
+
+**`norm` module — `MinMaxNormalizer` + `ZScoreNormalizer` analytics (round 184)**
+- `window_log_mean()` — mean of log(value) for positive window values.
+- `window_decay_sum()` — sum of exponentially decayed values with factor 0.9.
+- `window_exp_sum()` — sum of exp(value) for all window values.
+- `window_below_mean_count()` — count of values strictly below the mean.
+
+---
+
 ## [2.10.34] - 2026-03-20
 
 ### Added
