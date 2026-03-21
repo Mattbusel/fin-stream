@@ -9,6 +9,30 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.5.3] - 2026-03-20
+
+### Added
+
+**`tick` module — `NormalizedTick` analytics (round 102)**
+- `NormalizedTick::price_impact_ratio(ticks)` — absolute net price move per unit of total volume.
+- `NormalizedTick::consecutive_sell_streak(ticks)` — longest consecutive run of sell-side ticks.
+- `NormalizedTick::avg_qty_variance(ticks)` — population variance of tick quantities.
+- `NormalizedTick::price_midpoint(ticks)` — `(max_price + min_price) / 2` across the slice.
+
+**`ohlcv` module — `OhlcvBar` analytics (round 102)**
+- `OhlcvBar::high_low_ratio(bars)` — mean `high / low` ratio per bar.
+- `OhlcvBar::close_change_mean(bars)` — mean signed close-to-close change.
+- `OhlcvBar::down_body_fraction(bars)` — fraction of bars where `close < open`.
+- `OhlcvBar::body_acceleration(bars)` — rate of change of mean body size (second half vs first half).
+
+**`norm` module — `MinMaxNormalizer` and `ZScoreNormalizer` analytics (round 102)**
+- `window_q1_q3_ratio() -> Option<Decimal>` — ratio of 25th to 75th percentile.
+- `signed_momentum() -> Option<Decimal>` — sum of +1/−1/0 for each consecutive pair direction.
+- `positive_run_length() -> Option<f64>` — mean length of consecutive increasing runs.
+- `valley_to_peak_ratio() -> Option<f64>` — last trough value divided by last peak value.
+
+---
+
 ## [2.5.2] - 2026-03-20
 
 ### Added

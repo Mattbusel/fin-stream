@@ -2348,6 +2348,86 @@ impl MinMaxNormalizer {
         Some(entropy)
     }
 
+    // ── round-102 ────────────────────────────────────────────────────────────
+
+    /// Ratio of the 25th to 75th percentile of the window.
+    /// Returns `None` for an empty window or zero 75th percentile.
+    pub fn window_q1_q3_ratio(&self) -> Option<Decimal> {
+        if self.window.is_empty() {
+            return None;
+        }
+        let q1 = self.window_percentile_25()?;
+        let q3 = self.percentile_75()?;
+        if q3.is_zero() {
+            return None;
+        }
+        Some(q1 / q3)
+    }
+
+    /// Sum of signed consecutive differences (momentum sign count).
+    /// Returns `None` for fewer than 2 values.
+    pub fn signed_momentum(&self) -> Option<Decimal> {
+        if self.window.len() < 2 {
+            return None;
+        }
+        let vals: Vec<Decimal> = self.window.iter().copied().collect();
+        let signed: Decimal = vals
+            .windows(2)
+            .map(|w| if w[1] > w[0] { Decimal::ONE } else if w[1] < w[0] { -Decimal::ONE } else { Decimal::ZERO })
+            .sum();
+        Some(signed)
+    }
+
+    /// Mean length of consecutive positive (increasing) runs in the window.
+    /// Returns `None` for fewer than 2 values or no positive runs.
+    pub fn positive_run_length(&self) -> Option<f64> {
+        if self.window.len() < 2 {
+            return None;
+        }
+        let vals: Vec<Decimal> = self.window.iter().copied().collect();
+        let mut runs = Vec::new();
+        let mut cur = 0usize;
+        for w in vals.windows(2) {
+            if w[1] > w[0] {
+                cur += 1;
+            } else if cur > 0 {
+                runs.push(cur);
+                cur = 0;
+            }
+        }
+        if cur > 0 {
+            runs.push(cur);
+        }
+        if runs.is_empty() {
+            return None;
+        }
+        Some(runs.iter().sum::<usize>() as f64 / runs.len() as f64)
+    }
+
+    /// Ratio of the last trough value to the last peak value in the window.
+    /// Returns `None` if there is no peak or trough, or if peak is zero.
+    pub fn valley_to_peak_ratio(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 3 {
+            return None;
+        }
+        let vals: Vec<Decimal> = self.window.iter().copied().collect();
+        let last_peak = vals
+            .windows(3)
+            .filter(|w| w[1] > w[0] && w[1] > w[2])
+            .map(|w| w[1])
+            .last();
+        let last_trough = vals
+            .windows(3)
+            .filter(|w| w[1] < w[0] && w[1] < w[2])
+            .map(|w| w[1])
+            .last();
+        match (last_trough, last_peak) {
+            (Some(t), Some(p)) if !p.is_zero() => Some((t / p).to_f64().unwrap_or(0.0)),
+            _ => None,
+        }
+    }
+
 }
 
 #[cfg(test)]
@@ -4960,6 +5040,49 @@ mod tests {
         for _ in 0..4 { n.update(dec!(5)); }
         assert!(n.window_entropy_approx().is_none());
     }
+
+    // ── round-102 tests ───────────────────────────────────────────────────────
+
+    #[test]
+    fn test_minmax_window_q1_q3_ratio_none_for_empty() {
+        assert!(norm(4).window_q1_q3_ratio().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_q1_q3_ratio_one_for_constant() {
+        let mut n = norm(4);
+        for _ in 0..4 { n.update(dec!(5)); }
+        assert_eq!(n.window_q1_q3_ratio().unwrap(), dec!(1));
+    }
+
+    #[test]
+    fn test_minmax_signed_momentum_none_for_single() {
+        let mut n = norm(4);
+        n.update(dec!(5));
+        assert!(n.signed_momentum().is_none());
+    }
+
+    #[test]
+    fn test_minmax_signed_momentum_positive_for_rising() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        // two rising pairs → +2
+        assert_eq!(n.signed_momentum().unwrap(), dec!(2));
+    }
+
+    #[test]
+    fn test_minmax_positive_run_length_none_for_single() {
+        let mut n = norm(4);
+        n.update(dec!(5));
+        assert!(n.positive_run_length().is_none());
+    }
+
+    #[test]
+    fn test_minmax_valley_to_peak_ratio_none_for_small_window() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2)] { n.update(v); }
+        assert!(n.valley_to_peak_ratio().is_none());
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -7264,6 +7387,86 @@ impl ZScoreNormalizer {
             })
             .sum::<f64>();
         Some(entropy)
+    }
+
+    // ── round-102 ────────────────────────────────────────────────────────────
+
+    /// Ratio of the 25th to 75th percentile of the window.
+    /// Returns `None` for an empty window or zero 75th percentile.
+    pub fn window_q1_q3_ratio(&self) -> Option<Decimal> {
+        if self.window.is_empty() {
+            return None;
+        }
+        let q1 = self.window_percentile_25()?;
+        let q3 = self.percentile_75()?;
+        if q3.is_zero() {
+            return None;
+        }
+        Some(q1 / q3)
+    }
+
+    /// Sum of signed consecutive differences (+1 up, -1 down, 0 flat).
+    /// Returns `None` for fewer than 2 values.
+    pub fn signed_momentum(&self) -> Option<Decimal> {
+        if self.window.len() < 2 {
+            return None;
+        }
+        let vals: Vec<Decimal> = self.window.iter().copied().collect();
+        let signed: Decimal = vals
+            .windows(2)
+            .map(|w| if w[1] > w[0] { Decimal::ONE } else if w[1] < w[0] { -Decimal::ONE } else { Decimal::ZERO })
+            .sum();
+        Some(signed)
+    }
+
+    /// Mean length of consecutive positive (increasing) runs.
+    /// Returns `None` for fewer than 2 values or no positive runs.
+    pub fn positive_run_length(&self) -> Option<f64> {
+        if self.window.len() < 2 {
+            return None;
+        }
+        let vals: Vec<Decimal> = self.window.iter().copied().collect();
+        let mut runs = Vec::new();
+        let mut cur = 0usize;
+        for w in vals.windows(2) {
+            if w[1] > w[0] {
+                cur += 1;
+            } else if cur > 0 {
+                runs.push(cur);
+                cur = 0;
+            }
+        }
+        if cur > 0 {
+            runs.push(cur);
+        }
+        if runs.is_empty() {
+            return None;
+        }
+        Some(runs.iter().sum::<usize>() as f64 / runs.len() as f64)
+    }
+
+    /// Ratio of the last trough to the last peak in the window.
+    /// Returns `None` if no peak or trough exists, or if peak is zero.
+    pub fn valley_to_peak_ratio(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 3 {
+            return None;
+        }
+        let vals: Vec<Decimal> = self.window.iter().copied().collect();
+        let last_peak = vals
+            .windows(3)
+            .filter(|w| w[1] > w[0] && w[1] > w[2])
+            .map(|w| w[1])
+            .last();
+        let last_trough = vals
+            .windows(3)
+            .filter(|w| w[1] < w[0] && w[1] < w[2])
+            .map(|w| w[1])
+            .last();
+        match (last_trough, last_peak) {
+            (Some(t), Some(p)) if !p.is_zero() => Some((t / p).to_f64().unwrap_or(0.0)),
+            _ => None,
+        }
     }
 
 }
@@ -10028,5 +10231,40 @@ mod zscore_stability_tests {
         let mut n = znorm(4);
         for _ in 0..4 { n.update(dec!(5)); }
         assert!(n.window_entropy_approx().is_none());
+    }
+
+    // ── round-102 tests ───────────────────────────────────────────────────────
+
+    #[test]
+    fn test_zscore_window_q1_q3_ratio_none_for_empty() {
+        assert!(znorm(4).window_q1_q3_ratio().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_q1_q3_ratio_one_for_constant() {
+        let mut n = znorm(4);
+        for _ in 0..4 { n.update(dec!(5)); }
+        assert_eq!(n.window_q1_q3_ratio().unwrap(), dec!(1));
+    }
+
+    #[test]
+    fn test_zscore_signed_momentum_positive_for_rising() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        assert_eq!(n.signed_momentum().unwrap(), dec!(2));
+    }
+
+    #[test]
+    fn test_zscore_positive_run_length_none_for_single() {
+        let mut n = znorm(4);
+        n.update(dec!(5));
+        assert!(n.positive_run_length().is_none());
+    }
+
+    #[test]
+    fn test_zscore_valley_to_peak_ratio_none_for_small_window() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2)] { n.update(v); }
+        assert!(n.valley_to_peak_ratio().is_none());
     }
 }

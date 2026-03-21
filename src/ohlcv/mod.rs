@@ -4407,6 +4407,82 @@ impl OhlcvBar {
         Some(values.iter().sum::<f64>() / values.len() as f64)
     }
 
+    // ── round-102 ────────────────────────────────────────────────────────────
+
+    /// Mean of `high / low` ratio per bar, excluding zero-low bars.
+    /// Returns `None` for an empty slice or all zero-low bars.
+    pub fn high_low_ratio(bars: &[OhlcvBar]) -> Option<f64> {
+        if bars.is_empty() {
+            return None;
+        }
+        use rust_decimal::prelude::ToPrimitive;
+        let values: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                if b.low.is_zero() {
+                    None
+                } else {
+                    Some((b.high / b.low).to_f64().unwrap_or(1.0))
+                }
+            })
+            .collect();
+        if values.is_empty() {
+            return None;
+        }
+        Some(values.iter().sum::<f64>() / values.len() as f64)
+    }
+
+    /// Mean signed close-to-close change: `mean(close[i] − close[i-1])`.
+    /// Returns `None` for fewer than 2 bars.
+    pub fn close_change_mean(bars: &[OhlcvBar]) -> Option<f64> {
+        if bars.len() < 2 {
+            return None;
+        }
+        use rust_decimal::prelude::ToPrimitive;
+        let sum: f64 = bars
+            .windows(2)
+            .map(|w| (w[1].close - w[0].close).to_f64().unwrap_or(0.0))
+            .sum();
+        Some(sum / (bars.len() - 1) as f64)
+    }
+
+    /// Fraction of bars where `close < open` (down-body bars).
+    /// Returns `None` for an empty slice.
+    pub fn down_body_fraction(bars: &[OhlcvBar]) -> Option<f64> {
+        if bars.is_empty() {
+            return None;
+        }
+        let count = bars.iter().filter(|b| b.close < b.open).count();
+        Some(count as f64 / bars.len() as f64)
+    }
+
+    /// Rate of change of body size: (second-half mean body − first-half mean body)
+    /// divided by first-half mean body. Returns `None` for fewer than 4 bars or zero
+    /// first-half mean body.
+    pub fn body_acceleration(bars: &[OhlcvBar]) -> Option<f64> {
+        if bars.len() < 4 {
+            return None;
+        }
+        use rust_decimal::prelude::ToPrimitive;
+        let half = bars.len() / 2;
+        let bodies_first: Vec<Decimal> = bars[..half]
+            .iter()
+            .map(|b| (b.close - b.open).abs())
+            .collect();
+        let bodies_second: Vec<Decimal> = bars[half..]
+            .iter()
+            .map(|b| (b.close - b.open).abs())
+            .collect();
+        let n1 = Decimal::from(bodies_first.len());
+        let n2 = Decimal::from(bodies_second.len());
+        let first_mean = bodies_first.iter().copied().sum::<Decimal>() / n1;
+        if first_mean.is_zero() {
+            return None;
+        }
+        let second_mean = bodies_second.iter().copied().sum::<Decimal>() / n2;
+        Some(((second_mean - first_mean) / first_mean).to_f64().unwrap_or(0.0))
+    }
+
 }
 
 impl std::fmt::Display for OhlcvBar {
@@ -10687,5 +10763,52 @@ mod tests {
         let b = make_ohlcv_bar(dec!(95), dec!(110), dec!(90), dec!(100));
         let r = OhlcvBar::close_vs_midpoint(&[b]).unwrap();
         assert!(r.abs() < 1e-9, "close at midpoint → 0, got {}", r);
+    }
+
+    // ── round-102 tests ───────────────────────────────────────────────────────
+
+    #[test]
+    fn test_high_low_ratio_none_for_empty() {
+        assert!(OhlcvBar::high_low_ratio(&[]).is_none());
+    }
+
+    #[test]
+    fn test_high_low_ratio_basic() {
+        // high=110, low=100 → ratio = 1.1
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(100), dec!(105));
+        let r = OhlcvBar::high_low_ratio(&[b]).unwrap();
+        assert!((r - 1.1).abs() < 1e-9, "expected 1.1, got {}", r);
+    }
+
+    #[test]
+    fn test_close_change_mean_none_for_single_bar() {
+        let b = make_ohlcv_bar(dec!(90), dec!(110), dec!(85), dec!(100));
+        assert!(OhlcvBar::close_change_mean(&[b]).is_none());
+    }
+
+    #[test]
+    fn test_close_change_mean_positive_for_rising_close() {
+        let b1 = make_ohlcv_bar(dec!(90), dec!(110), dec!(85), dec!(100));
+        let b2 = make_ohlcv_bar(dec!(100), dec!(115), dec!(95), dec!(110));
+        let m = OhlcvBar::close_change_mean(&[b1, b2]).unwrap();
+        assert!((m - 10.0).abs() < 1e-9, "expected 10.0, got {}", m);
+    }
+
+    #[test]
+    fn test_down_body_fraction_none_for_empty() {
+        assert!(OhlcvBar::down_body_fraction(&[]).is_none());
+    }
+
+    #[test]
+    fn test_down_body_fraction_zero_for_all_up_bars() {
+        let b = make_ohlcv_bar(dec!(90), dec!(110), dec!(85), dec!(105)); // close > open
+        let f = OhlcvBar::down_body_fraction(&[b]).unwrap();
+        assert!(f.abs() < 1e-9, "all up bars → 0.0, got {}", f);
+    }
+
+    #[test]
+    fn test_body_acceleration_none_for_three_bars() {
+        let b = make_ohlcv_bar(dec!(90), dec!(110), dec!(85), dec!(100));
+        assert!(OhlcvBar::body_acceleration(&[b.clone(), b.clone(), b]).is_none());
     }
 }

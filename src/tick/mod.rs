@@ -4476,6 +4476,79 @@ impl NormalizedTick {
         Some(entropy)
     }
 
+    // ── round-102 ────────────────────────────────────────────────────────────
+
+    /// Ratio of absolute net price move to total volume: price impact per unit volume.
+    /// Returns `None` for an empty slice or zero volume.
+    pub fn price_impact_ratio(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 2 {
+            return None;
+        }
+        let total_vol: Decimal = ticks.iter().map(|t| t.quantity).sum();
+        if total_vol.is_zero() {
+            return None;
+        }
+        let net_move = (ticks.last()?.price - ticks.first()?.price).abs();
+        Some((net_move / total_vol).to_f64().unwrap_or(0.0))
+    }
+
+    /// Length of the longest consecutive run of sell-side ticks.
+    /// Returns `None` for an empty slice or no sided ticks.
+    pub fn consecutive_sell_streak(ticks: &[NormalizedTick]) -> Option<usize> {
+        if ticks.is_empty() {
+            return None;
+        }
+        let mut max_run = 0usize;
+        let mut cur = 0usize;
+        let mut any_sided = false;
+        for t in ticks {
+            if t.side == Some(TradeSide::Sell) {
+                any_sided = true;
+                cur += 1;
+                if cur > max_run {
+                    max_run = cur;
+                }
+            } else if t.side.is_some() {
+                any_sided = true;
+                cur = 0;
+            }
+        }
+        if !any_sided {
+            return None;
+        }
+        Some(max_run)
+    }
+
+    /// Variance of tick quantities.
+    /// Returns `None` for fewer than 2 ticks.
+    pub fn avg_qty_variance(ticks: &[NormalizedTick]) -> Option<f64> {
+        if ticks.len() < 2 {
+            return None;
+        }
+        use rust_decimal::prelude::ToPrimitive;
+        let n = ticks.len() as f64;
+        let vals: Vec<f64> = ticks
+            .iter()
+            .map(|t| t.quantity.to_f64().unwrap_or(0.0))
+            .collect();
+        let mean = vals.iter().sum::<f64>() / n;
+        let variance = vals.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / n;
+        Some(variance)
+    }
+
+    /// Simple price midpoint: `(max_price + min_price) / 2`.
+    /// Returns `None` for an empty slice.
+    pub fn price_midpoint(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() {
+            return None;
+        }
+        let high = ticks.iter().map(|t| t.price).max()?;
+        let low = ticks.iter().map(|t| t.price).min()?;
+        Some(((high + low) / Decimal::TWO).to_f64().unwrap_or(0.0))
+    }
+
 }
 
 
@@ -10357,5 +10430,63 @@ mod tests {
             make_tick_pq(dec!(102), dec!(5)),
         ];
         assert!(NormalizedTick::trade_size_entropy(&ticks).is_none());
+    }
+
+    // ── round-102 tests ───────────────────────────────────────────────────────
+
+    #[test]
+    fn test_price_impact_ratio_none_for_single_tick() {
+        use rust_decimal_macros::dec;
+        assert!(NormalizedTick::price_impact_ratio(&[make_tick_pq(dec!(100), dec!(1))]).is_none());
+    }
+
+    #[test]
+    fn test_price_impact_ratio_zero_for_no_move() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(100), dec!(1)),
+        ];
+        let r = NormalizedTick::price_impact_ratio(&ticks).unwrap();
+        assert!(r.abs() < 1e-9, "no price move → ratio=0, got {}", r);
+    }
+
+    #[test]
+    fn test_consecutive_sell_streak_none_for_no_sides() {
+        use rust_decimal_macros::dec;
+        assert!(NormalizedTick::consecutive_sell_streak(&[make_tick_pq(dec!(100), dec!(1))]).is_none());
+    }
+
+    #[test]
+    fn test_avg_qty_variance_none_for_single_tick() {
+        use rust_decimal_macros::dec;
+        assert!(NormalizedTick::avg_qty_variance(&[make_tick_pq(dec!(100), dec!(1))]).is_none());
+    }
+
+    #[test]
+    fn test_avg_qty_variance_zero_for_constant_qty() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(5)),
+            make_tick_pq(dec!(101), dec!(5)),
+        ];
+        let v = NormalizedTick::avg_qty_variance(&ticks).unwrap();
+        assert!(v.abs() < 1e-9, "constant qty → variance=0, got {}", v);
+    }
+
+    #[test]
+    fn test_price_midpoint_none_for_empty() {
+        assert!(NormalizedTick::price_midpoint(&[]).is_none());
+    }
+
+    #[test]
+    fn test_price_midpoint_basic() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(90), dec!(1)),
+            make_tick_pq(dec!(110), dec!(1)),
+        ];
+        let m = NormalizedTick::price_midpoint(&ticks).unwrap();
+        assert!((m - 100.0).abs() < 1e-9, "expected 100.0, got {}", m);
     }
 }
