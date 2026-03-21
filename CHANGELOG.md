@@ -9,6 +9,29 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.10.61] - 2026-03-20
+
+### Added
+
+**`tick` module — `NormalizedTick` analytics (round 210)**
+- `NormalizedTick::tick_price_skewness(ticks)` — third standardized moment of tick prices.
+- `NormalizedTick::tick_return_volatility(ticks)` — std dev of tick-to-tick price returns.
+- `NormalizedTick::tick_price_level_count(ticks)` — count of distinct price levels in the tick window.
+- `NormalizedTick::tick_trade_pace(ticks)` — tick count per unit of price range (activity density).
+
+**`ohlcv` module — `OhlcvBar` analytics (round 210)**
+- `OhlcvBar::bar_upper_shadow_pct(bars)` — mean upper shadow as fraction of bar range.
+- `OhlcvBar::bar_lower_shadow_pct(bars)` — mean lower shadow as fraction of bar range.
+- `OhlcvBar::bar_vol_per_tick(bars)` — mean volume per bar (average candle volume).
+- `OhlcvBar::bar_body_center(bars)` — mean midpoint of open and close prices.
+
+**`norm` module — `MinMaxNormalizer` + `ZScoreNormalizer` analytics (round 210)**
+- `window_upper_fence()` — Tukey upper outlier bound: Q3 + 1.5 * IQR.
+- `window_last_z()` — z-score of the last window value using sample std dev.
+- `window_sign_change_pct()` — fraction of consecutive pairs where value changes sign.
+
+---
+
 ## [2.10.60] - 2026-03-20
 
 ### Added

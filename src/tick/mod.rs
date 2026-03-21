@@ -10150,6 +10150,58 @@ impl NormalizedTick {
         Some(buy - sell)
     }
 
+    /// Skewness of tick prices (third standardized moment).
+    pub fn tick_price_skewness(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 3 { return None; }
+        let prices: Vec<f64> = ticks.iter().filter_map(|t| t.price.to_f64()).collect();
+        if prices.len() < 3 { return None; }
+        let n = prices.len() as f64;
+        let mean = prices.iter().sum::<f64>() / n;
+        let var = prices.iter().map(|p| (p - mean).powi(2)).sum::<f64>() / n;
+        let std = var.sqrt();
+        if std == 0.0 { return None; }
+        let skew = prices.iter().map(|p| ((p - mean) / std).powi(3)).sum::<f64>() / n;
+        Some(skew)
+    }
+
+    /// Rolling return volatility: std dev of tick-to-tick price returns.
+    pub fn tick_return_volatility(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 3 { return None; }
+        let prices: Vec<f64> = ticks.iter().filter_map(|t| t.price.to_f64()).collect();
+        if prices.len() < 3 { return None; }
+        let returns: Vec<f64> = prices.windows(2).filter_map(|w| {
+            if w[0] == 0.0 { None } else { Some((w[1] - w[0]) / w[0]) }
+        }).collect();
+        if returns.len() < 2 { return None; }
+        let mean = returns.iter().sum::<f64>() / returns.len() as f64;
+        let var = returns.iter().map(|r| (r - mean).powi(2)).sum::<f64>() / (returns.len() - 1) as f64;
+        Some(var.sqrt())
+    }
+
+    /// Number of distinct price levels (unique price values).
+    pub fn tick_price_level_count(ticks: &[NormalizedTick]) -> Option<f64> {
+        if ticks.is_empty() { return None; }
+        use std::collections::BTreeSet;
+        let levels: BTreeSet<String> = ticks.iter().map(|t| t.price.to_string()).collect();
+        Some(levels.len() as f64)
+    }
+
+    /// Mean inter-tick time as fraction of total window (trade pace proxy). Returns ticks/count ratio.
+    pub fn tick_trade_pace(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 2 { return None; }
+        let prices: Vec<f64> = ticks.iter().filter_map(|t| t.price.to_f64()).collect();
+        if prices.len() < 2 { return None; }
+        // proxy: count ticks per unit price range (activity density)
+        let min = prices.iter().cloned().fold(f64::INFINITY, f64::min);
+        let max = prices.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        let range = max - min;
+        if range == 0.0 { return Some(prices.len() as f64); }
+        Some(prices.len() as f64 / range)
+    }
+
     /// Ratio of largest single trade to mean trade size.
     pub fn tick_order_size_ratio(ticks: &[NormalizedTick]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
@@ -24208,5 +24260,78 @@ mod tests {
         t2.side = Some(TradeSide::Buy);
         let r = NormalizedTick::tick_side_vol_diff(&[t, t2]).unwrap();
         assert!(r > 0.0);
+    }
+
+    #[test]
+    fn test_tick_price_skewness_too_few_none() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![make_tick_pq(dec!(100), dec!(1)), make_tick_pq(dec!(101), dec!(1))];
+        assert!(NormalizedTick::tick_price_skewness(&ticks).is_none());
+    }
+
+    #[test]
+    fn test_tick_price_skewness_symmetric_near_zero() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(98), dec!(1)),
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(102), dec!(1)),
+        ];
+        let r = NormalizedTick::tick_price_skewness(&ticks).unwrap();
+        assert!(r.abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_tick_return_volatility_too_few_none() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![make_tick_pq(dec!(100), dec!(1)), make_tick_pq(dec!(101), dec!(1))];
+        assert!(NormalizedTick::tick_return_volatility(&ticks).is_none());
+    }
+
+    #[test]
+    fn test_tick_return_volatility_nonneg() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(102), dec!(1)),
+            make_tick_pq(dec!(101), dec!(1)),
+            make_tick_pq(dec!(103), dec!(1)),
+        ];
+        let r = NormalizedTick::tick_return_volatility(&ticks).unwrap();
+        assert!(r >= 0.0);
+    }
+
+    #[test]
+    fn test_tick_price_level_count_empty_none() {
+        assert!(NormalizedTick::tick_price_level_count(&[]).is_none());
+    }
+
+    #[test]
+    fn test_tick_price_level_count_distinct() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(100), dec!(2)),
+            make_tick_pq(dec!(101), dec!(1)),
+        ];
+        let r = NormalizedTick::tick_price_level_count(&ticks).unwrap();
+        assert_eq!(r, 2.0);
+    }
+
+    #[test]
+    fn test_tick_trade_pace_empty_none() {
+        assert!(NormalizedTick::tick_trade_pace(&[]).is_none());
+    }
+
+    #[test]
+    fn test_tick_trade_pace_nonneg() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(101), dec!(1)),
+            make_tick_pq(dec!(102), dec!(1)),
+        ];
+        let r = NormalizedTick::tick_trade_pace(&ticks).unwrap();
+        assert!(r >= 0.0);
     }
 }

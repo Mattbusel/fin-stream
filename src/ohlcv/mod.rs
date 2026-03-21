@@ -9856,6 +9856,57 @@ impl OhlcvBar {
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
+    /// Mean upper shadow as fraction of range: (high - max(open,close)) / (high - low).
+    pub fn bar_upper_shadow_pct(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let vals: Vec<f64> = bars.iter().filter_map(|b| {
+            let hl = (b.high - b.low).to_f64()?;
+            if hl == 0.0 { return Some(0.0); }
+            let top = b.open.max(b.close);
+            let upper = (b.high - top).to_f64()?;
+            Some(upper / hl)
+        }).collect();
+        if vals.is_empty() { return None; }
+        Some(vals.iter().sum::<f64>() / vals.len() as f64)
+    }
+
+    /// Mean lower shadow as fraction of range: (min(open,close) - low) / (high - low).
+    pub fn bar_lower_shadow_pct(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let vals: Vec<f64> = bars.iter().filter_map(|b| {
+            let hl = (b.high - b.low).to_f64()?;
+            if hl == 0.0 { return Some(0.0); }
+            let bottom = b.open.min(b.close);
+            let lower = (bottom - b.low).to_f64()?;
+            Some(lower / hl)
+        }).collect();
+        if vals.is_empty() { return None; }
+        Some(vals.iter().sum::<f64>() / vals.len() as f64)
+    }
+
+    /// Mean volume per bar in absolute terms (average volume per candle).
+    pub fn bar_vol_per_tick(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let total: f64 = bars.iter().filter_map(|b| b.volume.to_f64()).sum();
+        Some(total / bars.len() as f64)
+    }
+
+    /// Mean midpoint of open and close: (open + close) / 2.
+    pub fn bar_body_center(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let vals: Vec<f64> = bars.iter().filter_map(|b| {
+            let o = b.open.to_f64()?;
+            let c = b.close.to_f64()?;
+            Some((o + c) / 2.0)
+        }).collect();
+        if vals.is_empty() { return None; }
+        Some(vals.iter().sum::<f64>() / vals.len() as f64)
+    }
+
     /// Mean fraction of body relative to high: (close - open).abs() / high.
     pub fn bar_body_high_pct(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
@@ -22815,5 +22866,56 @@ mod tests {
         let b2 = make_ohlcv_bar(dec!(100), dec!(115), dec!(85), dec!(98));
         let r = OhlcvBar::bar_open_close_return(&[b1, b2]);
         assert!(r.is_some());
+    }
+
+    #[test]
+    fn test_bar_upper_shadow_pct_empty_none() {
+        assert!(OhlcvBar::bar_upper_shadow_pct(&[]).is_none());
+    }
+
+    #[test]
+    fn test_bar_upper_shadow_pct_bounded() {
+        let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let b2 = make_ohlcv_bar(dec!(105), dec!(115), dec!(95), dec!(108));
+        let r = OhlcvBar::bar_upper_shadow_pct(&[b1, b2]).unwrap();
+        assert!(r >= 0.0 && r <= 1.0);
+    }
+
+    #[test]
+    fn test_bar_lower_shadow_pct_empty_none() {
+        assert!(OhlcvBar::bar_lower_shadow_pct(&[]).is_none());
+    }
+
+    #[test]
+    fn test_bar_lower_shadow_pct_bounded() {
+        let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(95));
+        let b2 = make_ohlcv_bar(dec!(100), dec!(112), dec!(88), dec!(102));
+        let r = OhlcvBar::bar_lower_shadow_pct(&[b1, b2]).unwrap();
+        assert!(r >= 0.0 && r <= 1.0);
+    }
+
+    #[test]
+    fn test_bar_vol_per_tick_empty_none() {
+        assert!(OhlcvBar::bar_vol_per_tick(&[]).is_none());
+    }
+
+    #[test]
+    fn test_bar_vol_per_tick_nonneg() {
+        let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let b2 = make_ohlcv_bar(dec!(105), dec!(115), dec!(95), dec!(110));
+        let r = OhlcvBar::bar_vol_per_tick(&[b1, b2]).unwrap();
+        assert!(r >= 0.0);
+    }
+
+    #[test]
+    fn test_bar_body_center_empty_none() {
+        assert!(OhlcvBar::bar_body_center(&[]).is_none());
+    }
+
+    #[test]
+    fn test_bar_body_center_returns_value() {
+        let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(104));
+        let r = OhlcvBar::bar_body_center(&[b1]).unwrap();
+        assert!((r - 102.0).abs() < 1e-6);
     }
 }

@@ -7766,6 +7766,42 @@ impl MinMaxNormalizer {
         Some(q1 - 1.5 * (q3 - q1))
     }
 
+    /// Upper fence: Q3 + 1.5 * IQR (Tukey upper outlier bound).
+    pub fn window_upper_fence(&self) -> Option<f64> {
+        if self.window.len() < 4 { return None; }
+        use rust_decimal::prelude::ToPrimitive;
+        let mut vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.len() < 4 { return None; }
+        vals.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let n = vals.len();
+        let q1 = vals[n / 4];
+        let q3 = vals[3 * n / 4];
+        Some(q3 + 1.5 * (q3 - q1))
+    }
+
+    /// Z-score of the last window value using sample standard deviation.
+    pub fn window_last_z(&self) -> Option<f64> {
+        if self.window.len() < 2 { return None; }
+        use rust_decimal::prelude::ToPrimitive;
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.len() < 2 { return None; }
+        let mean = vals.iter().sum::<f64>() / vals.len() as f64;
+        let var = vals.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / (vals.len() - 1) as f64;
+        let std = var.sqrt();
+        if std == 0.0 { return None; }
+        Some((*vals.last()? - mean) / std)
+    }
+
+    /// Fraction of consecutive pairs where value changes sign (sign change rate).
+    pub fn window_sign_change_pct(&self) -> Option<f64> {
+        if self.window.len() < 2 { return None; }
+        use rust_decimal::prelude::ToPrimitive;
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.len() < 2 { return None; }
+        let changes = vals.windows(2).filter(|w| w[0] * w[1] < 0.0).count();
+        Some(changes as f64 / (vals.len() - 1) as f64)
+    }
+
 }
 
 #[cfg(test)]
@@ -16782,6 +16818,66 @@ mod tests {
         let r = n.window_lower_fence();
         assert!(r.is_some());
     }
+
+    #[test]
+    fn test_minmax_window_upper_fence_too_few_none() {
+        let mut n = norm(5);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        assert!(n.window_upper_fence().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_upper_fence_ge_q3() {
+        let mut n = norm(6);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4), dec!(5), dec!(6)] { n.update(v); }
+        let r = n.window_upper_fence().unwrap();
+        assert!(r >= 4.0); // upper fence >= Q3
+    }
+
+    #[test]
+    fn test_minmax_window_last_z_too_few_none() {
+        let mut n = norm(5);
+        n.update(dec!(3));
+        assert!(n.window_last_z().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_last_z_constant_none() {
+        let mut n = norm(5);
+        for v in [dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        assert!(n.window_last_z().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_last_z_returns_value() {
+        let mut n = norm(5);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4), dec!(10)] { n.update(v); }
+        let r = n.window_last_z().unwrap();
+        assert!(r > 0.0);
+    }
+
+    #[test]
+    fn test_minmax_window_sign_change_pct_too_few_none() {
+        let mut n = norm(5);
+        n.update(dec!(1));
+        assert!(n.window_sign_change_pct().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_sign_change_pct_all_positive_zero() {
+        let mut n = norm(5);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let r = n.window_sign_change_pct().unwrap();
+        assert_eq!(r, 0.0); // no sign changes in all-positive sequence
+    }
+
+    #[test]
+    fn test_minmax_window_sign_change_pct_alternating() {
+        let mut n = norm(6);
+        for v in [dec!(1), dec!(-1), dec!(1), dec!(-1), dec!(1)] { n.update(v); }
+        let r = n.window_sign_change_pct().unwrap();
+        assert!(r > 0.0);
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -24493,6 +24589,42 @@ impl ZScoreNormalizer {
         let q1 = vals[n / 4];
         let q3 = vals[3 * n / 4];
         Some(q1 - 1.5 * (q3 - q1))
+    }
+
+    /// Upper fence: Q3 + 1.5 * IQR (Tukey upper outlier bound).
+    pub fn window_upper_fence(&self) -> Option<f64> {
+        if self.window.len() < 4 { return None; }
+        use rust_decimal::prelude::ToPrimitive;
+        let mut vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.len() < 4 { return None; }
+        vals.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let n = vals.len();
+        let q1 = vals[n / 4];
+        let q3 = vals[3 * n / 4];
+        Some(q3 + 1.5 * (q3 - q1))
+    }
+
+    /// Z-score of the last window value using sample standard deviation.
+    pub fn window_last_z(&self) -> Option<f64> {
+        if self.window.len() < 2 { return None; }
+        use rust_decimal::prelude::ToPrimitive;
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.len() < 2 { return None; }
+        let mean = vals.iter().sum::<f64>() / vals.len() as f64;
+        let var = vals.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / (vals.len() - 1) as f64;
+        let std = var.sqrt();
+        if std == 0.0 { return None; }
+        Some((*vals.last()? - mean) / std)
+    }
+
+    /// Fraction of consecutive pairs where value changes sign (sign change rate).
+    pub fn window_sign_change_pct(&self) -> Option<f64> {
+        if self.window.len() < 2 { return None; }
+        use rust_decimal::prelude::ToPrimitive;
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.len() < 2 { return None; }
+        let changes = vals.windows(2).filter(|w| w[0] * w[1] < 0.0).count();
+        Some(changes as f64 / (vals.len() - 1) as f64)
     }
 
 }
@@ -33459,5 +33591,65 @@ mod zscore_stability_tests {
         for v in [dec!(1), dec!(2), dec!(3), dec!(4), dec!(5), dec!(6)] { n.update(v); }
         let r = n.window_lower_fence();
         assert!(r.is_some());
+    }
+
+    #[test]
+    fn test_zscore_window_upper_fence_too_few_none() {
+        let mut n = znorm(5);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        assert!(n.window_upper_fence().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_upper_fence_ge_q3() {
+        let mut n = znorm(6);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4), dec!(5), dec!(6)] { n.update(v); }
+        let r = n.window_upper_fence().unwrap();
+        assert!(r >= 4.0);
+    }
+
+    #[test]
+    fn test_zscore_window_last_z_too_few_none() {
+        let mut n = znorm(5);
+        n.update(dec!(3));
+        assert!(n.window_last_z().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_last_z_constant_none() {
+        let mut n = znorm(5);
+        for v in [dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        assert!(n.window_last_z().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_last_z_returns_value() {
+        let mut n = znorm(5);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4), dec!(10)] { n.update(v); }
+        let r = n.window_last_z().unwrap();
+        assert!(r > 0.0);
+    }
+
+    #[test]
+    fn test_zscore_window_sign_change_pct_too_few_none() {
+        let mut n = znorm(5);
+        n.update(dec!(1));
+        assert!(n.window_sign_change_pct().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_sign_change_pct_all_positive_zero() {
+        let mut n = znorm(5);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let r = n.window_sign_change_pct().unwrap();
+        assert_eq!(r, 0.0);
+    }
+
+    #[test]
+    fn test_zscore_window_sign_change_pct_alternating() {
+        let mut n = znorm(6);
+        for v in [dec!(1), dec!(-1), dec!(1), dec!(-1), dec!(1)] { n.update(v); }
+        let r = n.window_sign_change_pct().unwrap();
+        assert!(r > 0.0);
     }
 }
