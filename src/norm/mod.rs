@@ -4218,6 +4218,60 @@ impl MinMaxNormalizer {
         Some(variance)
     }
 
+    // ── round-138 ────────────────────────────────────────────────────────────
+
+    /// Peak-to-trough ratio: max value / min value in window.
+    pub fn window_peak_to_trough(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let max = vals.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        let min = vals.iter().cloned().fold(f64::INFINITY, f64::min);
+        if min == 0.0 { return None; }
+        Some(max / min)
+    }
+
+    /// Asymmetry: skewness of the window values (Pearson's second coefficient).
+    pub fn window_asymmetry(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 3 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let n = vals.len() as f64;
+        let mean = vals.iter().sum::<f64>() / n;
+        let std = (vals.iter().map(|&v| (v - mean).powi(2)).sum::<f64>() / n).sqrt();
+        if std == 0.0 { return None; }
+        let mut sorted = vals.clone();
+        sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let median = if sorted.len() % 2 == 0 {
+            (sorted[sorted.len() / 2 - 1] + sorted[sorted.len() / 2]) / 2.0
+        } else {
+            sorted[sorted.len() / 2]
+        };
+        Some(3.0 * (mean - median) / std)
+    }
+
+    /// Absolute trend: sum of absolute differences between consecutive window values.
+    pub fn window_abs_trend(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let total: f64 = vals.windows(2).map(|w| (w[1] - w[0]).abs()).sum();
+        Some(total)
+    }
+
+    /// Recent volatility: std of the last half of the window.
+    pub fn window_recent_volatility(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let half = vals.len() / 2;
+        let recent = &vals[half..];
+        if recent.len() < 2 { return None; }
+        let mean = recent.iter().sum::<f64>() / recent.len() as f64;
+        let variance = recent.iter().map(|&v| (v - mean).powi(2)).sum::<f64>() / recent.len() as f64;
+        Some(variance.sqrt())
+    }
+
 }
 
 #[cfg(test)]
@@ -8974,6 +9028,68 @@ mod tests {
         let dv = n.window_diff_variance().unwrap();
         assert!((dv - 0.0).abs() < 1e-9, "expected 0.0 for constant, got {}", dv);
     }
+
+    // ── round-138 ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_minmax_window_peak_to_trough_none_for_empty() {
+        let n = norm(4);
+        assert!(n.window_peak_to_trough().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_peak_to_trough_basic() {
+        let mut n = norm(4);
+        for v in [dec!(2), dec!(4), dec!(6), dec!(8)] { n.update(v); }
+        let r = n.window_peak_to_trough().unwrap();
+        assert!((r - 4.0).abs() < 1e-9, "expected 4.0 (8/2), got {}", r);
+    }
+
+    #[test]
+    fn test_minmax_window_asymmetry_none_for_small() {
+        let mut n = norm(4);
+        n.update(dec!(1)); n.update(dec!(2));
+        assert!(n.window_asymmetry().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_asymmetry_symmetric() {
+        let mut n = norm(5);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4), dec!(5)] { n.update(v); }
+        let a = n.window_asymmetry().unwrap();
+        // symmetric distribution → near zero
+        assert!(a.abs() < 0.5, "expected near-zero asymmetry, got {}", a);
+    }
+
+    #[test]
+    fn test_minmax_window_abs_trend_none_for_single() {
+        let mut n = norm(4);
+        n.update(dec!(5));
+        assert!(n.window_abs_trend().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_abs_trend_monotonic() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let t = n.window_abs_trend().unwrap();
+        // 3 steps of +1 each → sum abs = 3
+        assert!((t - 3.0).abs() < 1e-9, "expected 3.0, got {}", t);
+    }
+
+    #[test]
+    fn test_minmax_window_recent_volatility_none_for_empty() {
+        let n = norm(4);
+        assert!(n.window_recent_volatility().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_recent_volatility_constant() {
+        let mut n = norm(4);
+        for v in [dec!(5), dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        let rv = n.window_recent_volatility().unwrap();
+        assert!((rv - 0.0).abs() < 1e-9, "expected 0.0 for constant, got {}", rv);
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -13136,6 +13252,60 @@ impl ZScoreNormalizer {
         let mean = diffs.iter().sum::<f64>() / diffs.len() as f64;
         let variance = diffs.iter().map(|&d| (d - mean).powi(2)).sum::<f64>() / diffs.len() as f64;
         Some(variance)
+    }
+
+    // ── round-138 ────────────────────────────────────────────────────────────
+
+    /// Peak-to-trough ratio: max value / min value in window.
+    pub fn window_peak_to_trough(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let max = vals.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        let min = vals.iter().cloned().fold(f64::INFINITY, f64::min);
+        if min == 0.0 { return None; }
+        Some(max / min)
+    }
+
+    /// Asymmetry: skewness of the window values (Pearson's second coefficient).
+    pub fn window_asymmetry(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 3 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let n = vals.len() as f64;
+        let mean = vals.iter().sum::<f64>() / n;
+        let std = (vals.iter().map(|&v| (v - mean).powi(2)).sum::<f64>() / n).sqrt();
+        if std == 0.0 { return None; }
+        let mut sorted = vals.clone();
+        sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let median = if sorted.len() % 2 == 0 {
+            (sorted[sorted.len() / 2 - 1] + sorted[sorted.len() / 2]) / 2.0
+        } else {
+            sorted[sorted.len() / 2]
+        };
+        Some(3.0 * (mean - median) / std)
+    }
+
+    /// Absolute trend: sum of absolute differences between consecutive window values.
+    pub fn window_abs_trend(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let total: f64 = vals.windows(2).map(|w| (w[1] - w[0]).abs()).sum();
+        Some(total)
+    }
+
+    /// Recent volatility: std of the last half of the window.
+    pub fn window_recent_volatility(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let half = vals.len() / 2;
+        let recent = &vals[half..];
+        if recent.len() < 2 { return None; }
+        let mean = recent.iter().sum::<f64>() / recent.len() as f64;
+        let variance = recent.iter().map(|&v| (v - mean).powi(2)).sum::<f64>() / recent.len() as f64;
+        Some(variance.sqrt())
     }
 
 }
@@ -17944,5 +18114,65 @@ mod zscore_stability_tests {
         for v in [dec!(5), dec!(5), dec!(5), dec!(5)] { n.update(v); }
         let dv = n.window_diff_variance().unwrap();
         assert!((dv - 0.0).abs() < 1e-9, "expected 0.0 for constant, got {}", dv);
+    }
+
+    // ── round-138 ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_zscore_window_peak_to_trough_none_for_empty() {
+        let n = znorm(4);
+        assert!(n.window_peak_to_trough().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_peak_to_trough_basic() {
+        let mut n = znorm(4);
+        for v in [dec!(2), dec!(4), dec!(6), dec!(8)] { n.update(v); }
+        let r = n.window_peak_to_trough().unwrap();
+        assert!((r - 4.0).abs() < 1e-9, "expected 4.0 (8/2), got {}", r);
+    }
+
+    #[test]
+    fn test_zscore_window_asymmetry_none_for_small() {
+        let mut n = znorm(4);
+        n.update(dec!(1)); n.update(dec!(2));
+        assert!(n.window_asymmetry().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_asymmetry_symmetric() {
+        let mut n = znorm(5);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4), dec!(5)] { n.update(v); }
+        let a = n.window_asymmetry().unwrap();
+        assert!(a.abs() < 0.5, "expected near-zero asymmetry, got {}", a);
+    }
+
+    #[test]
+    fn test_zscore_window_abs_trend_none_for_single() {
+        let mut n = znorm(4);
+        n.update(dec!(5));
+        assert!(n.window_abs_trend().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_abs_trend_monotonic() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let t = n.window_abs_trend().unwrap();
+        assert!((t - 3.0).abs() < 1e-9, "expected 3.0, got {}", t);
+    }
+
+    #[test]
+    fn test_zscore_window_recent_volatility_none_for_empty() {
+        let n = znorm(4);
+        assert!(n.window_recent_volatility().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_recent_volatility_constant() {
+        let mut n = znorm(4);
+        for v in [dec!(5), dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        let rv = n.window_recent_volatility().unwrap();
+        assert!((rv - 0.0).abs() < 1e-9, "expected 0.0 for constant, got {}", rv);
     }
 }

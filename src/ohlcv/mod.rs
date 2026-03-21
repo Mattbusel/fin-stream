@@ -6305,6 +6305,52 @@ impl OhlcvBar {
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
+    // ── round-138 ────────────────────────────────────────────────────────────
+
+    /// Bar close trend ratio: fraction of bars where close is higher than previous close.
+    pub fn bar_close_trend_ratio(bars: &[OhlcvBar]) -> Option<f64> {
+        if bars.len() < 2 { return None; }
+        let ups = bars.windows(2).filter(|w| w[1].close > w[0].close).count();
+        Some(ups as f64 / (bars.len() - 1) as f64)
+    }
+
+    /// Open-close gap mean: mean of (open[i] - close[i]) per bar.
+    pub fn open_close_gap_mean(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let sum: f64 = bars.iter()
+            .map(|b| (b.open - b.close).to_f64().unwrap_or(0.0))
+            .sum();
+        Some(sum / bars.len() as f64)
+    }
+
+    /// Bar body velocity: mean of consecutive body size changes.
+    pub fn bar_body_velocity(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.len() < 2 { return None; }
+        let bodies: Vec<f64> = bars.iter()
+            .map(|b| (b.close - b.open).abs().to_f64().unwrap_or(0.0))
+            .collect();
+        let diffs: Vec<f64> = bodies.windows(2).map(|w| w[1] - w[0]).collect();
+        Some(diffs.iter().sum::<f64>() / diffs.len() as f64)
+    }
+
+    /// Close mean reversion: fraction of close changes that move toward the overall close mean.
+    pub fn close_mean_reversion(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.len() < 2 { return None; }
+        let closes: Vec<f64> = bars.iter().map(|b| b.close.to_f64().unwrap_or(0.0)).collect();
+        let mean = closes.iter().sum::<f64>() / closes.len() as f64;
+        let reversions = closes.windows(2)
+            .filter(|w| {
+                let d0 = (w[0] - mean).abs();
+                let d1 = (w[1] - mean).abs();
+                d1 < d0
+            })
+            .count();
+        Some(reversions as f64 / (closes.len() - 1) as f64)
+    }
+
 }
 
 impl std::fmt::Display for OhlcvBar {
@@ -14623,5 +14669,72 @@ mod tests {
         // gap = |108 - 105| = 3, prior range = 110-90 = 20 → score = 3/20 = 0.15
         let s = OhlcvBar::bar_open_gap_score(&[b1, b2]).unwrap();
         assert!((s - 0.15).abs() < 1e-9, "expected 0.15, got {}", s);
+    }
+
+    // ── round-138 ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_bar_close_trend_ratio_none_for_single() {
+        assert!(OhlcvBar::bar_close_trend_ratio(&[make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105))]).is_none());
+    }
+
+    #[test]
+    fn test_bar_close_trend_ratio_all_up() {
+        let bars = vec![
+            make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(101)),
+            make_ohlcv_bar(dec!(101), dec!(112), dec!(91), dec!(103)),
+            make_ohlcv_bar(dec!(103), dec!(115), dec!(93), dec!(106)),
+        ];
+        let r = OhlcvBar::bar_close_trend_ratio(&bars).unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "expected 1.0, got {}", r);
+    }
+
+    #[test]
+    fn test_open_close_gap_mean_none_for_empty() {
+        assert!(OhlcvBar::open_close_gap_mean(&[]).is_none());
+    }
+
+    #[test]
+    fn test_open_close_gap_mean_basic() {
+        // open=100, close=105 → gap = -5; open=100, close=95 → gap = 5 → mean=0
+        let bars = vec![
+            make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105)),
+            make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(95)),
+        ];
+        let m = OhlcvBar::open_close_gap_mean(&bars).unwrap();
+        assert!((m - 0.0).abs() < 1e-9, "expected 0.0, got {}", m);
+    }
+
+    #[test]
+    fn test_bar_body_velocity_none_for_single() {
+        assert!(OhlcvBar::bar_body_velocity(&[make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105))]).is_none());
+    }
+
+    #[test]
+    fn test_bar_body_velocity_growing_bodies() {
+        let bars = vec![
+            make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105)), // body=5
+            make_ohlcv_bar(dec!(100), dec!(115), dec!(85), dec!(108)), // body=8
+            make_ohlcv_bar(dec!(100), dec!(120), dec!(80), dec!(112)), // body=12
+        ];
+        // diffs: 3, 4 → mean = 3.5
+        let v = OhlcvBar::bar_body_velocity(&bars).unwrap();
+        assert!(v > 0.0, "expected positive velocity, got {}", v);
+    }
+
+    #[test]
+    fn test_close_mean_reversion_none_for_single() {
+        assert!(OhlcvBar::close_mean_reversion(&[make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105))]).is_none());
+    }
+
+    #[test]
+    fn test_close_mean_reversion_range_valid() {
+        let bars = vec![
+            make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(90)),
+            make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100)),
+            make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105)),
+        ];
+        let r = OhlcvBar::close_mean_reversion(&bars).unwrap();
+        assert!(r >= 0.0 && r <= 1.0, "expected [0,1], got {}", r);
     }
 }

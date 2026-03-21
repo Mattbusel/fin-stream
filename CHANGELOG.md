@@ -9,6 +9,36 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.8.9] - 2026-03-20
+
+### Added
+
+**`tick` module — `NormalizedTick` analytics (round 138)**
+- `NormalizedTick::qty_turnover_rate(ticks)` — mean absolute quantity change per tick.
+- `NormalizedTick::tick_price_acceleration(ticks)` — mean second derivative of price (change in changes).
+- `NormalizedTick::side_volume_skew(ticks)` — (buy volume - sell volume) / total sided volume.
+- `NormalizedTick::price_decay_rate(ticks)` — mean absolute magnitude of downward price moves.
+
+**`ohlcv` module — `OhlcvBar` analytics (round 138)**
+- `OhlcvBar::bar_close_trend_ratio(bars)` — fraction of bars where close is higher than previous close.
+- `OhlcvBar::open_close_gap_mean(bars)` — mean of (open - close) per bar.
+- `OhlcvBar::bar_body_velocity(bars)` — mean of consecutive body size changes.
+- `OhlcvBar::close_mean_reversion(bars)` — fraction of close changes that move toward the overall close mean.
+
+**`norm` module — `MinMaxNormalizer` analytics (round 138)**
+- `MinMaxNormalizer::window_peak_to_trough()` — max / min ratio in the window.
+- `MinMaxNormalizer::window_asymmetry()` — Pearson's second skewness coefficient of window values.
+- `MinMaxNormalizer::window_abs_trend()` — sum of absolute consecutive differences.
+- `MinMaxNormalizer::window_recent_volatility()` — std dev of the last half of the window.
+
+**`norm` module — `ZScoreNormalizer` analytics (round 138)**
+- `ZScoreNormalizer::window_peak_to_trough()` — max / min ratio in the window.
+- `ZScoreNormalizer::window_asymmetry()` — Pearson's second skewness coefficient of window values.
+- `ZScoreNormalizer::window_abs_trend()` — sum of absolute consecutive differences.
+- `ZScoreNormalizer::window_recent_volatility()` — std dev of the last half of the window.
+
+---
+
 ## [2.8.8] - 2026-03-20
 
 ### Added
