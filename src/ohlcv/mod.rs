@@ -3557,6 +3557,62 @@ impl OhlcvBar {
         Some(ups as f64 / downs as f64)
     }
 
+    // ── round-90 ─────────────────────────────────────────────────────────────
+
+    /// Fraction of bars where `(close − low) / (high − low)` exceeds 0.5 (close in upper half of range).
+    ///
+    /// Bars with zero range are excluded. Returns `None` when no valid bars remain.
+    pub fn close_range_fraction(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let half = Decimal::new(5, 1);
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter(|b| b.high > b.low)
+            .filter_map(|b| {
+                let r = (b.close - b.low) / (b.high - b.low);
+                r.to_f64()
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
+        let _ = half;
+        let count = vals.iter().filter(|&&v| v > 0.5).count();
+        Some(count as f64 / vals.len() as f64)
+    }
+
+    /// Symmetry of upper vs lower shadows: `1 − |upper_shadow − lower_shadow| / range`.
+    ///
+    /// Returns `None` for an empty slice or when all bars have zero range.
+    pub fn tail_symmetry(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter(|b| b.high > b.low)
+            .filter_map(|b| {
+                let range = (b.high - b.low).to_f64()?;
+                let upper = (b.high - b.close.max(b.open)).to_f64()?;
+                let lower = (b.close.min(b.open) - b.low).to_f64()?;
+                Some(1.0 - (upper - lower).abs() / range)
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
+        Some(vals.iter().sum::<f64>() / vals.len() as f64)
+    }
+
+    /// Fraction of bars where `close` is higher than the previous bar's `close`.
+    ///
+    /// Returns `None` for fewer than 2 bars.
+    pub fn bar_trend_strength(bars: &[OhlcvBar]) -> Option<f64> {
+        if bars.len() < 2 {
+            return None;
+        }
+        let up_count = bars.windows(2).filter(|w| w[1].close > w[0].close).count();
+        Some(up_count as f64 / (bars.len() - 1) as f64)
+    }
+
 }
 
 impl std::fmt::Display for OhlcvBar {

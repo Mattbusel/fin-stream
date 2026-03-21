@@ -1719,6 +1719,51 @@ impl MinMaxNormalizer {
         (max / min).to_f64()
     }
 
+    // ── round-90 ─────────────────────────────────────────────────────────────
+
+    /// Fraction of window values strictly above the window midpoint `(min + max) / 2`.
+    ///
+    /// Returns `None` for an empty window.
+    pub fn above_midpoint_fraction(&self) -> Option<f64> {
+        if self.window.is_empty() {
+            return None;
+        }
+        let min = self.window.iter().copied().min()?;
+        let max = self.window.iter().copied().max()?;
+        let mid = (min + max) / Decimal::TWO;
+        let count = self.window.iter().filter(|&&v| v > mid).count();
+        Some(count as f64 / self.window.len() as f64)
+    }
+
+    /// Position of the latest window value in the range: `(latest − min) / (max − min)`.
+    ///
+    /// Returns `None` when the window is empty or has zero range.
+    pub fn span_utilization(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() {
+            return None;
+        }
+        let min = self.window.iter().copied().min()?;
+        let max = self.window.iter().copied().max()?;
+        let range = max - min;
+        if range.is_zero() {
+            return None;
+        }
+        let latest = *self.window.back()?;
+        ((latest - min) / range).to_f64()
+    }
+
+    /// Fraction of window values strictly greater than zero.
+    ///
+    /// Returns `None` for an empty window.
+    pub fn positive_fraction(&self) -> Option<f64> {
+        if self.window.is_empty() {
+            return None;
+        }
+        let count = self.window.iter().filter(|&&v| v > Decimal::ZERO).count();
+        Some(count as f64 / self.window.len() as f64)
+    }
+
 }
 
 #[cfg(test)]
@@ -5564,6 +5609,47 @@ impl ZScoreNormalizer {
             return None;
         }
         (max / min).to_f64()
+    }
+
+    // ── round-90 ─────────────────────────────────────────────────────────────
+
+    /// Fraction of window values strictly above the window midpoint `(min + max) / 2`.
+    ///
+    /// Returns `None` for an empty window.
+    pub fn above_midpoint_fraction(&self) -> Option<f64> {
+        if self.window.is_empty() {
+            return None;
+        }
+        let min = self.window.iter().copied().min()?;
+        let max = self.window.iter().copied().max()?;
+        let mid = (min + max) / Decimal::TWO;
+        let count = self.window.iter().filter(|&&v| v > mid).count();
+        Some(count as f64 / self.window.len() as f64)
+    }
+
+    /// Fraction of window values strictly greater than zero.
+    ///
+    /// Returns `None` for an empty window.
+    pub fn positive_fraction(&self) -> Option<f64> {
+        if self.window.is_empty() {
+            return None;
+        }
+        let count = self.window.iter().filter(|&&v| v > Decimal::ZERO).count();
+        Some(count as f64 / self.window.len() as f64)
+    }
+
+    /// Fraction of window values strictly above the window mean.
+    ///
+    /// Returns `None` for an empty window.
+    pub fn above_mean_fraction(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() {
+            return None;
+        }
+        let n = self.window.len() as u32;
+        let mean = self.window.iter().copied().sum::<Decimal>() / Decimal::from(n);
+        let count = self.window.iter().filter(|&&v| v > mean).count();
+        Some(count as f64 / self.window.len() as f64)
     }
 
 }

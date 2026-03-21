@@ -14,19 +14,17 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ### Added
 
 **`tick` module — `NormalizedTick` analytics (round 89)**
-- `NormalizedTick::near_vwap_fraction(ticks, band)` — fraction of ticks within `band` of the slice VWAP.
-- `NormalizedTick::mean_tick_return(ticks)` — mean signed price return across consecutive tick pairs.
-- `NormalizedTick::passive_buy_count(ticks)` — count of buy ticks priced below VWAP.
-- `NormalizedTick::passive_sell_count(ticks)` — count of sell ticks priced above VWAP.
-- `NormalizedTick::top_quartile_price_fraction(ticks)` — fraction of ticks with price in the top quartile.
-- `NormalizedTick::quantity_iqr(ticks)` — interquartile range of tick quantities.
-- `NormalizedTick::buy_notional_ratio(ticks)` — buy-side notional as fraction of total notional.
-- `NormalizedTick::return_std(ticks)` — std dev of tick-to-tick signed price returns.
+- `NormalizedTick::max_drawdown(ticks)` — maximum peak-to-trough price decline across the slice.
+- `NormalizedTick::high_to_low_ratio(ticks)` — ratio of the highest price to the lowest price in the slice.
+- `NormalizedTick::tick_velocity(ticks)` — total price movement divided by elapsed time (ms).
+- `NormalizedTick::notional_decay(ticks)` — ratio of second-half notional to first-half notional; < 1 means decaying activity.
+- `NormalizedTick::late_price_momentum(ticks)` — mean price change in the last quarter of the slice minus the first quarter.
+- `NormalizedTick::consecutive_buys_max(ticks)` — length of the longest uninterrupted run of buy-side ticks.
 
 **`ohlcv` module — `OhlcvBar` analytics (round 89)**
-- `OhlcvBar::max_consecutive_up_bars(bars)` — length of the longest run of bullish bars (close > open).
-- `OhlcvBar::avg_upper_shadow_fraction(bars)` — mean upper shadow as fraction of total range.
-- `OhlcvBar::up_down_bar_ratio(bars)` — count of up-bars divided by count of down-bars.
+- `OhlcvBar::close_range_fraction(bars)` — mean of `(close - low) / (high - low)` across bars (CLV mean).
+- `OhlcvBar::tail_symmetry(bars)` — mean absolute difference between upper and lower shadow as fraction of range.
+- `OhlcvBar::bar_trend_strength(bars)` — fraction of consecutive bar pairs that continue in the same direction.
 
 **`norm` module — `MinMaxNormalizer` and `ZScoreNormalizer` analytics (round 89)**
 - `cumulative_sum() -> Decimal` — sum of all values in the rolling window.

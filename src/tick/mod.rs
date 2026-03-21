@@ -3445,6 +3445,126 @@ impl NormalizedTick {
         Some(var.sqrt())
     }
 
+    // ── round-90 ─────────────────────────────────────────────────────────────
+
+    /// Maximum price drawdown from peak: `max(peak − price) / peak` over the slice.
+    ///
+    /// Returns `None` for an empty slice or a zero peak price.
+    pub fn max_drawdown(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() {
+            return None;
+        }
+        let mut peak = ticks[0].price;
+        let mut max_dd = Decimal::ZERO;
+        for t in ticks {
+            if t.price > peak {
+                peak = t.price;
+            }
+            let dd = peak - t.price;
+            if dd > max_dd {
+                max_dd = dd;
+            }
+        }
+        if peak.is_zero() {
+            return None;
+        }
+        (max_dd / peak).to_f64()
+    }
+
+    /// Ratio of the highest price to the lowest price in the slice.
+    ///
+    /// Returns `None` for an empty slice or a zero minimum price.
+    pub fn high_to_low_ratio(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() {
+            return None;
+        }
+        let high = ticks.iter().map(|t| t.price).max()?;
+        let low = ticks.iter().map(|t| t.price).min()?;
+        if low.is_zero() {
+            return None;
+        }
+        (high / low).to_f64()
+    }
+
+    /// Tick arrival rate: `tick_count / time_span_ms`.
+    ///
+    /// Returns `None` when the slice has fewer than 2 ticks or the time span is zero.
+    pub fn tick_velocity(ticks: &[NormalizedTick]) -> Option<f64> {
+        if ticks.len() < 2 {
+            return None;
+        }
+        let first_ms = ticks.first()?.received_at_ms;
+        let last_ms = ticks.last()?.received_at_ms;
+        let span = last_ms.saturating_sub(first_ms);
+        if span == 0 {
+            return None;
+        }
+        Some(ticks.len() as f64 / span as f64)
+    }
+
+    /// Ratio of second-half notional to first-half notional.
+    ///
+    /// Measures whether trading activity is accelerating (`> 1`) or decelerating (`< 1`).
+    /// Returns `None` for fewer than 2 ticks or zero first-half notional.
+    pub fn notional_decay(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 2 {
+            return None;
+        }
+        let mid = ticks.len() / 2;
+        let first_half: Decimal = ticks[..mid].iter().map(|t| t.price * t.quantity).sum();
+        let second_half: Decimal = ticks[mid..].iter().map(|t| t.price * t.quantity).sum();
+        if first_half.is_zero() {
+            return None;
+        }
+        (second_half / first_half).to_f64()
+    }
+
+    /// Momentum of the second half vs the first half: `(mean_price_2 − mean_price_1) / mean_price_1`.
+    ///
+    /// Returns `None` for fewer than 2 ticks or a zero first-half mean.
+    pub fn late_price_momentum(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 2 {
+            return None;
+        }
+        let mid = ticks.len() / 2;
+        let n1 = mid as u32;
+        let n2 = (ticks.len() - mid) as u32;
+        if n1 == 0 || n2 == 0 {
+            return None;
+        }
+        let mean1: Decimal = ticks[..mid].iter().map(|t| t.price).sum::<Decimal>()
+            / Decimal::from(n1);
+        let mean2: Decimal = ticks[mid..].iter().map(|t| t.price).sum::<Decimal>()
+            / Decimal::from(n2);
+        if mean1.is_zero() {
+            return None;
+        }
+        ((mean2 - mean1) / mean1).to_f64()
+    }
+
+    /// Maximum run of consecutive buy-side ticks.
+    ///
+    /// Returns `0` for an empty slice or one with no buy ticks.
+    pub fn consecutive_buys_max(ticks: &[NormalizedTick]) -> usize {
+        let mut max_run = 0usize;
+        let mut run = 0usize;
+        for t in ticks {
+            if t.side == Some(TradeSide::Buy) {
+                run += 1;
+                if run > max_run {
+                    max_run = run;
+                }
+            } else {
+                run = 0;
+            }
+        }
+        max_run
+    }
+
 }
 
 
@@ -8481,5 +8601,97 @@ mod tests {
         ];
         let s = NormalizedTick::return_std(&ticks).unwrap();
         assert!(s.abs() < 1e-9, "constant price → return_std=0, got {}", s);
+    }
+
+    // ── round-90 tests ────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_max_drawdown_none_for_empty() {
+        assert!(NormalizedTick::max_drawdown(&[]).is_none());
+    }
+
+    #[test]
+    fn test_max_drawdown_zero_for_rising_prices() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(110), dec!(1)),
+            make_tick_pq(dec!(120), dec!(1)),
+        ];
+        let dd = NormalizedTick::max_drawdown(&ticks).unwrap();
+        assert!(dd.abs() < 1e-9, "monotone rise → drawdown=0, got {}", dd);
+    }
+
+    #[test]
+    fn test_max_drawdown_positive_after_peak() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(120), dec!(1)),
+            make_tick_pq(dec!(90), dec!(1)),
+        ];
+        let dd = NormalizedTick::max_drawdown(&ticks).unwrap();
+        // peak=120, trough=90 → dd = 30/120 = 0.25
+        assert!((dd - 0.25).abs() < 1e-6, "expected 0.25, got {}", dd);
+    }
+
+    #[test]
+    fn test_high_to_low_ratio_none_for_empty() {
+        assert!(NormalizedTick::high_to_low_ratio(&[]).is_none());
+    }
+
+    #[test]
+    fn test_high_to_low_ratio_one_for_constant_price() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(100), dec!(1)),
+        ];
+        let r = NormalizedTick::high_to_low_ratio(&ticks).unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "constant price → ratio=1, got {}", r);
+    }
+
+    #[test]
+    fn test_tick_velocity_none_for_single_tick() {
+        let t = make_tick_pq(rust_decimal_macros::dec!(100), rust_decimal_macros::dec!(1));
+        assert!(NormalizedTick::tick_velocity(&[t]).is_none());
+    }
+
+    #[test]
+    fn test_notional_decay_none_for_single_tick() {
+        let t = make_tick_pq(rust_decimal_macros::dec!(100), rust_decimal_macros::dec!(1));
+        assert!(NormalizedTick::notional_decay(&[t]).is_none());
+    }
+
+    #[test]
+    fn test_notional_decay_one_for_balanced_halves() {
+        use rust_decimal_macros::dec;
+        let t1 = make_tick_pq(dec!(100), dec!(1));
+        let t2 = make_tick_pq(dec!(100), dec!(1));
+        let r = NormalizedTick::notional_decay(&[t1, t2]).unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "equal halves → ratio=1, got {}", r);
+    }
+
+    #[test]
+    fn test_late_price_momentum_none_for_single_tick() {
+        let t = make_tick_pq(rust_decimal_macros::dec!(100), rust_decimal_macros::dec!(1));
+        assert!(NormalizedTick::late_price_momentum(&[t]).is_none());
+    }
+
+    #[test]
+    fn test_consecutive_buys_max_zero_for_empty() {
+        assert_eq!(NormalizedTick::consecutive_buys_max(&[]), 0);
+    }
+
+    #[test]
+    fn test_consecutive_buys_max_two_for_run_of_two() {
+        use rust_decimal_macros::dec;
+        let mut buy1 = make_tick_pq(dec!(100), dec!(1));
+        buy1.side = Some(TradeSide::Buy);
+        let mut buy2 = make_tick_pq(dec!(101), dec!(1));
+        buy2.side = Some(TradeSide::Buy);
+        let mut sell = make_tick_pq(dec!(102), dec!(1));
+        sell.side = Some(TradeSide::Sell);
+        assert_eq!(NormalizedTick::consecutive_buys_max(&[buy1, buy2, sell]), 2);
     }
 }
