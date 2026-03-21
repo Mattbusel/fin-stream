@@ -5663,6 +5663,55 @@ impl MinMaxNormalizer {
         Some(entropy)
     }
 
+    // ── round-167 ────────────────────────────────────────────────────────────
+
+    /// Lag-3 autocorrelation of window values.
+    pub fn window_lag3_autocorr(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 4 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let n = vals.len() as f64;
+        let mean = vals.iter().sum::<f64>() / n;
+        let num: f64 = vals.windows(4).map(|w| (w[0] - mean) * (w[3] - mean)).sum();
+        let den: f64 = vals.iter().map(|v| (v - mean).powi(2)).sum();
+        if den == 0.0 { return None; }
+        Some(num / den)
+    }
+
+    /// Fraction of window consecutive pairs where direction persists (same sign diff).
+    pub fn window_persistence(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 3 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let diffs: Vec<f64> = vals.windows(2).map(|w| w[1] - w[0]).collect();
+        if diffs.len() < 2 { return None; }
+        let same = diffs.windows(2).filter(|w| w[0] * w[1] > 0.0).count();
+        Some(same as f64 / (diffs.len() - 1) as f64)
+    }
+
+    /// Hurst exponent proxy: std(diffs) / std(values). Values >0.5 suggest trending.
+    pub fn window_hurst_proxy(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let n = vals.len() as f64;
+        let v_mean = vals.iter().sum::<f64>() / n;
+        let v_std = (vals.iter().map(|v| (v - v_mean).powi(2)).sum::<f64>() / n).sqrt();
+        if v_std == 0.0 { return None; }
+        let diffs: Vec<f64> = vals.windows(2).map(|w| w[1] - w[0]).collect();
+        let d_mean = diffs.iter().sum::<f64>() / diffs.len() as f64;
+        let d_std = (diffs.iter().map(|d| (d - d_mean).powi(2)).sum::<f64>() / diffs.len() as f64).sqrt();
+        Some(d_std / v_std)
+    }
+
+    /// Mean of squared window values (mean square).
+    pub fn window_mean_square(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        Some(vals.iter().map(|v| v * v).sum::<f64>() / vals.len() as f64)
+    }
+
 }
 
 #[cfg(test)]
@@ -12227,6 +12276,65 @@ mod tests {
         let e = n.window_entropy_proxy().unwrap();
         assert!((e - 0.0).abs() < 1e-9, "expected 0.0, got {}", e);
     }
+
+    // ── round-167 tests ──────────────────────────────────────────────────────
+
+    #[test]
+    fn test_minmax_window_lag3_autocorr_none_for_short() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        assert!(n.window_lag3_autocorr().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_lag3_autocorr_constant_none() {
+        let mut n = norm(4);
+        for v in [dec!(5), dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        assert!(n.window_lag3_autocorr().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_persistence_none_for_short() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2)] { n.update(v); }
+        assert!(n.window_persistence().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_persistence_monotone_one() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let p = n.window_persistence().unwrap();
+        assert!((p - 1.0).abs() < 1e-9, "expected 1.0, got {}", p);
+    }
+
+    #[test]
+    fn test_minmax_window_hurst_proxy_none_for_single() {
+        let mut n = norm(4);
+        n.update(dec!(5));
+        assert!(n.window_hurst_proxy().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_hurst_proxy_constant_none() {
+        let mut n = norm(3);
+        for v in [dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        assert!(n.window_hurst_proxy().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_mean_square_none_for_empty() {
+        let n = norm(4);
+        assert!(n.window_mean_square().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_mean_square_constant() {
+        let mut n = norm(3);
+        for v in [dec!(3), dec!(3), dec!(3)] { n.update(v); }
+        let m = n.window_mean_square().unwrap();
+        assert!((m - 9.0).abs() < 1e-9, "expected 9.0, got {}", m);
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -17838,6 +17946,55 @@ impl ZScoreNormalizer {
             .map(|&c| { let p = c as f64 / total; -p * p.ln() })
             .sum();
         Some(entropy)
+    }
+
+    // ── round-167 ────────────────────────────────────────────────────────────
+
+    /// Lag-3 autocorrelation of window values.
+    pub fn window_lag3_autocorr(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 4 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let n = vals.len() as f64;
+        let mean = vals.iter().sum::<f64>() / n;
+        let num: f64 = vals.windows(4).map(|w| (w[0] - mean) * (w[3] - mean)).sum();
+        let den: f64 = vals.iter().map(|v| (v - mean).powi(2)).sum();
+        if den == 0.0 { return None; }
+        Some(num / den)
+    }
+
+    /// Fraction of window consecutive pairs where direction persists (same sign diff).
+    pub fn window_persistence(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 3 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let diffs: Vec<f64> = vals.windows(2).map(|w| w[1] - w[0]).collect();
+        if diffs.len() < 2 { return None; }
+        let same = diffs.windows(2).filter(|w| w[0] * w[1] > 0.0).count();
+        Some(same as f64 / (diffs.len() - 1) as f64)
+    }
+
+    /// Hurst exponent proxy: std(diffs) / std(values). Values >0.5 suggest trending.
+    pub fn window_hurst_proxy(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let n = vals.len() as f64;
+        let v_mean = vals.iter().sum::<f64>() / n;
+        let v_std = (vals.iter().map(|v| (v - v_mean).powi(2)).sum::<f64>() / n).sqrt();
+        if v_std == 0.0 { return None; }
+        let diffs: Vec<f64> = vals.windows(2).map(|w| w[1] - w[0]).collect();
+        let d_mean = diffs.iter().sum::<f64>() / diffs.len() as f64;
+        let d_std = (diffs.iter().map(|d| (d - d_mean).powi(2)).sum::<f64>() / diffs.len() as f64).sqrt();
+        Some(d_std / v_std)
+    }
+
+    /// Mean of squared window values (mean square).
+    pub fn window_mean_square(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        Some(vals.iter().map(|v| v * v).sum::<f64>() / vals.len() as f64)
     }
 
 }
@@ -24377,5 +24534,64 @@ mod zscore_stability_tests {
         for v in [dec!(5), dec!(5), dec!(5)] { n.update(v); }
         let e = n.window_entropy_proxy().unwrap();
         assert!((e - 0.0).abs() < 1e-9, "expected 0.0, got {}", e);
+    }
+
+    // ── round-167 tests ──────────────────────────────────────────────────────
+
+    #[test]
+    fn test_zscore_window_lag3_autocorr_none_for_short() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        assert!(n.window_lag3_autocorr().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_lag3_autocorr_constant_none() {
+        let mut n = znorm(4);
+        for v in [dec!(5), dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        assert!(n.window_lag3_autocorr().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_persistence_none_for_short() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2)] { n.update(v); }
+        assert!(n.window_persistence().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_persistence_monotone_one() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let p = n.window_persistence().unwrap();
+        assert!((p - 1.0).abs() < 1e-9, "expected 1.0, got {}", p);
+    }
+
+    #[test]
+    fn test_zscore_window_hurst_proxy_none_for_single() {
+        let mut n = znorm(4);
+        n.update(dec!(5));
+        assert!(n.window_hurst_proxy().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_hurst_proxy_constant_none() {
+        let mut n = znorm(3);
+        for v in [dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        assert!(n.window_hurst_proxy().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_mean_square_none_for_empty() {
+        let n = znorm(4);
+        assert!(n.window_mean_square().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_mean_square_constant() {
+        let mut n = znorm(3);
+        for v in [dec!(3), dec!(3), dec!(3)] { n.update(v); }
+        let m = n.window_mean_square().unwrap();
+        assert!((m - 9.0).abs() < 1e-9, "expected 9.0, got {}", m);
     }
 }

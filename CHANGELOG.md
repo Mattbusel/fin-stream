@@ -9,6 +9,30 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.10.18] - 2026-03-20
+
+### Added
+
+**`tick` module — `NormalizedTick` analytics (round 167)**
+- `NormalizedTick::price_vol_of_vol(ticks)` — std dev of absolute price differences (volatility-of-volatility proxy).
+- `NormalizedTick::price_persistence(ticks)` — fraction of consecutive moves in same direction as prior.
+- `NormalizedTick::price_reversal_magnitude(ticks)` — mean |diff| when direction reverses.
+- `NormalizedTick::tick_side_concentration(ticks)` — HHI of buy/sell quantities (0=balanced, 1=one-sided).
+
+**`ohlcv` module — `OhlcvBar` analytics (round 167)**
+- `OhlcvBar::bar_open_close_spread(bars)` — mean |open - close| per bar.
+- `OhlcvBar::bar_close_prev_high_gap(bars)` — mean gap between close[i] and high[i-1].
+- `OhlcvBar::bar_vwap_deviation(bars)` — mean |close - (o+h+l+c)/4| per bar.
+- `OhlcvBar::bar_body_momentum(bars)` — cumulative sum of (close - open) across bars.
+
+**`norm` module — `MinMaxNormalizer` + `ZScoreNormalizer` analytics (round 167)**
+- `window_lag3_autocorr()` — lag-3 autocorrelation of window values.
+- `window_persistence()` — fraction of consecutive value pairs with same direction.
+- `window_hurst_proxy()` — std(diffs) / std(values) as Hurst exponent proxy.
+- `window_mean_square()` — mean of squared window values (raw second moment).
+
+---
+
 ## [2.10.17] - 2026-03-20
 
 ### Added

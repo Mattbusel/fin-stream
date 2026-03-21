@@ -7809,6 +7809,62 @@ impl OhlcvBar {
         Some(diffs2.iter().sum::<f64>() / diffs2.len() as f64)
     }
 
+    // ── round-167 ────────────────────────────────────────────────────────────
+
+    /// Mean |open - close| per bar (average body spread).
+    pub fn bar_open_close_spread(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let vals: Vec<f64> = bars.iter().filter_map(|b| {
+            let o = b.open.to_f64()?;
+            let c = b.close.to_f64()?;
+            Some((o - c).abs())
+        }).collect();
+        if vals.is_empty() { return None; }
+        Some(vals.iter().sum::<f64>() / vals.len() as f64)
+    }
+
+    /// Mean gap between close[i] and high[i-1] across consecutive bars.
+    pub fn bar_close_prev_high_gap(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.len() < 2 { return None; }
+        let vals: Vec<f64> = bars.windows(2).filter_map(|w| {
+            let prev_high = w[0].high.to_f64()?;
+            let curr_close = w[1].close.to_f64()?;
+            Some(curr_close - prev_high)
+        }).collect();
+        if vals.is_empty() { return None; }
+        Some(vals.iter().sum::<f64>() / vals.len() as f64)
+    }
+
+    /// Mean |close - (open+high+low+close)/4| per bar (close deviation from bar center).
+    pub fn bar_vwap_deviation(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let vals: Vec<f64> = bars.iter().filter_map(|b| {
+            let o = b.open.to_f64()?;
+            let h = b.high.to_f64()?;
+            let l = b.low.to_f64()?;
+            let c = b.close.to_f64()?;
+            let center = (o + h + l + c) / 4.0;
+            Some((c - center).abs())
+        }).collect();
+        if vals.is_empty() { return None; }
+        Some(vals.iter().sum::<f64>() / vals.len() as f64)
+    }
+
+    /// Sum of (close - open) across all bars (cumulative body momentum).
+    pub fn bar_body_momentum(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let sum: f64 = bars.iter().filter_map(|b| {
+            let o = b.open.to_f64()?;
+            let c = b.close.to_f64()?;
+            Some(c - o)
+        }).sum();
+        Some(sum)
+    }
+
 }
 
 impl std::fmt::Display for OhlcvBar {
@@ -17877,5 +17933,63 @@ mod tests {
         ];
         let a = OhlcvBar::bar_volume_acceleration(&bars).unwrap();
         assert!((a - 0.0).abs() < 1e-9, "expected 0.0, got {}", a);
+    }
+
+    // ── round-167 tests ──────────────────────────────────────────────────────
+
+    #[test]
+    fn test_bar_open_close_spread_none_for_empty() {
+        assert!(OhlcvBar::bar_open_close_spread(&[]).is_none());
+    }
+
+    #[test]
+    fn test_bar_open_close_spread_doji_zero() {
+        // open=close → spread=0
+        let bar = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100));
+        let s = OhlcvBar::bar_open_close_spread(&[bar]).unwrap();
+        assert!((s - 0.0).abs() < 1e-9, "expected 0.0, got {}", s);
+    }
+
+    #[test]
+    fn test_bar_close_prev_high_gap_none_for_single() {
+        let bars = vec![make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105))];
+        assert!(OhlcvBar::bar_close_prev_high_gap(&bars).is_none());
+    }
+
+    #[test]
+    fn test_bar_close_prev_high_gap_at_prev_high_zero() {
+        // close[1] == high[0] → gap=0
+        let bars = vec![
+            make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105)),
+            make_ohlcv_bar(dec!(110), dec!(115), dec!(105), dec!(110)),
+        ];
+        let g = OhlcvBar::bar_close_prev_high_gap(&bars).unwrap();
+        assert!((g - 0.0).abs() < 1e-9, "expected 0.0, got {}", g);
+    }
+
+    #[test]
+    fn test_bar_vwap_deviation_none_for_empty() {
+        assert!(OhlcvBar::bar_vwap_deviation(&[]).is_none());
+    }
+
+    #[test]
+    fn test_bar_vwap_deviation_close_at_center() {
+        // open=100, high=110, low=90, close=100 → center=(100+110+90+100)/4=100 → dev=0
+        let bar = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100));
+        let d = OhlcvBar::bar_vwap_deviation(&[bar]).unwrap();
+        assert!((d - 0.0).abs() < 1e-9, "expected 0.0, got {}", d);
+    }
+
+    #[test]
+    fn test_bar_body_momentum_none_for_empty() {
+        assert!(OhlcvBar::bar_body_momentum(&[]).is_none());
+    }
+
+    #[test]
+    fn test_bar_body_momentum_bullish_bar() {
+        // open=100, close=105 → momentum=5
+        let bar = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let m = OhlcvBar::bar_body_momentum(&[bar]).unwrap();
+        assert!((m - 5.0).abs() < 1e-9, "expected 5.0, got {}", m);
     }
 }

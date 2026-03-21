@@ -8085,6 +8085,81 @@ impl NormalizedTick {
         Some(decelerations as f64 / (diffs.len() - 1) as f64)
     }
 
+    // ── round-167 ────────────────────────────────────────────────────────────
+
+    /// Std dev of absolute price differences (volatility-of-volatility proxy).
+    pub fn price_vol_of_vol(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 3 { return None; }
+        let abs_diffs: Vec<f64> = ticks.windows(2)
+            .filter_map(|w| {
+                let a = w[0].price.to_f64()?;
+                let b = w[1].price.to_f64()?;
+                Some((b - a).abs())
+            })
+            .collect();
+        if abs_diffs.len() < 2 { return None; }
+        let n = abs_diffs.len() as f64;
+        let mean = abs_diffs.iter().sum::<f64>() / n;
+        let var = abs_diffs.iter().map(|d| (d - mean).powi(2)).sum::<f64>() / n;
+        Some(var.sqrt())
+    }
+
+    /// Fraction of consecutive price moves in the same direction as the prior move.
+    pub fn price_persistence(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 3 { return None; }
+        let diffs: Vec<f64> = ticks.windows(2)
+            .filter_map(|w| {
+                let a = w[0].price.to_f64()?;
+                let b = w[1].price.to_f64()?;
+                Some(b - a)
+            })
+            .collect();
+        if diffs.len() < 2 { return None; }
+        let same = diffs.windows(2).filter(|w| w[0] * w[1] > 0.0).count();
+        Some(same as f64 / (diffs.len() - 1) as f64)
+    }
+
+    /// Mean |price diff| when direction reverses vs prior step.
+    pub fn price_reversal_magnitude(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 3 { return None; }
+        let diffs: Vec<f64> = ticks.windows(2)
+            .filter_map(|w| {
+                let a = w[0].price.to_f64()?;
+                let b = w[1].price.to_f64()?;
+                Some(b - a)
+            })
+            .collect();
+        if diffs.len() < 2 { return None; }
+        let reversals: Vec<f64> = diffs.windows(2)
+            .filter(|w| w[0] * w[1] < 0.0)
+            .map(|w| w[1].abs())
+            .collect();
+        if reversals.is_empty() { return None; }
+        Some(reversals.iter().sum::<f64>() / reversals.len() as f64)
+    }
+
+    /// HHI-style concentration of buy/sell quantities (0=balanced, 1=fully one-sided).
+    pub fn tick_side_concentration(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let mut buy_qty = 0.0f64;
+        let mut sell_qty = 0.0f64;
+        for t in ticks {
+            match t.side {
+                Some(crate::tick::TradeSide::Buy) => buy_qty += t.quantity.to_f64().unwrap_or(0.0),
+                Some(crate::tick::TradeSide::Sell) => sell_qty += t.quantity.to_f64().unwrap_or(0.0),
+                None => {}
+            }
+        }
+        let total = buy_qty + sell_qty;
+        if total == 0.0 { return None; }
+        let pb = buy_qty / total;
+        let ps = sell_qty / total;
+        Some(pb * pb + ps * ps)
+    }
+
 }
 
 
@@ -18454,5 +18529,96 @@ mod tests {
         ];
         let r = NormalizedTick::price_deceleration_rate(&ticks).unwrap();
         assert!((r - 0.0).abs() < 1e-9, "expected 0.0, got {}", r);
+    }
+
+    // ── round-167 tests ──────────────────────────────────────────────────────
+
+    #[test]
+    fn test_price_vol_of_vol_none_for_short() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(101), dec!(1)),
+        ];
+        assert!(NormalizedTick::price_vol_of_vol(&ticks).is_none());
+    }
+
+    #[test]
+    fn test_price_vol_of_vol_constant_diffs_zero() {
+        use rust_decimal_macros::dec;
+        // constant diffs → vol of vol = 0
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(102), dec!(1)),
+            make_tick_pq(dec!(104), dec!(1)),
+        ];
+        let v = NormalizedTick::price_vol_of_vol(&ticks).unwrap();
+        assert!((v - 0.0).abs() < 1e-9, "expected 0.0, got {}", v);
+    }
+
+    #[test]
+    fn test_price_persistence_none_for_short() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(101), dec!(1)),
+        ];
+        assert!(NormalizedTick::price_persistence(&ticks).is_none());
+    }
+
+    #[test]
+    fn test_price_persistence_monotone_one() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(101), dec!(1)),
+            make_tick_pq(dec!(102), dec!(1)),
+        ];
+        let p = NormalizedTick::price_persistence(&ticks).unwrap();
+        assert!((p - 1.0).abs() < 1e-9, "expected 1.0, got {}", p);
+    }
+
+    #[test]
+    fn test_price_reversal_magnitude_none_for_no_reversals() {
+        use rust_decimal_macros::dec;
+        // monotone up → no reversals
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(101), dec!(1)),
+            make_tick_pq(dec!(102), dec!(1)),
+        ];
+        assert!(NormalizedTick::price_reversal_magnitude(&ticks).is_none());
+    }
+
+    #[test]
+    fn test_price_reversal_magnitude_alternating() {
+        use rust_decimal_macros::dec;
+        // up 2, down 3, up 2 → reversals have magnitude 3 and 2
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(102), dec!(1)),
+            make_tick_pq(dec!(99), dec!(1)),
+            make_tick_pq(dec!(101), dec!(1)),
+        ];
+        let m = NormalizedTick::price_reversal_magnitude(&ticks).unwrap();
+        // diffs: [2, -3, 2] → reversals at index 1 (|−3|=3) and 2 (|2|=2) → mean=2.5
+        assert!((m - 2.5).abs() < 1e-9, "expected 2.5, got {}", m);
+    }
+
+    #[test]
+    fn test_tick_side_concentration_none_for_no_sides() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![make_tick_pq(dec!(100), dec!(1))];
+        assert!(NormalizedTick::tick_side_concentration(&ticks).is_none());
+    }
+
+    #[test]
+    fn test_tick_side_concentration_all_buy_one() {
+        use rust_decimal_macros::dec;
+        let mut t = make_tick_pq(dec!(100), dec!(5));
+        t.side = Some(crate::tick::TradeSide::Buy);
+        let c = NormalizedTick::tick_side_concentration(&[t]).unwrap();
+        // all buy → p_buy=1, p_sell=0 → HHI=1
+        assert!((c - 1.0).abs() < 1e-9, "expected 1.0, got {}", c);
     }
 }
