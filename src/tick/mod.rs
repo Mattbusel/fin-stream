@@ -6703,6 +6703,48 @@ impl NormalizedTick {
         Some(buy_vol / sell_vol)
     }
 
+    // ── round-143 ────────────────────────────────────────────────────────────
+
+    /// Price trend reversal rate: fraction of consecutive price-change pairs that reverse sign.
+    pub fn price_trend_reversal_rate(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 3 { return None; }
+        let prices: Vec<f64> = ticks.iter().map(|t| t.price.to_f64().unwrap_or(0.0)).collect();
+        let diffs: Vec<f64> = prices.windows(2).map(|w| w[1] - w[0]).collect();
+        let reversals = diffs.windows(2).filter(|w| w[0] * w[1] < 0.0).count() as f64;
+        Some(reversals / (diffs.len() - 1) as f64)
+    }
+
+    /// Quantity below mean count: number of ticks with quantity below the mean quantity.
+    pub fn qty_below_mean_count(ticks: &[NormalizedTick]) -> Option<usize> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() { return None; }
+        let qtys: Vec<f64> = ticks.iter().map(|t| t.quantity.to_f64().unwrap_or(0.0)).collect();
+        let mean = qtys.iter().sum::<f64>() / qtys.len() as f64;
+        Some(qtys.iter().filter(|&&q| q < mean).count())
+    }
+
+    /// Tick inter-arrival coefficient of variation: std / mean of inter-tick gaps.
+    pub fn tick_inter_arrival_cv(ticks: &[NormalizedTick]) -> Option<f64> {
+        if ticks.len() < 3 { return None; }
+        let gaps: Vec<f64> = ticks.windows(2)
+            .map(|w| w[1].received_at_ms.saturating_sub(w[0].received_at_ms) as f64)
+            .collect();
+        let mean = gaps.iter().sum::<f64>() / gaps.len() as f64;
+        if mean == 0.0 { return None; }
+        let std = (gaps.iter().map(|&g| (g - mean).powi(2)).sum::<f64>() / gaps.len() as f64).sqrt();
+        Some(std / mean)
+    }
+
+    /// Side dominance score: |buy_count - sell_count| / total_sided_count.
+    pub fn side_dominance_score(ticks: &[NormalizedTick]) -> Option<f64> {
+        let buys = ticks.iter().filter(|t| matches!(t.side, Some(TradeSide::Buy))).count();
+        let sells = ticks.iter().filter(|t| matches!(t.side, Some(TradeSide::Sell))).count();
+        let total = buys + sells;
+        if total == 0 { return None; }
+        Some((buys as f64 - sells as f64).abs() / total as f64)
+    }
+
 }
 
 
@@ -15341,5 +15383,85 @@ mod tests {
         sell.side = Some(TradeSide::Sell);
         let r = NormalizedTick::qty_flow_ratio(&[buy, sell]).unwrap();
         assert!((r - 1.0).abs() < 1e-9, "expected 1.0, got {}", r);
+    }
+
+    // ── round-143 ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_price_trend_reversal_rate_none_for_two() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![make_tick_pq(dec!(100), dec!(1)), make_tick_pq(dec!(101), dec!(1))];
+        assert!(NormalizedTick::price_trend_reversal_rate(&ticks).is_none());
+    }
+
+    #[test]
+    fn test_price_trend_reversal_rate_alternating() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(105), dec!(1)),
+            make_tick_pq(dec!(102), dec!(1)),
+            make_tick_pq(dec!(108), dec!(1)),
+        ];
+        // diffs: +5, -3, +6 → reversals: 2 out of 2 pairs → 1.0
+        let r = NormalizedTick::price_trend_reversal_rate(&ticks).unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "expected 1.0, got {}", r);
+    }
+
+    #[test]
+    fn test_qty_below_mean_count_none_for_empty() {
+        assert!(NormalizedTick::qty_below_mean_count(&[]).is_none());
+    }
+
+    #[test]
+    fn test_qty_below_mean_count_half_below() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(100), dec!(2)),
+            make_tick_pq(dec!(100), dec!(3)),
+            make_tick_pq(dec!(100), dec!(4)),
+        ];
+        // mean=2.5, below: 1,2 → 2
+        let c = NormalizedTick::qty_below_mean_count(&ticks).unwrap();
+        assert_eq!(c, 2, "expected 2, got {}", c);
+    }
+
+    #[test]
+    fn test_tick_inter_arrival_cv_none_for_two() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![make_tick_pq(dec!(100), dec!(1)), make_tick_pq(dec!(101), dec!(1))];
+        assert!(NormalizedTick::tick_inter_arrival_cv(&ticks).is_none());
+    }
+
+    #[test]
+    fn test_tick_inter_arrival_cv_uniform() {
+        use rust_decimal_macros::dec;
+        let mut t1 = make_tick_pq(dec!(100), dec!(1));
+        t1.received_at_ms = 1000;
+        let mut t2 = make_tick_pq(dec!(101), dec!(1));
+        t2.received_at_ms = 1010;
+        let mut t3 = make_tick_pq(dec!(102), dec!(1));
+        t3.received_at_ms = 1020;
+        // uniform gaps → std=0, cv=0
+        let cv = NormalizedTick::tick_inter_arrival_cv(&[t1, t2, t3]).unwrap();
+        assert!((cv - 0.0).abs() < 1e-9, "expected 0.0, got {}", cv);
+    }
+
+    #[test]
+    fn test_side_dominance_score_none_for_no_sides() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![make_tick_pq(dec!(100), dec!(1))];
+        assert!(NormalizedTick::side_dominance_score(&ticks).is_none());
+    }
+
+    #[test]
+    fn test_side_dominance_score_all_buy() {
+        use rust_decimal_macros::dec;
+        use crate::tick::TradeSide;
+        let mut t = make_tick_pq(dec!(100), dec!(1));
+        t.side = Some(TradeSide::Buy);
+        let s = NormalizedTick::side_dominance_score(&[t]).unwrap();
+        assert!((s - 1.0).abs() < 1e-9, "expected 1.0, got {}", s);
     }
 }

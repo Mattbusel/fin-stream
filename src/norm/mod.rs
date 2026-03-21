@@ -4465,6 +4465,53 @@ impl MinMaxNormalizer {
         Some(ups - downs)
     }
 
+    // ── round-143 ────────────────────────────────────────────────────────────
+
+    /// Weighted mean: linearly weighted mean giving more weight to recent values.
+    pub fn window_weighted_mean(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let n = vals.len() as f64;
+        let weighted_sum: f64 = vals.iter().enumerate().map(|(i, &v)| (i as f64 + 1.0) * v).sum();
+        let weight_total = n * (n + 1.0) / 2.0;
+        Some(weighted_sum / weight_total)
+    }
+
+    /// Upper half mean: mean of values in the upper half of the window (above median).
+    pub fn window_upper_half_mean(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let mut vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        vals.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let mid = vals.len() / 2;
+        let upper = &vals[mid..];
+        if upper.is_empty() { return None; }
+        Some(upper.iter().sum::<f64>() / upper.len() as f64)
+    }
+
+    /// Lower half mean: mean of values in the lower half of the window (below median).
+    pub fn window_lower_half_mean(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let mut vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        vals.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let mid = vals.len() / 2;
+        let lower = &vals[..mid];
+        if lower.is_empty() { return None; }
+        Some(lower.iter().sum::<f64>() / lower.len() as f64)
+    }
+
+    /// Mid range: (max + min) / 2 of the window.
+    pub fn window_mid_range(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let max = vals.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        let min = vals.iter().cloned().fold(f64::INFINITY, f64::min);
+        Some((max + min) / 2.0)
+    }
+
 }
 
 #[cfg(test)]
@@ -9536,6 +9583,69 @@ mod tests {
         let c = n.window_net_up_count().unwrap();
         assert_eq!(c, 3, "expected 3, got {}", c);
     }
+
+    // ── round-143 ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_minmax_window_weighted_mean_none_for_empty() {
+        let n = norm(4);
+        assert!(n.window_weighted_mean().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_weighted_mean_single() {
+        let mut n = norm(4);
+        n.update(dec!(10));
+        let wm = n.window_weighted_mean().unwrap();
+        assert!((wm - 10.0).abs() < 1e-9, "expected 10.0, got {}", wm);
+    }
+
+    #[test]
+    fn test_minmax_window_upper_half_mean_none_for_single() {
+        let mut n = norm(4);
+        n.update(dec!(5));
+        assert!(n.window_upper_half_mean().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_upper_half_mean_basic() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        // sorted: [1,2,3,4], upper half [3,4] → mean=3.5
+        let um = n.window_upper_half_mean().unwrap();
+        assert!((um - 3.5).abs() < 1e-9, "expected 3.5, got {}", um);
+    }
+
+    #[test]
+    fn test_minmax_window_lower_half_mean_none_for_single() {
+        let mut n = norm(4);
+        n.update(dec!(5));
+        assert!(n.window_lower_half_mean().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_lower_half_mean_basic() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        // sorted: [1,2,3,4], lower half [1,2] → mean=1.5
+        let lm = n.window_lower_half_mean().unwrap();
+        assert!((lm - 1.5).abs() < 1e-9, "expected 1.5, got {}", lm);
+    }
+
+    #[test]
+    fn test_minmax_window_mid_range_none_for_empty() {
+        let n = norm(4);
+        assert!(n.window_mid_range().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_mid_range_basic() {
+        let mut n = norm(4);
+        for v in [dec!(2), dec!(4), dec!(6), dec!(8)] { n.update(v); }
+        // (8+2)/2 = 5
+        let mr = n.window_mid_range().unwrap();
+        assert!((mr - 5.0).abs() < 1e-9, "expected 5.0, got {}", mr);
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -13945,6 +14055,53 @@ impl ZScoreNormalizer {
         let ups = vals.windows(2).filter(|w| w[1] > w[0]).count() as i64;
         let downs = vals.windows(2).filter(|w| w[1] < w[0]).count() as i64;
         Some(ups - downs)
+    }
+
+    // ── round-143 ────────────────────────────────────────────────────────────
+
+    /// Weighted mean: linearly weighted mean giving more weight to recent values.
+    pub fn window_weighted_mean(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let n = vals.len() as f64;
+        let weighted_sum: f64 = vals.iter().enumerate().map(|(i, &v)| (i as f64 + 1.0) * v).sum();
+        let weight_total = n * (n + 1.0) / 2.0;
+        Some(weighted_sum / weight_total)
+    }
+
+    /// Upper half mean: mean of values in the upper half of the window (above median).
+    pub fn window_upper_half_mean(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let mut vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        vals.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let mid = vals.len() / 2;
+        let upper = &vals[mid..];
+        if upper.is_empty() { return None; }
+        Some(upper.iter().sum::<f64>() / upper.len() as f64)
+    }
+
+    /// Lower half mean: mean of values in the lower half of the window (below median).
+    pub fn window_lower_half_mean(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let mut vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        vals.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let mid = vals.len() / 2;
+        let lower = &vals[..mid];
+        if lower.is_empty() { return None; }
+        Some(lower.iter().sum::<f64>() / lower.len() as f64)
+    }
+
+    /// Mid range: (max + min) / 2 of the window.
+    pub fn window_mid_range(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let max = vals.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        let min = vals.iter().cloned().fold(f64::INFINITY, f64::min);
+        Some((max + min) / 2.0)
     }
 
 }
@@ -19055,5 +19212,65 @@ mod zscore_stability_tests {
         for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
         let c = n.window_net_up_count().unwrap();
         assert_eq!(c, 3, "expected 3, got {}", c);
+    }
+
+    // ── round-143 ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_zscore_window_weighted_mean_none_for_empty() {
+        let n = znorm(4);
+        assert!(n.window_weighted_mean().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_weighted_mean_single() {
+        let mut n = znorm(4);
+        n.update(dec!(10));
+        let wm = n.window_weighted_mean().unwrap();
+        assert!((wm - 10.0).abs() < 1e-9, "expected 10.0, got {}", wm);
+    }
+
+    #[test]
+    fn test_zscore_window_upper_half_mean_none_for_single() {
+        let mut n = znorm(4);
+        n.update(dec!(5));
+        assert!(n.window_upper_half_mean().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_upper_half_mean_basic() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let um = n.window_upper_half_mean().unwrap();
+        assert!((um - 3.5).abs() < 1e-9, "expected 3.5, got {}", um);
+    }
+
+    #[test]
+    fn test_zscore_window_lower_half_mean_none_for_single() {
+        let mut n = znorm(4);
+        n.update(dec!(5));
+        assert!(n.window_lower_half_mean().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_lower_half_mean_basic() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let lm = n.window_lower_half_mean().unwrap();
+        assert!((lm - 1.5).abs() < 1e-9, "expected 1.5, got {}", lm);
+    }
+
+    #[test]
+    fn test_zscore_window_mid_range_none_for_empty() {
+        let n = znorm(4);
+        assert!(n.window_mid_range().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_mid_range_basic() {
+        let mut n = znorm(4);
+        for v in [dec!(2), dec!(4), dec!(6), dec!(8)] { n.update(v); }
+        let mr = n.window_mid_range().unwrap();
+        assert!((mr - 5.0).abs() < 1e-9, "expected 5.0, got {}", mr);
     }
 }

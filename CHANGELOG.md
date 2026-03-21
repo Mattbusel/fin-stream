@@ -9,6 +9,36 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.9.4] - 2026-03-20
+
+### Added
+
+**`tick` module — `NormalizedTick` analytics (round 143)**
+- `NormalizedTick::price_trend_reversal_rate(ticks)` — fraction of consecutive price-change pairs that reverse sign.
+- `NormalizedTick::qty_below_mean_count(ticks)` — number of ticks with quantity below the mean.
+- `NormalizedTick::tick_inter_arrival_cv(ticks)` — coefficient of variation of inter-tick time gaps.
+- `NormalizedTick::side_dominance_score(ticks)` — |buy_count - sell_count| / total_sided_count.
+
+**`ohlcv` module — `OhlcvBar` analytics (round 143)**
+- `OhlcvBar::bar_open_body_skew(bars)` — mean of (open - close) / (high - low) per bar.
+- `OhlcvBar::close_open_spread_mean(bars)` — mean of (close - open) across bars.
+- `OhlcvBar::bar_close_acceleration(bars)` — mean second derivative of close prices.
+- `OhlcvBar::high_body_fraction(bars)` — mean of upper wick / (high - low) per bar.
+
+**`norm` module — `MinMaxNormalizer` analytics (round 143)**
+- `MinMaxNormalizer::window_weighted_mean()` — linearly weighted mean (more weight to recent values).
+- `MinMaxNormalizer::window_upper_half_mean()` — mean of values in the upper half of the sorted window.
+- `MinMaxNormalizer::window_lower_half_mean()` — mean of values in the lower half of the sorted window.
+- `MinMaxNormalizer::window_mid_range()` — (max + min) / 2 of the window.
+
+**`norm` module — `ZScoreNormalizer` analytics (round 143)**
+- `ZScoreNormalizer::window_weighted_mean()` — linearly weighted mean (more weight to recent values).
+- `ZScoreNormalizer::window_upper_half_mean()` — mean of values in the upper half of the sorted window.
+- `ZScoreNormalizer::window_lower_half_mean()` — mean of values in the lower half of the sorted window.
+- `ZScoreNormalizer::window_mid_range()` — (max + min) / 2 of the window.
+
+---
+
 ## [2.9.3] - 2026-03-20
 
 ### Added
