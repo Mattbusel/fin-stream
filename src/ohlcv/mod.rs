@@ -9140,6 +9140,67 @@ impl OhlcvBar {
         Some(z_mean)
     }
 
+    /// Pearson correlation between absolute body size and volume.
+    pub fn bar_body_vol_corr(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.len() < 2 { return None; }
+        let bodies: Vec<f64> = bars.iter()
+            .filter_map(|b| (b.close - b.open).abs().to_f64())
+            .collect();
+        let vols: Vec<f64> = bars.iter().filter_map(|b| b.volume.to_f64()).collect();
+        if bodies.len() != vols.len() || bodies.len() < 2 { return None; }
+        let n = bodies.len() as f64;
+        let bm = bodies.iter().sum::<f64>() / n;
+        let vm = vols.iter().sum::<f64>() / n;
+        let num: f64 = bodies.iter().zip(vols.iter()).map(|(b, v)| (b - bm) * (v - vm)).sum();
+        let db = (bodies.iter().map(|b| (b - bm).powi(2)).sum::<f64>()).sqrt();
+        let dv = (vols.iter().map(|v| (v - vm).powi(2)).sum::<f64>()).sqrt();
+        if db == 0.0 || dv == 0.0 { return None; }
+        Some(num / (db * dv))
+    }
+
+    /// Mean absolute change in body size between consecutive bars.
+    pub fn bar_body_change_rate(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.len() < 2 { return None; }
+        let bodies: Vec<f64> = bars.iter()
+            .filter_map(|b| (b.close - b.open).abs().to_f64())
+            .collect();
+        if bodies.len() < 2 { return None; }
+        let changes: Vec<f64> = bodies.windows(2).map(|w| (w[1] - w[0]).abs()).collect();
+        Some(changes.iter().sum::<f64>() / changes.len() as f64)
+    }
+
+    /// Ratio of upper shadow to lower shadow. None if lower shadow is zero.
+    pub fn bar_upper_lower_ratio(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let b = &bars[bars.len() - 1];
+        let top = b.open.max(b.close);
+        let bot = b.open.min(b.close);
+        let upper = (b.high - top).to_f64()?;
+        let lower = (bot - b.low).to_f64()?;
+        if lower == 0.0 { return None; }
+        Some(upper / lower)
+    }
+
+    /// Last close minus exponential moving average of closes, divided by HL range.
+    pub fn bar_close_ema_spread(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.len() < 2 { return None; }
+        let closes: Vec<f64> = bars.iter().filter_map(|b| b.close.to_f64()).collect();
+        if closes.len() < 2 { return None; }
+        let k = 2.0 / (closes.len() as f64 + 1.0);
+        let mut ema = closes[0];
+        for &c in &closes[1..] { ema = c * k + ema * (1.0 - k); }
+        let last = *closes.last()?;
+        let range: f64 = bars.iter()
+            .filter_map(|b| (b.high - b.low).to_f64())
+            .sum::<f64>() / bars.len() as f64;
+        if range == 0.0 { return None; }
+        Some((last - ema) / range)
+    }
+
 }
 
 impl std::fmt::Display for OhlcvBar {
@@ -20520,5 +20581,77 @@ mod tests {
         let b0 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
         let b1 = make_ohlcv_bar(dec!(105), dec!(115), dec!(95), dec!(110));
         assert!(OhlcvBar::bar_vol_zscore_mean(&[b0, b1]).is_none());
+    }
+
+    #[test]
+    fn test_bar_body_vol_corr_single_none() {
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        assert!(OhlcvBar::bar_body_vol_corr(&[b]).is_none());
+    }
+
+    #[test]
+    fn test_bar_body_vol_corr_constant_body_none() {
+        // Same body → std=0 → None
+        let b0 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100)); // body=0
+        let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100)); // body=0
+        assert!(OhlcvBar::bar_body_vol_corr(&[b0, b1]).is_none());
+    }
+
+    #[test]
+    fn test_bar_body_change_rate_single_none() {
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        assert!(OhlcvBar::bar_body_change_rate(&[b]).is_none());
+    }
+
+    #[test]
+    fn test_bar_body_change_rate_value() {
+        // bar0 body=|105-100|=5, bar1 body=|110-105|=5 → change=0 → mean=0
+        let b0 = make_ohlcv_bar(dec!(100), dec!(115), dec!(90), dec!(105));
+        let b1 = make_ohlcv_bar(dec!(105), dec!(120), dec!(95), dec!(110));
+        let r = OhlcvBar::bar_body_change_rate(&[b0, b1]).unwrap();
+        assert_eq!(r, 0.0);
+    }
+
+    #[test]
+    fn test_bar_upper_lower_ratio_empty_none() {
+        assert!(OhlcvBar::bar_upper_lower_ratio(&[]).is_none());
+    }
+
+    #[test]
+    fn test_bar_upper_lower_ratio_no_lower_none() {
+        // low == min(open,close) → lower shadow = 0 → None
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(100), dec!(105));
+        assert!(OhlcvBar::bar_upper_lower_ratio(&[b]).is_none());
+    }
+
+    #[test]
+    fn test_bar_upper_lower_ratio_value() {
+        // open=100, close=105, high=110, low=90
+        // top=105, bot=100, upper=110-105=5, lower=100-90=10 → ratio=0.5
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let r = OhlcvBar::bar_upper_lower_ratio(&[b]).unwrap();
+        assert!((r - 0.5).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_bar_close_ema_spread_single_none() {
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        assert!(OhlcvBar::bar_close_ema_spread(&[b]).is_none());
+    }
+
+    #[test]
+    fn test_bar_close_ema_spread_constant_none() {
+        // All same price → range=0 → None
+        let b0 = make_ohlcv_bar(dec!(100), dec!(100), dec!(100), dec!(100));
+        let b1 = make_ohlcv_bar(dec!(100), dec!(100), dec!(100), dec!(100));
+        assert!(OhlcvBar::bar_close_ema_spread(&[b0, b1]).is_none());
+    }
+
+    #[test]
+    fn test_bar_close_ema_spread_returns_f64() {
+        let b0 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100));
+        let b1 = make_ohlcv_bar(dec!(100), dec!(115), dec!(95), dec!(110));
+        let r = OhlcvBar::bar_close_ema_spread(&[b0, b1]);
+        assert!(r.is_some());
     }
 }

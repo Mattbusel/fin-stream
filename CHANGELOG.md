@@ -9,6 +9,30 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.10.40] - 2026-03-20
+
+### Added
+
+**`tick` module — `NormalizedTick` analytics (round 189)**
+- `NormalizedTick::tick_price_zscore_now(ticks)` — z-score of the most recent price relative to the window.
+- `NormalizedTick::price_swing_count(ticks)` — number of price direction reversals (peaks and troughs).
+- `NormalizedTick::tick_order_flow_imbalance(ticks)` — (buy_vol - sell_vol) / (buy_vol + sell_vol).
+- `NormalizedTick::price_drawdown_speed(ticks)` — maximum peak-to-trough drop rate (drop / ticks between).
+
+**`ohlcv` module — `OhlcvBar` analytics (round 189)**
+- `OhlcvBar::bar_body_vol_corr(bars)` — Pearson correlation between absolute body size and volume.
+- `OhlcvBar::bar_body_change_rate(bars)` — mean absolute change in body size between consecutive bars.
+- `OhlcvBar::bar_upper_lower_ratio(bars)` — upper shadow / lower shadow of the last bar.
+- `OhlcvBar::bar_close_ema_spread(bars)` — last close minus EMA of closes, normalized by mean HL range.
+
+**`norm` module — `MinMaxNormalizer` + `ZScoreNormalizer` analytics (round 189)**
+- `window_inner_range()` — interquartile range: Q3 - Q1 of sorted window values.
+- `window_zero_crossing_density()` — sign-change count divided by window length.
+- `window_gradient_mean()` — mean of successive differences across the window.
+- `window_mid_range_f64()` — midpoint of the window's value range: (max + min) / 2.
+
+---
+
 ## [2.10.39] - 2026-03-20
 
 ### Added

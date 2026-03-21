@@ -9434,6 +9434,68 @@ impl NormalizedTick {
         Some(buys as f64 / sells as f64)
     }
 
+    /// Z-score of the most recent price relative to the window of prices.
+    pub fn tick_price_zscore_now(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() { return None; }
+        let prices: Vec<f64> = ticks.iter().filter_map(|t| t.price.to_f64()).collect();
+        if prices.is_empty() { return None; }
+        let mean = prices.iter().sum::<f64>() / prices.len() as f64;
+        let std = (prices.iter().map(|p| (p - mean).powi(2)).sum::<f64>() / prices.len() as f64).sqrt();
+        if std == 0.0 { return None; }
+        let last = *prices.last()?;
+        Some((last - mean) / std)
+    }
+
+    /// Number of price direction reversals (up→down or down→up) across ticks.
+    pub fn price_swing_count(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 3 { return None; }
+        let prices: Vec<f64> = ticks.iter().filter_map(|t| t.price.to_f64()).collect();
+        if prices.len() < 3 { return None; }
+        let count = prices.windows(3)
+            .filter(|w| (w[1] > w[0] && w[1] > w[2]) || (w[1] < w[0] && w[1] < w[2]))
+            .count();
+        Some(count as f64)
+    }
+
+    /// Order flow imbalance: (buy_vol - sell_vol) / (buy_vol + sell_vol).
+    pub fn tick_order_flow_imbalance(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() { return None; }
+        let buy_vol: f64 = ticks.iter()
+            .filter(|t| t.side == Some(TradeSide::Buy))
+            .filter_map(|t| t.quantity.to_f64())
+            .sum();
+        let sell_vol: f64 = ticks.iter()
+            .filter(|t| t.side == Some(TradeSide::Sell))
+            .filter_map(|t| t.quantity.to_f64())
+            .sum();
+        let total = buy_vol + sell_vol;
+        if total == 0.0 { return None; }
+        Some((buy_vol - sell_vol) / total)
+    }
+
+    /// Price drawdown speed: peak-to-trough drop divided by ticks between them.
+    pub fn price_drawdown_speed(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 2 { return None; }
+        let prices: Vec<f64> = ticks.iter().filter_map(|t| t.price.to_f64()).collect();
+        if prices.len() < 2 { return None; }
+        let mut max_drop_speed = 0.0_f64;
+        for i in 0..prices.len() {
+            let mut peak = prices[i];
+            for j in (i + 1)..prices.len() {
+                if prices[j] > peak { peak = prices[j]; }
+                let drop = peak - prices[j];
+                let span = (j - i) as f64;
+                let speed = drop / span;
+                if speed > max_drop_speed { max_drop_speed = speed; }
+            }
+        }
+        Some(max_drop_speed)
+    }
+
 }
 
 
@@ -21391,5 +21453,111 @@ mod tests {
         // No sells → None
         let ticks = vec![make_tick_pq(dec!(100), dec!(1))];
         assert!(NormalizedTick::tick_bid_ask_ratio(&ticks).is_none());
+    }
+
+    #[test]
+    fn test_tick_price_zscore_now_empty_none() {
+        assert!(NormalizedTick::tick_price_zscore_now(&[]).is_none());
+    }
+
+    #[test]
+    fn test_tick_price_zscore_now_constant_none() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![make_tick_pq(dec!(100), dec!(1)), make_tick_pq(dec!(100), dec!(1))];
+        assert!(NormalizedTick::tick_price_zscore_now(&ticks).is_none());
+    }
+
+    #[test]
+    fn test_tick_price_zscore_now_last_above_mean() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(110), dec!(1)),
+        ];
+        let z = NormalizedTick::tick_price_zscore_now(&ticks).unwrap();
+        assert!(z > 0.0);
+    }
+
+    #[test]
+    fn test_price_swing_count_empty_none() {
+        assert!(NormalizedTick::price_swing_count(&[]).is_none());
+    }
+
+    #[test]
+    fn test_price_swing_count_monotone_zero() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(101), dec!(1)),
+            make_tick_pq(dec!(102), dec!(1)),
+        ];
+        let c = NormalizedTick::price_swing_count(&ticks).unwrap();
+        assert_eq!(c, 0.0);
+    }
+
+    #[test]
+    fn test_price_swing_count_one_peak() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(110), dec!(1)),
+            make_tick_pq(dec!(100), dec!(1)),
+        ];
+        let c = NormalizedTick::price_swing_count(&ticks).unwrap();
+        assert_eq!(c, 1.0);
+    }
+
+    #[test]
+    fn test_tick_order_flow_imbalance_empty_none() {
+        assert!(NormalizedTick::tick_order_flow_imbalance(&[]).is_none());
+    }
+
+    #[test]
+    fn test_tick_order_flow_imbalance_all_buy() {
+        use rust_decimal_macros::dec;
+        let mut t = make_tick_pq(dec!(100), dec!(5));
+        t.side = Some(TradeSide::Buy);
+        let result = NormalizedTick::tick_order_flow_imbalance(&[t]).unwrap();
+        assert!((result - 1.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_tick_order_flow_imbalance_balanced() {
+        use rust_decimal_macros::dec;
+        let mut buy = make_tick_pq(dec!(100), dec!(5));
+        buy.side = Some(TradeSide::Buy);
+        let mut sell = make_tick_pq(dec!(100), dec!(5));
+        sell.side = Some(TradeSide::Sell);
+        let r = NormalizedTick::tick_order_flow_imbalance(&[buy, sell]).unwrap();
+        assert!((r - 0.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_price_drawdown_speed_empty_none() {
+        assert!(NormalizedTick::price_drawdown_speed(&[]).is_none());
+    }
+
+    #[test]
+    fn test_price_drawdown_speed_monotone_up_zero() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(101), dec!(1)),
+            make_tick_pq(dec!(102), dec!(1)),
+        ];
+        let s = NormalizedTick::price_drawdown_speed(&ticks).unwrap();
+        assert_eq!(s, 0.0);
+    }
+
+    #[test]
+    fn test_price_drawdown_speed_drop() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(80), dec!(1)),
+        ];
+        let s = NormalizedTick::price_drawdown_speed(&ticks).unwrap();
+        assert!((s - 20.0).abs() < 1e-9);
     }
 }

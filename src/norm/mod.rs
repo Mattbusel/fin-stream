@@ -6713,6 +6713,46 @@ impl MinMaxNormalizer {
         Some(ranges.iter().sum::<f64>() / ranges.len() as f64)
     }
 
+    /// Range of the middle 50% of values (Q3 - Q1).
+    pub fn window_inner_range(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let mut vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        vals.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let n = vals.len();
+        let q1 = vals[n / 4];
+        let q3 = vals[(3 * n) / 4];
+        Some(q3 - q1)
+    }
+
+    /// Zero-crossing density: count of sign changes divided by window length.
+    pub fn window_zero_crossing_density(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let crossings = vals.windows(2).filter(|w| w[0] * w[1] < 0.0).count();
+        Some(crossings as f64 / vals.len() as f64)
+    }
+
+    /// Mean of successive differences (gradient) across the window.
+    pub fn window_gradient_mean(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let diffs: Vec<f64> = vals.windows(2).map(|w| w[1] - w[0]).collect();
+        Some(diffs.iter().sum::<f64>() / diffs.len() as f64)
+    }
+
+    /// Mid-range: (max + min) / 2.
+    pub fn window_mid_range_f64(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let max = vals.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        let min = vals.iter().cloned().fold(f64::INFINITY, f64::min);
+        Some((max + min) / 2.0)
+    }
+
 }
 
 #[cfg(test)]
@@ -14586,6 +14626,64 @@ mod tests {
         let r = n.window_running_range().unwrap();
         assert!(r.abs() < 1e-9, "expected 0.0, got {}", r);
     }
+
+    #[test]
+    fn test_minmax_window_inner_range_none_for_empty() {
+        let n = norm(4);
+        assert!(n.window_inner_range().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_inner_range_value() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let r = n.window_inner_range().unwrap();
+        assert!(r >= 0.0);
+    }
+
+    #[test]
+    fn test_minmax_window_zero_crossing_density_none_for_single() {
+        let mut n = norm(4);
+        n.update(dec!(1));
+        assert!(n.window_zero_crossing_density().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_zero_crossing_density_no_crossings() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        let r = n.window_zero_crossing_density().unwrap();
+        assert_eq!(r, 0.0);
+    }
+
+    #[test]
+    fn test_minmax_window_gradient_mean_none_for_single() {
+        let mut n = norm(4);
+        n.update(dec!(5));
+        assert!(n.window_gradient_mean().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_gradient_mean_increasing() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        let g = n.window_gradient_mean().unwrap();
+        assert!((g - 1.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_minmax_window_mid_range_f64_none_for_empty() {
+        let n = norm(4);
+        assert!(n.window_mid_range_f64().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_mid_range_f64_value() {
+        let mut n = norm(4);
+        for v in [dec!(0), dec!(10)] { n.update(v); }
+        let m = n.window_mid_range_f64().unwrap();
+        assert!((m - 5.0).abs() < 1e-9);
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -21247,6 +21345,46 @@ impl ZScoreNormalizer {
             running_max - running_min
         }).collect();
         Some(ranges.iter().sum::<f64>() / ranges.len() as f64)
+    }
+
+    /// Range of the middle 50% of values (Q3 - Q1).
+    pub fn window_inner_range(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let mut vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        vals.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let n = vals.len();
+        let q1 = vals[n / 4];
+        let q3 = vals[(3 * n) / 4];
+        Some(q3 - q1)
+    }
+
+    /// Zero-crossing density: count of sign changes divided by window length.
+    pub fn window_zero_crossing_density(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let crossings = vals.windows(2).filter(|w| w[0] * w[1] < 0.0).count();
+        Some(crossings as f64 / vals.len() as f64)
+    }
+
+    /// Mean of successive differences (gradient) across the window.
+    pub fn window_gradient_mean(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let diffs: Vec<f64> = vals.windows(2).map(|w| w[1] - w[0]).collect();
+        Some(diffs.iter().sum::<f64>() / diffs.len() as f64)
+    }
+
+    /// Mid-range: (max + min) / 2.
+    pub fn window_mid_range_f64(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let max = vals.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        let min = vals.iter().cloned().fold(f64::INFINITY, f64::min);
+        Some((max + min) / 2.0)
     }
 
 }
@@ -29070,5 +29208,63 @@ mod zscore_stability_tests {
         for v in [dec!(5), dec!(5), dec!(5), dec!(5)] { n.update(v); }
         let r = n.window_running_range().unwrap();
         assert!(r.abs() < 1e-9, "expected 0.0, got {}", r);
+    }
+
+    #[test]
+    fn test_zscore_window_inner_range_none_for_empty() {
+        let n = znorm(4);
+        assert!(n.window_inner_range().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_inner_range_value() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let r = n.window_inner_range().unwrap();
+        assert!(r >= 0.0);
+    }
+
+    #[test]
+    fn test_zscore_window_zero_crossing_density_none_for_single() {
+        let mut n = znorm(4);
+        n.update(dec!(1));
+        assert!(n.window_zero_crossing_density().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_zero_crossing_density_no_crossings() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        let r = n.window_zero_crossing_density().unwrap();
+        assert_eq!(r, 0.0);
+    }
+
+    #[test]
+    fn test_zscore_window_gradient_mean_none_for_single() {
+        let mut n = znorm(4);
+        n.update(dec!(5));
+        assert!(n.window_gradient_mean().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_gradient_mean_increasing() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        let g = n.window_gradient_mean().unwrap();
+        assert!((g - 1.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_zscore_window_mid_range_f64_none_for_empty() {
+        let n = znorm(4);
+        assert!(n.window_mid_range_f64().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_mid_range_f64_value() {
+        let mut n = znorm(4);
+        for v in [dec!(0), dec!(10)] { n.update(v); }
+        let m = n.window_mid_range_f64().unwrap();
+        assert!((m - 5.0).abs() < 1e-9);
     }
 }
