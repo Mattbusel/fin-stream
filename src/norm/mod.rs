@@ -4026,6 +4026,52 @@ impl MinMaxNormalizer {
         Some(first_half.iter().sum::<f64>() / first_half.len() as f64)
     }
 
+    // ── round-134 ────────────────────────────────────────────────────────────
+
+    /// Mean of the second half of the window.
+    pub fn window_second_half_mean(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let mid = vals.len() / 2;
+        let second_half = &vals[mid..];
+        if second_half.is_empty() { return None; }
+        Some(second_half.iter().sum::<f64>() / second_half.len() as f64)
+    }
+
+    /// Count of local minima in the window (values less than both neighbors).
+    pub fn window_local_min_count(&self) -> Option<usize> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 3 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let count = vals.windows(3).filter(|w| w[1] < w[0] && w[1] < w[2]).count();
+        Some(count)
+    }
+
+    /// Curvature: mean of second-order differences (acceleration) in the window.
+    pub fn window_curvature(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 3 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let second_diffs: Vec<f64> = vals.windows(3)
+            .map(|w| (w[2] - w[1]) - (w[1] - w[0]))
+            .collect();
+        Some(second_diffs.iter().sum::<f64>() / second_diffs.len() as f64)
+    }
+
+    /// Mean of second half minus mean of first half of window.
+    pub fn window_half_diff(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let mid = vals.len() / 2;
+        let first_mean = vals[..mid].iter().sum::<f64>() / mid as f64;
+        let second = &vals[mid..];
+        if second.is_empty() { return None; }
+        let second_mean = second.iter().sum::<f64>() / second.len() as f64;
+        Some(second_mean - first_mean)
+    }
+
 }
 
 #[cfg(test)]
@@ -8537,6 +8583,70 @@ mod tests {
         let m = n.window_first_half_mean().unwrap();
         assert!((m - 1.5).abs() < 1e-9, "expected 1.5, got {}", m);
     }
+
+    // ── round-134 ────────────────────────────────────────────────────────────
+    #[test]
+    fn test_minmax_window_second_half_mean_none_for_single() {
+        let mut n = norm(3);
+        n.update(dec!(5));
+        assert!(n.window_second_half_mean().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_second_half_mean_basic() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        // second half: [3,4] → mean=3.5
+        let m = n.window_second_half_mean().unwrap();
+        assert!((m - 3.5).abs() < 1e-9, "expected 3.5, got {}", m);
+    }
+
+    #[test]
+    fn test_minmax_window_local_min_count_none_for_two() {
+        let mut n = norm(2);
+        for v in [dec!(2), dec!(1)] { n.update(v); }
+        assert!(n.window_local_min_count().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_local_min_count_one_valley() {
+        let mut n = norm(3);
+        for v in [dec!(3), dec!(1), dec!(2)] { n.update(v); }
+        let c = n.window_local_min_count().unwrap();
+        assert_eq!(c, 1);
+    }
+
+    #[test]
+    fn test_minmax_window_curvature_none_for_two() {
+        let mut n = norm(2);
+        for v in [dec!(1), dec!(2)] { n.update(v); }
+        assert!(n.window_curvature().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_curvature_linear_zero() {
+        let mut n = norm(3);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        // linear → 2nd diffs = 0
+        let c = n.window_curvature().unwrap();
+        assert!(c.abs() < 1e-9, "expected 0.0 for linear, got {}", c);
+    }
+
+    #[test]
+    fn test_minmax_window_half_diff_none_for_single() {
+        let mut n = norm(3);
+        n.update(dec!(5));
+        assert!(n.window_half_diff().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_half_diff_rising() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        // first_mean=1.5, second_mean=3.5 → diff=2.0
+        let d = n.window_half_diff().unwrap();
+        assert!((d - 2.0).abs() < 1e-9, "expected 2.0, got {}", d);
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -12507,6 +12617,52 @@ impl ZScoreNormalizer {
         let first_half = &vals[..mid];
         if first_half.is_empty() { return None; }
         Some(first_half.iter().sum::<f64>() / first_half.len() as f64)
+    }
+
+    // ── round-134 ────────────────────────────────────────────────────────────
+
+    /// Mean of the second half of the window.
+    pub fn window_second_half_mean(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let mid = vals.len() / 2;
+        let second_half = &vals[mid..];
+        if second_half.is_empty() { return None; }
+        Some(second_half.iter().sum::<f64>() / second_half.len() as f64)
+    }
+
+    /// Count of local minima in the window (values less than both neighbors).
+    pub fn window_local_min_count(&self) -> Option<usize> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 3 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let count = vals.windows(3).filter(|w| w[1] < w[0] && w[1] < w[2]).count();
+        Some(count)
+    }
+
+    /// Curvature: mean of second-order differences (acceleration) in the window.
+    pub fn window_curvature(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 3 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let second_diffs: Vec<f64> = vals.windows(3)
+            .map(|w| (w[2] - w[1]) - (w[1] - w[0]))
+            .collect();
+        Some(second_diffs.iter().sum::<f64>() / second_diffs.len() as f64)
+    }
+
+    /// Mean of second half minus mean of first half of window.
+    pub fn window_half_diff(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let mid = vals.len() / 2;
+        let first_mean = vals[..mid].iter().sum::<f64>() / mid as f64;
+        let second = &vals[mid..];
+        if second.is_empty() { return None; }
+        let second_mean = second.iter().sum::<f64>() / second.len() as f64;
+        Some(second_mean - first_mean)
     }
 
 }
@@ -17078,5 +17234,66 @@ mod zscore_stability_tests {
         for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
         let m = n.window_first_half_mean().unwrap();
         assert!((m - 1.5).abs() < 1e-9, "expected 1.5, got {}", m);
+    }
+
+    // ── round-134 ────────────────────────────────────────────────────────────
+    #[test]
+    fn test_zscore_window_second_half_mean_none_for_single() {
+        let mut n = znorm(3);
+        n.update(dec!(5));
+        assert!(n.window_second_half_mean().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_second_half_mean_basic() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let m = n.window_second_half_mean().unwrap();
+        assert!((m - 3.5).abs() < 1e-9, "expected 3.5, got {}", m);
+    }
+
+    #[test]
+    fn test_zscore_window_local_min_count_none_for_two() {
+        let mut n = znorm(2);
+        for v in [dec!(2), dec!(1)] { n.update(v); }
+        assert!(n.window_local_min_count().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_local_min_count_one_valley() {
+        let mut n = znorm(3);
+        for v in [dec!(3), dec!(1), dec!(2)] { n.update(v); }
+        let c = n.window_local_min_count().unwrap();
+        assert_eq!(c, 1);
+    }
+
+    #[test]
+    fn test_zscore_window_curvature_none_for_two() {
+        let mut n = znorm(2);
+        for v in [dec!(1), dec!(2)] { n.update(v); }
+        assert!(n.window_curvature().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_curvature_linear_zero() {
+        let mut n = znorm(3);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        let c = n.window_curvature().unwrap();
+        assert!(c.abs() < 1e-9, "expected 0.0 for linear, got {}", c);
+    }
+
+    #[test]
+    fn test_zscore_window_half_diff_none_for_single() {
+        let mut n = znorm(3);
+        n.update(dec!(5));
+        assert!(n.window_half_diff().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_half_diff_rising() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let d = n.window_half_diff().unwrap();
+        assert!((d - 2.0).abs() < 1e-9, "expected 2.0, got {}", d);
     }
 }

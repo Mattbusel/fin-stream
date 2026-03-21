@@ -6111,6 +6111,51 @@ impl OhlcvBar {
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
+    // ── round-134 ────────────────────────────────────────────────────────────
+
+    /// Bar high trend: mean of consecutive high differences.
+    pub fn bar_high_trend(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.len() < 2 { return None; }
+        let highs: Vec<f64> = bars.iter().map(|b| b.high.to_f64().unwrap_or(0.0)).collect();
+        let diffs: Vec<f64> = highs.windows(2).map(|w| w[1] - w[0]).collect();
+        Some(diffs.iter().sum::<f64>() / diffs.len() as f64)
+    }
+
+    /// Bar low trend: mean of consecutive low differences.
+    pub fn bar_low_trend(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.len() < 2 { return None; }
+        let lows: Vec<f64> = bars.iter().map(|b| b.low.to_f64().unwrap_or(0.0)).collect();
+        let diffs: Vec<f64> = lows.windows(2).map(|w| w[1] - w[0]).collect();
+        Some(diffs.iter().sum::<f64>() / diffs.len() as f64)
+    }
+
+    /// Close-high wick: mean of (high - close) / (high - low) per bar.
+    pub fn close_high_wick(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let vals: Vec<f64> = bars.iter().filter_map(|b| {
+            let hi = b.high.to_f64()?;
+            let lo = b.low.to_f64()?;
+            let cl = b.close.to_f64()?;
+            let range = hi - lo;
+            if range == 0.0 { return None; }
+            Some((hi - cl) / range)
+        }).collect();
+        if vals.is_empty() { return None; }
+        Some(vals.iter().sum::<f64>() / vals.len() as f64)
+    }
+
+    /// Bar open persistence: fraction where open[i] > open[i-1].
+    pub fn bar_open_persistence(bars: &[OhlcvBar]) -> Option<f64> {
+        if bars.len() < 2 { return None; }
+        let count = bars.windows(2)
+            .filter(|w| w[1].open > w[0].open)
+            .count();
+        Some(count as f64 / (bars.len() - 1) as f64)
+    }
+
 }
 
 impl std::fmt::Display for OhlcvBar {
@@ -14213,5 +14258,58 @@ mod tests {
         let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(110));
         let r = OhlcvBar::close_wick_ratio(&[b]).unwrap();
         assert!(r.abs() < 1e-9, "expected 0.0 for no upper wick, got {}", r);
+    }
+
+    // ── round-134 ────────────────────────────────────────────────────────────
+    #[test]
+    fn test_bar_high_trend_none_for_single() {
+        assert!(OhlcvBar::bar_high_trend(&[make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105))]).is_none());
+    }
+
+    #[test]
+    fn test_bar_high_trend_rising() {
+        let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let b2 = make_ohlcv_bar(dec!(105), dec!(120), dec!(95), dec!(115));
+        let t = OhlcvBar::bar_high_trend(&[b1, b2]).unwrap();
+        assert!(t > 0.0, "expected positive trend, got {}", t);
+    }
+
+    #[test]
+    fn test_bar_low_trend_none_for_single() {
+        assert!(OhlcvBar::bar_low_trend(&[make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105))]).is_none());
+    }
+
+    #[test]
+    fn test_bar_low_trend_falling() {
+        let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let b2 = make_ohlcv_bar(dec!(95), dec!(108), dec!(80), dec!(100));
+        let t = OhlcvBar::bar_low_trend(&[b1, b2]).unwrap();
+        assert!(t < 0.0, "expected negative trend for falling lows, got {}", t);
+    }
+
+    #[test]
+    fn test_close_high_wick_none_for_empty() {
+        assert!(OhlcvBar::close_high_wick(&[]).is_none());
+    }
+
+    #[test]
+    fn test_close_high_wick_at_high() {
+        // close at high → upper wick = 0
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(110));
+        let w = OhlcvBar::close_high_wick(&[b]).unwrap();
+        assert!(w.abs() < 1e-9, "expected 0.0 when close=high, got {}", w);
+    }
+
+    #[test]
+    fn test_bar_open_persistence_none_for_single() {
+        assert!(OhlcvBar::bar_open_persistence(&[make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105))]).is_none());
+    }
+
+    #[test]
+    fn test_bar_open_persistence_rising() {
+        let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let b2 = make_ohlcv_bar(dec!(105), dec!(115), dec!(95), dec!(110));
+        let p = OhlcvBar::bar_open_persistence(&[b1, b2]).unwrap();
+        assert!((p - 1.0).abs() < 1e-9, "expected 1.0, got {}", p);
     }
 }

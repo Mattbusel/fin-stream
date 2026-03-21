@@ -9,6 +9,36 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.8.5] - 2026-03-20
+
+### Added
+
+**`tick` module — `NormalizedTick` analytics (round 134)**
+- `NormalizedTick::price_zscore_mean(ticks)` — mean absolute z-score across all prices.
+- `NormalizedTick::tick_size_ratio(ticks)` — last quantity / mean quantity.
+- `NormalizedTick::buy_tick_fraction(ticks)` — fraction of ticks with Buy side.
+- `NormalizedTick::price_jump_count(ticks)` — count of price changes exceeding one std deviation.
+
+**`ohlcv` module — `OhlcvBar` analytics (round 134)**
+- `OhlcvBar::bar_high_trend(bars)` — mean of consecutive high differences.
+- `OhlcvBar::bar_low_trend(bars)` — mean of consecutive low differences.
+- `OhlcvBar::close_high_wick(bars)` — mean of (high - close) / (high - low) per bar.
+- `OhlcvBar::bar_open_persistence(bars)` — fraction of bars where open exceeds prior open.
+
+**`norm` module — `MinMaxNormalizer` analytics (round 134)**
+- `MinMaxNormalizer::window_second_half_mean()` — mean of the second half of the window.
+- `MinMaxNormalizer::window_local_min_count()` — count of local minima in the window.
+- `MinMaxNormalizer::window_curvature()` — mean of second-order differences in the window.
+- `MinMaxNormalizer::window_half_diff()` — second half mean minus first half mean.
+
+**`norm` module — `ZScoreNormalizer` analytics (round 134)**
+- `ZScoreNormalizer::window_second_half_mean()` — mean of the second half of the window.
+- `ZScoreNormalizer::window_local_min_count()` — count of local minima in the window.
+- `ZScoreNormalizer::window_curvature()` — mean of second-order differences in the window.
+- `ZScoreNormalizer::window_half_diff()` — second half mean minus first half mean.
+
+---
+
 ## [2.8.4] - 2026-03-20
 
 ### Added
