@@ -9,6 +9,30 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.10.30] - 2026-03-20
+
+### Added
+
+**`tick` module — `NormalizedTick` analytics (round 179)**
+- `NormalizedTick::tick_price_level_density(ticks)` — distinct price levels per unit price range.
+- `NormalizedTick::price_momentum_decay(ticks)` — first-half mean move minus second-half mean move.
+- `NormalizedTick::price_spread_pct(ticks)` — (max - min) / mean * 100.
+- `NormalizedTick::tick_side_balance_entropy(ticks)` — Shannon entropy of buy/sell split.
+
+**`ohlcv` module — `OhlcvBar` analytics (round 179)**
+- `OhlcvBar::bar_open_close_midpoint(bars)` — mean (open + close) / 2 per bar.
+- `OhlcvBar::bar_shadow_to_range(bars)` — mean shadow fraction of total range per bar.
+- `OhlcvBar::bar_body_wma(bars)` — linearly weighted mean of |close - open| per bar.
+- `OhlcvBar::bar_close_open_corr(bars)` — Pearson correlation between close and open.
+
+**`norm` module — `MinMaxNormalizer` + `ZScoreNormalizer` analytics (round 179)**
+- `window_sum_of_squares_f64()` — sum of squared window values (f64).
+- `window_geom_mean()` — geometric mean of absolute window values.
+- `window_first_to_mean()` — first value / window mean.
+- `window_last_to_max()` — last value / window maximum.
+
+---
+
 ## [2.10.29] - 2026-03-20
 
 ### Added

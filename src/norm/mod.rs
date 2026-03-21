@@ -6226,6 +6226,44 @@ impl MinMaxNormalizer {
         Some(above as f64 / n as f64)
     }
 
+    /// Sum of squares of all window values.
+    pub fn window_sum_of_squares_f64(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        Some(self.window.iter().map(|v| v.to_f64().unwrap_or(0.0).powi(2)).sum())
+    }
+
+    /// Geometric mean of absolute window values.
+    pub fn window_geom_mean(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0).abs()).collect();
+        if vals.iter().any(|&v| v == 0.0) { return None; }
+        let log_sum: f64 = vals.iter().map(|v| v.ln()).sum();
+        Some((log_sum / vals.len() as f64).exp())
+    }
+
+    /// first_value / mean of window values.
+    pub fn window_first_to_mean(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let mean = vals.iter().sum::<f64>() / vals.len() as f64;
+        if mean == 0.0 { return None; }
+        Some(vals[0] / mean)
+    }
+
+    /// last_value / max of window values.
+    pub fn window_last_to_max(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let max = vals.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        if max == 0.0 { return None; }
+        let last = *vals.last()?;
+        Some(last / max)
+    }
+
 }
 
 #[cfg(test)]
@@ -13516,6 +13554,66 @@ mod tests {
         let r = n.window_value_above_median().unwrap();
         assert!(r.abs() < 1e-9, "expected 0.0, got {}", r);
     }
+
+    // ── round-179 tests ──────────────────────────────────────────────────────
+
+    #[test]
+    fn test_minmax_window_sum_of_squares_f64_none_for_empty() {
+        let n = norm(4);
+        assert!(n.window_sum_of_squares_f64().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_sum_of_squares_f64_basic() {
+        let mut n = norm(2);
+        for v in [dec!(3), dec!(4)] { n.update(v); }
+        // 9 + 16 = 25
+        let r = n.window_sum_of_squares_f64().unwrap();
+        assert!((r - 25.0).abs() < 1e-9, "expected 25.0, got {}", r);
+    }
+
+    #[test]
+    fn test_minmax_window_geom_mean_none_for_empty() {
+        let n = norm(4);
+        assert!(n.window_geom_mean().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_geom_mean_constant() {
+        let mut n = norm(3);
+        for v in [dec!(4), dec!(4), dec!(4)] { n.update(v); }
+        let r = n.window_geom_mean().unwrap();
+        assert!((r - 4.0).abs() < 1e-9, "expected 4.0, got {}", r);
+    }
+
+    #[test]
+    fn test_minmax_window_first_to_mean_none_for_empty() {
+        let n = norm(4);
+        assert!(n.window_first_to_mean().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_first_to_mean_constant_one() {
+        let mut n = norm(3);
+        for v in [dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        let r = n.window_first_to_mean().unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "expected 1.0, got {}", r);
+    }
+
+    #[test]
+    fn test_minmax_window_last_to_max_none_for_empty() {
+        let n = norm(4);
+        assert!(n.window_last_to_max().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_last_to_max_max_is_last_one() {
+        let mut n = norm(3);
+        for v in [dec!(1), dec!(2), dec!(5)] { n.update(v); }
+        // last=5, max=5 → ratio=1.0
+        let r = n.window_last_to_max().unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "expected 1.0, got {}", r);
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -19690,6 +19788,44 @@ impl ZScoreNormalizer {
         let median = if n % 2 == 0 { (vals[n / 2 - 1] + vals[n / 2]) / 2.0 } else { vals[n / 2] };
         let above = self.window.iter().filter(|v| v.to_f64().unwrap_or(0.0) > median).count();
         Some(above as f64 / n as f64)
+    }
+
+    /// Sum of squares of all window values.
+    pub fn window_sum_of_squares_f64(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        Some(self.window.iter().map(|v| v.to_f64().unwrap_or(0.0).powi(2)).sum())
+    }
+
+    /// Geometric mean of absolute window values.
+    pub fn window_geom_mean(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0).abs()).collect();
+        if vals.iter().any(|&v| v == 0.0) { return None; }
+        let log_sum: f64 = vals.iter().map(|v| v.ln()).sum();
+        Some((log_sum / vals.len() as f64).exp())
+    }
+
+    /// first_value / mean of window values.
+    pub fn window_first_to_mean(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let mean = vals.iter().sum::<f64>() / vals.len() as f64;
+        if mean == 0.0 { return None; }
+        Some(vals[0] / mean)
+    }
+
+    /// last_value / max of window values.
+    pub fn window_last_to_max(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let max = vals.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        if max == 0.0 { return None; }
+        let last = *vals.last()?;
+        Some(last / max)
     }
 
 }
@@ -26945,5 +27081,63 @@ mod zscore_stability_tests {
         for v in [dec!(5), dec!(5), dec!(5)] { n.update(v); }
         let r = n.window_value_above_median().unwrap();
         assert!(r.abs() < 1e-9, "expected 0.0, got {}", r);
+    }
+
+    // ── round-179 tests ──────────────────────────────────────────────────────
+
+    #[test]
+    fn test_zscore_window_sum_of_squares_f64_none_for_empty() {
+        let n = znorm(4);
+        assert!(n.window_sum_of_squares_f64().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_sum_of_squares_f64_basic() {
+        let mut n = znorm(2);
+        for v in [dec!(3), dec!(4)] { n.update(v); }
+        let r = n.window_sum_of_squares_f64().unwrap();
+        assert!((r - 25.0).abs() < 1e-9, "expected 25.0, got {}", r);
+    }
+
+    #[test]
+    fn test_zscore_window_geom_mean_none_for_empty() {
+        let n = znorm(4);
+        assert!(n.window_geom_mean().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_geom_mean_constant() {
+        let mut n = znorm(3);
+        for v in [dec!(4), dec!(4), dec!(4)] { n.update(v); }
+        let r = n.window_geom_mean().unwrap();
+        assert!((r - 4.0).abs() < 1e-9, "expected 4.0, got {}", r);
+    }
+
+    #[test]
+    fn test_zscore_window_first_to_mean_none_for_empty() {
+        let n = znorm(4);
+        assert!(n.window_first_to_mean().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_first_to_mean_constant_one() {
+        let mut n = znorm(3);
+        for v in [dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        let r = n.window_first_to_mean().unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "expected 1.0, got {}", r);
+    }
+
+    #[test]
+    fn test_zscore_window_last_to_max_none_for_empty() {
+        let n = znorm(4);
+        assert!(n.window_last_to_max().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_last_to_max_max_is_last_one() {
+        let mut n = znorm(3);
+        for v in [dec!(1), dec!(2), dec!(5)] { n.update(v); }
+        let r = n.window_last_to_max().unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "expected 1.0, got {}", r);
     }
 }

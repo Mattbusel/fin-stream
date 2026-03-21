@@ -8861,6 +8861,64 @@ impl NormalizedTick {
         Some((last - first).abs() / range)
     }
 
+    /// Number of distinct price levels per unit range: count(unique prices) / range.
+    pub fn tick_price_level_density(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() { return None; }
+        let prices: Vec<f64> = ticks.iter().filter_map(|t| t.price.to_f64()).collect();
+        if prices.is_empty() { return None; }
+        let max = prices.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        let min = prices.iter().cloned().fold(f64::INFINITY, f64::min);
+        let range = max - min;
+        if range == 0.0 { return None; }
+        // count unique prices using integer repr at 6 decimal places
+        let mut unique: Vec<i64> = prices.iter().map(|p| (p * 1_000_000.0).round() as i64).collect();
+        unique.sort_unstable();
+        unique.dedup();
+        Some(unique.len() as f64 / range)
+    }
+
+    /// Rate at which momentum decays: first_half_mean_move - second_half_mean_move.
+    pub fn price_momentum_decay(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 4 { return None; }
+        let prices: Vec<f64> = ticks.iter().filter_map(|t| t.price.to_f64()).collect();
+        if prices.len() < 4 { return None; }
+        let moves: Vec<f64> = prices.windows(2).map(|w| (w[1] - w[0]).abs()).collect();
+        let half = moves.len() / 2;
+        let first_half = &moves[..half];
+        let second_half = &moves[half..];
+        let m1 = first_half.iter().sum::<f64>() / first_half.len() as f64;
+        let m2 = second_half.iter().sum::<f64>() / second_half.len() as f64;
+        Some(m1 - m2)
+    }
+
+    /// (max_price - min_price) / mean_price as percent — normalized spread.
+    pub fn price_spread_pct(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() { return None; }
+        let prices: Vec<f64> = ticks.iter().filter_map(|t| t.price.to_f64()).collect();
+        if prices.is_empty() { return None; }
+        let mean = prices.iter().sum::<f64>() / prices.len() as f64;
+        if mean == 0.0 { return None; }
+        let max = prices.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        let min = prices.iter().cloned().fold(f64::INFINITY, f64::min);
+        Some((max - min) / mean * 100.0)
+    }
+
+    /// Buy/sell side balance entropy: -p_buy*ln(p_buy) - p_sell*ln(p_sell) for sided ticks.
+    pub fn tick_side_balance_entropy(ticks: &[NormalizedTick]) -> Option<f64> {
+        if ticks.is_empty() { return None; }
+        let buy = ticks.iter().filter(|t| matches!(t.side, Some(TradeSide::Buy))).count();
+        let sell = ticks.iter().filter(|t| matches!(t.side, Some(TradeSide::Sell))).count();
+        let total = buy + sell;
+        if total == 0 { return None; }
+        let pb = buy as f64 / total as f64;
+        let ps = sell as f64 / total as f64;
+        let entropy = [pb, ps].iter().filter(|&&p| p > 0.0).map(|&p| -p * p.ln()).sum::<f64>();
+        Some(entropy)
+    }
+
 }
 
 
@@ -20163,5 +20221,80 @@ mod tests {
         ];
         let r = NormalizedTick::price_close_to_range_ratio(&ticks).unwrap();
         assert!(r.abs() < 1e-9, "expected 0.0, got {}", r);
+    }
+
+    // --- round-179 ---
+
+    #[test]
+    fn test_tick_price_level_density_none_for_empty() {
+        assert!(NormalizedTick::tick_price_level_density(&[]).is_none());
+    }
+
+    #[test]
+    fn test_tick_price_level_density_constant_none() {
+        use rust_decimal_macros::dec;
+        // All same → range=0 → None
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(100), dec!(1)),
+        ];
+        assert!(NormalizedTick::tick_price_level_density(&ticks).is_none());
+    }
+
+    #[test]
+    fn test_price_momentum_decay_none_for_short() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(101), dec!(1)),
+            make_tick_pq(dec!(102), dec!(1)),
+        ];
+        assert!(NormalizedTick::price_momentum_decay(&ticks).is_none());
+    }
+
+    #[test]
+    fn test_price_momentum_decay_constant_zero() {
+        use rust_decimal_macros::dec;
+        // Constant prices → all moves = 0 → decay = 0
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(100), dec!(1)),
+        ];
+        let r = NormalizedTick::price_momentum_decay(&ticks).unwrap();
+        assert!(r.abs() < 1e-9, "expected 0.0, got {}", r);
+    }
+
+    #[test]
+    fn test_price_spread_pct_none_for_empty() {
+        assert!(NormalizedTick::price_spread_pct(&[]).is_none());
+    }
+
+    #[test]
+    fn test_price_spread_pct_constant_zero() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(100), dec!(1)),
+        ];
+        let r = NormalizedTick::price_spread_pct(&ticks).unwrap();
+        assert!(r.abs() < 1e-9, "expected 0.0, got {}", r);
+    }
+
+    #[test]
+    fn test_tick_side_balance_entropy_none_for_empty() {
+        assert!(NormalizedTick::tick_side_balance_entropy(&[]).is_none());
+    }
+
+    #[test]
+    fn test_tick_side_balance_entropy_no_sides_none() {
+        use rust_decimal_macros::dec;
+        // No side info → total=0 → None
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(101), dec!(1)),
+        ];
+        assert!(NormalizedTick::tick_side_balance_entropy(&ticks).is_none());
     }
 }
