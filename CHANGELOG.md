@@ -9,6 +9,40 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.3.2] - 2026-03-20
+
+### Added
+
+**`tick` module — `NormalizedTick` analytics (round 80)**
+- `NormalizedTick::net_notional(ticks)` — `buy_notional − sell_notional`; positive = net dollar buying pressure.
+- `NormalizedTick::price_reversal_count(ticks)` — count of price direction reversals (up→down or down→up) across the slice.
+- `NormalizedTick::quantity_kurtosis(ticks)` — excess kurtosis of trade quantities; requires ≥ 4 ticks.
+- `NormalizedTick::largest_notional_trade(ticks)` — reference to the tick with the highest `price × quantity`; ranks by dollar value rather than raw size.
+- `NormalizedTick::twap(ticks)` — time-weighted average price using `received_at_ms` intervals as weights.
+- `NormalizedTick::neutral_fraction(ticks)` — fraction of ticks with `side == None`; complement of `aggressor_fraction`.
+- `NormalizedTick::log_return_variance(ticks)` — variance of tick-to-tick log returns; requires ≥ 3 ticks.
+- `NormalizedTick::volume_at_vwap(ticks, tolerance)` — total quantity traded within `tolerance` of the VWAP.
+
+**`ohlcv` module — `OhlcvBar` analytics (round 80)**
+- `OhlcvBar::close_recovery_ratio(bars)` — mean of `(close − low) / range`; near 1.0 = closes consistently near the high.
+- `OhlcvBar::median_range(bars)` — median of `high − low`; robust to outlier bars.
+- `OhlcvBar::mean_typical_price(bars)` — mean of `(high + low + close) / 3` across bars.
+- `OhlcvBar::directional_volume_ratio(bars)` — bullish volume / (bullish + bearish volume).
+- `OhlcvBar::inside_bar_fraction(bars)` — fraction of bars (from the second onward) that are inside bars.
+- `OhlcvBar::body_momentum(bars)` — net sum of signed body sizes `Σ(close − open)`; positive = net bullish drift.
+- `OhlcvBar::avg_trade_count(bars)` — mean `trade_count` (ticks per bar) across the slice.
+- `OhlcvBar::max_trade_count(bars)` — maximum `trade_count` seen across the slice.
+
+**`norm` module — `MinMaxNormalizer` and `ZScoreNormalizer` analytics (round 80)**
+- `trimmed_mean(p) -> Option<f64>` — arithmetic mean after discarding the bottom and top `p` fraction of values; `p` clamped to `[0.0, 0.499]`.
+- `linear_trend_slope() -> Option<f64>` — OLS slope of window values over insertion index; positive = upward trend.
+
+### Fixed
+- `trimmed_mean` tests: corrected trim fraction from `0.1` to `0.2` so that at least one element is removed per side with a 5-element window (floor(5 × 0.1) = 0 removes nothing).
+- `OhlcvBar::mean_typical_price` test: fixed borrow-after-move by pre-computing expected value before passing the bar into the slice.
+
+---
+
 ## [2.3.1] - 2026-03-20
 
 ### Added
