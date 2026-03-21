@@ -3014,6 +3014,65 @@ mod tests {
         let r = n.latest_rank_pct().unwrap();
         assert!(r.abs() < 1e-9, "latest is min → rank=0, got {}", r);
     }
+
+    // ── MinMaxNormalizer::trimmed_mean ────────────────────────────────────────
+
+    #[test]
+    fn test_minmax_trimmed_mean_none_for_empty() {
+        assert!(norm(4).trimmed_mean(0.1).is_none());
+    }
+
+    #[test]
+    fn test_minmax_trimmed_mean_equals_mean_at_zero_trim() {
+        let mut n = norm(4);
+        for v in [dec!(10), dec!(20), dec!(30), dec!(40)] { n.update(v); }
+        let tm = n.trimmed_mean(0.0).unwrap();
+        let m = n.mean().unwrap().to_f64().unwrap();
+        assert!((tm - m).abs() < 1e-9, "0% trim should equal mean, got tm={} m={}", tm, m);
+    }
+
+    #[test]
+    fn test_minmax_trimmed_mean_reduces_effect_of_outlier() {
+        let mut n = norm(5);
+        for v in [dec!(10), dec!(10), dec!(10), dec!(10), dec!(1000)] { n.update(v); }
+        // p=0.2 → trim = floor(5*0.2) = 1 element removed from each end
+        let tm = n.trimmed_mean(0.2).unwrap();
+        let m = n.mean().unwrap().to_f64().unwrap();
+        assert!(tm < m, "trimmed mean should be less than mean when outlier is trimmed, tm={} m={}", tm, m);
+    }
+
+    // ── MinMaxNormalizer::linear_trend_slope ─────────────────────────────────
+
+    #[test]
+    fn test_minmax_linear_trend_slope_none_for_single_value() {
+        let mut n = norm(4);
+        n.update(dec!(10));
+        assert!(n.linear_trend_slope().is_none());
+    }
+
+    #[test]
+    fn test_minmax_linear_trend_slope_positive_for_rising() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let slope = n.linear_trend_slope().unwrap();
+        assert!(slope > 0.0, "rising window → positive slope, got {}", slope);
+    }
+
+    #[test]
+    fn test_minmax_linear_trend_slope_negative_for_falling() {
+        let mut n = norm(4);
+        for v in [dec!(4), dec!(3), dec!(2), dec!(1)] { n.update(v); }
+        let slope = n.linear_trend_slope().unwrap();
+        assert!(slope < 0.0, "falling window → negative slope, got {}", slope);
+    }
+
+    #[test]
+    fn test_minmax_linear_trend_slope_zero_for_flat() {
+        let mut n = norm(4);
+        for v in [dec!(5), dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        let slope = n.linear_trend_slope().unwrap();
+        assert!(slope.abs() < 1e-9, "flat window → slope=0, got {}", slope);
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -6143,5 +6202,64 @@ mod zscore_stability_tests {
         for v in [dec!(1), dec!(2), dec!(3), dec!(4), dec!(5)] { n.update(v); }
         let r = n.sign_change_rate().unwrap();
         assert!((r - 0.0).abs() < 1e-9, "monotone should give 0.0, got {}", r);
+    }
+
+    // ── ZScoreNormalizer::trimmed_mean ────────────────────────────────────────
+
+    #[test]
+    fn test_zscore_trimmed_mean_none_for_empty() {
+        assert!(znorm(4).trimmed_mean(0.1).is_none());
+    }
+
+    #[test]
+    fn test_zscore_trimmed_mean_equals_mean_at_zero_trim() {
+        let mut n = znorm(4);
+        for v in [dec!(10), dec!(20), dec!(30), dec!(40)] { n.update(v); }
+        let tm = n.trimmed_mean(0.0).unwrap();
+        let m = n.mean().unwrap().to_f64().unwrap();
+        assert!((tm - m).abs() < 1e-9, "0% trim should equal mean, got tm={} m={}", tm, m);
+    }
+
+    #[test]
+    fn test_zscore_trimmed_mean_reduces_outlier_effect() {
+        let mut n = znorm(5);
+        for v in [dec!(10), dec!(10), dec!(10), dec!(10), dec!(1000)] { n.update(v); }
+        // p=0.2 → trim = floor(5*0.2) = 1 element removed from each end
+        let tm = n.trimmed_mean(0.2).unwrap();
+        let m = n.mean().unwrap().to_f64().unwrap();
+        assert!(tm < m, "trimmed mean should be less than mean when outlier trimmed, tm={} m={}", tm, m);
+    }
+
+    // ── ZScoreNormalizer::linear_trend_slope ─────────────────────────────────
+
+    #[test]
+    fn test_zscore_linear_trend_slope_none_for_single_value() {
+        let mut n = znorm(4);
+        n.update(dec!(10));
+        assert!(n.linear_trend_slope().is_none());
+    }
+
+    #[test]
+    fn test_zscore_linear_trend_slope_positive_for_rising() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let slope = n.linear_trend_slope().unwrap();
+        assert!(slope > 0.0, "rising window → positive slope, got {}", slope);
+    }
+
+    #[test]
+    fn test_zscore_linear_trend_slope_negative_for_falling() {
+        let mut n = znorm(4);
+        for v in [dec!(4), dec!(3), dec!(2), dec!(1)] { n.update(v); }
+        let slope = n.linear_trend_slope().unwrap();
+        assert!(slope < 0.0, "falling window → negative slope, got {}", slope);
+    }
+
+    #[test]
+    fn test_zscore_linear_trend_slope_zero_for_flat() {
+        let mut n = znorm(4);
+        for v in [dec!(5), dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        let slope = n.linear_trend_slope().unwrap();
+        assert!(slope.abs() < 1e-9, "flat window → slope=0, got {}", slope);
     }
 }

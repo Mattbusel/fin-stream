@@ -6103,4 +6103,143 @@ mod tests {
         let r = NormalizedTick::price_undershoot_ratio(&ticks).unwrap();
         assert!((r - 1.0).abs() < 1e-9, "monotone up → ratio=1, got {}", r);
     }
+
+    // ── round-80 tests ────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_net_notional_empty_is_zero() {
+        assert_eq!(NormalizedTick::net_notional(&[]), Decimal::ZERO);
+    }
+
+    #[test]
+    fn test_net_notional_positive_buy() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(5)).with_side(TradeSide::Buy),
+            make_tick_pq(dec!(100), dec!(2)).with_side(TradeSide::Sell),
+        ];
+        assert_eq!(NormalizedTick::net_notional(&ticks), dec!(300));
+    }
+
+    #[test]
+    fn test_price_reversal_count_empty_is_zero() {
+        assert_eq!(NormalizedTick::price_reversal_count(&[]), 0);
+    }
+
+    #[test]
+    fn test_price_reversal_count_monotone_is_zero() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(101), dec!(1)),
+            make_tick_pq(dec!(102), dec!(1)),
+        ];
+        assert_eq!(NormalizedTick::price_reversal_count(&ticks), 0);
+    }
+
+    #[test]
+    fn test_price_reversal_count_zigzag() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(105), dec!(1)),
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(105), dec!(1)),
+        ];
+        assert_eq!(NormalizedTick::price_reversal_count(&ticks), 2);
+    }
+
+    #[test]
+    fn test_quantity_kurtosis_none_for_few_ticks() {
+        use rust_decimal_macros::dec;
+        let t = make_tick_pq(dec!(100), dec!(1));
+        assert!(NormalizedTick::quantity_kurtosis(&[t]).is_none());
+    }
+
+    #[test]
+    fn test_quantity_kurtosis_some_for_sufficient() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(101), dec!(2)),
+            make_tick_pq(dec!(102), dec!(3)),
+            make_tick_pq(dec!(103), dec!(4)),
+        ];
+        assert!(NormalizedTick::quantity_kurtosis(&ticks).is_some());
+    }
+
+    #[test]
+    fn test_largest_notional_trade_none_for_empty() {
+        assert!(NormalizedTick::largest_notional_trade(&[]).is_none());
+    }
+
+    #[test]
+    fn test_largest_notional_trade_correct() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),   // notional = 100
+            make_tick_pq(dec!(50), dec!(10)),   // notional = 500 ← max
+            make_tick_pq(dec!(200), dec!(1)),   // notional = 200
+        ];
+        let t = NormalizedTick::largest_notional_trade(&ticks).unwrap();
+        assert_eq!(t.price, dec!(50));
+    }
+
+    #[test]
+    fn test_twap_none_for_single_tick() {
+        use rust_decimal_macros::dec;
+        assert!(NormalizedTick::twap(&[make_tick_pq(dec!(100), dec!(1))]).is_none());
+    }
+
+    #[test]
+    fn test_twap_two_equal_intervals() {
+        use rust_decimal_macros::dec;
+        let mut t1 = make_tick_pq(dec!(100), dec!(1));
+        t1.received_at_ms = 0;
+        let mut t2 = make_tick_pq(dec!(200), dec!(1));
+        t2.received_at_ms = 1000;
+        let mut t3 = make_tick_pq(dec!(300), dec!(1));
+        t3.received_at_ms = 2000;
+        // weights: t1 * 1000ms, t2 * 1000ms → TWAP = (100*1000 + 200*1000)/2000 = 150
+        let twap = NormalizedTick::twap(&[t1, t2, t3]).unwrap();
+        assert_eq!(twap, dec!(150));
+    }
+
+    #[test]
+    fn test_neutral_fraction_all_neutral() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(101), dec!(1)),
+        ];
+        let f = NormalizedTick::neutral_fraction(&ticks).unwrap();
+        assert!((f - 1.0).abs() < 1e-9, "all neutral → fraction=1, got {}", f);
+    }
+
+    #[test]
+    fn test_log_return_variance_none_for_few_ticks() {
+        use rust_decimal_macros::dec;
+        let t = make_tick_pq(dec!(100), dec!(1));
+        assert!(NormalizedTick::log_return_variance(&[t]).is_none());
+    }
+
+    #[test]
+    fn test_log_return_variance_zero_for_flat_prices() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(100), dec!(1)),
+        ];
+        let v = NormalizedTick::log_return_variance(&ticks).unwrap();
+        assert!(v.abs() < 1e-9, "flat prices → variance=0, got {}", v);
+    }
+
+    #[test]
+    fn test_volume_at_vwap_zero_for_empty() {
+        assert_eq!(
+            NormalizedTick::volume_at_vwap(&[], rust_decimal_macros::dec!(1)),
+            Decimal::ZERO
+        );
+    }
 }

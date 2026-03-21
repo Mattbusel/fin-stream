@@ -7440,4 +7440,97 @@ mod tests {
         let v = OhlcvBar::open_to_close_volatility(&bars).unwrap();
         assert!(v.abs() < 1e-9, "identical bars → volatility=0, got {}", v);
     }
+
+    // ── round-80 tests ────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_close_recovery_ratio_none_for_empty() {
+        assert!(OhlcvBar::close_recovery_ratio(&[]).is_none());
+    }
+
+    #[test]
+    fn test_close_recovery_ratio_one_for_close_at_high() {
+        // close == high → ratio = 1.0
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(110));
+        let r = OhlcvBar::close_recovery_ratio(&[b]).unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "close at high → ratio=1, got {}", r);
+    }
+
+    #[test]
+    fn test_median_range_none_for_empty() {
+        assert!(OhlcvBar::median_range(&[]).is_none());
+    }
+
+    #[test]
+    fn test_median_range_correct_odd() {
+        let bars = vec![
+            make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105)),  // range=20
+            make_ohlcv_bar(dec!(100), dec!(115), dec!(90), dec!(105)),  // range=25
+            make_ohlcv_bar(dec!(100), dec!(120), dec!(90), dec!(105)),  // range=30
+        ];
+        assert_eq!(OhlcvBar::median_range(&bars).unwrap(), dec!(25));
+    }
+
+    #[test]
+    fn test_mean_typical_price_none_for_empty() {
+        assert!(OhlcvBar::mean_typical_price(&[]).is_none());
+    }
+
+    #[test]
+    fn test_mean_typical_price_correct() {
+        // typical = (110 + 90 + 105) / 3 = 101.666...
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let expected = b.typical_price();
+        let b2 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let tp = OhlcvBar::mean_typical_price(&[b2]).unwrap();
+        assert_eq!(tp, expected);
+    }
+
+    #[test]
+    fn test_directional_volume_ratio_none_for_empty() {
+        assert!(OhlcvBar::directional_volume_ratio(&[]).is_none());
+    }
+
+    #[test]
+    fn test_directional_volume_ratio_one_for_all_bullish() {
+        let mut b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(108)); b1.volume = dec!(50);
+        let mut b2 = make_ohlcv_bar(dec!(105), dec!(115), dec!(100), dec!(112)); b2.volume = dec!(50);
+        let r = OhlcvBar::directional_volume_ratio(&[b1, b2]).unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "all bullish → ratio=1, got {}", r);
+    }
+
+    #[test]
+    fn test_inside_bar_fraction_none_for_single_bar() {
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        assert!(OhlcvBar::inside_bar_fraction(&[b]).is_none());
+    }
+
+    #[test]
+    fn test_body_momentum_empty_is_zero() {
+        assert_eq!(OhlcvBar::body_momentum(&[]), Decimal::ZERO);
+    }
+
+    #[test]
+    fn test_body_momentum_bullish_positive() {
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(108));
+        let m = OhlcvBar::body_momentum(&[b]);
+        assert!(m > Decimal::ZERO, "bullish bar → positive body momentum");
+    }
+
+    #[test]
+    fn test_avg_trade_count_none_for_empty() {
+        assert!(OhlcvBar::avg_trade_count(&[]).is_none());
+    }
+
+    #[test]
+    fn test_max_trade_count_none_for_empty() {
+        assert!(OhlcvBar::max_trade_count(&[]).is_none());
+    }
+
+    #[test]
+    fn test_max_trade_count_returns_max() {
+        let mut b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105)); b1.trade_count = 5;
+        let mut b2 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105)); b2.trade_count = 10;
+        assert_eq!(OhlcvBar::max_trade_count(&[b1, b2]).unwrap(), 10);
+    }
 }
