@@ -9,6 +9,36 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.7.7] - 2026-03-20
+
+### Added
+
+**`tick` module — `NormalizedTick` analytics (round 126)**
+- `NormalizedTick::qty_rms(ticks)` — root mean square of quantity values.
+- `NormalizedTick::bid_ask_proxy(ticks)` — mean price gap across alternating buy/sell tick pairs.
+- `NormalizedTick::tick_price_accel(ticks)` — mean second-order price change (acceleration).
+- `NormalizedTick::price_entropy_iqr(ticks)` — IQR of absolute price changes between consecutive ticks.
+
+**`ohlcv` module — `OhlcvBar` analytics (round 126)**
+- `OhlcvBar::body_ema(bars)` — EMA (α=0.2) of body sizes across bars.
+- `OhlcvBar::avg_true_range_ratio(bars)` — mean of (high - low) / prior close across bars.
+- `OhlcvBar::close_body_fraction(bars)` — mean fraction of bar range that is body.
+- `OhlcvBar::bar_momentum_accel(bars)` — mean second-order close change (acceleration).
+
+**`norm` module — `MinMaxNormalizer` analytics (round 126)**
+- `MinMaxNormalizer::window_ema_deviation()` — deviation of last value from EMA (α=0.2).
+- `MinMaxNormalizer::window_normalized_variance()` — variance divided by mean squared.
+- `MinMaxNormalizer::window_median_ratio()` — ratio of last value to window median.
+- `MinMaxNormalizer::window_half_life()` — steps from peak to first value at or below peak/2.
+
+**`norm` module — `ZScoreNormalizer` analytics (round 126)**
+- `ZScoreNormalizer::window_ema_deviation()` — deviation of last value from EMA (α=0.2).
+- `ZScoreNormalizer::window_normalized_variance()` — variance divided by mean squared.
+- `ZScoreNormalizer::window_median_ratio()` — ratio of last value to window median.
+- `ZScoreNormalizer::window_half_life()` — steps from peak to first value at or below peak/2.
+
+---
+
 ## [2.7.6] - 2026-03-20
 
 ### Added

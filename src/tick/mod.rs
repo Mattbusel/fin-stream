@@ -5782,6 +5782,51 @@ impl NormalizedTick {
         Some(q3 - q1)
     }
 
+    // ── round-126 ────────────────────────────────────────────────────────────
+
+    /// Root mean square of quantity values.
+    pub fn qty_rms(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() { return None; }
+        let sum_sq: f64 = ticks.iter().map(|t| t.quantity.to_f64().unwrap_or(0.0).powi(2)).sum();
+        Some((sum_sq / ticks.len() as f64).sqrt())
+    }
+
+    /// Bid-ask spread proxy: mean of |price[i] - price[i-1]| across alternating buy/sell pairs.
+    pub fn bid_ask_proxy(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let pairs: Vec<f64> = ticks.windows(2)
+            .filter(|w| {
+                matches!(w[0].side, Some(TradeSide::Buy)) && matches!(w[1].side, Some(TradeSide::Sell))
+                    || matches!(w[0].side, Some(TradeSide::Sell)) && matches!(w[1].side, Some(TradeSide::Buy))
+            })
+            .map(|w| (w[1].price - w[0].price).abs().to_f64().unwrap_or(0.0))
+            .collect();
+        if pairs.is_empty() { return None; }
+        Some(pairs.iter().sum::<f64>() / pairs.len() as f64)
+    }
+
+    /// Mean second-order price change (price acceleration).
+    pub fn tick_price_accel(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 3 { return None; }
+        let prices: Vec<f64> = ticks.iter().map(|t| t.price.to_f64().unwrap_or(0.0)).collect();
+        let acc: Vec<f64> = prices.windows(3).map(|w| w[2] - 2.0 * w[1] + w[0]).collect();
+        Some(acc.iter().sum::<f64>() / acc.len() as f64)
+    }
+
+    /// IQR of absolute price changes between consecutive ticks.
+    pub fn price_entropy_iqr(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 5 { return None; }
+        let mut diffs: Vec<f64> = ticks.windows(2)
+            .map(|w| (w[1].price - w[0].price).abs().to_f64().unwrap_or(0.0))
+            .collect();
+        diffs.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let n = diffs.len();
+        Some(diffs[(3 * n) / 4] - diffs[n / 4])
+    }
+
 }
 
 
@@ -13205,5 +13250,68 @@ mod tests {
         let ticks: Vec<_> = (0..8).map(|i| make_tick_pq(dec!(100) + rust_decimal::Decimal::from(i), dec!(1))).collect();
         let iqr = NormalizedTick::price_range_iqr(&ticks).unwrap();
         assert!(iqr >= 0.0, "expected non-negative iqr, got {}", iqr);
+    }
+
+    // ── round-126 ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_qty_rms_none_for_empty() {
+        assert!(NormalizedTick::qty_rms(&[]).is_none());
+    }
+
+    #[test]
+    fn test_qty_rms_single() {
+        use rust_decimal_macros::dec;
+        let t = make_tick_pq(dec!(100), dec!(3));
+        let r = NormalizedTick::qty_rms(&[t]).unwrap();
+        assert!((r - 3.0).abs() < 1e-9, "expected 3.0, got {}", r);
+    }
+
+    #[test]
+    fn test_bid_ask_proxy_none_for_no_pairs() {
+        use rust_decimal_macros::dec;
+        assert!(NormalizedTick::bid_ask_proxy(&[make_tick_pq(dec!(100), dec!(1))]).is_none());
+    }
+
+    #[test]
+    fn test_bid_ask_proxy_basic() {
+        use rust_decimal_macros::dec;
+        let mut buy = make_tick_pq(dec!(100), dec!(1));
+        buy.side = Some(TradeSide::Buy);
+        let mut sell = make_tick_pq(dec!(101), dec!(1));
+        sell.side = Some(TradeSide::Sell);
+        let p = NormalizedTick::bid_ask_proxy(&[buy, sell]).unwrap();
+        assert!((p - 1.0).abs() < 1e-9, "expected 1.0, got {}", p);
+    }
+
+    #[test]
+    fn test_tick_price_accel_none_for_two() {
+        use rust_decimal_macros::dec;
+        let ticks = [make_tick_pq(dec!(100), dec!(1)), make_tick_pq(dec!(101), dec!(1))];
+        assert!(NormalizedTick::tick_price_accel(&ticks).is_none());
+    }
+
+    #[test]
+    fn test_tick_price_accel_linear_zero() {
+        use rust_decimal_macros::dec;
+        // linear trend → zero acceleration
+        let ticks: Vec<_> = (0..4).map(|i| make_tick_pq(dec!(100) + rust_decimal::Decimal::from(i), dec!(1))).collect();
+        let a = NormalizedTick::tick_price_accel(&ticks).unwrap();
+        assert!(a.abs() < 1e-9, "expected 0.0, got {}", a);
+    }
+
+    #[test]
+    fn test_price_entropy_iqr_none_for_four() {
+        use rust_decimal_macros::dec;
+        let ticks: Vec<_> = (0..4).map(|i| make_tick_pq(dec!(100) + rust_decimal::Decimal::from(i), dec!(1))).collect();
+        assert!(NormalizedTick::price_entropy_iqr(&ticks).is_none());
+    }
+
+    #[test]
+    fn test_price_entropy_iqr_basic() {
+        use rust_decimal_macros::dec;
+        let ticks: Vec<_> = (0..8).map(|i| make_tick_pq(dec!(100) + rust_decimal::Decimal::from(i), dec!(1))).collect();
+        let iqr = NormalizedTick::price_entropy_iqr(&ticks).unwrap();
+        assert!(iqr >= 0.0, "expected non-negative, got {}", iqr);
     }
 }

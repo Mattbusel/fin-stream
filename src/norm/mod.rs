@@ -3653,6 +3653,58 @@ impl MinMaxNormalizer {
         Some(signed.abs() / abs_sum)
     }
 
+    // ── round-126 ────────────────────────────────────────────────────────────
+
+    /// Deviation of last value from EMA (α=0.2) of the window.
+    pub fn window_ema_deviation(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let alpha = 0.2f64;
+        let mut ema = self.window.front()?.to_f64()?;
+        for v in self.window.iter().skip(1) {
+            ema = alpha * v.to_f64().unwrap_or(0.0) + (1.0 - alpha) * ema;
+        }
+        let last = self.window.back()?.to_f64()?;
+        Some(last - ema)
+    }
+
+    /// Variance normalized by mean squared (coefficient of variation squared).
+    pub fn window_normalized_variance(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let n = vals.len() as f64;
+        let mean = vals.iter().sum::<f64>() / n;
+        if mean == 0.0 { return None; }
+        let var = vals.iter().map(|&x| (x - mean).powi(2)).sum::<f64>() / n;
+        Some(var / mean.powi(2))
+    }
+
+    /// Ratio of last value to window median.
+    pub fn window_median_ratio(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let mut sorted: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let n = sorted.len();
+        let median = if n % 2 == 0 { (sorted[n/2-1] + sorted[n/2]) / 2.0 } else { sorted[n/2] };
+        if median == 0.0 { return None; }
+        let last = self.window.back()?.to_f64()?;
+        Some(last / median)
+    }
+
+    /// Approximate half-life: steps for value to decay to half peak.
+    /// Returns the index of first value <= peak/2 from the peak, or None.
+    pub fn window_half_life(&self) -> Option<usize> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let peak = vals.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        let half = peak / 2.0;
+        let peak_idx = vals.iter().position(|&v| (v - peak).abs() < 1e-12)?;
+        vals[peak_idx..].iter().position(|&v| v <= half)
+    }
+
 }
 
 #[cfg(test)]
@@ -7677,6 +7729,67 @@ mod tests {
         let s = n.window_trend_strength().unwrap();
         assert!((s - 1.0).abs() < 1e-9, "expected 1.0, got {}", s);
     }
+
+    // ── round-126 ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_minmax_window_ema_deviation_none_for_empty() {
+        let n = norm(3);
+        assert!(n.window_ema_deviation().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_ema_deviation_flat() {
+        let mut n = norm(3);
+        for v in [dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        // ema=5, last=5 → dev=0
+        let d = n.window_ema_deviation().unwrap();
+        assert!(d.abs() < 1e-9, "expected 0.0, got {}", d);
+    }
+
+    #[test]
+    fn test_minmax_window_normalized_variance_none_for_empty() {
+        let n = norm(3);
+        assert!(n.window_normalized_variance().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_normalized_variance_uniform_zero() {
+        let mut n = norm(3);
+        for v in [dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        let v = n.window_normalized_variance().unwrap();
+        assert!(v.abs() < 1e-9, "expected 0.0, got {}", v);
+    }
+
+    #[test]
+    fn test_minmax_window_median_ratio_none_for_empty() {
+        let n = norm(3);
+        assert!(n.window_median_ratio().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_median_ratio_last_eq_median() {
+        let mut n = norm(3);
+        for v in [dec!(2), dec!(3), dec!(3)] { n.update(v); }
+        // median=3, last=3 → ratio=1.0
+        let r = n.window_median_ratio().unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "expected 1.0, got {}", r);
+    }
+
+    #[test]
+    fn test_minmax_window_half_life_none_for_empty() {
+        let n = norm(3);
+        assert!(n.window_half_life().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_half_life_immediate() {
+        let mut n = norm(3);
+        // 10 → 5 → already at half → position 1
+        for v in [dec!(10), dec!(5), dec!(3)] { n.update(v); }
+        let h = n.window_half_life().unwrap();
+        assert_eq!(h, 1);
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -11275,6 +11388,57 @@ impl ZScoreNormalizer {
         let abs_sum: f64 = vals.windows(2).map(|w| (w[1] - w[0]).abs()).sum();
         if abs_sum == 0.0 { return None; }
         Some(signed.abs() / abs_sum)
+    }
+
+    // ── round-126 ────────────────────────────────────────────────────────────
+
+    /// Deviation of last value from EMA (α=0.2) of the window.
+    pub fn window_ema_deviation(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let alpha = 0.2f64;
+        let mut ema = self.window.front()?.to_f64()?;
+        for v in self.window.iter().skip(1) {
+            ema = alpha * v.to_f64().unwrap_or(0.0) + (1.0 - alpha) * ema;
+        }
+        let last = self.window.back()?.to_f64()?;
+        Some(last - ema)
+    }
+
+    /// Variance normalized by mean squared.
+    pub fn window_normalized_variance(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let n = vals.len() as f64;
+        let mean = vals.iter().sum::<f64>() / n;
+        if mean == 0.0 { return None; }
+        let var = vals.iter().map(|&x| (x - mean).powi(2)).sum::<f64>() / n;
+        Some(var / mean.powi(2))
+    }
+
+    /// Ratio of last value to window median.
+    pub fn window_median_ratio(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let mut sorted: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let n = sorted.len();
+        let median = if n % 2 == 0 { (sorted[n/2-1] + sorted[n/2]) / 2.0 } else { sorted[n/2] };
+        if median == 0.0 { return None; }
+        let last = self.window.back()?.to_f64()?;
+        Some(last / median)
+    }
+
+    /// Approximate half-life: steps for value to decay to half peak from peak position.
+    pub fn window_half_life(&self) -> Option<usize> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let peak = vals.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        let half = peak / 2.0;
+        let peak_idx = vals.iter().position(|&v| (v - peak).abs() < 1e-12)?;
+        vals[peak_idx..].iter().position(|&v| v <= half)
     }
 
 }
@@ -15370,5 +15534,63 @@ mod zscore_stability_tests {
         for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
         let s = n.window_trend_strength().unwrap();
         assert!((s - 1.0).abs() < 1e-9, "expected 1.0, got {}", s);
+    }
+
+    // ── round-126 ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_zscore_window_ema_deviation_none_for_empty() {
+        let n = znorm(3);
+        assert!(n.window_ema_deviation().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_ema_deviation_flat() {
+        let mut n = znorm(3);
+        for v in [dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        let d = n.window_ema_deviation().unwrap();
+        assert!(d.abs() < 1e-9, "expected 0.0, got {}", d);
+    }
+
+    #[test]
+    fn test_zscore_window_normalized_variance_none_for_empty() {
+        let n = znorm(3);
+        assert!(n.window_normalized_variance().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_normalized_variance_uniform_zero() {
+        let mut n = znorm(3);
+        for v in [dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        let v = n.window_normalized_variance().unwrap();
+        assert!(v.abs() < 1e-9, "expected 0.0, got {}", v);
+    }
+
+    #[test]
+    fn test_zscore_window_median_ratio_none_for_empty() {
+        let n = znorm(3);
+        assert!(n.window_median_ratio().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_median_ratio_last_eq_median() {
+        let mut n = znorm(3);
+        for v in [dec!(2), dec!(3), dec!(3)] { n.update(v); }
+        let r = n.window_median_ratio().unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "expected 1.0, got {}", r);
+    }
+
+    #[test]
+    fn test_zscore_window_half_life_none_for_empty() {
+        let n = znorm(3);
+        assert!(n.window_half_life().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_half_life_immediate() {
+        let mut n = znorm(3);
+        for v in [dec!(10), dec!(5), dec!(3)] { n.update(v); }
+        let h = n.window_half_life().unwrap();
+        assert_eq!(h, 1);
     }
 }
