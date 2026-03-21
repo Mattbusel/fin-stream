@@ -9856,6 +9856,51 @@ impl OhlcvBar {
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
+    /// Mean rate of change of price range across consecutive bars (range velocity).
+    pub fn bar_range_velocity(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.len() < 2 { return None; }
+        let ranges: Vec<f64> = bars.iter().filter_map(|b| (b.high - b.low).to_f64()).collect();
+        if ranges.len() < 2 { return None; }
+        let diffs: Vec<f64> = ranges.windows(2).map(|w| w[1] - w[0]).collect();
+        Some(diffs.iter().sum::<f64>() / diffs.len() as f64)
+    }
+
+    /// Mean high minus close as fraction of range (upper pressure indicator).
+    pub fn bar_high_minus_close(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let vals: Vec<f64> = bars.iter().filter_map(|b| {
+            let hl = (b.high - b.low).to_f64()?;
+            if hl == 0.0 { return Some(0.0); }
+            let hc = (b.high - b.close).to_f64()?;
+            Some(hc / hl)
+        }).collect();
+        if vals.is_empty() { return None; }
+        Some(vals.iter().sum::<f64>() / vals.len() as f64)
+    }
+
+    /// Volume surge: std dev of bar volumes (absolute volume dispersion).
+    pub fn bar_vol_surge(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.len() < 2 { return None; }
+        let vols: Vec<f64> = bars.iter().filter_map(|b| b.volume.to_f64()).collect();
+        if vols.len() < 2 { return None; }
+        let mean = vols.iter().sum::<f64>() / vols.len() as f64;
+        let var = vols.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / (vols.len() - 1) as f64;
+        Some(var.sqrt())
+    }
+
+    /// Momentum index: mean of (close[i] - close[i-2]) across bars (2-step return).
+    pub fn bar_momentum_index(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.len() < 3 { return None; }
+        let closes: Vec<f64> = bars.iter().filter_map(|b| b.close.to_f64()).collect();
+        if closes.len() < 3 { return None; }
+        let diffs: Vec<f64> = closes.windows(3).map(|w| w[2] - w[0]).collect();
+        Some(diffs.iter().sum::<f64>() / diffs.len() as f64)
+    }
+
     /// Fraction of bars where close > open (bullish fraction).
     pub fn bar_bull_fraction(bars: &[OhlcvBar]) -> Option<f64> {
         if bars.is_empty() { return None; }
@@ -23023,5 +23068,63 @@ mod tests {
         b3.volume = dec!(5);
         let r = OhlcvBar::bar_high_vol_corr(&[b1, b2, b3]).unwrap();
         assert!(r >= -1.0 && r <= 1.0);
+    }
+
+    #[test]
+    fn test_bar_range_velocity_too_few_none() {
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        assert!(OhlcvBar::bar_range_velocity(&[b]).is_none());
+    }
+
+    #[test]
+    fn test_bar_range_velocity_returns_value() {
+        let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let b2 = make_ohlcv_bar(dec!(100), dec!(115), dec!(85), dec!(110));
+        let b3 = make_ohlcv_bar(dec!(100), dec!(120), dec!(80), dec!(115));
+        let r = OhlcvBar::bar_range_velocity(&[b1, b2, b3]);
+        assert!(r.is_some());
+    }
+
+    #[test]
+    fn test_bar_high_minus_close_empty_none() {
+        assert!(OhlcvBar::bar_high_minus_close(&[]).is_none());
+    }
+
+    #[test]
+    fn test_bar_high_minus_close_bounded() {
+        let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let b2 = make_ohlcv_bar(dec!(100), dec!(115), dec!(85), dec!(108));
+        let r = OhlcvBar::bar_high_minus_close(&[b1, b2]).unwrap();
+        assert!(r >= 0.0 && r <= 1.0);
+    }
+
+    #[test]
+    fn test_bar_vol_surge_too_few_none() {
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        assert!(OhlcvBar::bar_vol_surge(&[b]).is_none());
+    }
+
+    #[test]
+    fn test_bar_vol_surge_nonneg() {
+        let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let b2 = make_ohlcv_bar(dec!(100), dec!(115), dec!(85), dec!(110));
+        let r = OhlcvBar::bar_vol_surge(&[b1, b2]).unwrap();
+        assert!(r >= 0.0);
+    }
+
+    #[test]
+    fn test_bar_momentum_index_too_few_none() {
+        let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let b2 = make_ohlcv_bar(dec!(100), dec!(115), dec!(85), dec!(110));
+        assert!(OhlcvBar::bar_momentum_index(&[b1, b2]).is_none());
+    }
+
+    #[test]
+    fn test_bar_momentum_index_returns_value() {
+        let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let b2 = make_ohlcv_bar(dec!(105), dec!(115), dec!(95), dec!(110));
+        let b3 = make_ohlcv_bar(dec!(110), dec!(120), dec!(100), dec!(115));
+        let r = OhlcvBar::bar_momentum_index(&[b1, b2, b3]);
+        assert!(r.is_some());
     }
 }

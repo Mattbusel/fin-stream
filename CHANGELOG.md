@@ -9,6 +9,29 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.10.63] - 2026-03-20
+
+### Added
+
+**`tick` module — `NormalizedTick` analytics (round 212)**
+- `NormalizedTick::tick_price_kurtosis(ticks)` — excess kurtosis of tick price distribution.
+- `NormalizedTick::tick_vol_weighted_mid(ticks)` — volume-weighted midpoint of tick prices.
+- `NormalizedTick::tick_price_zscore(ticks)` — z-score of last tick price vs window.
+- `NormalizedTick::tick_recent_momentum(ticks)` — sign of first-to-last price change.
+
+**`ohlcv` module — `OhlcvBar` analytics (round 212)**
+- `OhlcvBar::bar_range_velocity(bars)` — mean rate of change of bar price ranges.
+- `OhlcvBar::bar_high_minus_close(bars)` — mean (high - close) / range (upper pressure).
+- `OhlcvBar::bar_vol_surge(bars)` — std dev of bar volumes (absolute volume dispersion).
+- `OhlcvBar::bar_momentum_index(bars)` — mean 2-step close-to-close change across bars.
+
+**`norm` module — `MinMaxNormalizer` + `ZScoreNormalizer` analytics (round 212)**
+- `window_tail_mass_ratio()` — ratio of sorted tail values to interquartile center.
+- `window_zero_cross_pct()` — fraction of consecutive pairs with sign transitions.
+- `window_pos_neg_ratio()` — ratio of positive to negative values in the window.
+
+---
+
 ## [2.10.62] - 2026-03-20
 
 ### Added

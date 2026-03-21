@@ -10242,6 +10242,54 @@ impl NormalizedTick {
         Some(last - first)
     }
 
+    /// Excess kurtosis of tick prices (fourth standardized moment minus 3).
+    pub fn tick_price_kurtosis(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 4 { return None; }
+        let prices: Vec<f64> = ticks.iter().filter_map(|t| t.price.to_f64()).collect();
+        if prices.len() < 4 { return None; }
+        let n = prices.len() as f64;
+        let mean = prices.iter().sum::<f64>() / n;
+        let var = prices.iter().map(|p| (p - mean).powi(2)).sum::<f64>() / n;
+        if var == 0.0 { return None; }
+        let kurt = prices.iter().map(|p| ((p - mean) / var.sqrt()).powi(4)).sum::<f64>() / n - 3.0;
+        Some(kurt)
+    }
+
+    /// Volume-weighted midpoint of tick prices.
+    pub fn tick_vol_weighted_mid(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() { return None; }
+        let total_qty: f64 = ticks.iter().filter_map(|t| t.quantity.to_f64()).sum();
+        if total_qty == 0.0 { return None; }
+        let weighted_sum: f64 = ticks.iter().filter_map(|t| {
+            Some(t.price.to_f64()? * t.quantity.to_f64()?)
+        }).sum();
+        Some(weighted_sum / total_qty)
+    }
+
+    /// Z-score of last tick price relative to the window mean and std dev.
+    pub fn tick_price_zscore(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 2 { return None; }
+        let prices: Vec<f64> = ticks.iter().filter_map(|t| t.price.to_f64()).collect();
+        if prices.len() < 2 { return None; }
+        let mean = prices.iter().sum::<f64>() / prices.len() as f64;
+        let var = prices.iter().map(|p| (p - mean).powi(2)).sum::<f64>() / (prices.len() - 1) as f64;
+        let std = var.sqrt();
+        if std == 0.0 { return None; }
+        Some((*prices.last()? - mean) / std)
+    }
+
+    /// Sign of recent price momentum: +1 if last price > first price, -1 otherwise.
+    pub fn tick_recent_momentum(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 2 { return None; }
+        let first = ticks.first()?.price.to_f64()?;
+        let last = ticks.last()?.price.to_f64()?;
+        if last > first { Some(1.0) } else if last < first { Some(-1.0) } else { Some(0.0) }
+    }
+
     /// Ratio of largest single trade to mean trade size.
     pub fn tick_order_size_ratio(ticks: &[NormalizedTick]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
@@ -24442,5 +24490,82 @@ mod tests {
         ];
         let r = NormalizedTick::tick_price_net_delta(&ticks).unwrap();
         assert!((r - 3.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_tick_price_kurtosis_too_few_none() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(101), dec!(1)),
+            make_tick_pq(dec!(102), dec!(1)),
+        ];
+        assert!(NormalizedTick::tick_price_kurtosis(&ticks).is_none());
+    }
+
+    #[test]
+    fn test_tick_price_kurtosis_returns_value() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(101), dec!(1)),
+            make_tick_pq(dec!(99), dec!(1)),
+            make_tick_pq(dec!(102), dec!(1)),
+        ];
+        let r = NormalizedTick::tick_price_kurtosis(&ticks);
+        assert!(r.is_some());
+    }
+
+    #[test]
+    fn test_tick_vol_weighted_mid_empty_none() {
+        assert!(NormalizedTick::tick_vol_weighted_mid(&[]).is_none());
+    }
+
+    #[test]
+    fn test_tick_vol_weighted_mid_uniform_qty() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(102), dec!(1)),
+        ];
+        let r = NormalizedTick::tick_vol_weighted_mid(&ticks).unwrap();
+        assert!((r - 101.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_tick_price_zscore_too_few_none() {
+        use rust_decimal_macros::dec;
+        let t = make_tick_pq(dec!(100), dec!(1));
+        assert!(NormalizedTick::tick_price_zscore(&[t]).is_none());
+    }
+
+    #[test]
+    fn test_tick_price_zscore_returns_value() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(105), dec!(1)),
+        ];
+        let r = NormalizedTick::tick_price_zscore(&ticks).unwrap();
+        assert!(r > 0.0); // last tick is highest
+    }
+
+    #[test]
+    fn test_tick_recent_momentum_too_few_none() {
+        use rust_decimal_macros::dec;
+        let t = make_tick_pq(dec!(100), dec!(1));
+        assert!(NormalizedTick::tick_recent_momentum(&[t]).is_none());
+    }
+
+    #[test]
+    fn test_tick_recent_momentum_up_one() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(105), dec!(1)),
+        ];
+        let r = NormalizedTick::tick_recent_momentum(&ticks).unwrap();
+        assert_eq!(r, 1.0);
     }
 }

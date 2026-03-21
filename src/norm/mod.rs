@@ -7835,6 +7835,45 @@ impl MinMaxNormalizer {
         Some(second_diffs.iter().sum::<f64>() / second_diffs.len() as f64)
     }
 
+    /// Ratio of tail values to center (tail mass ratio): sorted tails vs interquartile mean.
+    pub fn window_tail_mass_ratio(&self) -> Option<f64> {
+        if self.window.len() < 4 { return None; }
+        use rust_decimal::prelude::ToPrimitive;
+        let mut vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.len() < 4 { return None; }
+        vals.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let n = vals.len();
+        let mid_start = n / 4;
+        let mid_end = 3 * n / 4;
+        let tail_mean = (vals[..mid_start].iter().sum::<f64>() + vals[mid_end..].iter().sum::<f64>())
+            / (mid_start + (n - mid_end)) as f64;
+        let mid_mean = vals[mid_start..mid_end].iter().sum::<f64>() / (mid_end - mid_start) as f64;
+        if mid_mean == 0.0 { return None; }
+        Some(tail_mean / mid_mean)
+    }
+
+    /// Fraction of consecutive pairs that cross zero (signed transitions).
+    pub fn window_zero_cross_pct(&self) -> Option<f64> {
+        if self.window.len() < 2 { return None; }
+        use rust_decimal::prelude::ToPrimitive;
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.len() < 2 { return None; }
+        let crosses = vals.windows(2).filter(|w| w[0] * w[1] <= 0.0 && (w[0] != 0.0 || w[1] != 0.0)).count();
+        Some(crosses as f64 / (vals.len() - 1) as f64)
+    }
+
+    /// Ratio of positive to negative values in the window.
+    pub fn window_pos_neg_ratio(&self) -> Option<f64> {
+        if self.window.is_empty() { return None; }
+        use rust_decimal::prelude::ToPrimitive;
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.is_empty() { return None; }
+        let pos = vals.iter().filter(|&&v| v > 0.0).count() as f64;
+        let neg = vals.iter().filter(|&&v| v < 0.0).count() as f64;
+        if neg == 0.0 { return None; }
+        Some(pos / neg)
+    }
+
 }
 
 #[cfg(test)]
@@ -16954,6 +16993,51 @@ mod tests {
         let r = n.window_second_diff_mean().unwrap();
         assert!(r.abs() < 1e-10);
     }
+
+    #[test]
+    fn test_minmax_window_tail_mass_ratio_too_few_none() {
+        let mut n = norm(5);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        assert!(n.window_tail_mass_ratio().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_tail_mass_ratio_returns_value() {
+        let mut n = norm(8);
+        for v in [dec!(1), dec!(2), dec!(5), dec!(5), dec!(5), dec!(5), dec!(8), dec!(9)] { n.update(v); }
+        let r = n.window_tail_mass_ratio();
+        assert!(r.is_some());
+    }
+
+    #[test]
+    fn test_minmax_window_zero_cross_pct_too_few_none() {
+        let mut n = norm(5);
+        n.update(dec!(1));
+        assert!(n.window_zero_cross_pct().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_zero_cross_pct_all_positive_zero() {
+        let mut n = norm(5);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let r = n.window_zero_cross_pct().unwrap();
+        assert_eq!(r, 0.0);
+    }
+
+    #[test]
+    fn test_minmax_window_pos_neg_ratio_no_negatives_none() {
+        let mut n = norm(5);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        assert!(n.window_pos_neg_ratio().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_pos_neg_ratio_mixed() {
+        let mut n = norm(6);
+        for v in [dec!(1), dec!(-1), dec!(2), dec!(-2), dec!(3)] { n.update(v); }
+        let r = n.window_pos_neg_ratio().unwrap();
+        assert!(r > 0.0);
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -24734,6 +24818,45 @@ impl ZScoreNormalizer {
         if vals.len() < 3 { return None; }
         let second_diffs: Vec<f64> = vals.windows(3).map(|w| w[2] - 2.0 * w[1] + w[0]).collect();
         Some(second_diffs.iter().sum::<f64>() / second_diffs.len() as f64)
+    }
+
+    /// Ratio of tail values to center (tail mass ratio): sorted tails vs interquartile mean.
+    pub fn window_tail_mass_ratio(&self) -> Option<f64> {
+        if self.window.len() < 4 { return None; }
+        use rust_decimal::prelude::ToPrimitive;
+        let mut vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.len() < 4 { return None; }
+        vals.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let n = vals.len();
+        let mid_start = n / 4;
+        let mid_end = 3 * n / 4;
+        let tail_mean = (vals[..mid_start].iter().sum::<f64>() + vals[mid_end..].iter().sum::<f64>())
+            / (mid_start + (n - mid_end)) as f64;
+        let mid_mean = vals[mid_start..mid_end].iter().sum::<f64>() / (mid_end - mid_start) as f64;
+        if mid_mean == 0.0 { return None; }
+        Some(tail_mean / mid_mean)
+    }
+
+    /// Fraction of consecutive pairs that cross zero (signed transitions).
+    pub fn window_zero_cross_pct(&self) -> Option<f64> {
+        if self.window.len() < 2 { return None; }
+        use rust_decimal::prelude::ToPrimitive;
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.len() < 2 { return None; }
+        let crosses = vals.windows(2).filter(|w| w[0] * w[1] <= 0.0 && (w[0] != 0.0 || w[1] != 0.0)).count();
+        Some(crosses as f64 / (vals.len() - 1) as f64)
+    }
+
+    /// Ratio of positive to negative values in the window.
+    pub fn window_pos_neg_ratio(&self) -> Option<f64> {
+        if self.window.is_empty() { return None; }
+        use rust_decimal::prelude::ToPrimitive;
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.is_empty() { return None; }
+        let pos = vals.iter().filter(|&&v| v > 0.0).count() as f64;
+        let neg = vals.iter().filter(|&&v| v < 0.0).count() as f64;
+        if neg == 0.0 { return None; }
+        Some(pos / neg)
     }
 
 }
@@ -33803,5 +33926,50 @@ mod zscore_stability_tests {
         for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
         let r = n.window_second_diff_mean().unwrap();
         assert!(r.abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_zscore_window_tail_mass_ratio_too_few_none() {
+        let mut n = znorm(5);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        assert!(n.window_tail_mass_ratio().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_tail_mass_ratio_returns_value() {
+        let mut n = znorm(8);
+        for v in [dec!(1), dec!(2), dec!(5), dec!(5), dec!(5), dec!(5), dec!(8), dec!(9)] { n.update(v); }
+        let r = n.window_tail_mass_ratio();
+        assert!(r.is_some());
+    }
+
+    #[test]
+    fn test_zscore_window_zero_cross_pct_too_few_none() {
+        let mut n = znorm(5);
+        n.update(dec!(1));
+        assert!(n.window_zero_cross_pct().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_zero_cross_pct_all_positive_zero() {
+        let mut n = znorm(5);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let r = n.window_zero_cross_pct().unwrap();
+        assert_eq!(r, 0.0);
+    }
+
+    #[test]
+    fn test_zscore_window_pos_neg_ratio_no_negatives_none() {
+        let mut n = znorm(5);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        assert!(n.window_pos_neg_ratio().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_pos_neg_ratio_mixed() {
+        let mut n = znorm(6);
+        for v in [dec!(1), dec!(-1), dec!(2), dec!(-2), dec!(3)] { n.update(v); }
+        let r = n.window_pos_neg_ratio().unwrap();
+        assert!(r > 0.0);
     }
 }
