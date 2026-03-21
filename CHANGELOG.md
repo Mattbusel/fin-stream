@@ -27,9 +27,27 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - `OhlcvBar::avg_bar_efficiency(bars)` — mean `|close − open| / range` across non-doji bars.
 - `OhlcvBar::open_range_fraction(bars)` — fraction of bars where `open` is in the upper half of `[low, high]`.
 
+**`tick` module — `NormalizedTick` analytics (round 84, continued)**
+- `NormalizedTick::buy_quantity_fraction(ticks)` — fraction of total quantity attributable to buy-side trades.
+- `NormalizedTick::sell_quantity_fraction(ticks)` — fraction of total quantity attributable to sell-side trades.
+- `NormalizedTick::price_mean_crossover_count(ticks)` — count of times price crosses through its window mean.
+- `NormalizedTick::notional_skewness(ticks)` — skewness of per-tick notional (`price × quantity`) values.
+- `NormalizedTick::volume_weighted_mid_price(ticks)` — volume-weighted midpoint of the price range (VWAP).
+
+**`ohlcv` module — `OhlcvBar` analytics (round 84, continued)**
+- `OhlcvBar::close_skewness(bars)` — skewness of close prices across bars.
+- `OhlcvBar::volume_above_median_fraction(bars)` — fraction of bars with volume exceeding the median bar volume.
+- `OhlcvBar::typical_price_sum(bars)` — sum of `(high + low + close) / 3` across bars.
+- `OhlcvBar::max_body_size(bars)` — maximum `|close − open|` across all bars.
+- `OhlcvBar::min_body_size(bars)` — minimum `|close − open|` across all bars.
+- `OhlcvBar::avg_lower_wick_to_range(bars)` — mean ratio of lower wick to full bar range.
+
 **`norm` module — `MinMaxNormalizer` and `ZScoreNormalizer` analytics (round 84)**
 - `exponential_weighted_mean(alpha) -> Option<f64>` — EWM with decay `alpha`; most-recent value has highest weight.
 - `peak_to_trough_ratio() -> Option<f64>` — ratio of window maximum to minimum; requires non-zero minimum.
+- `second_moment() -> Option<f64>` — mean of squared window values (second raw moment).
+- `range_over_mean() -> Option<f64>` — coefficient of dispersion: `(max − min) / mean`.
+- `above_median_fraction() -> Option<f64>` — fraction of window values strictly above the window median.
 
 ---
 

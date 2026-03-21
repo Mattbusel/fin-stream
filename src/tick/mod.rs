@@ -2870,6 +2870,65 @@ impl NormalizedTick {
         Some(pv / total_qty)
     }
 
+    // ── round-85 ─────────────────────────────────────────────────────────────
+
+    /// Count of ticks with no aggressor side (side == None).
+    pub fn neutral_count(ticks: &[NormalizedTick]) -> usize {
+        ticks.iter().filter(|t| t.side.is_none()).count()
+    }
+
+    /// `max_price − min_price`; raw price spread across the slice.
+    pub fn price_dispersion(ticks: &[NormalizedTick]) -> Option<Decimal> {
+        if ticks.is_empty() {
+            return None;
+        }
+        let hi = ticks.iter().map(|t| t.price).max()?;
+        let lo = ticks.iter().map(|t| t.price).min()?;
+        Some(hi - lo)
+    }
+
+    /// Maximum per-tick notional (`price × quantity`) in the slice.
+    pub fn max_notional(ticks: &[NormalizedTick]) -> Option<Decimal> {
+        ticks.iter().map(|t| t.price * t.quantity).max()
+    }
+
+    /// Minimum per-tick notional (`price × quantity`) in the slice.
+    pub fn min_notional(ticks: &[NormalizedTick]) -> Option<Decimal> {
+        ticks.iter().map(|t| t.price * t.quantity).min()
+    }
+
+    /// Fraction of ticks with price below the slice VWAP.
+    pub fn below_vwap_fraction(ticks: &[NormalizedTick]) -> Option<f64> {
+        if ticks.is_empty() {
+            return None;
+        }
+        let vwap = Self::vwap(ticks)?;
+        let count = ticks.iter().filter(|t| t.price < vwap).count();
+        Some(count as f64 / ticks.len() as f64)
+    }
+
+    /// Standard deviation of per-tick notionals (`price × quantity`); requires ≥ 2 ticks.
+    ///
+    /// Distinct from `notional_std_dev` (which refers to the `notional` field); this uses
+    /// `price * quantity` directly.
+    pub fn trade_notional_std(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 2 {
+            return None;
+        }
+        let vals: Vec<f64> = ticks
+            .iter()
+            .filter_map(|t| (t.price * t.quantity).to_f64())
+            .collect();
+        let n = vals.len() as f64;
+        if n < 2.0 {
+            return None;
+        }
+        let mean = vals.iter().sum::<f64>() / n;
+        let var = vals.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / (n - 1.0);
+        Some(var.sqrt())
+    }
+
 }
 
 

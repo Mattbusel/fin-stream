@@ -1504,6 +1504,46 @@ impl MinMaxNormalizer {
         Some(count as f64 / self.window.len() as f64)
     }
 
+    // ── round-85 ─────────────────────────────────────────────────────────────
+
+    /// Mean of values strictly between Q1 and Q3 (the interquartile mean).
+    pub fn interquartile_mean(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() {
+            return None;
+        }
+        let q1 = self.percentile_value(0.25)?;
+        let q3 = self.percentile_value(0.75)?;
+        let iqr_vals: Vec<f64> = self.window
+            .iter()
+            .filter(|&&v| v > q1 && v < q3)
+            .filter_map(|v| v.to_f64())
+            .collect();
+        if iqr_vals.is_empty() {
+            return None;
+        }
+        Some(iqr_vals.iter().sum::<f64>() / iqr_vals.len() as f64)
+    }
+
+    /// Fraction of window values beyond `threshold` standard deviations from the mean.
+    pub fn outlier_fraction(&self, threshold: f64) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() {
+            return None;
+        }
+        let std_dev = self.std_dev()?;
+        let mean = self.mean()?.to_f64()?;
+        if std_dev == 0.0 {
+            return Some(0.0);
+        }
+        let count = self.window
+            .iter()
+            .filter_map(|v| v.to_f64())
+            .filter(|&v| ((v - mean) / std_dev).abs() > threshold)
+            .count();
+        Some(count as f64 / self.window.len() as f64)
+    }
+
 }
 
 #[cfg(test)]
@@ -6992,5 +7032,47 @@ mod zscore_stability_tests {
         for v in [dec!(2), dec!(4), dec!(1), dec!(8)] { n.update(v); }
         let r = n.peak_to_trough_ratio().unwrap();
         assert!((r - 8.0).abs() < 1e-9, "max=8, min=1 → ratio=8, got {}", r);
+    }
+
+    #[test]
+    fn test_zscore_second_moment_none_for_empty() {
+        let n = znorm(4);
+        assert!(n.second_moment().is_none());
+    }
+
+    #[test]
+    fn test_zscore_second_moment_correct() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        let m = n.second_moment().unwrap();
+        assert!((m - 14.0 / 3.0).abs() < 1e-9, "second moment ≈ 4.667, got {}", m);
+    }
+
+    #[test]
+    fn test_zscore_range_over_mean_none_for_empty() {
+        let n = znorm(4);
+        assert!(n.range_over_mean().is_none());
+    }
+
+    #[test]
+    fn test_zscore_range_over_mean_positive() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let r = n.range_over_mean().unwrap();
+        assert!(r > 0.0, "range/mean should be positive, got {}", r);
+    }
+
+    #[test]
+    fn test_zscore_above_median_fraction_none_for_empty() {
+        let n = znorm(4);
+        assert!(n.above_median_fraction().is_none());
+    }
+
+    #[test]
+    fn test_zscore_above_median_fraction_in_range() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let f = n.above_median_fraction().unwrap();
+        assert!(f >= 0.0 && f <= 1.0, "fraction in [0,1], got {}", f);
     }
 }

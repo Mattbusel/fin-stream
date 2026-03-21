@@ -3189,6 +3189,22 @@ impl OhlcvBar {
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
+    // ── round-85 ─────────────────────────────────────────────────────────────
+
+    /// `high − low` summed across all bars; total accumulated range.
+    pub fn total_range(bars: &[OhlcvBar]) -> Decimal {
+        bars.iter().map(|b| b.high - b.low).sum()
+    }
+
+    /// Fraction of bars where the close is strictly equal to the high (outside-bar bullish close).
+    pub fn close_at_high_fraction(bars: &[OhlcvBar]) -> Option<f64> {
+        if bars.is_empty() {
+            return None;
+        }
+        let count = bars.iter().filter(|b| b.close == b.high).count();
+        Some(count as f64 / bars.len() as f64)
+    }
+
 }
 
 impl std::fmt::Display for OhlcvBar {
