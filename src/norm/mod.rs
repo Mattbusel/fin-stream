@@ -3079,6 +3079,65 @@ impl MinMaxNormalizer {
         if den == 0.0 { None } else { Some(num / den) }
     }
 
+    // ── round-114 ────────────────────────────────────────────────────────────
+
+    /// Crest factor: max absolute value divided by RMS. Returns `None` if window
+    /// is empty or RMS is zero.
+    pub fn window_crest_factor(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let rms = (vals.iter().map(|&x| x * x).sum::<f64>() / vals.len() as f64).sqrt();
+        if rms == 0.0 { return None; }
+        let peak = vals.iter().map(|&x| x.abs()).fold(0f64, f64::max);
+        Some(peak / rms)
+    }
+
+    /// Relative range: `(max - min) / mean`. Returns `None` for empty window or
+    /// zero mean.
+    pub fn window_relative_range(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let mean = vals.iter().sum::<f64>() / vals.len() as f64;
+        if mean == 0.0 { return None; }
+        let max = vals.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        let min = vals.iter().cloned().fold(f64::INFINITY, f64::min);
+        Some((max - min) / mean)
+    }
+
+    /// Count of values more than `k` standard deviations from the mean (default k=2).
+    /// Returns `None` for fewer than 2 values.
+    pub fn window_outlier_count(&self) -> Option<usize> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let n = vals.len() as f64;
+        let mean = vals.iter().sum::<f64>() / n;
+        let std = (vals.iter().map(|&x| (x - mean).powi(2)).sum::<f64>() / (n - 1.0)).sqrt();
+        if std == 0.0 { return Some(0); }
+        let k = 2.0f64;
+        Some(vals.iter().filter(|&&x| (x - mean).abs() > k * std).count())
+    }
+
+    /// Exponential decay score: weighted mean where older values have exponentially
+    /// lower weight (alpha=0.5). Returns `None` for empty window.
+    pub fn window_decay_score(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let alpha = 0.5f64;
+        let n = vals.len();
+        let mut num = 0f64;
+        let mut denom = 0f64;
+        for (i, &v) in vals.iter().enumerate() {
+            let w = alpha.powi((n - 1 - i) as i32);
+            num += v * w;
+            denom += w;
+        }
+        if denom == 0.0 { None } else { Some(num / denom) }
+    }
+
 }
 
 #[cfg(test)]
@@ -6362,6 +6421,68 @@ mod tests {
         let s = n.window_slope().unwrap();
         assert!((s - 1.0).abs() < 1e-9, "expected 1.0, got {}", s);
     }
+
+    #[test]
+    fn test_minmax_window_crest_factor_none_for_empty() {
+        let n = norm(3);
+        assert!(n.window_crest_factor().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_crest_factor_basic() {
+        let mut n = norm(3);
+        // all equal → crest factor = 1.0
+        for v in [dec!(2), dec!(2), dec!(2)] { n.update(v); }
+        let c = n.window_crest_factor().unwrap();
+        assert!((c - 1.0).abs() < 1e-9, "expected 1.0, got {}", c);
+    }
+
+    #[test]
+    fn test_minmax_window_relative_range_none_for_empty() {
+        let n = norm(3);
+        assert!(n.window_relative_range().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_relative_range_basic() {
+        let mut n = norm(3);
+        // 1, 2, 3 → range=2, mean=2 → relative_range=1.0
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        let r = n.window_relative_range().unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "expected 1.0, got {}", r);
+    }
+
+    #[test]
+    fn test_minmax_window_outlier_count_none_for_single() {
+        let mut n = norm(3);
+        n.update(dec!(5));
+        assert!(n.window_outlier_count().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_outlier_count_basic() {
+        let mut n = norm(5);
+        // 1, 1, 1, 1, 1 — uniform → no outliers
+        for v in [dec!(1), dec!(1), dec!(1), dec!(1), dec!(1)] { n.update(v); }
+        let c = n.window_outlier_count().unwrap();
+        assert_eq!(c, 0);
+    }
+
+    #[test]
+    fn test_minmax_window_decay_score_none_for_empty() {
+        let n = norm(3);
+        assert!(n.window_decay_score().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_decay_score_basic() {
+        let mut n = norm(2);
+        n.update(dec!(0));
+        n.update(dec!(10));
+        // alpha=0.5: weights=[0.5, 1.0] (older→newer), num=0*0.5+10*1.0=10, denom=1.5 → 6.666..
+        let d = n.window_decay_score().unwrap();
+        assert!(d > 5.0, "expected decay-weighted value closer to 10, got {}", d);
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -9386,6 +9507,65 @@ impl ZScoreNormalizer {
         let num: f64 = vals.iter().enumerate().map(|(i, &y)| (i as f64 - x_mean) * (y - y_mean)).sum();
         let den: f64 = vals.iter().enumerate().map(|(i, _)| (i as f64 - x_mean).powi(2)).sum();
         if den == 0.0 { None } else { Some(num / den) }
+    }
+
+    // ── round-114 ────────────────────────────────────────────────────────────
+
+    /// Crest factor: max absolute value divided by RMS. Returns `None` if window
+    /// is empty or RMS is zero.
+    pub fn window_crest_factor(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let rms = (vals.iter().map(|&x| x * x).sum::<f64>() / vals.len() as f64).sqrt();
+        if rms == 0.0 { return None; }
+        let peak = vals.iter().map(|&x| x.abs()).fold(0f64, f64::max);
+        Some(peak / rms)
+    }
+
+    /// Relative range: `(max - min) / mean`. Returns `None` for empty window or
+    /// zero mean.
+    pub fn window_relative_range(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let mean = vals.iter().sum::<f64>() / vals.len() as f64;
+        if mean == 0.0 { return None; }
+        let max = vals.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        let min = vals.iter().cloned().fold(f64::INFINITY, f64::min);
+        Some((max - min) / mean)
+    }
+
+    /// Count of values more than `k` standard deviations from the mean (default k=2).
+    /// Returns `None` for fewer than 2 values.
+    pub fn window_outlier_count(&self) -> Option<usize> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let n = vals.len() as f64;
+        let mean = vals.iter().sum::<f64>() / n;
+        let std = (vals.iter().map(|&x| (x - mean).powi(2)).sum::<f64>() / (n - 1.0)).sqrt();
+        if std == 0.0 { return Some(0); }
+        let k = 2.0f64;
+        Some(vals.iter().filter(|&&x| (x - mean).abs() > k * std).count())
+    }
+
+    /// Exponential decay score: weighted mean where older values have exponentially
+    /// lower weight (alpha=0.5). Returns `None` for empty window.
+    pub fn window_decay_score(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let alpha = 0.5f64;
+        let n = vals.len();
+        let mut num = 0f64;
+        let mut denom = 0f64;
+        for (i, &v) in vals.iter().enumerate() {
+            let w = alpha.powi((n - 1 - i) as i32);
+            num += v * w;
+            denom += w;
+        }
+        if denom == 0.0 { None } else { Some(num / denom) }
     }
 
 }
@@ -12776,5 +12956,63 @@ mod zscore_stability_tests {
         for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
         let s = n.window_slope().unwrap();
         assert!((s - 1.0).abs() < 1e-9, "expected 1.0, got {}", s);
+    }
+
+    #[test]
+    fn test_zscore_window_crest_factor_none_for_empty() {
+        let n = znorm(3);
+        assert!(n.window_crest_factor().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_crest_factor_basic() {
+        let mut n = znorm(3);
+        for v in [dec!(2), dec!(2), dec!(2)] { n.update(v); }
+        let c = n.window_crest_factor().unwrap();
+        assert!((c - 1.0).abs() < 1e-9, "expected 1.0, got {}", c);
+    }
+
+    #[test]
+    fn test_zscore_window_relative_range_none_for_empty() {
+        let n = znorm(3);
+        assert!(n.window_relative_range().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_relative_range_basic() {
+        let mut n = znorm(3);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        let r = n.window_relative_range().unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "expected 1.0, got {}", r);
+    }
+
+    #[test]
+    fn test_zscore_window_outlier_count_none_for_single() {
+        let mut n = znorm(3);
+        n.update(dec!(5));
+        assert!(n.window_outlier_count().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_outlier_count_basic() {
+        let mut n = znorm(5);
+        for v in [dec!(1), dec!(1), dec!(1), dec!(1), dec!(1)] { n.update(v); }
+        let c = n.window_outlier_count().unwrap();
+        assert_eq!(c, 0);
+    }
+
+    #[test]
+    fn test_zscore_window_decay_score_none_for_empty() {
+        let n = znorm(3);
+        assert!(n.window_decay_score().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_decay_score_basic() {
+        let mut n = znorm(2);
+        n.update(dec!(0));
+        n.update(dec!(10));
+        let d = n.window_decay_score().unwrap();
+        assert!(d > 5.0, "expected decay-weighted value closer to 10, got {}", d);
     }
 }

@@ -9,6 +9,36 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.6.5] - 2026-03-20
+
+### Added
+
+**`tick` module — `NormalizedTick` analytics (round 114)**
+- `NormalizedTick::price_std_ratio(ticks)` — ratio of price std dev to mean price.
+- `NormalizedTick::qty_trend_strength(ticks)` — Pearson correlation of quantity with tick index.
+- `NormalizedTick::buy_to_sell_gap(ticks)` — mean absolute price gap at buy/sell transitions.
+- `NormalizedTick::tick_range_efficiency(ticks)` — net price move as fraction of total price range.
+
+**`ohlcv` module — `OhlcvBar` analytics (round 114)**
+- `OhlcvBar::close_reversal_rate(bars)` — fraction of eligible pairs where close direction reverses.
+- `OhlcvBar::avg_body_efficiency(bars)` — mean ratio of body size to bar range.
+- `OhlcvBar::volume_zscore(bars)` — z-score of the last bar's volume relative to the slice.
+- `OhlcvBar::body_skew(bars)` — skewness of bar body sizes across the slice.
+
+**`norm` module — `MinMaxNormalizer` analytics (round 114)**
+- `MinMaxNormalizer::window_crest_factor()` — peak absolute value divided by RMS.
+- `MinMaxNormalizer::window_relative_range()` — `(max - min) / mean` of window values.
+- `MinMaxNormalizer::window_outlier_count()` — count of values >2 std devs from the mean.
+- `MinMaxNormalizer::window_decay_score()` — exponentially decay-weighted mean (alpha=0.5).
+
+**`norm` module — `ZScoreNormalizer` analytics (round 114)**
+- `ZScoreNormalizer::window_crest_factor()` — peak absolute value divided by RMS.
+- `ZScoreNormalizer::window_relative_range()` — `(max - min) / mean` of window values.
+- `ZScoreNormalizer::window_outlier_count()` — count of values >2 std devs from the mean.
+- `ZScoreNormalizer::window_decay_score()` — exponentially decay-weighted mean (alpha=0.5).
+
+---
+
 ## [2.6.4] - 2026-03-20
 
 ### Added
