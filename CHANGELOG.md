@@ -9,6 +9,30 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.10.14] - 2026-03-20
+
+### Added
+
+**`tick` module — `NormalizedTick` analytics (round 163)**
+- `NormalizedTick::price_stability_index(ticks)` — 1 - (std/mean), bounded to [0,1].
+- `NormalizedTick::price_mean_abs_return(ticks)` — mean absolute log return.
+- `NormalizedTick::price_momentum_std(ticks)` — std dev of consecutive price differences.
+- `NormalizedTick::tick_turnover_rate(ticks)` — mean quantity traded per tick.
+
+**`ohlcv` module — `OhlcvBar` analytics (round 163)**
+- `OhlcvBar::bar_price_efficiency(bars)` — mean of |close-open|/(high-low) per bar.
+- `OhlcvBar::bar_close_range_pct(bars)` — mean of (close-low)/(high-low) per bar.
+- `OhlcvBar::bar_close_range_ratio(bars)` — mean of close/(high+low+close) per bar.
+- `OhlcvBar::bar_speed_mean(bars)` — mean of |close-open|/volume per bar.
+
+**`norm` module — `MinMaxNormalizer` + `ZScoreNormalizer` analytics (round 163)**
+- `window_min_to_mean()` — ratio of window minimum to window mean.
+- `window_normalized_range()` — (max-min) normalized by (max+min)/2.
+- `window_winsorized_mean()` — mean after clipping top and bottom 10% of values.
+- `window_range_to_std()` — ratio of (max-min) to standard deviation.
+
+---
+
 ## [2.10.13] - 2026-03-20
 
 ### Added
