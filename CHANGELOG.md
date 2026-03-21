@@ -9,6 +9,36 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.7.8] - 2026-03-20
+
+### Added
+
+**`tick` module — `NormalizedTick` analytics (round 127)**
+- `NormalizedTick::tick_dispersion_ratio(ticks)` — coefficient of variation of price values.
+- `NormalizedTick::price_linear_fit_error(ticks)` — mean squared error of a linear fit to prices.
+- `NormalizedTick::qty_harmonic_mean(ticks)` — harmonic mean of quantity values.
+- `NormalizedTick::late_trade_fraction(ticks)` — fraction of ticks in the second half of the slice.
+
+**`ohlcv` module — `OhlcvBar` analytics (round 127)**
+- `OhlcvBar::close_velocity(bars)` — mean absolute close change between consecutive bars.
+- `OhlcvBar::open_range_score(bars)` — mean of (open - low) / range per bar.
+- `OhlcvBar::body_trend_direction(bars)` — net fraction of bullish minus bearish bars.
+- `OhlcvBar::bar_tightness(bars)` — mean of (high - low) relative to bar midpoint.
+
+**`norm` module — `MinMaxNormalizer` analytics (round 127)**
+- `MinMaxNormalizer::window_entropy_normalized()` — Shannon entropy normalized to [0, 1].
+- `MinMaxNormalizer::window_peak_value()` — maximum value in the window.
+- `MinMaxNormalizer::window_trough_value()` — minimum value in the window.
+- `MinMaxNormalizer::window_gain_count()` — count of positive successive differences.
+
+**`norm` module — `ZScoreNormalizer` analytics (round 127)**
+- `ZScoreNormalizer::window_entropy_normalized()` — Shannon entropy normalized to [0, 1].
+- `ZScoreNormalizer::window_peak_value()` — maximum value in the window.
+- `ZScoreNormalizer::window_trough_value()` — minimum value in the window.
+- `ZScoreNormalizer::window_gain_count()` — count of positive successive differences.
+
+---
+
 ## [2.7.7] - 2026-03-20
 
 ### Added

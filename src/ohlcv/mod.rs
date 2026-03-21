@@ -5753,6 +5753,48 @@ impl OhlcvBar {
         Some(acc.iter().sum::<f64>() / acc.len() as f64)
     }
 
+    // ── round-127 ────────────────────────────────────────────────────────────
+
+    /// Mean absolute close change per bar (close velocity).
+    pub fn close_velocity(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.len() < 2 { return None; }
+        let sum: f64 = bars.windows(2)
+            .map(|w| (w[1].close - w[0].close).abs().to_f64().unwrap_or(0.0))
+            .sum();
+        Some(sum / (bars.len() - 1) as f64)
+    }
+
+    /// Mean of (open - low) / (high - low): how high in the range the open is.
+    pub fn open_range_score(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let sum: f64 = bars.iter().map(|b| {
+            let r = (b.high - b.low).to_f64().unwrap_or(0.0);
+            if r == 0.0 { 0.5 } else { (b.open - b.low).to_f64().unwrap_or(0.0) / r }
+        }).sum();
+        Some(sum / bars.len() as f64)
+    }
+
+    /// Net fraction of bars that are bullish minus bearish.
+    pub fn body_trend_direction(bars: &[OhlcvBar]) -> Option<f64> {
+        if bars.is_empty() { return None; }
+        let bull = bars.iter().filter(|b| b.close > b.open).count();
+        let bear = bars.iter().filter(|b| b.close < b.open).count();
+        Some((bull as f64 - bear as f64) / bars.len() as f64)
+    }
+
+    /// Mean of (high - low) relative to the bar midpoint (open+close)/2.
+    pub fn bar_tightness(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let sum: f64 = bars.iter().map(|b| {
+            let mid = ((b.open + b.close) / rust_decimal::Decimal::TWO).to_f64().unwrap_or(0.0);
+            if mid == 0.0 { 0.0 } else { (b.high - b.low).to_f64().unwrap_or(0.0) / mid }
+        }).sum();
+        Some(sum / bars.len() as f64)
+    }
+
 }
 
 impl std::fmt::Display for OhlcvBar {
@@ -13480,5 +13522,57 @@ mod tests {
         let b3 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(104));
         let a = OhlcvBar::bar_momentum_accel(&[b1, b2, b3]).unwrap();
         assert!(a.abs() < 1e-9, "expected 0.0, got {}", a);
+    }
+
+    // ── round-127 ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_close_velocity_none_for_single() {
+        assert!(OhlcvBar::close_velocity(&[make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105))]).is_none());
+    }
+
+    #[test]
+    fn test_close_velocity_constant_zero() {
+        let bars: Vec<_> = (0..3).map(|_| make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105))).collect();
+        let v = OhlcvBar::close_velocity(&bars).unwrap();
+        assert!(v.abs() < 1e-9, "expected 0.0, got {}", v);
+    }
+
+    #[test]
+    fn test_open_range_score_none_for_empty() {
+        assert!(OhlcvBar::open_range_score(&[]).is_none());
+    }
+
+    #[test]
+    fn test_open_range_score_open_at_low() {
+        // open=low=90, high=110 → score=0
+        let b = make_ohlcv_bar(dec!(90), dec!(110), dec!(90), dec!(100));
+        let s = OhlcvBar::open_range_score(&[b]).unwrap();
+        assert!(s.abs() < 1e-9, "expected 0.0, got {}", s);
+    }
+
+    #[test]
+    fn test_body_trend_direction_none_for_empty() {
+        assert!(OhlcvBar::body_trend_direction(&[]).is_none());
+    }
+
+    #[test]
+    fn test_body_trend_direction_all_bull() {
+        let bars: Vec<_> = (0..3).map(|_| make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105))).collect();
+        let d = OhlcvBar::body_trend_direction(&bars).unwrap();
+        assert!((d - 1.0).abs() < 1e-9, "expected 1.0, got {}", d);
+    }
+
+    #[test]
+    fn test_bar_tightness_none_for_empty() {
+        assert!(OhlcvBar::bar_tightness(&[]).is_none());
+    }
+
+    #[test]
+    fn test_bar_tightness_basic() {
+        // open=100, close=105, high=110, low=90 → mid=102.5, range=20, tightness=20/102.5≈0.195
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let t = OhlcvBar::bar_tightness(&[b]).unwrap();
+        assert!(t > 0.0, "expected positive tightness, got {}", t);
     }
 }

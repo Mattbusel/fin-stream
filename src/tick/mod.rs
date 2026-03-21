@@ -5827,6 +5827,58 @@ impl NormalizedTick {
         Some(diffs[(3 * n) / 4] - diffs[n / 4])
     }
 
+    // ── round-127 ────────────────────────────────────────────────────────────
+
+    /// Ratio of price std to price mean (coefficient of variation).
+    pub fn tick_dispersion_ratio(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 2 { return None; }
+        let vals: Vec<f64> = ticks.iter().map(|t| t.price.to_f64().unwrap_or(0.0)).collect();
+        let n = vals.len() as f64;
+        let mean = vals.iter().sum::<f64>() / n;
+        if mean == 0.0 { return None; }
+        let std = (vals.iter().map(|&x| (x - mean).powi(2)).sum::<f64>() / n).sqrt();
+        Some(std / mean)
+    }
+
+    /// Mean squared error of a linear fit to price sequence.
+    pub fn price_linear_fit_error(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 2 { return None; }
+        let y: Vec<f64> = ticks.iter().map(|t| t.price.to_f64().unwrap_or(0.0)).collect();
+        let n = y.len() as f64;
+        let x_mean = (n - 1.0) / 2.0;
+        let y_mean = y.iter().sum::<f64>() / n;
+        let ss_xy: f64 = y.iter().enumerate().map(|(i, &yi)| (i as f64 - x_mean) * (yi - y_mean)).sum();
+        let ss_xx: f64 = (0..y.len()).map(|i| (i as f64 - x_mean).powi(2)).sum();
+        let slope = if ss_xx == 0.0 { 0.0 } else { ss_xy / ss_xx };
+        let intercept = y_mean - slope * x_mean;
+        let mse: f64 = y.iter().enumerate().map(|(i, &yi)| {
+            let pred = intercept + slope * i as f64;
+            (yi - pred).powi(2)
+        }).sum::<f64>() / n;
+        Some(mse)
+    }
+
+    /// Harmonic mean of quantity values.
+    pub fn qty_harmonic_mean(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() { return None; }
+        let sum_recip: f64 = ticks.iter().map(|t| {
+            let q = t.quantity.to_f64().unwrap_or(0.0);
+            if q == 0.0 { 0.0 } else { 1.0 / q }
+        }).sum();
+        if sum_recip == 0.0 { return None; }
+        Some(ticks.len() as f64 / sum_recip)
+    }
+
+    /// Fraction of ticks in the second half of the slice.
+    pub fn late_trade_fraction(ticks: &[NormalizedTick]) -> Option<f64> {
+        if ticks.len() < 2 { return None; }
+        let mid = ticks.len() / 2;
+        Some((ticks.len() - mid) as f64 / ticks.len() as f64)
+    }
+
 }
 
 
@@ -13313,5 +13365,64 @@ mod tests {
         let ticks: Vec<_> = (0..8).map(|i| make_tick_pq(dec!(100) + rust_decimal::Decimal::from(i), dec!(1))).collect();
         let iqr = NormalizedTick::price_entropy_iqr(&ticks).unwrap();
         assert!(iqr >= 0.0, "expected non-negative, got {}", iqr);
+    }
+
+    // ── round-127 ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_tick_dispersion_ratio_none_for_single() {
+        use rust_decimal_macros::dec;
+        assert!(NormalizedTick::tick_dispersion_ratio(&[make_tick_pq(dec!(100), dec!(1))]).is_none());
+    }
+
+    #[test]
+    fn test_tick_dispersion_ratio_constant_zero() {
+        use rust_decimal_macros::dec;
+        let ticks: Vec<_> = (0..4).map(|_| make_tick_pq(dec!(100), dec!(1))).collect();
+        let r = NormalizedTick::tick_dispersion_ratio(&ticks).unwrap();
+        assert!(r.abs() < 1e-9, "expected 0.0, got {}", r);
+    }
+
+    #[test]
+    fn test_price_linear_fit_error_none_for_single() {
+        use rust_decimal_macros::dec;
+        assert!(NormalizedTick::price_linear_fit_error(&[make_tick_pq(dec!(100), dec!(1))]).is_none());
+    }
+
+    #[test]
+    fn test_price_linear_fit_error_perfect_linear_zero() {
+        use rust_decimal_macros::dec;
+        // perfectly linear prices → MSE = 0
+        let ticks: Vec<_> = (0..4).map(|i| make_tick_pq(dec!(100) + rust_decimal::Decimal::from(i * 2), dec!(1))).collect();
+        let e = NormalizedTick::price_linear_fit_error(&ticks).unwrap();
+        assert!(e < 1e-9, "expected ~0.0, got {}", e);
+    }
+
+    #[test]
+    fn test_qty_harmonic_mean_none_for_empty() {
+        assert!(NormalizedTick::qty_harmonic_mean(&[]).is_none());
+    }
+
+    #[test]
+    fn test_qty_harmonic_mean_uniform() {
+        use rust_decimal_macros::dec;
+        let ticks: Vec<_> = (0..4).map(|_| make_tick_pq(dec!(100), dec!(4))).collect();
+        let h = NormalizedTick::qty_harmonic_mean(&ticks).unwrap();
+        assert!((h - 4.0).abs() < 1e-9, "expected 4.0, got {}", h);
+    }
+
+    #[test]
+    fn test_late_trade_fraction_none_for_single() {
+        use rust_decimal_macros::dec;
+        assert!(NormalizedTick::late_trade_fraction(&[make_tick_pq(dec!(100), dec!(1))]).is_none());
+    }
+
+    #[test]
+    fn test_late_trade_fraction_basic() {
+        use rust_decimal_macros::dec;
+        let ticks: Vec<_> = (0..4).map(|i| make_tick_pq(dec!(100) + rust_decimal::Decimal::from(i), dec!(1))).collect();
+        let f = NormalizedTick::late_trade_fraction(&ticks).unwrap();
+        // 4 ticks: mid=2, late=2 → 0.5
+        assert!((f - 0.5).abs() < 1e-9, "expected 0.5, got {}", f);
     }
 }

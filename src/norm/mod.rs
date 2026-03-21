@@ -3705,6 +3705,46 @@ impl MinMaxNormalizer {
         vals[peak_idx..].iter().position(|&v| v <= half)
     }
 
+    // ── round-127 ────────────────────────────────────────────────────────────
+
+    /// Shannon entropy of the window normalized to [0, 1] by dividing by log2(n).
+    pub fn window_entropy_normalized(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let n = vals.len() as f64;
+        let total: f64 = vals.iter().map(|&v| v.abs()).sum();
+        if total == 0.0 { return Some(0.0); }
+        let entropy: f64 = vals.iter()
+            .map(|&v| { let p = v.abs() / total; if p > 0.0 { -p * p.log2() } else { 0.0 } })
+            .sum();
+        let max_entropy = n.log2();
+        if max_entropy == 0.0 { return Some(0.0); }
+        Some(entropy / max_entropy)
+    }
+
+    /// Maximum value in the window.
+    pub fn window_peak_value(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        Some(self.window.iter().map(|v| v.to_f64().unwrap_or(f64::NEG_INFINITY)).fold(f64::NEG_INFINITY, f64::max))
+    }
+
+    /// Minimum value in the window.
+    pub fn window_trough_value(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        Some(self.window.iter().map(|v| v.to_f64().unwrap_or(f64::INFINITY)).fold(f64::INFINITY, f64::min))
+    }
+
+    /// Count of positive successive differences (gains).
+    pub fn window_gain_count(&self) -> Option<usize> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        Some(vals.windows(2).filter(|w| w[1] > w[0]).count())
+    }
+
 }
 
 #[cfg(test)]
@@ -7790,6 +7830,66 @@ mod tests {
         let h = n.window_half_life().unwrap();
         assert_eq!(h, 1);
     }
+
+    // ── round-127 ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_minmax_window_entropy_normalized_none_for_empty() {
+        let n = norm(3);
+        assert!(n.window_entropy_normalized().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_entropy_normalized_single() {
+        let mut n = norm(3);
+        n.update(dec!(5));
+        // single → max_entropy=0 → 0.0
+        let e = n.window_entropy_normalized().unwrap();
+        assert!(e.abs() < 1e-9, "expected 0.0, got {}", e);
+    }
+
+    #[test]
+    fn test_minmax_window_peak_value_none_for_empty() {
+        let n = norm(3);
+        assert!(n.window_peak_value().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_peak_value_basic() {
+        let mut n = norm(3);
+        for v in [dec!(2), dec!(7), dec!(3)] { n.update(v); }
+        let p = n.window_peak_value().unwrap();
+        assert!((p - 7.0).abs() < 1e-9, "expected 7.0, got {}", p);
+    }
+
+    #[test]
+    fn test_minmax_window_trough_value_none_for_empty() {
+        let n = norm(3);
+        assert!(n.window_trough_value().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_trough_value_basic() {
+        let mut n = norm(3);
+        for v in [dec!(2), dec!(7), dec!(3)] { n.update(v); }
+        let t = n.window_trough_value().unwrap();
+        assert!((t - 2.0).abs() < 1e-9, "expected 2.0, got {}", t);
+    }
+
+    #[test]
+    fn test_minmax_window_gain_count_none_for_single() {
+        let mut n = norm(3);
+        n.update(dec!(5));
+        assert!(n.window_gain_count().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_gain_count_all_rising() {
+        let mut n = norm(3);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        let c = n.window_gain_count().unwrap();
+        assert_eq!(c, 2);
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -11439,6 +11539,46 @@ impl ZScoreNormalizer {
         let half = peak / 2.0;
         let peak_idx = vals.iter().position(|&v| (v - peak).abs() < 1e-12)?;
         vals[peak_idx..].iter().position(|&v| v <= half)
+    }
+
+    // ── round-127 ────────────────────────────────────────────────────────────
+
+    /// Shannon entropy of the window normalized to [0, 1].
+    pub fn window_entropy_normalized(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let n = vals.len() as f64;
+        let total: f64 = vals.iter().map(|&v| v.abs()).sum();
+        if total == 0.0 { return Some(0.0); }
+        let entropy: f64 = vals.iter()
+            .map(|&v| { let p = v.abs() / total; if p > 0.0 { -p * p.log2() } else { 0.0 } })
+            .sum();
+        let max_entropy = n.log2();
+        if max_entropy == 0.0 { return Some(0.0); }
+        Some(entropy / max_entropy)
+    }
+
+    /// Maximum value in the window.
+    pub fn window_peak_value(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        Some(self.window.iter().map(|v| v.to_f64().unwrap_or(f64::NEG_INFINITY)).fold(f64::NEG_INFINITY, f64::max))
+    }
+
+    /// Minimum value in the window.
+    pub fn window_trough_value(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        Some(self.window.iter().map(|v| v.to_f64().unwrap_or(f64::INFINITY)).fold(f64::INFINITY, f64::min))
+    }
+
+    /// Count of positive successive differences (gains).
+    pub fn window_gain_count(&self) -> Option<usize> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        Some(vals.windows(2).filter(|w| w[1] > w[0]).count())
     }
 
 }
@@ -15592,5 +15732,64 @@ mod zscore_stability_tests {
         for v in [dec!(10), dec!(5), dec!(3)] { n.update(v); }
         let h = n.window_half_life().unwrap();
         assert_eq!(h, 1);
+    }
+
+    // ── round-127 ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_zscore_window_entropy_normalized_none_for_empty() {
+        let n = znorm(3);
+        assert!(n.window_entropy_normalized().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_entropy_normalized_single() {
+        let mut n = znorm(3);
+        n.update(dec!(5));
+        let e = n.window_entropy_normalized().unwrap();
+        assert!(e.abs() < 1e-9, "expected 0.0, got {}", e);
+    }
+
+    #[test]
+    fn test_zscore_window_peak_value_none_for_empty() {
+        let n = znorm(3);
+        assert!(n.window_peak_value().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_peak_value_basic() {
+        let mut n = znorm(3);
+        for v in [dec!(2), dec!(7), dec!(3)] { n.update(v); }
+        let p = n.window_peak_value().unwrap();
+        assert!((p - 7.0).abs() < 1e-9, "expected 7.0, got {}", p);
+    }
+
+    #[test]
+    fn test_zscore_window_trough_value_none_for_empty() {
+        let n = znorm(3);
+        assert!(n.window_trough_value().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_trough_value_basic() {
+        let mut n = znorm(3);
+        for v in [dec!(2), dec!(7), dec!(3)] { n.update(v); }
+        let t = n.window_trough_value().unwrap();
+        assert!((t - 2.0).abs() < 1e-9, "expected 2.0, got {}", t);
+    }
+
+    #[test]
+    fn test_zscore_window_gain_count_none_for_single() {
+        let mut n = znorm(3);
+        n.update(dec!(5));
+        assert!(n.window_gain_count().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_gain_count_all_rising() {
+        let mut n = znorm(3);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        let c = n.window_gain_count().unwrap();
+        assert_eq!(c, 2);
     }
 }
