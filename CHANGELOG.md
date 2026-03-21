@@ -9,6 +9,36 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.10.6] - 2026-03-20
+
+### Added
+
+**`tick` module — `NormalizedTick` analytics (round 155)**
+- `NormalizedTick::price_range_vs_mean(ticks)` — ratio of price range (max-min) to mean price.
+- `NormalizedTick::tick_imbalance_ratio(ticks)` — (Buy count - Sell count) / total sided ticks.
+- `NormalizedTick::side_price_entropy(ticks)` — Shannon entropy of price bins across all ticks.
+- `NormalizedTick::price_max_drawdown(ticks)` — maximum peak-to-trough price decline fraction.
+
+**`ohlcv` module — `OhlcvBar` analytics (round 155)**
+- `OhlcvBar::bar_close_vs_range_mid(bars)` — mean of (close - bar midpoint) across bars.
+- `OhlcvBar::bar_atr_proxy(bars)` — average true range proxy: mean max(high-low, |close gap|).
+- `OhlcvBar::bar_mid_close_diff(bars)` — mean of (bar midpoint - close) across bars.
+- `OhlcvBar::bar_candle_strength(bars)` — mean body-to-range ratio (0=wick, 1=full body).
+
+**`norm` module — `MinMaxNormalizer` analytics (round 155)**
+- `MinMaxNormalizer::window_rise_fraction()` — fraction of consecutive rising value pairs.
+- `MinMaxNormalizer::window_peak_to_valley()` — difference between window max and min.
+- `MinMaxNormalizer::window_positive_change_mean()` — mean of positive consecutive changes.
+- `MinMaxNormalizer::window_range_cv()` — range-to-mean ratio of the window.
+
+**`norm` module — `ZScoreNormalizer` analytics (round 155)**
+- `ZScoreNormalizer::window_rise_fraction()` — fraction of consecutive rising value pairs.
+- `ZScoreNormalizer::window_peak_to_valley()` — difference between window max and min.
+- `ZScoreNormalizer::window_positive_change_mean()` — mean of positive consecutive changes.
+- `ZScoreNormalizer::window_range_cv()` — range-to-mean ratio of the window.
+
+---
+
 ## [2.10.5] - 2026-03-20
 
 ### Added
