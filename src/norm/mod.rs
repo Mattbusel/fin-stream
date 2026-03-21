@@ -5712,6 +5712,58 @@ impl MinMaxNormalizer {
         Some(vals.iter().map(|v| v * v).sum::<f64>() / vals.len() as f64)
     }
 
+    // ── round-168 ────────────────────────────────────────────────────────────
+
+    /// Mean of (value[i] - value[i-lag]) for lag=1 (mean consecutive change).
+    pub fn window_mean_lag_diff(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let diffs: Vec<f64> = vals.windows(2).map(|w| w[1] - w[0]).collect();
+        Some(diffs.iter().sum::<f64>() / diffs.len() as f64)
+    }
+
+    /// Mean absolute pct change per step: mean(|diff| / |prev|).
+    pub fn window_change_rate(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let rates: Vec<f64> = vals.windows(2)
+            .filter_map(|w| {
+                if w[0].abs() < 1e-12 { return None; }
+                Some((w[1] - w[0]).abs() / w[0].abs())
+            })
+            .collect();
+        if rates.is_empty() { return None; }
+        Some(rates.iter().sum::<f64>() / rates.len() as f64)
+    }
+
+    /// Fraction of window values more than 2 std devs from mean (spike fraction).
+    pub fn window_spike_fraction(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let n = vals.len() as f64;
+        let mean = vals.iter().sum::<f64>() / n;
+        let std = (vals.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / n).sqrt();
+        if std == 0.0 { return Some(0.0); }
+        let spikes = vals.iter().filter(|&&v| (v - mean).abs() > 2.0 * std).count();
+        Some(spikes as f64 / n)
+    }
+
+    /// Mean speed of reversion toward mean: mean(|prev - mean| - |curr - mean|).
+    pub fn window_mean_reversion_speed(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let n = vals.len() as f64;
+        let mean = vals.iter().sum::<f64>() / n;
+        let speeds: Vec<f64> = vals.windows(2)
+            .map(|w| (w[0] - mean).abs() - (w[1] - mean).abs())
+            .collect();
+        Some(speeds.iter().sum::<f64>() / speeds.len() as f64)
+    }
+
 }
 
 #[cfg(test)]
@@ -12335,6 +12387,68 @@ mod tests {
         let m = n.window_mean_square().unwrap();
         assert!((m - 9.0).abs() < 1e-9, "expected 9.0, got {}", m);
     }
+
+    // ── round-168 tests ──────────────────────────────────────────────────────
+
+    #[test]
+    fn test_minmax_window_mean_lag_diff_none_for_single() {
+        let mut n = norm(4);
+        n.update(dec!(5));
+        assert!(n.window_mean_lag_diff().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_mean_lag_diff_constant_zero() {
+        let mut n = norm(3);
+        for v in [dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        let d = n.window_mean_lag_diff().unwrap();
+        assert!((d - 0.0).abs() < 1e-9, "expected 0.0, got {}", d);
+    }
+
+    #[test]
+    fn test_minmax_window_change_rate_none_for_single() {
+        let mut n = norm(4);
+        n.update(dec!(5));
+        assert!(n.window_change_rate().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_change_rate_constant_zero() {
+        let mut n = norm(3);
+        for v in [dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        let r = n.window_change_rate().unwrap();
+        assert!((r - 0.0).abs() < 1e-9, "expected 0.0, got {}", r);
+    }
+
+    #[test]
+    fn test_minmax_window_spike_fraction_none_for_single() {
+        let mut n = norm(4);
+        n.update(dec!(5));
+        assert!(n.window_spike_fraction().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_spike_fraction_constant_zero() {
+        let mut n = norm(3);
+        for v in [dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        let s = n.window_spike_fraction().unwrap();
+        assert!((s - 0.0).abs() < 1e-9, "expected 0.0, got {}", s);
+    }
+
+    #[test]
+    fn test_minmax_window_mean_reversion_speed_none_for_single() {
+        let mut n = norm(4);
+        n.update(dec!(5));
+        assert!(n.window_mean_reversion_speed().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_mean_reversion_speed_constant_zero() {
+        let mut n = norm(3);
+        for v in [dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        let s = n.window_mean_reversion_speed().unwrap();
+        assert!((s - 0.0).abs() < 1e-9, "expected 0.0, got {}", s);
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -17995,6 +18109,58 @@ impl ZScoreNormalizer {
         if self.window.is_empty() { return None; }
         let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
         Some(vals.iter().map(|v| v * v).sum::<f64>() / vals.len() as f64)
+    }
+
+    // ── round-168 ────────────────────────────────────────────────────────────
+
+    /// Mean of (value[i] - value[i-lag]) for lag=1 (mean consecutive change).
+    pub fn window_mean_lag_diff(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let diffs: Vec<f64> = vals.windows(2).map(|w| w[1] - w[0]).collect();
+        Some(diffs.iter().sum::<f64>() / diffs.len() as f64)
+    }
+
+    /// Mean absolute pct change per step: mean(|diff| / |prev|).
+    pub fn window_change_rate(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let rates: Vec<f64> = vals.windows(2)
+            .filter_map(|w| {
+                if w[0].abs() < 1e-12 { return None; }
+                Some((w[1] - w[0]).abs() / w[0].abs())
+            })
+            .collect();
+        if rates.is_empty() { return None; }
+        Some(rates.iter().sum::<f64>() / rates.len() as f64)
+    }
+
+    /// Fraction of window values more than 2 std devs from mean (spike fraction).
+    pub fn window_spike_fraction(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let n = vals.len() as f64;
+        let mean = vals.iter().sum::<f64>() / n;
+        let std = (vals.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / n).sqrt();
+        if std == 0.0 { return Some(0.0); }
+        let spikes = vals.iter().filter(|&&v| (v - mean).abs() > 2.0 * std).count();
+        Some(spikes as f64 / n)
+    }
+
+    /// Mean speed of reversion toward mean: mean(|prev - mean| - |curr - mean|).
+    pub fn window_mean_reversion_speed(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let n = vals.len() as f64;
+        let mean = vals.iter().sum::<f64>() / n;
+        let speeds: Vec<f64> = vals.windows(2)
+            .map(|w| (w[0] - mean).abs() - (w[1] - mean).abs())
+            .collect();
+        Some(speeds.iter().sum::<f64>() / speeds.len() as f64)
     }
 
 }
@@ -24593,5 +24759,67 @@ mod zscore_stability_tests {
         for v in [dec!(3), dec!(3), dec!(3)] { n.update(v); }
         let m = n.window_mean_square().unwrap();
         assert!((m - 9.0).abs() < 1e-9, "expected 9.0, got {}", m);
+    }
+
+    // ── round-168 tests ──────────────────────────────────────────────────────
+
+    #[test]
+    fn test_zscore_window_mean_lag_diff_none_for_single() {
+        let mut n = znorm(4);
+        n.update(dec!(5));
+        assert!(n.window_mean_lag_diff().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_mean_lag_diff_constant_zero() {
+        let mut n = znorm(3);
+        for v in [dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        let d = n.window_mean_lag_diff().unwrap();
+        assert!((d - 0.0).abs() < 1e-9, "expected 0.0, got {}", d);
+    }
+
+    #[test]
+    fn test_zscore_window_change_rate_none_for_single() {
+        let mut n = znorm(4);
+        n.update(dec!(5));
+        assert!(n.window_change_rate().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_change_rate_constant_zero() {
+        let mut n = znorm(3);
+        for v in [dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        let r = n.window_change_rate().unwrap();
+        assert!((r - 0.0).abs() < 1e-9, "expected 0.0, got {}", r);
+    }
+
+    #[test]
+    fn test_zscore_window_spike_fraction_none_for_single() {
+        let mut n = znorm(4);
+        n.update(dec!(5));
+        assert!(n.window_spike_fraction().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_spike_fraction_constant_zero() {
+        let mut n = znorm(3);
+        for v in [dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        let s = n.window_spike_fraction().unwrap();
+        assert!((s - 0.0).abs() < 1e-9, "expected 0.0, got {}", s);
+    }
+
+    #[test]
+    fn test_zscore_window_mean_reversion_speed_none_for_single() {
+        let mut n = znorm(4);
+        n.update(dec!(5));
+        assert!(n.window_mean_reversion_speed().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_mean_reversion_speed_constant_zero() {
+        let mut n = znorm(3);
+        for v in [dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        let s = n.window_mean_reversion_speed().unwrap();
+        assert!((s - 0.0).abs() < 1e-9, "expected 0.0, got {}", s);
     }
 }

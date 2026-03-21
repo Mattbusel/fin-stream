@@ -7865,6 +7865,74 @@ impl OhlcvBar {
         Some(sum)
     }
 
+    // ── round-168 ────────────────────────────────────────────────────────────
+
+    /// Count of engulfing patterns (bar[i] body fully contains bar[i-1] body).
+    pub fn bar_engulfing_count(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.len() < 2 { return None; }
+        let count = bars.windows(2).filter(|w| {
+            let po = w[0].open.to_f64().unwrap_or(0.0);
+            let pc = w[0].close.to_f64().unwrap_or(0.0);
+            let co = w[1].open.to_f64().unwrap_or(0.0);
+            let cc = w[1].close.to_f64().unwrap_or(0.0);
+            let prev_top = po.max(pc);
+            let prev_bot = po.min(pc);
+            let curr_top = co.max(cc);
+            let curr_bot = co.min(cc);
+            curr_top >= prev_top && curr_bot <= prev_bot
+        }).count();
+        Some(count as f64)
+    }
+
+    /// Fraction of bars where |close - open| / range < 0.1 (doji-like bars).
+    pub fn bar_doji_fraction(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let dojis = bars.iter().filter(|b| {
+            let o = b.open.to_f64().unwrap_or(0.0);
+            let h = b.high.to_f64().unwrap_or(0.0);
+            let l = b.low.to_f64().unwrap_or(0.0);
+            let c = b.close.to_f64().unwrap_or(0.0);
+            let range = h - l;
+            if range == 0.0 { return true; }
+            (c - o).abs() / range < 0.1
+        }).count();
+        Some(dojis as f64 / bars.len() as f64)
+    }
+
+    /// Mean of (close * volume) / sum_volume across bars (volume-weighted average close).
+    pub fn bar_volume_weighted_close(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let total_vol: f64 = bars.iter().filter_map(|b| b.volume.to_f64()).sum();
+        if total_vol == 0.0 { return None; }
+        let vw_sum: f64 = bars.iter().filter_map(|b| {
+            let c = b.close.to_f64()?;
+            let v = b.volume.to_f64()?;
+            Some(c * v)
+        }).sum();
+        Some(vw_sum / total_vol)
+    }
+
+    /// Ratio of bullish bar count to bearish bar count (close > open is bullish).
+    pub fn bar_bull_bear_ratio(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let bulls = bars.iter().filter(|b| {
+            let o = b.open.to_f64().unwrap_or(0.0);
+            let c = b.close.to_f64().unwrap_or(0.0);
+            c > o
+        }).count();
+        let bears = bars.iter().filter(|b| {
+            let o = b.open.to_f64().unwrap_or(0.0);
+            let c = b.close.to_f64().unwrap_or(0.0);
+            c < o
+        }).count();
+        if bears == 0 { return None; }
+        Some(bulls as f64 / bears as f64)
+    }
+
 }
 
 impl std::fmt::Display for OhlcvBar {
@@ -17991,5 +18059,63 @@ mod tests {
         let bar = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
         let m = OhlcvBar::bar_body_momentum(&[bar]).unwrap();
         assert!((m - 5.0).abs() < 1e-9, "expected 5.0, got {}", m);
+    }
+
+    // ── round-168 tests ──────────────────────────────────────────────────────
+
+    #[test]
+    fn test_bar_engulfing_count_none_for_single() {
+        let bars = vec![make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105))];
+        assert!(OhlcvBar::bar_engulfing_count(&bars).is_none());
+    }
+
+    #[test]
+    fn test_bar_engulfing_count_no_engulf() {
+        // same bar twice, open=close so body={100,100}; engulf requires curr contains prev
+        // make second bar with narrower body → no engulf
+        let bars = vec![
+            make_ohlcv_bar(dec!(95), dec!(115), dec!(85), dec!(110)),  // large body
+            make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105)), // smaller body
+        ];
+        let c = OhlcvBar::bar_engulfing_count(&bars).unwrap();
+        assert!((c - 0.0).abs() < 1e-9, "expected 0.0, got {}", c);
+    }
+
+    #[test]
+    fn test_bar_doji_fraction_none_for_empty() {
+        assert!(OhlcvBar::bar_doji_fraction(&[]).is_none());
+    }
+
+    #[test]
+    fn test_bar_doji_fraction_all_doji() {
+        // open=close=100, high=110, low=90 → |close-open|/range = 0/20 = 0 < 0.1 → doji
+        let bar = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100));
+        let f = OhlcvBar::bar_doji_fraction(&[bar]).unwrap();
+        assert!((f - 1.0).abs() < 1e-9, "expected 1.0, got {}", f);
+    }
+
+    #[test]
+    fn test_bar_volume_weighted_close_none_for_empty() {
+        assert!(OhlcvBar::bar_volume_weighted_close(&[]).is_none());
+    }
+
+    #[test]
+    fn test_bar_volume_weighted_close_single_bar() {
+        // volume=1, close=105 → vwc=105
+        let bar = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let vwc = OhlcvBar::bar_volume_weighted_close(&[bar]).unwrap();
+        assert!((vwc - 105.0).abs() < 1e-9, "expected 105.0, got {}", vwc);
+    }
+
+    #[test]
+    fn test_bar_bull_bear_ratio_none_for_empty() {
+        assert!(OhlcvBar::bar_bull_bear_ratio(&[]).is_none());
+    }
+
+    #[test]
+    fn test_bar_bull_bear_ratio_all_bulls_none() {
+        // no bears → None
+        let bar = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        assert!(OhlcvBar::bar_bull_bear_ratio(&[bar]).is_none());
     }
 }

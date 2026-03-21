@@ -9,6 +9,30 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.10.19] - 2026-03-20
+
+### Added
+
+**`tick` module — `NormalizedTick` analytics (round 168)**
+- `NormalizedTick::price_momentum_ratio(ticks)` — mean up move / mean down move magnitude.
+- `NormalizedTick::tick_imbalance_streak(ticks)` — longest consecutive same-side flow streak.
+- `NormalizedTick::price_upper_shadow_ratio(ticks)` — (max_price - mean_price) / mean_price.
+- `NormalizedTick::price_move_consistency(ticks)` — fraction of moves in overall price direction.
+
+**`ohlcv` module — `OhlcvBar` analytics (round 168)**
+- `OhlcvBar::bar_engulfing_count(bars)` — count of bars whose body fully contains the prior bar body.
+- `OhlcvBar::bar_doji_fraction(bars)` — fraction of bars where |close-open|/range < 0.1.
+- `OhlcvBar::bar_volume_weighted_close(bars)` — volume-weighted average close price.
+- `OhlcvBar::bar_bull_bear_ratio(bars)` — ratio of bullish to bearish bar count.
+
+**`norm` module — `MinMaxNormalizer` + `ZScoreNormalizer` analytics (round 168)**
+- `window_mean_lag_diff()` — mean of consecutive value differences (lag-1).
+- `window_change_rate()` — mean absolute pct change per step.
+- `window_spike_fraction()` — fraction of values more than 2 std devs from mean.
+- `window_mean_reversion_speed()` — mean decrease in distance to mean per step.
+
+---
+
 ## [2.10.18] - 2026-03-20
 
 ### Added

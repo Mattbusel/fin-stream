@@ -8160,6 +8160,85 @@ impl NormalizedTick {
         Some(pb * pb + ps * ps)
     }
 
+    // ── round-168 ────────────────────────────────────────────────────────────
+
+    /// Ratio of mean positive return to mean negative return magnitude.
+    pub fn price_momentum_ratio(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 2 { return None; }
+        let diffs: Vec<f64> = ticks.windows(2)
+            .filter_map(|w| {
+                let a = w[0].price.to_f64()?;
+                let b = w[1].price.to_f64()?;
+                Some(b - a)
+            })
+            .collect();
+        let ups: Vec<f64> = diffs.iter().filter(|&&d| d > 0.0).copied().collect();
+        let downs: Vec<f64> = diffs.iter().filter(|&&d| d < 0.0).copied().collect();
+        if ups.is_empty() || downs.is_empty() { return None; }
+        let mean_up = ups.iter().sum::<f64>() / ups.len() as f64;
+        let mean_down = downs.iter().map(|d| d.abs()).sum::<f64>() / downs.len() as f64;
+        if mean_down == 0.0 { return None; }
+        Some(mean_up / mean_down)
+    }
+
+    /// Longest consecutive streak of the same flow imbalance sign (buy-dominated or sell-dominated).
+    pub fn tick_imbalance_streak(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() { return None; }
+        // Compute per-tick signed quantity (+qty for buy, -qty for sell)
+        let signs: Vec<i32> = ticks.iter().filter_map(|t| {
+            let q = t.quantity.to_f64()?;
+            match t.side {
+                Some(crate::tick::TradeSide::Buy) => Some(if q > 0.0 { 1 } else { 0 }),
+                Some(crate::tick::TradeSide::Sell) => Some(if q > 0.0 { -1 } else { 0 }),
+                None => None,
+            }
+        }).collect();
+        if signs.is_empty() { return None; }
+        let mut max_streak = 1usize;
+        let mut cur_streak = 1usize;
+        for i in 1..signs.len() {
+            if signs[i] == signs[i - 1] && signs[i] != 0 {
+                cur_streak += 1;
+                max_streak = max_streak.max(cur_streak);
+            } else {
+                cur_streak = 1;
+            }
+        }
+        Some(max_streak as f64)
+    }
+
+    /// Mean upper shadow fraction: (high_equiv - price) / price per tick.
+    /// Uses (max_price - mean_price) / mean_price across ticks.
+    pub fn price_upper_shadow_ratio(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() { return None; }
+        let prices: Vec<f64> = ticks.iter().filter_map(|t| t.price.to_f64()).collect();
+        if prices.is_empty() { return None; }
+        let mean = prices.iter().sum::<f64>() / prices.len() as f64;
+        let max = prices.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        if mean == 0.0 { return None; }
+        Some((max - mean) / mean)
+    }
+
+    /// Fraction of price moves consistent with the overall direction (up or down).
+    pub fn price_move_consistency(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 2 { return None; }
+        let prices: Vec<f64> = ticks.iter().filter_map(|t| t.price.to_f64()).collect();
+        if prices.len() < 2 { return None; }
+        let overall = prices.last()? - prices.first()?;
+        if overall == 0.0 { return None; }
+        let diffs: Vec<f64> = prices.windows(2).map(|w| w[1] - w[0]).collect();
+        let consistent = if overall > 0.0 {
+            diffs.iter().filter(|&&d| d > 0.0).count()
+        } else {
+            diffs.iter().filter(|&&d| d < 0.0).count()
+        };
+        Some(consistent as f64 / diffs.len() as f64)
+    }
+
 }
 
 
@@ -18619,6 +18698,77 @@ mod tests {
         t.side = Some(crate::tick::TradeSide::Buy);
         let c = NormalizedTick::tick_side_concentration(&[t]).unwrap();
         // all buy → p_buy=1, p_sell=0 → HHI=1
+        assert!((c - 1.0).abs() < 1e-9, "expected 1.0, got {}", c);
+    }
+
+    // ── round-168 tests ──────────────────────────────────────────────────────
+
+    #[test]
+    fn test_price_momentum_ratio_none_for_single() {
+        use rust_decimal_macros::dec;
+        assert!(NormalizedTick::price_momentum_ratio(&[make_tick_pq(dec!(100), dec!(1))]).is_none());
+    }
+
+    #[test]
+    fn test_price_momentum_ratio_only_up() {
+        use rust_decimal_macros::dec;
+        // all up moves → no downs → None
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(101), dec!(1)),
+            make_tick_pq(dec!(102), dec!(1)),
+        ];
+        assert!(NormalizedTick::price_momentum_ratio(&ticks).is_none());
+    }
+
+    #[test]
+    fn test_tick_imbalance_streak_none_for_empty() {
+        assert!(NormalizedTick::tick_imbalance_streak(&[]).is_none());
+    }
+
+    #[test]
+    fn test_tick_imbalance_streak_all_buys() {
+        use rust_decimal_macros::dec;
+        let mut t1 = make_tick_pq(dec!(100), dec!(5));
+        t1.side = Some(crate::tick::TradeSide::Buy);
+        let mut t2 = make_tick_pq(dec!(101), dec!(5));
+        t2.side = Some(crate::tick::TradeSide::Buy);
+        let s = NormalizedTick::tick_imbalance_streak(&[t1, t2]).unwrap();
+        assert!((s - 2.0).abs() < 1e-9, "expected 2.0, got {}", s);
+    }
+
+    #[test]
+    fn test_price_upper_shadow_ratio_none_for_empty() {
+        assert!(NormalizedTick::price_upper_shadow_ratio(&[]).is_none());
+    }
+
+    #[test]
+    fn test_price_upper_shadow_ratio_constant_zero() {
+        use rust_decimal_macros::dec;
+        // all same price → max=mean → ratio=0
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(100), dec!(1)),
+        ];
+        let r = NormalizedTick::price_upper_shadow_ratio(&ticks).unwrap();
+        assert!((r - 0.0).abs() < 1e-9, "expected 0.0, got {}", r);
+    }
+
+    #[test]
+    fn test_price_move_consistency_none_for_single() {
+        use rust_decimal_macros::dec;
+        assert!(NormalizedTick::price_move_consistency(&[make_tick_pq(dec!(100), dec!(1))]).is_none());
+    }
+
+    #[test]
+    fn test_price_move_consistency_monotone_one() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(101), dec!(1)),
+            make_tick_pq(dec!(102), dec!(1)),
+        ];
+        let c = NormalizedTick::price_move_consistency(&ticks).unwrap();
         assert!((c - 1.0).abs() < 1e-9, "expected 1.0, got {}", c);
     }
 }
