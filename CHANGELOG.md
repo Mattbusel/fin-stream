@@ -9,6 +9,36 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.8.8] - 2026-03-20
+
+### Added
+
+**`tick` module — `NormalizedTick` analytics (round 137)**
+- `NormalizedTick::price_downside_ratio(ticks)` — fraction of ticks with price below the mean.
+- `NormalizedTick::avg_trade_lag(ticks)` — mean inter-tick interval in milliseconds.
+- `NormalizedTick::qty_max_run(ticks)` — longest consecutive run of increasing quantities.
+- `NormalizedTick::tick_sell_fraction(ticks)` — fraction of ticks with Sell side.
+
+**`ohlcv` module — `OhlcvBar` analytics (round 137)**
+- `OhlcvBar::bar_body_mean(bars)` — mean absolute body size (|close - open|) across bars.
+- `OhlcvBar::close_high_correlation(bars)` — Pearson correlation between close and high prices.
+- `OhlcvBar::bar_close_above_midpoint(bars)` — fraction of bars where close > (high + low) / 2.
+- `OhlcvBar::bar_open_gap_score(bars)` — mean gap between consecutive bars / prior bar range.
+
+**`norm` module — `MinMaxNormalizer` analytics (round 137)**
+- `MinMaxNormalizer::window_linear_trend_score()` — OLS slope normalized by window mean.
+- `MinMaxNormalizer::window_zscore_min()` — minimum z-score value in the window.
+- `MinMaxNormalizer::window_zscore_max()` — maximum z-score value in the window.
+- `MinMaxNormalizer::window_diff_variance()` — variance of consecutive differences in the window.
+
+**`norm` module — `ZScoreNormalizer` analytics (round 137)**
+- `ZScoreNormalizer::window_linear_trend_score()` — OLS slope normalized by window mean.
+- `ZScoreNormalizer::window_zscore_min()` — minimum z-score value in the window.
+- `ZScoreNormalizer::window_zscore_max()` — maximum z-score value in the window.
+- `ZScoreNormalizer::window_diff_variance()` — variance of consecutive differences in the window.
+
+---
+
 ## [2.8.7] - 2026-03-20
 
 ### Added

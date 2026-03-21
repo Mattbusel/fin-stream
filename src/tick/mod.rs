@@ -6388,6 +6388,46 @@ impl NormalizedTick {
         Some(reversions as f64 / (prices.len() - 1) as f64)
     }
 
+    // ── round-137 ────────────────────────────────────────────────────────────
+
+    /// Price downside ratio: fraction of prices below the mean.
+    pub fn price_downside_ratio(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() { return None; }
+        let prices: Vec<f64> = ticks.iter().map(|t| t.price.to_f64().unwrap_or(0.0)).collect();
+        let mean = prices.iter().sum::<f64>() / prices.len() as f64;
+        let below = prices.iter().filter(|&&p| p < mean).count() as f64;
+        Some(below / prices.len() as f64)
+    }
+
+    /// Average trade lag: mean of inter-tick time differences in milliseconds.
+    pub fn avg_trade_lag(ticks: &[NormalizedTick]) -> Option<f64> {
+        if ticks.len() < 2 { return None; }
+        let gaps: Vec<f64> = ticks.windows(2)
+            .map(|w| w[1].received_at_ms.saturating_sub(w[0].received_at_ms) as f64)
+            .collect();
+        Some(gaps.iter().sum::<f64>() / gaps.len() as f64)
+    }
+
+    /// Quantity max run: maximum consecutive run of increasing quantities.
+    pub fn qty_max_run(ticks: &[NormalizedTick]) -> Option<usize> {
+        if ticks.len() < 2 { return None; }
+        let mut max_run = 0usize;
+        let mut cur_run = 0usize;
+        for w in ticks.windows(2) {
+            if w[1].quantity > w[0].quantity { cur_run += 1; max_run = max_run.max(cur_run); }
+            else { cur_run = 0; }
+        }
+        Some(max_run)
+    }
+
+    /// Tick sell fraction: fraction of ticks with Sell side.
+    pub fn tick_sell_fraction(ticks: &[NormalizedTick]) -> Option<f64> {
+        if ticks.is_empty() { return None; }
+        let sells = ticks.iter().filter(|t| matches!(t.side, Some(TradeSide::Sell))).count();
+        Some(sells as f64 / ticks.len() as f64)
+    }
+
 }
 
 
@@ -14567,5 +14607,87 @@ mod tests {
         // 90 is far from mean (95), 100 is closer → reversion
         let r = NormalizedTick::price_reversion_speed(&ticks);
         assert!(r.is_some());
+    }
+
+    // ── round-137 ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_price_downside_ratio_none_for_empty() {
+        assert!(NormalizedTick::price_downside_ratio(&[]).is_none());
+    }
+
+    #[test]
+    fn test_price_downside_ratio_all_below_mean() {
+        use rust_decimal_macros::dec;
+        // prices: 80, 90, 85 → mean=85; all at or below mean → ratio=1.0
+        let ticks = vec![
+            make_tick_pq(dec!(80), dec!(1)),
+            make_tick_pq(dec!(90), dec!(1)),
+            make_tick_pq(dec!(85), dec!(1)),
+        ];
+        let r = NormalizedTick::price_downside_ratio(&ticks).unwrap();
+        assert!(r >= 0.0 && r <= 1.0, "expected [0,1], got {}", r);
+    }
+
+    #[test]
+    fn test_avg_trade_lag_none_for_single() {
+        let ticks = vec![make_tick_pq(rust_decimal_macros::dec!(100), rust_decimal_macros::dec!(1))];
+        assert!(NormalizedTick::avg_trade_lag(&ticks).is_none());
+    }
+
+    #[test]
+    fn test_avg_trade_lag_uniform_spacing() {
+        use rust_decimal_macros::dec;
+        let mut t1 = make_tick_pq(dec!(100), dec!(1));
+        t1.received_at_ms = 1000;
+        let mut t2 = make_tick_pq(dec!(101), dec!(1));
+        t2.received_at_ms = 1010;
+        let mut t3 = make_tick_pq(dec!(102), dec!(1));
+        t3.received_at_ms = 1020;
+        let lag = NormalizedTick::avg_trade_lag(&[t1, t2, t3]).unwrap();
+        assert!((lag - 10.0).abs() < 1e-9, "expected 10.0, got {}", lag);
+    }
+
+    #[test]
+    fn test_qty_max_run_none_for_empty() {
+        assert!(NormalizedTick::qty_max_run(&[]).is_none());
+    }
+
+    #[test]
+    fn test_qty_max_run_increasing_then_drop() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(100), dec!(2)),
+            make_tick_pq(dec!(100), dec!(3)),
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(100), dec!(2)),
+        ];
+        let run = NormalizedTick::qty_max_run(&ticks).unwrap();
+        assert_eq!(run, 2, "expected max run of 2, got {}", run);
+    }
+
+    #[test]
+    fn test_tick_sell_fraction_none_for_empty() {
+        assert!(NormalizedTick::tick_sell_fraction(&[]).is_none());
+    }
+
+    #[test]
+    fn test_tick_sell_fraction_zero_for_no_side() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![make_tick_pq(dec!(100), dec!(1))];
+        // side=None counts as non-sell → fraction=0.0
+        let r = NormalizedTick::tick_sell_fraction(&ticks).unwrap();
+        assert!((r - 0.0).abs() < 1e-9, "expected 0.0, got {}", r);
+    }
+
+    #[test]
+    fn test_tick_sell_fraction_all_sell() {
+        use rust_decimal_macros::dec;
+        use crate::tick::TradeSide;
+        let mut t = make_tick_pq(dec!(100), dec!(1));
+        t.side = Some(TradeSide::Sell);
+        let r = NormalizedTick::tick_sell_fraction(&[t]).unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "expected 1.0, got {}", r);
     }
 }

@@ -4166,6 +4166,58 @@ impl MinMaxNormalizer {
         Some(recent.iter().cloned().fold(f64::INFINITY, f64::min))
     }
 
+    // ── round-137 ────────────────────────────────────────────────────────────
+
+    /// Linear trend score: slope of linear regression / mean of window values.
+    pub fn window_linear_trend_score(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let n = vals.len() as f64;
+        let mean = vals.iter().sum::<f64>() / n;
+        if mean == 0.0 { return None; }
+        let x_mean = (n - 1.0) / 2.0;
+        let num: f64 = vals.iter().enumerate().map(|(i, &y)| (i as f64 - x_mean) * (y - mean)).sum();
+        let den: f64 = vals.iter().enumerate().map(|(i, _)| (i as f64 - x_mean).powi(2)).sum();
+        if den == 0.0 { return None; }
+        Some((num / den) / mean.abs())
+    }
+
+    /// Minimum z-score in the window.
+    pub fn window_zscore_min(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let mean = vals.iter().sum::<f64>() / vals.len() as f64;
+        let std = (vals.iter().map(|&v| (v - mean).powi(2)).sum::<f64>() / vals.len() as f64).sqrt();
+        if std == 0.0 { return None; }
+        let min = vals.iter().map(|&v| (v - mean) / std).fold(f64::INFINITY, f64::min);
+        Some(min)
+    }
+
+    /// Maximum z-score in the window.
+    pub fn window_zscore_max(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let mean = vals.iter().sum::<f64>() / vals.len() as f64;
+        let std = (vals.iter().map(|&v| (v - mean).powi(2)).sum::<f64>() / vals.len() as f64).sqrt();
+        if std == 0.0 { return None; }
+        let max = vals.iter().map(|&v| (v - mean) / std).fold(f64::NEG_INFINITY, f64::max);
+        Some(max)
+    }
+
+    /// Variance of consecutive differences in the window.
+    pub fn window_diff_variance(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let diffs: Vec<f64> = vals.windows(2).map(|w| w[1] - w[0]).collect();
+        let mean = diffs.iter().sum::<f64>() / diffs.len() as f64;
+        let variance = diffs.iter().map(|&d| (d - mean).powi(2)).sum::<f64>() / diffs.len() as f64;
+        Some(variance)
+    }
+
 }
 
 #[cfg(test)]
@@ -8863,6 +8915,65 @@ mod tests {
         let l = n.window_recent_low().unwrap();
         assert!((l - 1.0).abs() < 1e-9, "expected 1.0, got {}", l);
     }
+
+    // ── round-137 ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_minmax_window_linear_trend_score_none_for_empty() {
+        let n = norm(4);
+        assert!(n.window_linear_trend_score().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_linear_trend_score_increasing() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let s = n.window_linear_trend_score().unwrap();
+        assert!(s > 0.0, "expected positive trend score, got {}", s);
+    }
+
+    #[test]
+    fn test_minmax_window_zscore_min_none_for_empty() {
+        let n = norm(4);
+        assert!(n.window_zscore_min().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_zscore_min_basic() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let zmin = n.window_zscore_min().unwrap();
+        let zmax = n.window_zscore_max().unwrap();
+        assert!(zmin <= zmax, "min {} should be <= max {}", zmin, zmax);
+    }
+
+    #[test]
+    fn test_minmax_window_zscore_max_none_for_empty() {
+        let n = norm(4);
+        assert!(n.window_zscore_max().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_zscore_max_positive() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(10)] { n.update(v); }
+        let zmax = n.window_zscore_max().unwrap();
+        assert!(zmax > 0.0, "expected positive zmax, got {}", zmax);
+    }
+
+    #[test]
+    fn test_minmax_window_diff_variance_none_for_empty() {
+        let n = norm(4);
+        assert!(n.window_diff_variance().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_diff_variance_constant() {
+        let mut n = norm(4);
+        for v in [dec!(5), dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        let dv = n.window_diff_variance().unwrap();
+        assert!((dv - 0.0).abs() < 1e-9, "expected 0.0 for constant, got {}", dv);
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -12973,6 +13084,58 @@ impl ZScoreNormalizer {
         let recent = &vals[half..];
         if recent.is_empty() { return None; }
         Some(recent.iter().cloned().fold(f64::INFINITY, f64::min))
+    }
+
+    // ── round-137 ────────────────────────────────────────────────────────────
+
+    /// Linear trend score: slope of linear regression / mean of window values.
+    pub fn window_linear_trend_score(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let n = vals.len() as f64;
+        let mean = vals.iter().sum::<f64>() / n;
+        if mean == 0.0 { return None; }
+        let x_mean = (n - 1.0) / 2.0;
+        let num: f64 = vals.iter().enumerate().map(|(i, &y)| (i as f64 - x_mean) * (y - mean)).sum();
+        let den: f64 = vals.iter().enumerate().map(|(i, _)| (i as f64 - x_mean).powi(2)).sum();
+        if den == 0.0 { return None; }
+        Some((num / den) / mean.abs())
+    }
+
+    /// Minimum z-score in the window.
+    pub fn window_zscore_min(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let mean = vals.iter().sum::<f64>() / vals.len() as f64;
+        let std = (vals.iter().map(|&v| (v - mean).powi(2)).sum::<f64>() / vals.len() as f64).sqrt();
+        if std == 0.0 { return None; }
+        let min = vals.iter().map(|&v| (v - mean) / std).fold(f64::INFINITY, f64::min);
+        Some(min)
+    }
+
+    /// Maximum z-score in the window.
+    pub fn window_zscore_max(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let mean = vals.iter().sum::<f64>() / vals.len() as f64;
+        let std = (vals.iter().map(|&v| (v - mean).powi(2)).sum::<f64>() / vals.len() as f64).sqrt();
+        if std == 0.0 { return None; }
+        let max = vals.iter().map(|&v| (v - mean) / std).fold(f64::NEG_INFINITY, f64::max);
+        Some(max)
+    }
+
+    /// Variance of consecutive differences in the window.
+    pub fn window_diff_variance(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let diffs: Vec<f64> = vals.windows(2).map(|w| w[1] - w[0]).collect();
+        let mean = diffs.iter().sum::<f64>() / diffs.len() as f64;
+        let variance = diffs.iter().map(|&d| (d - mean).powi(2)).sum::<f64>() / diffs.len() as f64;
+        Some(variance)
     }
 
 }
@@ -17722,5 +17885,64 @@ mod zscore_stability_tests {
         for v in [dec!(5), dec!(3), dec!(1), dec!(4)] { n.update(v); }
         let l = n.window_recent_low().unwrap();
         assert!((l - 1.0).abs() < 1e-9, "expected 1.0, got {}", l);
+    }
+
+    // ── round-137 ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_zscore_window_linear_trend_score_none_for_empty() {
+        let n = znorm(4);
+        assert!(n.window_linear_trend_score().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_linear_trend_score_increasing() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let s = n.window_linear_trend_score().unwrap();
+        assert!(s > 0.0, "expected positive trend score, got {}", s);
+    }
+
+    #[test]
+    fn test_zscore_window_zscore_min_none_for_empty() {
+        let n = znorm(4);
+        assert!(n.window_zscore_min().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_zscore_min_basic() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let zmin = n.window_zscore_min().unwrap();
+        let zmax = n.window_zscore_max().unwrap();
+        assert!(zmin <= zmax, "min {} should be <= max {}", zmin, zmax);
+    }
+
+    #[test]
+    fn test_zscore_window_zscore_max_none_for_empty() {
+        let n = znorm(4);
+        assert!(n.window_zscore_max().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_zscore_max_positive() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(10)] { n.update(v); }
+        let zmax = n.window_zscore_max().unwrap();
+        assert!(zmax > 0.0, "expected positive zmax, got {}", zmax);
+    }
+
+    #[test]
+    fn test_zscore_window_diff_variance_none_for_empty() {
+        let n = znorm(4);
+        assert!(n.window_diff_variance().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_diff_variance_constant() {
+        let mut n = znorm(4);
+        for v in [dec!(5), dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        let dv = n.window_diff_variance().unwrap();
+        assert!((dv - 0.0).abs() < 1e-9, "expected 0.0 for constant, got {}", dv);
     }
 }

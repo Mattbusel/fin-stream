@@ -6251,6 +6251,60 @@ impl OhlcvBar {
         Some(diffs.iter().sum::<f64>() / diffs.len() as f64)
     }
 
+    // ── round-137 ────────────────────────────────────────────────────────────
+
+    /// Bar body mean: mean absolute body size (|close - open|) across bars.
+    pub fn bar_body_mean(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let sum: f64 = bars.iter()
+            .map(|b| (b.close - b.open).abs().to_f64().unwrap_or(0.0))
+            .sum();
+        Some(sum / bars.len() as f64)
+    }
+
+    /// Close-high correlation: correlation between close and high values.
+    pub fn close_high_correlation(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.len() < 2 { return None; }
+        let closes: Vec<f64> = bars.iter().map(|b| b.close.to_f64().unwrap_or(0.0)).collect();
+        let highs: Vec<f64> = bars.iter().map(|b| b.high.to_f64().unwrap_or(0.0)).collect();
+        let n = closes.len() as f64;
+        let c_mean = closes.iter().sum::<f64>() / n;
+        let h_mean = highs.iter().sum::<f64>() / n;
+        let cov: f64 = closes.iter().zip(highs.iter())
+            .map(|(&c, &h)| (c - c_mean) * (h - h_mean))
+            .sum::<f64>() / n;
+        let c_std = (closes.iter().map(|&c| (c - c_mean).powi(2)).sum::<f64>() / n).sqrt();
+        let h_std = (highs.iter().map(|&h| (h - h_mean).powi(2)).sum::<f64>() / n).sqrt();
+        if c_std == 0.0 || h_std == 0.0 { return None; }
+        Some(cov / (c_std * h_std))
+    }
+
+    /// Bar close above midpoint: fraction of bars where close > (high + low) / 2.
+    pub fn bar_close_above_midpoint(bars: &[OhlcvBar]) -> Option<f64> {
+        if bars.is_empty() { return None; }
+        let count = bars.iter().filter(|b| {
+            let mid = (b.high + b.low) / rust_decimal::Decimal::TWO;
+            b.close > mid
+        }).count();
+        Some(count as f64 / bars.len() as f64)
+    }
+
+    /// Bar open gap score: mean of (open[i] - close[i-1]) / (high[i-1] - low[i-1]).
+    pub fn bar_open_gap_score(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.len() < 2 { return None; }
+        let vals: Vec<f64> = bars.windows(2).filter_map(|w| {
+            let gap = (w[1].open - w[0].close).to_f64()?;
+            let range = (w[0].high - w[0].low).to_f64()?;
+            if range == 0.0 { return None; }
+            Some(gap / range)
+        }).collect();
+        if vals.is_empty() { return None; }
+        Some(vals.iter().sum::<f64>() / vals.len() as f64)
+    }
+
 }
 
 impl std::fmt::Display for OhlcvBar {
@@ -14509,5 +14563,65 @@ mod tests {
         let b2 = make_ohlcv_bar(dec!(100), dec!(120), dec!(80), dec!(105));
         let c = OhlcvBar::bar_range_change(&[b1, b2]).unwrap();
         assert!(c > 0.0, "expected positive change for expanding range, got {}", c);
+    }
+
+    // ── round-137 ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_bar_body_mean_none_for_empty() {
+        assert!(OhlcvBar::bar_body_mean(&[]).is_none());
+    }
+
+    #[test]
+    fn test_bar_body_mean_basic() {
+        let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let b2 = make_ohlcv_bar(dec!(100), dec!(120), dec!(80), dec!(90));
+        // |105-100|=5, |90-100|=10 → mean=7.5
+        let m = OhlcvBar::bar_body_mean(&[b1, b2]).unwrap();
+        assert!((m - 7.5).abs() < 1e-9, "expected 7.5, got {}", m);
+    }
+
+    #[test]
+    fn test_close_high_correlation_none_for_single() {
+        assert!(OhlcvBar::close_high_correlation(&[make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105))]).is_none());
+    }
+
+    #[test]
+    fn test_close_high_correlation_perfect() {
+        // close == high → perfect correlation
+        let bars = vec![
+            make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(110)),
+            make_ohlcv_bar(dec!(100), dec!(120), dec!(80), dec!(120)),
+            make_ohlcv_bar(dec!(100), dec!(130), dec!(70), dec!(130)),
+        ];
+        let r = OhlcvBar::close_high_correlation(&bars).unwrap();
+        assert!((r - 1.0).abs() < 1e-6, "expected ~1.0, got {}", r);
+    }
+
+    #[test]
+    fn test_bar_close_above_midpoint_none_for_empty() {
+        assert!(OhlcvBar::bar_close_above_midpoint(&[]).is_none());
+    }
+
+    #[test]
+    fn test_bar_close_above_midpoint_all_above() {
+        // close=105, high=110, low=90 → midpoint=100 → 105>100 → fraction=1.0
+        let bars = vec![make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105))];
+        let f = OhlcvBar::bar_close_above_midpoint(&bars).unwrap();
+        assert!((f - 1.0).abs() < 1e-9, "expected 1.0, got {}", f);
+    }
+
+    #[test]
+    fn test_bar_open_gap_score_none_for_single() {
+        assert!(OhlcvBar::bar_open_gap_score(&[make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105))]).is_none());
+    }
+
+    #[test]
+    fn test_bar_open_gap_score_basic() {
+        let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let b2 = make_ohlcv_bar(dec!(108), dec!(120), dec!(100), dec!(115));
+        // gap = |108 - 105| = 3, prior range = 110-90 = 20 → score = 3/20 = 0.15
+        let s = OhlcvBar::bar_open_gap_score(&[b1, b2]).unwrap();
+        assert!((s - 0.15).abs() < 1e-9, "expected 0.15, got {}", s);
     }
 }
