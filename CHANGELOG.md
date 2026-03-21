@@ -9,6 +9,36 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.9.7] - 2026-03-20
+
+### Added
+
+**`tick` module — `NormalizedTick` analytics (round 146)**
+- `NormalizedTick::qty_gini(ticks)` — Gini coefficient of tick quantities (inequality measure).
+- `NormalizedTick::tick_buy_pressure(ticks)` — fraction of total quantity from Buy trades.
+- `NormalizedTick::side_qty_ratio(ticks)` — ratio of Buy count to Sell count.
+- `NormalizedTick::qty_above_median_count(ticks)` — number of ticks whose quantity exceeds the median.
+
+**`ohlcv` module — `OhlcvBar` analytics (round 146)**
+- `OhlcvBar::bar_close_dispersion(bars)` — standard deviation of close prices across bars.
+- `OhlcvBar::bar_open_close_mean(bars)` — mean of (open + close) / 2 across bars.
+- `OhlcvBar::close_gap_from_prior(bars)` — mean gap between consecutive bar closes.
+- `OhlcvBar::bar_volume_per_bar(bars)` — mean volume per bar.
+
+**`norm` module — `MinMaxNormalizer` analytics (round 146)**
+- `MinMaxNormalizer::window_prev_deviation()` — deviation of the most recent value from the previous one.
+- `MinMaxNormalizer::window_lower_quartile()` — lower quartile (25th percentile) of window values.
+- `MinMaxNormalizer::window_upper_quartile()` — upper quartile (75th percentile) of window values.
+- `MinMaxNormalizer::window_tail_weight()` — fraction of window values in the bottom or top 10%.
+
+**`norm` module — `ZScoreNormalizer` analytics (round 146)**
+- `ZScoreNormalizer::window_prev_deviation()` — deviation of the most recent value from the previous one.
+- `ZScoreNormalizer::window_lower_quartile()` — lower quartile (25th percentile) of window values.
+- `ZScoreNormalizer::window_upper_quartile()` — upper quartile (75th percentile) of window values.
+- `ZScoreNormalizer::window_tail_weight()` — fraction of window values in the bottom or top 10%.
+
+---
+
 ## [2.9.6] - 2026-03-20
 
 ### Added

@@ -6878,6 +6878,55 @@ impl NormalizedTick {
         Some(skew)
     }
 
+    // ── round-146 ────────────────────────────────────────────────────────────
+
+    /// Gini coefficient of tick quantities (inequality measure, 0=equal, 1=max inequality).
+    pub fn qty_gini(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() { return None; }
+        let mut qtys: Vec<f64> = ticks.iter().filter_map(|t| t.quantity.to_f64()).collect();
+        if qtys.is_empty() { return None; }
+        qtys.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let n = qtys.len() as f64;
+        let sum: f64 = qtys.iter().sum();
+        if sum == 0.0 { return Some(0.0); }
+        let weighted: f64 = qtys.iter().enumerate().map(|(i, &q)| (2.0 * (i as f64 + 1.0) - n - 1.0) * q).sum();
+        Some(weighted / (n * sum))
+    }
+
+    /// Buy trade pressure: sum of Buy quantities / total quantity.
+    pub fn tick_buy_pressure(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() { return None; }
+        let total: f64 = ticks.iter().filter_map(|t| t.quantity.to_f64()).sum();
+        if total == 0.0 { return None; }
+        let buy_total: f64 = ticks.iter()
+            .filter(|t| matches!(t.side, Some(TradeSide::Buy)))
+            .filter_map(|t| t.quantity.to_f64()).sum();
+        Some(buy_total / total)
+    }
+
+    /// Ratio of Buy count to Sell count (returns None if no sells).
+    pub fn side_qty_ratio(ticks: &[NormalizedTick]) -> Option<f64> {
+        let buys = ticks.iter().filter(|t| matches!(t.side, Some(TradeSide::Buy))).count();
+        let sells = ticks.iter().filter(|t| matches!(t.side, Some(TradeSide::Sell))).count();
+        if sells == 0 { return None; }
+        Some(buys as f64 / sells as f64)
+    }
+
+    /// Number of ticks whose quantity exceeds the median quantity.
+    pub fn qty_above_median_count(ticks: &[NormalizedTick]) -> Option<usize> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() { return None; }
+        let mut qtys: Vec<f64> = ticks.iter().filter_map(|t| t.quantity.to_f64()).collect();
+        if qtys.is_empty() { return None; }
+        qtys.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let n = qtys.len();
+        let median = if n % 2 == 0 { (qtys[n / 2 - 1] + qtys[n / 2]) / 2.0 } else { qtys[n / 2] };
+        let all_qtys: Vec<f64> = ticks.iter().filter_map(|t| t.quantity.to_f64()).collect();
+        Some(all_qtys.iter().filter(|&&q| q > median).count())
+    }
+
 }
 
 
@@ -15748,5 +15797,78 @@ mod tests {
         ];
         let s = NormalizedTick::tick_price_skew(&ticks).unwrap();
         assert!(s.abs() < 1e-9, "expected ~0 skew, got {}", s);
+    }
+
+    // ── round-146 ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_qty_gini_none_for_empty() {
+        assert!(NormalizedTick::qty_gini(&[]).is_none());
+    }
+
+    #[test]
+    fn test_qty_gini_equal_quantities() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(5)),
+            make_tick_pq(dec!(101), dec!(5)),
+            make_tick_pq(dec!(102), dec!(5)),
+        ];
+        let g = NormalizedTick::qty_gini(&ticks).unwrap();
+        assert!((g - 0.0).abs() < 1e-9, "equal quantities → gini=0, got {}", g);
+    }
+
+    #[test]
+    fn test_tick_buy_pressure_none_for_empty() {
+        assert!(NormalizedTick::tick_buy_pressure(&[]).is_none());
+    }
+
+    #[test]
+    fn test_tick_buy_pressure_all_buy() {
+        use rust_decimal_macros::dec;
+        use crate::tick::TradeSide;
+        let mut t = make_tick_pq(dec!(100), dec!(10));
+        t.side = Some(TradeSide::Buy);
+        let p = NormalizedTick::tick_buy_pressure(&[t]).unwrap();
+        assert!((p - 1.0).abs() < 1e-9, "expected 1.0, got {}", p);
+    }
+
+    #[test]
+    fn test_side_qty_ratio_none_for_no_sells() {
+        use rust_decimal_macros::dec;
+        use crate::tick::TradeSide;
+        let mut t = make_tick_pq(dec!(100), dec!(1));
+        t.side = Some(TradeSide::Buy);
+        assert!(NormalizedTick::side_qty_ratio(&[t]).is_none());
+    }
+
+    #[test]
+    fn test_side_qty_ratio_equal() {
+        use rust_decimal_macros::dec;
+        use crate::tick::TradeSide;
+        let mut b = make_tick_pq(dec!(100), dec!(1));
+        b.side = Some(TradeSide::Buy);
+        let mut s = make_tick_pq(dec!(100), dec!(1));
+        s.side = Some(TradeSide::Sell);
+        let r = NormalizedTick::side_qty_ratio(&[b, s]).unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "expected 1.0, got {}", r);
+    }
+
+    #[test]
+    fn test_qty_above_median_count_none_for_empty() {
+        assert!(NormalizedTick::qty_above_median_count(&[]).is_none());
+    }
+
+    #[test]
+    fn test_qty_above_median_count_basic() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(100), dec!(2)),
+            make_tick_pq(dec!(100), dec!(5)),
+        ];
+        // sorted qtys: [1,2,5], median=2; above: [5] → count=1
+        let c = NormalizedTick::qty_above_median_count(&ticks).unwrap();
+        assert_eq!(c, 1);
     }
 }

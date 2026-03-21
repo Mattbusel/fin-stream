@@ -4612,6 +4612,52 @@ impl MinMaxNormalizer {
         Some(pos as f64 / vals.len() as f64)
     }
 
+    // ── round-146 ────────────────────────────────────────────────────────────
+
+    /// Deviation of the most recent window value from the previous one.
+    pub fn window_prev_deviation(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let mut iter = self.window.iter().rev();
+        let last = iter.next()?.to_f64()?;
+        let prev = iter.next()?.to_f64()?;
+        Some(last - prev)
+    }
+
+    /// Lower quartile (25th percentile) of the window values.
+    pub fn window_lower_quartile(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let mut vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        vals.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let idx = (vals.len() - 1) / 4;
+        Some(vals[idx])
+    }
+
+    /// Upper quartile (75th percentile) of the window values.
+    pub fn window_upper_quartile(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let mut vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        vals.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let idx = (3 * (vals.len() - 1)) / 4;
+        Some(vals[idx])
+    }
+
+    /// Fraction of window values in the bottom or top 10% (tail weight).
+    pub fn window_tail_weight(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let mut vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        vals.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let n = vals.len();
+        let tail = (n / 10).max(1);
+        let lower = vals[tail - 1];
+        let upper = vals[n - tail];
+        let in_tail = vals.iter().filter(|&&v| v <= lower || v >= upper).count();
+        Some(in_tail as f64 / n as f64)
+    }
+
 }
 
 #[cfg(test)]
@@ -9869,6 +9915,69 @@ mod tests {
         let p = n.window_sorted_position().unwrap();
         assert!((p - 0.75).abs() < 1e-9, "expected 0.75, got {}", p);
     }
+
+    // ── round-146 ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_minmax_window_prev_deviation_none_for_single() {
+        let mut n = norm(4);
+        n.update(dec!(5));
+        assert!(n.window_prev_deviation().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_prev_deviation_basic() {
+        let mut n = norm(4);
+        n.update(dec!(10));
+        n.update(dec!(15));
+        let d = n.window_prev_deviation().unwrap();
+        assert!((d - 5.0).abs() < 1e-9, "expected 5.0, got {}", d);
+    }
+
+    #[test]
+    fn test_minmax_window_lower_quartile_none_for_empty() {
+        let n = norm(4);
+        assert!(n.window_lower_quartile().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_lower_quartile_basic() {
+        let mut n = norm(4);
+        for v in [dec!(10), dec!(20), dec!(30), dec!(40)] { n.update(v); }
+        // sorted: [10,20,30,40], Q1 idx=0 → 10
+        let q = n.window_lower_quartile().unwrap();
+        assert!((q - 10.0).abs() < 1e-9, "expected 10.0, got {}", q);
+    }
+
+    #[test]
+    fn test_minmax_window_upper_quartile_none_for_empty() {
+        let n = norm(4);
+        assert!(n.window_upper_quartile().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_upper_quartile_basic() {
+        let mut n = norm(4);
+        for v in [dec!(10), dec!(20), dec!(30), dec!(40)] { n.update(v); }
+        // sorted: [10,20,30,40], Q3 idx=2 → 30
+        let q = n.window_upper_quartile().unwrap();
+        assert!((q - 30.0).abs() < 1e-9, "expected 30.0, got {}", q);
+    }
+
+    #[test]
+    fn test_minmax_window_tail_weight_none_for_empty() {
+        let n = norm(4);
+        assert!(n.window_tail_weight().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_tail_weight_basic() {
+        let mut n = norm(10);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4), dec!(5),
+                  dec!(6), dec!(7), dec!(8), dec!(9), dec!(10)] { n.update(v); }
+        let tw = n.window_tail_weight().unwrap();
+        assert!(tw > 0.0, "tail weight should be > 0, got {}", tw);
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -14425,6 +14534,52 @@ impl ZScoreNormalizer {
         vals.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
         let pos = vals.partition_point(|&v| v < last);
         Some(pos as f64 / vals.len() as f64)
+    }
+
+    // ── round-146 ────────────────────────────────────────────────────────────
+
+    /// Deviation of the most recent window value from the previous one.
+    pub fn window_prev_deviation(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let mut iter = self.window.iter().rev();
+        let last = iter.next()?.to_f64()?;
+        let prev = iter.next()?.to_f64()?;
+        Some(last - prev)
+    }
+
+    /// Lower quartile (25th percentile) of the window values.
+    pub fn window_lower_quartile(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let mut vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        vals.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let idx = (vals.len() - 1) / 4;
+        Some(vals[idx])
+    }
+
+    /// Upper quartile (75th percentile) of the window values.
+    pub fn window_upper_quartile(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let mut vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        vals.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let idx = (3 * (vals.len() - 1)) / 4;
+        Some(vals[idx])
+    }
+
+    /// Fraction of window values in the bottom or top 10% (tail weight).
+    pub fn window_tail_weight(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let mut vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        vals.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let n = vals.len();
+        let tail = (n / 10).max(1);
+        let lower = vals[tail - 1];
+        let upper = vals[n - tail];
+        let in_tail = vals.iter().filter(|&&v| v <= lower || v >= upper).count();
+        Some(in_tail as f64 / n as f64)
     }
 
 }
@@ -19712,5 +19867,66 @@ mod zscore_stability_tests {
         for v in [dec!(1), dec!(2), dec!(3), dec!(10)] { n.update(v); }
         let p = n.window_sorted_position().unwrap();
         assert!((p - 0.75).abs() < 1e-9, "expected 0.75, got {}", p);
+    }
+
+    // ── round-146 ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_zscore_window_prev_deviation_none_for_single() {
+        let mut n = znorm(4);
+        n.update(dec!(5));
+        assert!(n.window_prev_deviation().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_prev_deviation_basic() {
+        let mut n = znorm(4);
+        n.update(dec!(10));
+        n.update(dec!(15));
+        let d = n.window_prev_deviation().unwrap();
+        assert!((d - 5.0).abs() < 1e-9, "expected 5.0, got {}", d);
+    }
+
+    #[test]
+    fn test_zscore_window_lower_quartile_none_for_empty() {
+        let n = znorm(4);
+        assert!(n.window_lower_quartile().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_lower_quartile_basic() {
+        let mut n = znorm(4);
+        for v in [dec!(10), dec!(20), dec!(30), dec!(40)] { n.update(v); }
+        let q = n.window_lower_quartile().unwrap();
+        assert!((q - 10.0).abs() < 1e-9, "expected 10.0, got {}", q);
+    }
+
+    #[test]
+    fn test_zscore_window_upper_quartile_none_for_empty() {
+        let n = znorm(4);
+        assert!(n.window_upper_quartile().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_upper_quartile_basic() {
+        let mut n = znorm(4);
+        for v in [dec!(10), dec!(20), dec!(30), dec!(40)] { n.update(v); }
+        let q = n.window_upper_quartile().unwrap();
+        assert!((q - 30.0).abs() < 1e-9, "expected 30.0, got {}", q);
+    }
+
+    #[test]
+    fn test_zscore_window_tail_weight_none_for_empty() {
+        let n = znorm(4);
+        assert!(n.window_tail_weight().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_tail_weight_basic() {
+        let mut n = znorm(10);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4), dec!(5),
+                  dec!(6), dec!(7), dec!(8), dec!(9), dec!(10)] { n.update(v); }
+        let tw = n.window_tail_weight().unwrap();
+        assert!(tw > 0.0, "tail weight should be > 0, got {}", tw);
     }
 }
