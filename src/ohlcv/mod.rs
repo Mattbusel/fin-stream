@@ -5476,6 +5476,57 @@ impl OhlcvBar {
         Some(var.sqrt())
     }
 
+    // ── round-121 ────────────────────────────────────────────────────────────
+
+    /// Fraction of bars where open falls within the prior bar's range (gap fill).
+    pub fn close_gap_ratio(bars: &[OhlcvBar]) -> Option<f64> {
+        if bars.len() < 2 { return None; }
+        let fills = bars.windows(2).filter(|w| {
+            w[1].open >= w[0].low && w[1].open <= w[0].high
+        }).count();
+        Some(fills as f64 / (bars.len() - 1) as f64)
+    }
+
+    /// Volume deceleration: mean of (vol[i] - vol[i-1]) for decreasing pairs.
+    pub fn volume_deceleration(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.len() < 2 { return None; }
+        let decs: Vec<f64> = bars.windows(2).filter_map(|w| {
+            if w[1].volume < w[0].volume {
+                Some((w[1].volume - w[0].volume).to_f64().unwrap_or(0.0))
+            } else { None }
+        }).collect();
+        if decs.is_empty() { return Some(0.0); }
+        Some(decs.iter().sum::<f64>() / decs.len() as f64)
+    }
+
+    /// Bar trend persistence: fraction of bars that continue the prior bar's direction.
+    pub fn bar_trend_persistence(bars: &[OhlcvBar]) -> Option<f64> {
+        if bars.len() < 2 { return None; }
+        let persist = bars.windows(2).filter(|w| {
+            let prev_bull = w[0].close >= w[0].open;
+            let curr_bull = w[1].close >= w[1].open;
+            prev_bull == curr_bull
+        }).count();
+        Some(persist as f64 / (bars.len() - 1) as f64)
+    }
+
+    /// Ratio of total shadow length to body length across bars.
+    pub fn shadow_body_ratio(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let mut total_shadow = 0f64;
+        let mut total_body = 0f64;
+        for b in bars {
+            let body = (b.close - b.open).abs().to_f64().unwrap_or(0.0);
+            let upper = (b.high - b.open.max(b.close)).to_f64().unwrap_or(0.0);
+            let lower = (b.open.min(b.close) - b.low).to_f64().unwrap_or(0.0);
+            total_shadow += upper + lower;
+            total_body += body;
+        }
+        if total_body == 0.0 { None } else { Some(total_shadow / total_body) }
+    }
+
 }
 
 impl std::fmt::Display for OhlcvBar {
@@ -12848,5 +12899,63 @@ mod tests {
         let bars: Vec<_> = (0..3).map(|_| make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105))).collect();
         let v = OhlcvBar::body_volatility(&bars).unwrap();
         assert!(v.abs() < 1e-9, "expected 0.0, got {}", v);
+    }
+
+    // ── round-121 ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_close_gap_ratio_none_for_single() {
+        assert!(OhlcvBar::close_gap_ratio(&[make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100))]).is_none());
+    }
+
+    #[test]
+    fn test_close_gap_ratio_open_within_prior_range() {
+        // prior range [90,110], next open=100 → within → ratio=1.0
+        let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let b2 = make_ohlcv_bar(dec!(100), dec!(115), dec!(95), dec!(102));
+        let r = OhlcvBar::close_gap_ratio(&[b1, b2]).unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "expected 1.0, got {}", r);
+    }
+
+    #[test]
+    fn test_volume_deceleration_none_for_single() {
+        assert!(OhlcvBar::volume_deceleration(&[make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100))]).is_none());
+    }
+
+    #[test]
+    fn test_volume_deceleration_no_decreasing_is_zero() {
+        // increasing volume → no decreasing pairs → 0.0
+        let mut b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100));
+        b1.volume = dec!(5);
+        let mut b2 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100));
+        b2.volume = dec!(10);
+        let d = OhlcvBar::volume_deceleration(&[b1, b2]).unwrap();
+        assert!((d - 0.0).abs() < 1e-9, "expected 0.0, got {}", d);
+    }
+
+    #[test]
+    fn test_bar_trend_persistence_none_for_single() {
+        assert!(OhlcvBar::bar_trend_persistence(&[make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105))]).is_none());
+    }
+
+    #[test]
+    fn test_bar_trend_persistence_all_bullish() {
+        // two bullish bars → 100% persistence
+        let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(95), dec!(105));
+        let b2 = make_ohlcv_bar(dec!(105), dec!(115), dec!(100), dec!(112));
+        let p = OhlcvBar::bar_trend_persistence(&[b1, b2]).unwrap();
+        assert!((p - 1.0).abs() < 1e-9, "expected 1.0, got {}", p);
+    }
+
+    #[test]
+    fn test_shadow_body_ratio_none_for_empty() {
+        assert!(OhlcvBar::shadow_body_ratio(&[]).is_none());
+    }
+
+    #[test]
+    fn test_shadow_body_ratio_doji_none() {
+        // open=close → body=0 → None
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100));
+        assert!(OhlcvBar::shadow_body_ratio(&[b]).is_none());
     }
 }

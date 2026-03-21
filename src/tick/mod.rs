@@ -5530,6 +5530,65 @@ impl NormalizedTick {
         Some((frac - 0.5).abs())
     }
 
+    // ── round-121 ────────────────────────────────────────────────────────────
+
+    /// Pearson correlation between price and quantity across ticks.
+    pub fn price_vol_correlation(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 2 { return None; }
+        let ps: Vec<f64> = ticks.iter().map(|t| t.price.to_f64().unwrap_or(0.0)).collect();
+        let qs: Vec<f64> = ticks.iter().map(|t| t.quantity.to_f64().unwrap_or(0.0)).collect();
+        let n = ps.len() as f64;
+        let pm = ps.iter().sum::<f64>() / n;
+        let qm = qs.iter().sum::<f64>() / n;
+        let cov: f64 = ps.iter().zip(qs.iter()).map(|(&p, &q)| (p - pm) * (q - qm)).sum::<f64>() / n;
+        let sp = (ps.iter().map(|&p| (p - pm).powi(2)).sum::<f64>() / n).sqrt();
+        let sq = (qs.iter().map(|&q| (q - qm).powi(2)).sum::<f64>() / n).sqrt();
+        if sp == 0.0 || sq == 0.0 { return None; }
+        Some(cov / (sp * sq))
+    }
+
+    /// Mean second-order price change: mean of (p[i+2] - 2*p[i+1] + p[i]).
+    pub fn qty_acceleration(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 3 { return None; }
+        let qs: Vec<f64> = ticks.iter().map(|t| t.quantity.to_f64().unwrap_or(0.0)).collect();
+        let acc: Vec<f64> = qs.windows(3).map(|w| w[2] - 2.0 * w[1] + w[0]).collect();
+        Some(acc.iter().sum::<f64>() / acc.len() as f64)
+    }
+
+    /// Mean buy price minus mean sell price (requires sided ticks).
+    pub fn buy_sell_price_diff(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let buys: Vec<f64> = ticks.iter()
+            .filter(|t| matches!(t.side, Some(TradeSide::Buy)))
+            .map(|t| t.price.to_f64().unwrap_or(0.0)).collect();
+        let sells: Vec<f64> = ticks.iter()
+            .filter(|t| matches!(t.side, Some(TradeSide::Sell)))
+            .map(|t| t.price.to_f64().unwrap_or(0.0)).collect();
+        if buys.is_empty() || sells.is_empty() { return None; }
+        let buy_mean = buys.iter().sum::<f64>() / buys.len() as f64;
+        let sell_mean = sells.iter().sum::<f64>() / sells.len() as f64;
+        Some(buy_mean - sell_mean)
+    }
+
+    /// Order flow imbalance: (buy_qty - sell_qty) / (buy_qty + sell_qty).
+    pub fn tick_imbalance_score(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let mut buy_qty = 0f64;
+        let mut sell_qty = 0f64;
+        for t in ticks {
+            let q = t.quantity.to_f64().unwrap_or(0.0);
+            match t.side {
+                Some(TradeSide::Buy) => buy_qty += q,
+                Some(TradeSide::Sell) => sell_qty += q,
+                _ => {}
+            }
+        }
+        let total = buy_qty + sell_qty;
+        if total == 0.0 { None } else { Some((buy_qty - sell_qty) / total) }
+    }
+
 }
 
 
@@ -12646,5 +12705,71 @@ mod tests {
         let s = NormalizedTick::side_balance_score(&[t]).unwrap();
         // all buys → frac=1.0, |1.0-0.5|=0.5
         assert!((s - 0.5).abs() < 1e-9, "expected 0.5, got {}", s);
+    }
+
+    // ── round-121 ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_price_vol_correlation_none_for_single() {
+        use rust_decimal_macros::dec;
+        assert!(NormalizedTick::price_vol_correlation(&[make_tick_pq(dec!(100), dec!(1))]).is_none());
+    }
+
+    #[test]
+    fn test_price_vol_correlation_uniform_none() {
+        use rust_decimal_macros::dec;
+        // uniform quantity → zero std → None
+        let ticks: Vec<_> = (0..3).map(|i| make_tick_pq(dec!(100) + rust_decimal::Decimal::from(i), dec!(5))).collect();
+        assert!(NormalizedTick::price_vol_correlation(&ticks).is_none());
+    }
+
+    #[test]
+    fn test_qty_acceleration_none_for_two() {
+        use rust_decimal_macros::dec;
+        let ticks = [make_tick_pq(dec!(100), dec!(1)), make_tick_pq(dec!(101), dec!(2))];
+        assert!(NormalizedTick::qty_acceleration(&ticks).is_none());
+    }
+
+    #[test]
+    fn test_qty_acceleration_constant_zero() {
+        use rust_decimal_macros::dec;
+        // constant qty → all diffs=0 → acceleration=0
+        let ticks: Vec<_> = (0..4).map(|i| make_tick_pq(dec!(100) + rust_decimal::Decimal::from(i), dec!(3))).collect();
+        let a = NormalizedTick::qty_acceleration(&ticks).unwrap();
+        assert!(a.abs() < 1e-9, "expected 0.0, got {}", a);
+    }
+
+    #[test]
+    fn test_buy_sell_price_diff_none_for_no_sides() {
+        use rust_decimal_macros::dec;
+        assert!(NormalizedTick::buy_sell_price_diff(&[make_tick_pq(dec!(100), dec!(1))]).is_none());
+    }
+
+    #[test]
+    fn test_buy_sell_price_diff_basic() {
+        use rust_decimal_macros::dec;
+        let mut buy = make_tick_pq(dec!(102), dec!(1));
+        buy.side = Some(TradeSide::Buy);
+        let mut sell = make_tick_pq(dec!(100), dec!(1));
+        sell.side = Some(TradeSide::Sell);
+        let d = NormalizedTick::buy_sell_price_diff(&[buy, sell]).unwrap();
+        assert!((d - 2.0).abs() < 1e-9, "expected 2.0, got {}", d);
+    }
+
+    #[test]
+    fn test_tick_imbalance_score_none_for_unsided() {
+        use rust_decimal_macros::dec;
+        assert!(NormalizedTick::tick_imbalance_score(&[make_tick_pq(dec!(100), dec!(1))]).is_none());
+    }
+
+    #[test]
+    fn test_tick_imbalance_score_balanced() {
+        use rust_decimal_macros::dec;
+        let mut buy = make_tick_pq(dec!(100), dec!(5));
+        buy.side = Some(TradeSide::Buy);
+        let mut sell = make_tick_pq(dec!(100), dec!(5));
+        sell.side = Some(TradeSide::Sell);
+        let s = NormalizedTick::tick_imbalance_score(&[buy, sell]).unwrap();
+        assert!(s.abs() < 1e-9, "expected 0.0, got {}", s);
     }
 }

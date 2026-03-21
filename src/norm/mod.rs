@@ -3408,6 +3408,57 @@ impl MinMaxNormalizer {
         Some((last - mean) / std)
     }
 
+    // ── round-121 ────────────────────────────────────────────────────────────
+
+    /// Fraction of window values within [min, min + range/2] (lower half of range).
+    pub fn window_range_fraction(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let min = vals.iter().cloned().fold(f64::INFINITY, f64::min);
+        let max = vals.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        let range = max - min;
+        if range == 0.0 { return Some(1.0); }
+        let mid = min + range / 2.0;
+        Some(vals.iter().filter(|&&v| v <= mid).count() as f64 / vals.len() as f64)
+    }
+
+    /// Whether the window mean is above the last value (1.0 if so, 0.0 otherwise).
+    pub fn window_mean_above_last(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let mean = vals.iter().sum::<f64>() / vals.len() as f64;
+        let last = *vals.last()?;
+        Some(if mean > last { 1.0 } else { 0.0 })
+    }
+
+    /// Volatility trend: std of second half minus std of first half of window.
+    pub fn window_volatility_trend(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 4 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let mid = vals.len() / 2;
+        let std_half = |half: &[f64]| -> f64 {
+            let n = half.len() as f64;
+            let m = half.iter().sum::<f64>() / n;
+            (half.iter().map(|&x| (x - m).powi(2)).sum::<f64>() / n).sqrt()
+        };
+        Some(std_half(&vals[mid..]) - std_half(&vals[..mid]))
+    }
+
+    /// Count of sign changes in successive differences across the window.
+    pub fn window_sign_change_count(&self) -> Option<usize> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 3 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let diffs: Vec<f64> = vals.windows(2).map(|w| w[1] - w[0]).collect();
+        let changes = diffs.windows(2)
+            .filter(|w| w[0] * w[1] < 0.0)
+            .count();
+        Some(changes)
+    }
+
 }
 
 #[cfg(test)]
@@ -7123,6 +7174,68 @@ mod tests {
         // last=3, mean=2, std≈0.816 → z≈1.225
         assert!(z > 0.0, "expected positive zscore, got {}", z);
     }
+
+    // ── round-121 ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_minmax_window_range_fraction_none_for_empty() {
+        let n = norm(3);
+        assert!(n.window_range_fraction().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_range_fraction_uniform() {
+        let mut n = norm(3);
+        for v in [dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        let f = n.window_range_fraction().unwrap();
+        assert!((f - 1.0).abs() < 1e-9, "expected 1.0, got {}", f);
+    }
+
+    #[test]
+    fn test_minmax_window_mean_above_last_none_for_empty() {
+        let n = norm(3);
+        assert!(n.window_mean_above_last().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_mean_above_last_basic() {
+        let mut n = norm(3);
+        for v in [dec!(5), dec!(4), dec!(1)] { n.update(v); }
+        // mean=(5+4+1)/3=10/3≈3.33, last=1 → mean > last → 1.0
+        let r = n.window_mean_above_last().unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "expected 1.0, got {}", r);
+    }
+
+    #[test]
+    fn test_minmax_window_volatility_trend_none_for_three() {
+        let mut n = norm(5);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        assert!(n.window_volatility_trend().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_volatility_trend_basic() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        // any result is fine — just ensure it returns Some
+        assert!(n.window_volatility_trend().is_some());
+    }
+
+    #[test]
+    fn test_minmax_window_sign_change_count_none_for_two() {
+        let mut n = norm(3);
+        for v in [dec!(1), dec!(2)] { n.update(v); }
+        assert!(n.window_sign_change_count().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_sign_change_count_alternating() {
+        let mut n = norm(5);
+        // 1,3,1,3,1 → diffs: +2,-2,+2,-2 → sign changes: 3
+        for v in [dec!(1), dec!(3), dec!(1), dec!(3), dec!(1)] { n.update(v); }
+        let c = n.window_sign_change_count().unwrap();
+        assert_eq!(c, 3);
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -10476,6 +10589,57 @@ impl ZScoreNormalizer {
         if std == 0.0 { return None; }
         let last = *vals.last()?;
         Some((last - mean) / std)
+    }
+
+    // ── round-121 ────────────────────────────────────────────────────────────
+
+    /// Fraction of window values within lower half of range.
+    pub fn window_range_fraction(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let min = vals.iter().cloned().fold(f64::INFINITY, f64::min);
+        let max = vals.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        let range = max - min;
+        if range == 0.0 { return Some(1.0); }
+        let mid = min + range / 2.0;
+        Some(vals.iter().filter(|&&v| v <= mid).count() as f64 / vals.len() as f64)
+    }
+
+    /// Whether the window mean is above the last value (1.0 if so, 0.0 otherwise).
+    pub fn window_mean_above_last(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let mean = vals.iter().sum::<f64>() / vals.len() as f64;
+        let last = *vals.last()?;
+        Some(if mean > last { 1.0 } else { 0.0 })
+    }
+
+    /// Volatility trend: std of second half minus std of first half of window.
+    pub fn window_volatility_trend(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 4 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let mid = vals.len() / 2;
+        let std_half = |half: &[f64]| -> f64 {
+            let n = half.len() as f64;
+            let m = half.iter().sum::<f64>() / n;
+            (half.iter().map(|&x| (x - m).powi(2)).sum::<f64>() / n).sqrt()
+        };
+        Some(std_half(&vals[mid..]) - std_half(&vals[..mid]))
+    }
+
+    /// Count of sign changes in successive differences across the window.
+    pub fn window_sign_change_count(&self) -> Option<usize> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 3 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let diffs: Vec<f64> = vals.windows(2).map(|w| w[1] - w[0]).collect();
+        let changes = diffs.windows(2)
+            .filter(|w| w[0] * w[1] < 0.0)
+            .count();
+        Some(changes)
     }
 
 }
@@ -14274,5 +14438,64 @@ mod zscore_stability_tests {
         for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
         let z = n.window_last_zscore().unwrap();
         assert!(z > 0.0, "expected positive zscore, got {}", z);
+    }
+
+    // ── round-121 ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_zscore_window_range_fraction_none_for_empty() {
+        let n = znorm(3);
+        assert!(n.window_range_fraction().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_range_fraction_uniform() {
+        let mut n = znorm(3);
+        for v in [dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        let f = n.window_range_fraction().unwrap();
+        assert!((f - 1.0).abs() < 1e-9, "expected 1.0, got {}", f);
+    }
+
+    #[test]
+    fn test_zscore_window_mean_above_last_none_for_empty() {
+        let n = znorm(3);
+        assert!(n.window_mean_above_last().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_mean_above_last_basic() {
+        let mut n = znorm(3);
+        for v in [dec!(5), dec!(4), dec!(1)] { n.update(v); }
+        let r = n.window_mean_above_last().unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "expected 1.0, got {}", r);
+    }
+
+    #[test]
+    fn test_zscore_window_volatility_trend_none_for_three() {
+        let mut n = znorm(5);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        assert!(n.window_volatility_trend().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_volatility_trend_basic() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        assert!(n.window_volatility_trend().is_some());
+    }
+
+    #[test]
+    fn test_zscore_window_sign_change_count_none_for_two() {
+        let mut n = znorm(3);
+        for v in [dec!(1), dec!(2)] { n.update(v); }
+        assert!(n.window_sign_change_count().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_sign_change_count_alternating() {
+        let mut n = znorm(5);
+        for v in [dec!(1), dec!(3), dec!(1), dec!(3), dec!(1)] { n.update(v); }
+        let c = n.window_sign_change_count().unwrap();
+        assert_eq!(c, 3);
     }
 }

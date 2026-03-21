@@ -9,6 +9,36 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.7.2] - 2026-03-20
+
+### Added
+
+**`tick` module — `NormalizedTick` analytics (round 121)**
+- `NormalizedTick::price_vol_correlation(ticks)` — Pearson correlation between price and quantity.
+- `NormalizedTick::qty_acceleration(ticks)` — mean second-order quantity change across ticks.
+- `NormalizedTick::buy_sell_price_diff(ticks)` — mean buy price minus mean sell price.
+- `NormalizedTick::tick_imbalance_score(ticks)` — order flow imbalance as (buy_qty - sell_qty) / total.
+
+**`ohlcv` module — `OhlcvBar` analytics (round 121)**
+- `OhlcvBar::close_gap_ratio(bars)` — fraction of bars where open falls within the prior bar's range.
+- `OhlcvBar::volume_deceleration(bars)` — mean volume drop across bars with decreasing volume.
+- `OhlcvBar::bar_trend_persistence(bars)` — fraction of bars that continue the prior bar's direction.
+- `OhlcvBar::shadow_body_ratio(bars)` — ratio of total shadow length to total body length.
+
+**`norm` module — `MinMaxNormalizer` analytics (round 121)**
+- `MinMaxNormalizer::window_range_fraction()` — fraction of window values in the lower half of range.
+- `MinMaxNormalizer::window_mean_above_last()` — 1.0 if window mean exceeds last value, else 0.0.
+- `MinMaxNormalizer::window_volatility_trend()` — std of second half minus std of first half.
+- `MinMaxNormalizer::window_sign_change_count()` — count of sign changes in successive differences.
+
+**`norm` module — `ZScoreNormalizer` analytics (round 121)**
+- `ZScoreNormalizer::window_range_fraction()` — fraction of window values in the lower half of range.
+- `ZScoreNormalizer::window_mean_above_last()` — 1.0 if window mean exceeds last value, else 0.0.
+- `ZScoreNormalizer::window_volatility_trend()` — std of second half minus std of first half.
+- `ZScoreNormalizer::window_sign_change_count()` — count of sign changes in successive differences.
+
+---
+
 ## [2.7.1] - 2026-03-20
 
 ### Added
