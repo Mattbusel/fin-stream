@@ -6597,6 +6597,55 @@ impl MinMaxNormalizer {
         Some(max_run as f64)
     }
 
+    /// Count of times window value crosses the mean from below or above.
+    pub fn window_mean_cross_count(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let mean = vals.iter().sum::<f64>() / vals.len() as f64;
+        let crosses = vals.windows(2).filter(|w| {
+            (w[0] < mean && w[1] >= mean) || (w[0] >= mean && w[1] < mean)
+        }).count();
+        Some(crosses as f64)
+    }
+
+    /// Last window value minus the median.
+    pub fn window_last_minus_median(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let mut vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let last = *vals.last()?;
+        vals.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let n = vals.len();
+        let median = if n % 2 == 0 { (vals[n / 2 - 1] + vals[n / 2]) / 2.0 } else { vals[n / 2] };
+        Some(last - median)
+    }
+
+    /// Sign of skewness: +1 if mean > median, -1 if mean < median, 0 if equal.
+    pub fn window_skewness_sign(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 3 { return None; }
+        let mut vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let mean = vals.iter().sum::<f64>() / vals.len() as f64;
+        vals.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let n = vals.len();
+        let median = if n % 2 == 0 { (vals[n / 2 - 1] + vals[n / 2]) / 2.0 } else { vals[n / 2] };
+        let diff = mean - median;
+        Some(if diff > 1e-12 { 1.0 } else if diff < -1e-12 { -1.0 } else { 0.0 })
+    }
+
+    /// Trimmed mean excluding top and bottom 10% of window values (f64 version).
+    pub fn window_trimmed_mean_f64(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 3 { return None; }
+        let mut vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        vals.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let trim = (vals.len() as f64 * 0.1) as usize;
+        let trimmed = &vals[trim..vals.len() - trim];
+        if trimmed.is_empty() { return None; }
+        Some(trimmed.iter().sum::<f64>() / trimmed.len() as f64)
+    }
+
 }
 
 #[cfg(test)]
@@ -14359,6 +14408,67 @@ mod tests {
         let r = n.window_max_run_length_f64().unwrap();
         assert!((r - 4.0).abs() < 1e-9, "expected 4.0, got {}", r);
     }
+
+    #[test]
+    fn test_minmax_window_mean_cross_count_none_for_single() {
+        let mut n = norm(4);
+        n.update(dec!(5));
+        assert!(n.window_mean_cross_count().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_mean_cross_count_constant_zero() {
+        let mut n = norm(4);
+        for v in [dec!(5), dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        let r = n.window_mean_cross_count().unwrap();
+        assert!((r - 0.0).abs() < 1e-9, "expected 0.0, got {}", r);
+    }
+
+    #[test]
+    fn test_minmax_window_last_minus_median_none_for_empty() {
+        let n = norm(4);
+        assert!(n.window_last_minus_median().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_last_minus_median_last_is_median_zero() {
+        // Symmetric: 1,2,3 → median=2, last=3 → 3-2=1
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        let r = n.window_last_minus_median().unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "expected 1.0, got {}", r);
+    }
+
+    #[test]
+    fn test_minmax_window_skewness_sign_none_for_short() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2)] { n.update(v); }
+        assert!(n.window_skewness_sign().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_skewness_sign_symmetric_zero() {
+        // 1,2,3,4 → mean=2.5, median=2.5 → sign=0
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let r = n.window_skewness_sign().unwrap();
+        assert!(r.abs() < 1e-9, "expected 0.0, got {}", r);
+    }
+
+    #[test]
+    fn test_minmax_window_trimmed_mean_f64_none_for_short() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2)] { n.update(v); }
+        assert!(n.window_trimmed_mean_f64().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_trimmed_mean_f64_constant() {
+        let mut n = norm(4);
+        for v in [dec!(5), dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        let r = n.window_trimmed_mean_f64().unwrap();
+        assert!((r - 5.0).abs() < 1e-9, "expected 5.0, got {}", r);
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -20904,6 +21014,55 @@ impl ZScoreNormalizer {
             }
         }
         Some(max_run as f64)
+    }
+
+    /// Count of times window value crosses the mean from below or above.
+    pub fn window_mean_cross_count(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let mean = vals.iter().sum::<f64>() / vals.len() as f64;
+        let crosses = vals.windows(2).filter(|w| {
+            (w[0] < mean && w[1] >= mean) || (w[0] >= mean && w[1] < mean)
+        }).count();
+        Some(crosses as f64)
+    }
+
+    /// Last window value minus the median.
+    pub fn window_last_minus_median(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let mut vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let last = *vals.last()?;
+        vals.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let n = vals.len();
+        let median = if n % 2 == 0 { (vals[n / 2 - 1] + vals[n / 2]) / 2.0 } else { vals[n / 2] };
+        Some(last - median)
+    }
+
+    /// Sign of skewness: +1 if mean > median, -1 if mean < median, 0 if equal.
+    pub fn window_skewness_sign(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 3 { return None; }
+        let mut vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let mean = vals.iter().sum::<f64>() / vals.len() as f64;
+        vals.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let n = vals.len();
+        let median = if n % 2 == 0 { (vals[n / 2 - 1] + vals[n / 2]) / 2.0 } else { vals[n / 2] };
+        let diff = mean - median;
+        Some(if diff > 1e-12 { 1.0 } else if diff < -1e-12 { -1.0 } else { 0.0 })
+    }
+
+    /// Trimmed mean excluding top and bottom 10% of window values (f64 version).
+    pub fn window_trimmed_mean_f64(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 3 { return None; }
+        let mut vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        vals.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let trim = (vals.len() as f64 * 0.1) as usize;
+        let trimmed = &vals[trim..vals.len() - trim];
+        if trimmed.is_empty() { return None; }
+        Some(trimmed.iter().sum::<f64>() / trimmed.len() as f64)
     }
 
 }
@@ -28618,5 +28777,64 @@ mod zscore_stability_tests {
         for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
         let r = n.window_max_run_length_f64().unwrap();
         assert!((r - 4.0).abs() < 1e-9, "expected 4.0, got {}", r);
+    }
+
+    #[test]
+    fn test_zscore_window_mean_cross_count_none_for_single() {
+        let mut n = znorm(4);
+        n.update(dec!(5));
+        assert!(n.window_mean_cross_count().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_mean_cross_count_constant_zero() {
+        let mut n = znorm(4);
+        for v in [dec!(5), dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        let r = n.window_mean_cross_count().unwrap();
+        assert!((r - 0.0).abs() < 1e-9, "expected 0.0, got {}", r);
+    }
+
+    #[test]
+    fn test_zscore_window_last_minus_median_none_for_empty() {
+        let n = znorm(4);
+        assert!(n.window_last_minus_median().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_last_minus_median_value() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        let r = n.window_last_minus_median().unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "expected 1.0, got {}", r);
+    }
+
+    #[test]
+    fn test_zscore_window_skewness_sign_none_for_short() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2)] { n.update(v); }
+        assert!(n.window_skewness_sign().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_skewness_sign_symmetric_zero() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let r = n.window_skewness_sign().unwrap();
+        assert!(r.abs() < 1e-9, "expected 0.0, got {}", r);
+    }
+
+    #[test]
+    fn test_zscore_window_trimmed_mean_f64_none_for_short() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2)] { n.update(v); }
+        assert!(n.window_trimmed_mean_f64().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_trimmed_mean_f64_constant() {
+        let mut n = znorm(4);
+        for v in [dec!(5), dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        let r = n.window_trimmed_mean_f64().unwrap();
+        assert!((r - 5.0).abs() < 1e-9, "expected 5.0, got {}", r);
     }
 }

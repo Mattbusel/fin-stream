@@ -9,6 +9,30 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.10.38] - 2026-03-20
+
+### Added
+
+**`tick` module — `NormalizedTick` analytics (round 187)**
+- `NormalizedTick::tick_volume_entropy(ticks)` — entropy of quantity distribution across 5 buckets.
+- `NormalizedTick::tick_level_crossing_rate(ticks)` — rate of price crossing the mean per tick pair.
+- `NormalizedTick::tick_cross_zero_count(ticks)` — number of times price crosses zero.
+- `NormalizedTick::price_signed_accel(ticks)` — mean signed second difference of prices.
+
+**`ohlcv` module — `OhlcvBar` analytics (round 187)**
+- `OhlcvBar::bar_volume_per_close(bars)` — mean volume / close per bar.
+- `OhlcvBar::bar_open_gap_sign(bars)` — mean sign of open gap (open vs. prev close).
+- `OhlcvBar::bar_close_to_ohlc_mean(bars)` — mean |close - (o+h+l+c)/4| per bar.
+- `OhlcvBar::bar_range_change_sign(bars)` — mean sign of range change (high-low)[i] vs [i-1].
+
+**`norm` module — `MinMaxNormalizer` + `ZScoreNormalizer` analytics (round 187)**
+- `window_mean_cross_count()` — count of times window value crosses the mean.
+- `window_last_minus_median()` — last window value minus the median.
+- `window_skewness_sign()` — sign of skewness: +1 (right-skewed), -1 (left-skewed), 0 (symmetric).
+- `window_trimmed_mean_f64()` — trimmed mean excluding top and bottom 10% of window values.
+
+---
+
 ## [2.10.37] - 2026-03-20
 
 ### Added

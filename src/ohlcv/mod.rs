@@ -9023,6 +9023,61 @@ impl OhlcvBar {
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
+    /// Mean volume / close per bar.
+    pub fn bar_volume_per_close(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let vals: Vec<f64> = bars.iter().filter_map(|b| {
+            let c = b.close.to_f64()?;
+            if c == 0.0 { return None; }
+            Some(b.volume.to_f64()? / c)
+        }).collect();
+        if vals.is_empty() { return None; }
+        Some(vals.iter().sum::<f64>() / vals.len() as f64)
+    }
+
+    /// Fraction of bars where open > prev close (gap up sign).
+    pub fn bar_open_gap_sign(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.len() < 2 { return None; }
+        let signs: Vec<f64> = bars.windows(2).filter_map(|w| {
+            let open = w[1].open.to_f64()?;
+            let prev_close = w[0].close.to_f64()?;
+            Some(if open > prev_close { 1.0 } else if open < prev_close { -1.0 } else { 0.0 })
+        }).collect();
+        if signs.is_empty() { return None; }
+        Some(signs.iter().sum::<f64>() / signs.len() as f64)
+    }
+
+    /// Mean |close - ohlc_mean| per bar: close deviation from bar average.
+    pub fn bar_close_to_ohlc_mean(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let vals: Vec<f64> = bars.iter().filter_map(|b| {
+            let o = b.open.to_f64()?;
+            let h = b.high.to_f64()?;
+            let l = b.low.to_f64()?;
+            let c = b.close.to_f64()?;
+            let ohlc_mean = (o + h + l + c) / 4.0;
+            Some((c - ohlc_mean).abs())
+        }).collect();
+        if vals.is_empty() { return None; }
+        Some(vals.iter().sum::<f64>() / vals.len() as f64)
+    }
+
+    /// Fraction of bars where (high-low)[i] > (high-low)[i-1]: range expansion sign.
+    pub fn bar_range_change_sign(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.len() < 2 { return None; }
+        let signs: Vec<f64> = bars.windows(2).filter_map(|w| {
+            let r0 = w[0].high.to_f64()? - w[0].low.to_f64()?;
+            let r1 = w[1].high.to_f64()? - w[1].low.to_f64()?;
+            Some(if r1 > r0 { 1.0 } else if r1 < r0 { -1.0 } else { 0.0 })
+        }).collect();
+        if signs.is_empty() { return None; }
+        Some(signs.iter().sum::<f64>() / signs.len() as f64)
+    }
+
 }
 
 impl std::fmt::Display for OhlcvBar {
@@ -20299,6 +20354,62 @@ mod tests {
         // open=low → (open-low)/(high-low) = 0
         let b = make_ohlcv_bar(dec!(90), dec!(110), dec!(90), dec!(100));
         let r = OhlcvBar::bar_open_range_pct(&[b]).unwrap();
+        assert!(r.abs() < 1e-9, "expected 0.0, got {}", r);
+    }
+
+    #[test]
+    fn test_bar_volume_per_close_empty_none() {
+        assert!(OhlcvBar::bar_volume_per_close(&[]).is_none());
+    }
+
+    #[test]
+    fn test_bar_volume_per_close_value() {
+        // volume=1, close=100 → 1/100=0.01
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100));
+        let r = OhlcvBar::bar_volume_per_close(&[b]).unwrap();
+        assert!((r - 0.01).abs() < 1e-9, "expected 0.01, got {}", r);
+    }
+
+    #[test]
+    fn test_bar_open_gap_sign_none_for_single() {
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        assert!(OhlcvBar::bar_open_gap_sign(&[b]).is_none());
+    }
+
+    #[test]
+    fn test_bar_open_gap_sign_no_gap_zero() {
+        // b0 close=105, b1 open=105 → sign=0
+        let b0 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let b1 = make_ohlcv_bar(dec!(105), dec!(115), dec!(95), dec!(110));
+        let r = OhlcvBar::bar_open_gap_sign(&[b0, b1]).unwrap();
+        assert!(r.abs() < 1e-9, "expected 0.0, got {}", r);
+    }
+
+    #[test]
+    fn test_bar_close_to_ohlc_mean_empty_none() {
+        assert!(OhlcvBar::bar_close_to_ohlc_mean(&[]).is_none());
+    }
+
+    #[test]
+    fn test_bar_close_to_ohlc_mean_symmetric_zero() {
+        // open=100,high=110,low=90,close=100 → ohlc_mean=100 → |100-100|=0
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100));
+        let r = OhlcvBar::bar_close_to_ohlc_mean(&[b]).unwrap();
+        assert!(r.abs() < 1e-9, "expected 0.0, got {}", r);
+    }
+
+    #[test]
+    fn test_bar_range_change_sign_none_for_single() {
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        assert!(OhlcvBar::bar_range_change_sign(&[b]).is_none());
+    }
+
+    #[test]
+    fn test_bar_range_change_sign_constant_range_zero() {
+        // Both bars have same range=20 → sign=0
+        let b0 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let b1 = make_ohlcv_bar(dec!(105), dec!(115), dec!(95), dec!(110));
+        let r = OhlcvBar::bar_range_change_sign(&[b0, b1]).unwrap();
         assert!(r.abs() < 1e-9, "expected 0.0, got {}", r);
     }
 }

@@ -9311,6 +9311,65 @@ impl NormalizedTick {
         Some(reversals as f64)
     }
 
+    /// Approximate entropy of quantity distribution using 5 buckets.
+    pub fn tick_volume_entropy(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() { return None; }
+        let qtys: Vec<f64> = ticks.iter().filter_map(|t| t.quantity.to_f64()).collect();
+        if qtys.is_empty() { return None; }
+        let min = qtys.iter().cloned().fold(f64::INFINITY, f64::min);
+        let max = qtys.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        let range = max - min;
+        if range == 0.0 { return Some(0.0); }
+        let buckets = 5usize;
+        let mut counts = vec![0usize; buckets];
+        for q in &qtys {
+            let idx = (((q - min) / range) * buckets as f64) as usize;
+            counts[idx.min(buckets - 1)] += 1;
+        }
+        let n = qtys.len() as f64;
+        let entropy = counts.iter()
+            .filter(|&&c| c > 0)
+            .map(|&c| { let p = c as f64 / n; -p * p.log2() })
+            .sum();
+        Some(entropy)
+    }
+
+    /// Rate of price crossing the mean (number of crosses per tick).
+    pub fn tick_level_crossing_rate(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 2 { return None; }
+        let prices: Vec<f64> = ticks.iter().filter_map(|t| t.price.to_f64()).collect();
+        if prices.len() < 2 { return None; }
+        let mean = prices.iter().sum::<f64>() / prices.len() as f64;
+        let crossings = prices.windows(2).filter(|w| {
+            (w[0] < mean && w[1] >= mean) || (w[0] >= mean && w[1] < mean)
+        }).count();
+        Some(crossings as f64 / (prices.len() - 1) as f64)
+    }
+
+    /// Number of times price crosses zero.
+    pub fn tick_cross_zero_count(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 2 { return None; }
+        let prices: Vec<f64> = ticks.iter().filter_map(|t| t.price.to_f64()).collect();
+        if prices.len() < 2 { return None; }
+        let crossings = prices.windows(2).filter(|w| {
+            (w[0] < 0.0 && w[1] >= 0.0) || (w[0] >= 0.0 && w[1] < 0.0)
+        }).count();
+        Some(crossings as f64)
+    }
+
+    /// Mean signed second difference of prices: signed price acceleration.
+    pub fn price_signed_accel(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 3 { return None; }
+        let prices: Vec<f64> = ticks.iter().filter_map(|t| t.price.to_f64()).collect();
+        if prices.len() < 3 { return None; }
+        let accels: Vec<f64> = prices.windows(3).map(|w| (w[2] - w[1]) - (w[1] - w[0])).collect();
+        Some(accels.iter().sum::<f64>() / accels.len() as f64)
+    }
+
 }
 
 
@@ -21150,6 +21209,67 @@ mod tests {
             make_tick_pq(dec!(103), dec!(1)),
         ];
         let r = NormalizedTick::price_trend_reversal_count(&ticks).unwrap();
+        assert!(r.abs() < 1e-9, "expected 0.0, got {}", r);
+    }
+
+    #[test]
+    fn test_tick_volume_entropy_empty_none() {
+        use rust_decimal_macros::dec;
+        assert!(NormalizedTick::tick_volume_entropy(&[]).is_none());
+    }
+
+    #[test]
+    fn test_tick_volume_entropy_constant_zero() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(5)),
+            make_tick_pq(dec!(101), dec!(5)),
+            make_tick_pq(dec!(102), dec!(5)),
+        ];
+        let r = NormalizedTick::tick_volume_entropy(&ticks).unwrap();
+        assert!(r.abs() < 1e-9, "expected 0.0, got {}", r);
+    }
+
+    #[test]
+    fn test_tick_level_crossing_rate_empty_none() {
+        use rust_decimal_macros::dec;
+        assert!(NormalizedTick::tick_level_crossing_rate(&[]).is_none());
+    }
+
+    #[test]
+    fn test_tick_cross_zero_count_empty_none() {
+        use rust_decimal_macros::dec;
+        assert!(NormalizedTick::tick_cross_zero_count(&[]).is_none());
+    }
+
+    #[test]
+    fn test_tick_cross_zero_count_all_positive_zero() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(101), dec!(1)),
+            make_tick_pq(dec!(102), dec!(1)),
+        ];
+        let r = NormalizedTick::tick_cross_zero_count(&ticks).unwrap();
+        assert!(r.abs() < 1e-9, "expected 0.0, got {}", r);
+    }
+
+    #[test]
+    fn test_price_signed_accel_empty_none() {
+        use rust_decimal_macros::dec;
+        assert!(NormalizedTick::price_signed_accel(&[]).is_none());
+    }
+
+    #[test]
+    fn test_price_signed_accel_linear_zero() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(10), dec!(1)),
+            make_tick_pq(dec!(20), dec!(1)),
+            make_tick_pq(dec!(30), dec!(1)),
+            make_tick_pq(dec!(40), dec!(1)),
+        ];
+        let r = NormalizedTick::price_signed_accel(&ticks).unwrap();
         assert!(r.abs() < 1e-9, "expected 0.0, got {}", r);
     }
 }
