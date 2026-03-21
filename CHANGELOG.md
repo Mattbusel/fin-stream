@@ -9,6 +9,36 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.7.1] - 2026-03-20
+
+### Added
+
+**`tick` module — `NormalizedTick` analytics (round 120)**
+- `NormalizedTick::price_jitter(ticks)` — mean squared price change between consecutive ticks.
+- `NormalizedTick::tick_flow_ratio(ticks)` — buy volume as a fraction of total sided volume.
+- `NormalizedTick::qty_skewness_abs(ticks)` — absolute skewness of quantity distribution.
+- `NormalizedTick::side_balance_score(ticks)` — absolute deviation of buy fraction from 0.5.
+
+**`ohlcv` module — `OhlcvBar` analytics (round 120)**
+- `OhlcvBar::close_range_stability(bars)` — 1 minus std of close-position within bar range.
+- `OhlcvBar::avg_bar_volatility(bars)` — mean of (high - low) / open across bars.
+- `OhlcvBar::open_range_bias(bars)` — fraction of bars where open is above bar midpoint.
+- `OhlcvBar::body_volatility(bars)` — standard deviation of body sizes across bars.
+
+**`norm` module — `MinMaxNormalizer` analytics (round 120)**
+- `MinMaxNormalizer::window_above_last()` — count of window values strictly above the last.
+- `MinMaxNormalizer::window_below_last()` — count of window values strictly below the last.
+- `MinMaxNormalizer::window_diff_mean()` — mean of successive differences across the window.
+- `MinMaxNormalizer::window_last_zscore()` — z-score of the last value relative to the window.
+
+**`norm` module — `ZScoreNormalizer` analytics (round 120)**
+- `ZScoreNormalizer::window_above_last()` — count of window values strictly above the last.
+- `ZScoreNormalizer::window_below_last()` — count of window values strictly below the last.
+- `ZScoreNormalizer::window_diff_mean()` — mean of successive differences across the window.
+- `ZScoreNormalizer::window_last_zscore()` — z-score of the last value relative to the window.
+
+---
+
 ## [2.7.0] - 2026-03-20
 
 ### Added

@@ -5478,6 +5478,58 @@ impl NormalizedTick {
         }).sum())
     }
 
+    // ── round-120 ────────────────────────────────────────────────────────────
+
+    /// Price jitter: mean squared price change between consecutive ticks.
+    /// Returns `None` for fewer than 2 ticks.
+    pub fn price_jitter(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 2 { return None; }
+        let sum: f64 = ticks.windows(2)
+            .map(|w| (w[1].price - w[0].price).to_f64().unwrap_or(0.0).powi(2))
+            .sum();
+        Some(sum / (ticks.len() - 1) as f64)
+    }
+
+    /// Flow ratio: buy volume divided by total volume.
+    /// Returns `None` if no sided ticks or zero total volume.
+    pub fn tick_flow_ratio(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let mut buy_vol = 0f64;
+        let mut total_vol = 0f64;
+        for t in ticks {
+            let q = t.quantity.to_f64().unwrap_or(0.0);
+            if matches!(t.side, Some(TradeSide::Buy)) { buy_vol += q; }
+            if t.side.is_some() { total_vol += q; }
+        }
+        if total_vol == 0.0 { None } else { Some(buy_vol / total_vol) }
+    }
+
+    /// Absolute skewness of quantities (|skewness|). Returns `None` for fewer than
+    /// 3 ticks or zero std dev.
+    pub fn qty_skewness_abs(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 3 { return None; }
+        let vals: Vec<f64> = ticks.iter().map(|t| t.quantity.to_f64().unwrap_or(0.0)).collect();
+        let n = vals.len() as f64;
+        let mean = vals.iter().sum::<f64>() / n;
+        let var = vals.iter().map(|&x| (x - mean).powi(2)).sum::<f64>() / n;
+        let std = var.sqrt();
+        if std == 0.0 { return None; }
+        let skew = vals.iter().map(|&x| ((x - mean) / std).powi(3)).sum::<f64>() / n;
+        Some(skew.abs())
+    }
+
+    /// Side balance score: fraction of sided ticks on the majority side minus 0.5,
+    /// normalized to [0, 0.5]. Returns `None` if no sided ticks.
+    pub fn side_balance_score(ticks: &[NormalizedTick]) -> Option<f64> {
+        let sided: Vec<&NormalizedTick> = ticks.iter().filter(|t| t.side.is_some()).collect();
+        if sided.is_empty() { return None; }
+        let buys = sided.iter().filter(|t| matches!(t.side, Some(TradeSide::Buy))).count();
+        let frac = buys as f64 / sided.len() as f64;
+        Some((frac - 0.5).abs())
+    }
+
 }
 
 
@@ -12526,5 +12578,73 @@ mod tests {
         let t2 = make_tick_pq(dec!(101), dec!(2));
         let e = NormalizedTick::qty_entropy(&[t1, t2]).unwrap();
         assert!(e >= 0.0, "entropy should be non-negative, got {}", e);
+    }
+
+    // ── round-120 ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_price_jitter_none_for_single() {
+        use rust_decimal_macros::dec;
+        assert!(NormalizedTick::price_jitter(&[make_tick_pq(dec!(100), dec!(1))]).is_none());
+    }
+
+    #[test]
+    fn test_price_jitter_basic() {
+        use rust_decimal_macros::dec;
+        let ticks = [
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(102), dec!(1)),
+        ];
+        let j = NormalizedTick::price_jitter(&ticks).unwrap();
+        assert!((j - 4.0).abs() < 1e-9, "expected 4.0, got {}", j);
+    }
+
+    #[test]
+    fn test_tick_flow_ratio_none_for_unsided() {
+        use rust_decimal_macros::dec;
+        assert!(NormalizedTick::tick_flow_ratio(&[make_tick_pq(dec!(100), dec!(1))]).is_none());
+    }
+
+    #[test]
+    fn test_tick_flow_ratio_all_buys() {
+        use rust_decimal_macros::dec;
+        let mut t = make_tick_pq(dec!(100), dec!(2));
+        t.side = Some(TradeSide::Buy);
+        let r = NormalizedTick::tick_flow_ratio(&[t]).unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "expected 1.0, got {}", r);
+    }
+
+    #[test]
+    fn test_qty_skewness_abs_none_for_two() {
+        use rust_decimal_macros::dec;
+        let ticks = [
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(101), dec!(2)),
+        ];
+        assert!(NormalizedTick::qty_skewness_abs(&ticks).is_none());
+    }
+
+    #[test]
+    fn test_qty_skewness_abs_uniform_zero() {
+        use rust_decimal_macros::dec;
+        let ticks: Vec<_> = (0..5).map(|_| make_tick_pq(dec!(100), dec!(3))).collect();
+        // uniform → skew = 0, std = 0 → None
+        assert!(NormalizedTick::qty_skewness_abs(&ticks).is_none());
+    }
+
+    #[test]
+    fn test_side_balance_score_none_for_no_sides() {
+        use rust_decimal_macros::dec;
+        assert!(NormalizedTick::side_balance_score(&[make_tick_pq(dec!(100), dec!(1))]).is_none());
+    }
+
+    #[test]
+    fn test_side_balance_score_all_buys() {
+        use rust_decimal_macros::dec;
+        let mut t = make_tick_pq(dec!(100), dec!(1));
+        t.side = Some(TradeSide::Buy);
+        let s = NormalizedTick::side_balance_score(&[t]).unwrap();
+        // all buys → frac=1.0, |1.0-0.5|=0.5
+        assert!((s - 0.5).abs() < 1e-9, "expected 0.5, got {}", s);
     }
 }

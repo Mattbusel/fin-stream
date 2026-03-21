@@ -5426,6 +5426,56 @@ impl OhlcvBar {
         Some((upper_dom as f64 - lower_dom as f64) / n)
     }
 
+    // ── round-120 ────────────────────────────────────────────────────────────
+
+    /// Stability of close relative to bar range: 1 - std(close_pct) over bars.
+    pub fn close_range_stability(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let vals: Vec<f64> = bars.iter().map(|b| {
+            let r = (b.high - b.low).to_f64().unwrap_or(0.0);
+            if r == 0.0 { 0.5 } else { (b.close - b.low).to_f64().unwrap_or(0.0) / r }
+        }).collect();
+        let n = vals.len() as f64;
+        let mean = vals.iter().sum::<f64>() / n;
+        let std = (vals.iter().map(|&x| (x - mean).powi(2)).sum::<f64>() / n).sqrt();
+        Some(1.0 - std)
+    }
+
+    /// Average bar volatility: mean of (high - low) as a fraction of open.
+    pub fn avg_bar_volatility(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let sum: f64 = bars.iter().map(|b| {
+            let o = b.open.to_f64().unwrap_or(0.0);
+            if o == 0.0 { 0.0 } else { (b.high - b.low).to_f64().unwrap_or(0.0) / o }
+        }).sum();
+        Some(sum / bars.len() as f64)
+    }
+
+    /// Open range bias: fraction of bars where open is above bar midpoint.
+    pub fn open_range_bias(bars: &[OhlcvBar]) -> Option<f64> {
+        if bars.is_empty() { return None; }
+        let above = bars.iter().filter(|b| {
+            let mid = (b.high + b.low) / rust_decimal::Decimal::TWO;
+            b.open > mid
+        }).count();
+        Some(above as f64 / bars.len() as f64)
+    }
+
+    /// Body volatility: standard deviation of body sizes (|close - open|).
+    pub fn body_volatility(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let vals: Vec<f64> = bars.iter()
+            .map(|b| (b.close - b.open).abs().to_f64().unwrap_or(0.0))
+            .collect();
+        let n = vals.len() as f64;
+        let mean = vals.iter().sum::<f64>() / n;
+        let var = vals.iter().map(|&x| (x - mean).powi(2)).sum::<f64>() / n;
+        Some(var.sqrt())
+    }
+
 }
 
 impl std::fmt::Display for OhlcvBar {
@@ -12744,5 +12794,59 @@ mod tests {
         let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100));
         let d = OhlcvBar::net_shadow_direction(&[b]).unwrap();
         assert!(d.abs() < 1e-9, "expected 0.0, got {}", d);
+    }
+
+    // ── round-120 ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_close_range_stability_none_for_empty() {
+        assert!(OhlcvBar::close_range_stability(&[]).is_none());
+    }
+
+    #[test]
+    fn test_close_range_stability_consistent() {
+        // all bars: open=low=90, high=110, close=100 → close_pct=0.5 each → std=0 → stability=1
+        let bars: Vec<_> = (0..3).map(|_| make_ohlcv_bar(dec!(90), dec!(110), dec!(90), dec!(100))).collect();
+        let s = OhlcvBar::close_range_stability(&bars).unwrap();
+        assert!((s - 1.0).abs() < 1e-9, "expected 1.0, got {}", s);
+    }
+
+    #[test]
+    fn test_avg_bar_volatility_none_for_empty() {
+        assert!(OhlcvBar::avg_bar_volatility(&[]).is_none());
+    }
+
+    #[test]
+    fn test_avg_bar_volatility_basic() {
+        // open=100, high=110, low=90 → range=20, open=100 → vol=0.2
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100));
+        let v = OhlcvBar::avg_bar_volatility(&[b]).unwrap();
+        assert!((v - 0.2).abs() < 1e-9, "expected 0.2, got {}", v);
+    }
+
+    #[test]
+    fn test_open_range_bias_none_for_empty() {
+        assert!(OhlcvBar::open_range_bias(&[]).is_none());
+    }
+
+    #[test]
+    fn test_open_range_bias_above() {
+        // open=105, mid=(110+90)/2=100 → 105>100 → 1.0
+        let b = make_ohlcv_bar(dec!(105), dec!(110), dec!(90), dec!(100));
+        let r = OhlcvBar::open_range_bias(&[b]).unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "expected 1.0, got {}", r);
+    }
+
+    #[test]
+    fn test_body_volatility_none_for_empty() {
+        assert!(OhlcvBar::body_volatility(&[]).is_none());
+    }
+
+    #[test]
+    fn test_body_volatility_uniform_zero() {
+        // all same body size → std=0
+        let bars: Vec<_> = (0..3).map(|_| make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105))).collect();
+        let v = OhlcvBar::body_volatility(&bars).unwrap();
+        assert!(v.abs() < 1e-9, "expected 0.0, got {}", v);
     }
 }
