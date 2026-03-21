@@ -4892,6 +4892,48 @@ impl OhlcvBar {
         Some(distances.iter().sum::<f64>() / distances.len() as f64)
     }
 
+    // ── round-110 ────────────────────────────────────────────────────────────
+
+    /// Mean total shadow length `(high - low) - |close - open|` across bars.
+    /// Returns `None` for an empty slice.
+    pub fn avg_shadow_total(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let sum: Decimal = bars.iter()
+            .map(|b| (b.high - b.low) - (b.close - b.open).abs())
+            .sum();
+        Some((sum / Decimal::from(bars.len())).to_f64().unwrap_or(0.0))
+    }
+
+    /// Count of bars where open is above the prior bar's close (bullish gap-up open).
+    /// Returns `None` for fewer than 2 bars.
+    pub fn open_above_prev_close(bars: &[OhlcvBar]) -> Option<usize> {
+        if bars.len() < 2 { return None; }
+        let count = bars.windows(2).filter(|w| w[1].open > w[0].close).count();
+        Some(count)
+    }
+
+    /// Count of bars where close is below the prior bar's open.
+    /// Returns `None` for fewer than 2 bars.
+    pub fn close_below_prev_open(bars: &[OhlcvBar]) -> Option<usize> {
+        if bars.len() < 2 { return None; }
+        let count = bars.windows(2).filter(|w| w[1].close < w[0].open).count();
+        Some(count)
+    }
+
+    /// Candle range efficiency: mean `|close - open| / (high - low)` across bars with range > 0.
+    /// Returns `None` for an empty slice or no qualifying bars.
+    pub fn candle_range_efficiency(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let vals: Vec<f64> = bars.iter().filter_map(|b| {
+            let range = b.high - b.low;
+            if range.is_zero() { None }
+            else { Some(((b.close - b.open).abs() / range).to_f64().unwrap_or(0.0)) }
+        }).collect();
+        if vals.is_empty() { return None; }
+        Some(vals.iter().sum::<f64>() / vals.len() as f64)
+    }
+
 }
 
 impl std::fmt::Display for OhlcvBar {
@@ -11634,5 +11676,63 @@ mod tests {
         let b3 = make_ohlcv_bar(dec!(108), dec!(115), dec!(92), dec!(108));
         let d = OhlcvBar::trailing_stop_distance(&[b1, b2, b3]).unwrap();
         assert!((d - 18.0).abs() < 1e-9, "expected 18.0, got {}", d);
+    }
+
+    // ── round-110 tests ───────────────────────────────────────────────────────
+
+    #[test]
+    fn test_avg_shadow_total_none_for_empty() {
+        assert!(OhlcvBar::avg_shadow_total(&[]).is_none());
+    }
+
+    #[test]
+    fn test_avg_shadow_total_basic() {
+        // high=110, low=90, open=100, close=105 → range=20, body=5, shadow=15
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let s = OhlcvBar::avg_shadow_total(&[b]).unwrap();
+        assert!((s - 15.0).abs() < 1e-9, "expected 15.0, got {}", s);
+    }
+
+    #[test]
+    fn test_open_above_prev_close_none_for_single() {
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        assert!(OhlcvBar::open_above_prev_close(&[b]).is_none());
+    }
+
+    #[test]
+    fn test_open_above_prev_close_basic() {
+        // prev close=105; curr open=110 > 105 → count=1
+        let prev = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let curr = make_ohlcv_bar(dec!(110), dec!(120), dec!(105), dec!(115));
+        let c = OhlcvBar::open_above_prev_close(&[prev, curr]).unwrap();
+        assert_eq!(c, 1);
+    }
+
+    #[test]
+    fn test_close_below_prev_open_none_for_single() {
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        assert!(OhlcvBar::close_below_prev_open(&[b]).is_none());
+    }
+
+    #[test]
+    fn test_close_below_prev_open_basic() {
+        // prev open=100; curr close=95 < 100 → count=1
+        let prev = make_ohlcv_bar(dec!(100), dec!(115), dec!(90), dec!(110));
+        let curr = make_ohlcv_bar(dec!(105), dec!(110), dec!(88), dec!(95));
+        let c = OhlcvBar::close_below_prev_open(&[prev, curr]).unwrap();
+        assert_eq!(c, 1);
+    }
+
+    #[test]
+    fn test_candle_range_efficiency_none_for_empty() {
+        assert!(OhlcvBar::candle_range_efficiency(&[]).is_none());
+    }
+
+    #[test]
+    fn test_candle_range_efficiency_basic() {
+        // open=100, close=110, high=110, low=100 → body=10, range=10 → ratio=1.0
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(100), dec!(110));
+        let e = OhlcvBar::candle_range_efficiency(&[b]).unwrap();
+        assert!((e - 1.0).abs() < 1e-9, "expected 1.0, got {}", e);
     }
 }

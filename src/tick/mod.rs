@@ -4923,6 +4923,56 @@ impl NormalizedTick {
         Some((max_q / min_q).to_f64().unwrap_or(0.0))
     }
 
+    // ── round-110 ────────────────────────────────────────────────────────────
+
+    /// Price change from the first tick to the last tick.
+    /// Returns `None` for an empty slice.
+    pub fn first_to_last_price(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() { return None; }
+        let first = ticks.first()?.price;
+        let last = ticks.last()?.price;
+        (last - first).to_f64()
+    }
+
+    /// Count of distinct price levels (unique price values) in the slice.
+    /// Returns `None` for an empty slice.
+    pub fn tick_volume_profile(ticks: &[NormalizedTick]) -> Option<usize> {
+        if ticks.is_empty() { return None; }
+        use std::collections::HashSet;
+        let unique: HashSet<_> = ticks.iter().map(|t| t.price).collect();
+        Some(unique.len())
+    }
+
+    /// Interquartile range of prices: 75th percentile minus 25th percentile.
+    /// Returns `None` for an empty slice.
+    pub fn price_quartile_range(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() { return None; }
+        let mut sorted: Vec<Decimal> = ticks.iter().map(|t| t.price).collect();
+        sorted.sort();
+        let n = sorted.len();
+        let q1_idx = ((n as f64 * 0.25).ceil() as usize).saturating_sub(1);
+        let q3_idx = ((n as f64 * 0.75).ceil() as usize).saturating_sub(1);
+        let q1 = sorted[q1_idx.min(n - 1)];
+        let q3 = sorted[q3_idx.min(n - 1)];
+        (q3 - q1).to_f64()
+    }
+
+    /// Buy pressure index: buy volume as fraction of total, minus 0.5, scaled by 2.
+    /// Range: -1.0 (all sell) to 1.0 (all buy). Returns `None` for zero total quantity.
+    pub fn buy_pressure_index(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() { return None; }
+        let total: Decimal = ticks.iter().map(|t| t.quantity).sum();
+        if total.is_zero() { return None; }
+        let buy_qty: Decimal = ticks.iter()
+            .filter(|t| matches!(t.side, Some(TradeSide::Buy)))
+            .map(|t| t.quantity).sum();
+        let fraction = (buy_qty / total).to_f64().unwrap_or(0.0);
+        Some((fraction - 0.5) * 2.0)
+    }
+
 }
 
 
@@ -11373,5 +11423,70 @@ mod tests {
         let t2 = make_tick_pq(dec!(100), dec!(10));
         let r = NormalizedTick::qty_skew_ratio(&[t1, t2]).unwrap();
         assert!((r - 5.0).abs() < 1e-9, "expected 5.0, got {}", r);
+    }
+
+    // ── round-110 tests ───────────────────────────────────────────────────────
+
+    #[test]
+    fn test_first_to_last_price_none_for_empty() {
+        assert!(NormalizedTick::first_to_last_price(&[]).is_none());
+    }
+
+    #[test]
+    fn test_first_to_last_price_basic() {
+        use rust_decimal_macros::dec;
+        let t1 = make_tick_pq(dec!(100), dec!(1));
+        let t2 = make_tick_pq(dec!(115), dec!(1));
+        let p = NormalizedTick::first_to_last_price(&[t1, t2]).unwrap();
+        assert!((p - 15.0).abs() < 1e-9, "expected 15.0, got {}", p);
+    }
+
+    #[test]
+    fn test_tick_volume_profile_none_for_empty() {
+        assert!(NormalizedTick::tick_volume_profile(&[]).is_none());
+    }
+
+    #[test]
+    fn test_tick_volume_profile_basic() {
+        use rust_decimal_macros::dec;
+        // 3 ticks: 2 at price 100 and 1 at 110 → 2 distinct levels
+        let t1 = make_tick_pq(dec!(100), dec!(1));
+        let t2 = make_tick_pq(dec!(100), dec!(2));
+        let t3 = make_tick_pq(dec!(110), dec!(1));
+        let c = NormalizedTick::tick_volume_profile(&[t1, t2, t3]).unwrap();
+        assert_eq!(c, 2);
+    }
+
+    #[test]
+    fn test_price_quartile_range_none_for_empty() {
+        assert!(NormalizedTick::price_quartile_range(&[]).is_none());
+    }
+
+    #[test]
+    fn test_price_quartile_range_basic() {
+        use rust_decimal_macros::dec;
+        // prices [10,20,30,40]: q1=10, q3=30 → IQR=20
+        let ticks = vec![
+            make_tick_pq(dec!(10), dec!(1)),
+            make_tick_pq(dec!(20), dec!(1)),
+            make_tick_pq(dec!(30), dec!(1)),
+            make_tick_pq(dec!(40), dec!(1)),
+        ];
+        let r = NormalizedTick::price_quartile_range(&ticks).unwrap();
+        assert!((r - 20.0).abs() < 1e-9, "expected 20.0, got {}", r);
+    }
+
+    #[test]
+    fn test_buy_pressure_index_none_for_empty() {
+        assert!(NormalizedTick::buy_pressure_index(&[]).is_none());
+    }
+
+    #[test]
+    fn test_buy_pressure_index_all_buy() {
+        use rust_decimal_macros::dec;
+        let mut t = make_tick_pq(dec!(100), dec!(10));
+        t.side = Some(TradeSide::Buy);
+        let idx = NormalizedTick::buy_pressure_index(&[t]).unwrap();
+        assert!((idx - 1.0).abs() < 1e-9, "expected 1.0, got {}", idx);
     }
 }

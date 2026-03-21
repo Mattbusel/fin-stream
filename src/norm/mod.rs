@@ -2847,6 +2847,60 @@ impl MinMaxNormalizer {
         Some(consistent as f64 / (vals.len() - 1) as f64)
     }
 
+    // ── round-110 ────────────────────────────────────────────────────────────
+
+    /// Mean of all pairwise absolute differences `|v[i] - v[j]|` for i < j.
+    /// Returns `None` for fewer than 2 values.
+    pub fn window_pairwise_mean_diff(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<Decimal> = self.window.iter().copied().collect();
+        let n = vals.len();
+        let mut sum = Decimal::ZERO;
+        let mut count = 0u64;
+        for i in 0..n {
+            for j in i + 1..n {
+                sum += (vals[i] - vals[j]).abs();
+                count += 1;
+            }
+        }
+        if count == 0 { return None; }
+        (sum / Decimal::from(count)).to_f64()
+    }
+
+    /// 75th-percentile value of the window.
+    /// Returns `None` for an empty window.
+    pub fn window_q3(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let mut sorted: Vec<Decimal> = self.window.iter().copied().collect();
+        sorted.sort();
+        let idx = ((sorted.len() as f64 * 0.75).ceil() as usize).saturating_sub(1);
+        sorted[idx.min(sorted.len() - 1)].to_f64()
+    }
+
+    /// Coefficient of variation: `std_dev / mean`.
+    /// Returns `None` for fewer than 2 values or zero mean.
+    pub fn window_coefficient_of_variation(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.len() != self.window.len() { return None; }
+        let n = vals.len() as f64;
+        let mean = vals.iter().sum::<f64>() / n;
+        if mean == 0.0 { return None; }
+        let std_dev = (vals.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / n).sqrt();
+        Some(std_dev / mean)
+    }
+
+    /// Second statistical moment (mean of squared values).
+    pub fn window_second_moment(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let sum_sq: Decimal = self.window.iter().map(|&v| v * v).sum();
+        (sum_sq / Decimal::from(self.window.len())).to_f64()
+    }
+
 }
 
 #[cfg(test)]
@@ -5880,6 +5934,64 @@ mod tests {
         let c = n.window_trend_consistency().unwrap();
         assert!((c - 1.0).abs() < 1e-9, "expected 1.0, got {}", c);
     }
+
+    // ── round-110 tests ───────────────────────────────────────────────────────
+
+    #[test]
+    fn test_minmax_window_pairwise_mean_diff_none_for_single() {
+        let mut n = norm(5);
+        n.update(dec!(10));
+        assert!(n.window_pairwise_mean_diff().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_pairwise_mean_diff_basic() {
+        let mut n = norm(5);
+        for v in [dec!(0), dec!(10)] { n.update(v); }
+        // only one pair: |0-10|=10 → mean=10
+        let d = n.window_pairwise_mean_diff().unwrap();
+        assert!((d - 10.0).abs() < 1e-9, "expected 10.0, got {}", d);
+    }
+
+    #[test]
+    fn test_minmax_window_q3_none_for_empty() {
+        let n = norm(5);
+        assert!(n.window_q3().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_q3_basic() {
+        let mut n = norm(10);
+        for v in [dec!(10), dec!(20), dec!(30), dec!(40)] { n.update(v); }
+        // sorted [10,20,30,40]; q3 = idx=ceil(4*0.75)-1=3-1=2 → val=30
+        let q3 = n.window_q3().unwrap();
+        assert!((q3 - 30.0).abs() < 1e-9, "expected 30.0, got {}", q3);
+    }
+
+    #[test]
+    fn test_minmax_window_coefficient_of_variation_none_for_single() {
+        let mut n = norm(5);
+        n.update(dec!(10));
+        assert!(n.window_coefficient_of_variation().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_coefficient_of_variation_basic() {
+        let mut n = norm(5);
+        // uniform values → std=0, cv=0
+        for v in [dec!(10), dec!(10), dec!(10)] { n.update(v); }
+        let cv = n.window_coefficient_of_variation().unwrap();
+        assert!(cv.abs() < 1e-9, "expected ~0, got {}", cv);
+    }
+
+    #[test]
+    fn test_minmax_window_second_moment_basic() {
+        let mut n = norm(5);
+        for v in [dec!(3), dec!(4)] { n.update(v); }
+        // (9+16)/2 = 12.5
+        let m = n.window_second_moment().unwrap();
+        assert!((m - 12.5).abs() < 1e-9, "expected 12.5, got {}", m);
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -8672,6 +8784,60 @@ impl ZScoreNormalizer {
             })
             .count();
         Some(consistent as f64 / (vals.len() - 1) as f64)
+    }
+
+    // ── round-110 ────────────────────────────────────────────────────────────
+
+    /// Mean of all pairwise absolute differences.
+    /// Returns `None` for fewer than 2 values.
+    pub fn window_pairwise_mean_diff(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<Decimal> = self.window.iter().copied().collect();
+        let n = vals.len();
+        let mut sum = Decimal::ZERO;
+        let mut count = 0u64;
+        for i in 0..n {
+            for j in i + 1..n {
+                sum += (vals[i] - vals[j]).abs();
+                count += 1;
+            }
+        }
+        if count == 0 { return None; }
+        (sum / Decimal::from(count)).to_f64()
+    }
+
+    /// 75th-percentile value of the window.
+    /// Returns `None` for an empty window.
+    pub fn window_q3(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let mut sorted: Vec<Decimal> = self.window.iter().copied().collect();
+        sorted.sort();
+        let idx = ((sorted.len() as f64 * 0.75).ceil() as usize).saturating_sub(1);
+        sorted[idx.min(sorted.len() - 1)].to_f64()
+    }
+
+    /// Coefficient of variation: `std_dev / mean`.
+    /// Returns `None` for fewer than 2 values or zero mean.
+    pub fn window_coefficient_of_variation(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.len() != self.window.len() { return None; }
+        let n = vals.len() as f64;
+        let mean = vals.iter().sum::<f64>() / n;
+        if mean == 0.0 { return None; }
+        let std_dev = (vals.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / n).sqrt();
+        Some(std_dev / mean)
+    }
+
+    /// Second statistical moment (mean of squared values).
+    pub fn window_second_moment(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let sum_sq: Decimal = self.window.iter().map(|&v| v * v).sum();
+        (sum_sq / Decimal::from(self.window.len())).to_f64()
     }
 
 }
@@ -11826,5 +11992,59 @@ mod zscore_stability_tests {
         for v in [dec!(10), dec!(20), dec!(30)] { n.update(v); }
         let c = n.window_trend_consistency().unwrap();
         assert!((c - 1.0).abs() < 1e-9, "expected 1.0, got {}", c);
+    }
+
+    // ── round-110 tests ───────────────────────────────────────────────────────
+
+    #[test]
+    fn test_zscore_window_pairwise_mean_diff_none_for_single() {
+        let mut n = znorm(5);
+        n.update(dec!(10));
+        assert!(n.window_pairwise_mean_diff().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_pairwise_mean_diff_basic() {
+        let mut n = znorm(5);
+        for v in [dec!(0), dec!(10)] { n.update(v); }
+        let d = n.window_pairwise_mean_diff().unwrap();
+        assert!((d - 10.0).abs() < 1e-9, "expected 10.0, got {}", d);
+    }
+
+    #[test]
+    fn test_zscore_window_q3_none_for_empty() {
+        let n = znorm(5);
+        assert!(n.window_q3().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_q3_basic() {
+        let mut n = znorm(10);
+        for v in [dec!(10), dec!(20), dec!(30), dec!(40)] { n.update(v); }
+        let q3 = n.window_q3().unwrap();
+        assert!((q3 - 30.0).abs() < 1e-9, "expected 30.0, got {}", q3);
+    }
+
+    #[test]
+    fn test_zscore_window_coefficient_of_variation_none_for_single() {
+        let mut n = znorm(5);
+        n.update(dec!(10));
+        assert!(n.window_coefficient_of_variation().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_coefficient_of_variation_basic() {
+        let mut n = znorm(5);
+        for v in [dec!(10), dec!(10), dec!(10)] { n.update(v); }
+        let cv = n.window_coefficient_of_variation().unwrap();
+        assert!(cv.abs() < 1e-9, "expected ~0, got {}", cv);
+    }
+
+    #[test]
+    fn test_zscore_window_second_moment_basic() {
+        let mut n = znorm(5);
+        for v in [dec!(3), dec!(4)] { n.update(v); }
+        let m = n.window_second_moment().unwrap();
+        assert!((m - 12.5).abs() < 1e-9, "expected 12.5, got {}", m);
     }
 }

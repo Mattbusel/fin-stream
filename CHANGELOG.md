@@ -9,6 +9,36 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.6.1] - 2026-03-20
+
+### Added
+
+**`tick` module — `NormalizedTick` analytics (round 110)**
+- `NormalizedTick::first_to_last_price(ticks)` — price change from first to last tick.
+- `NormalizedTick::tick_volume_profile(ticks)` — count of distinct price levels in the slice.
+- `NormalizedTick::price_quartile_range(ticks)` — interquartile range (Q3 - Q1) of prices.
+- `NormalizedTick::buy_pressure_index(ticks)` — buy fraction minus 0.5, scaled to [-1, 1].
+
+**`ohlcv` module — `OhlcvBar` analytics (round 110)**
+- `OhlcvBar::avg_shadow_total(bars)` — mean total shadow length `range - body` across bars.
+- `OhlcvBar::open_above_prev_close(bars)` — count of bars that open above the prior close.
+- `OhlcvBar::close_below_prev_open(bars)` — count of bars that close below the prior open.
+- `OhlcvBar::candle_range_efficiency(bars)` — mean `|close - open| / (high - low)` body-to-range ratio.
+
+**`norm` module — `MinMaxNormalizer` analytics (round 110)**
+- `MinMaxNormalizer::window_pairwise_mean_diff()` — mean of all pairwise absolute differences.
+- `MinMaxNormalizer::window_q3()` — 75th-percentile value of the window.
+- `MinMaxNormalizer::window_coefficient_of_variation()` — coefficient of variation (`std / mean`).
+- `MinMaxNormalizer::window_second_moment()` — second statistical moment (mean of squared values).
+
+**`norm` module — `ZScoreNormalizer` analytics (round 110)**
+- `ZScoreNormalizer::window_pairwise_mean_diff()` — mean of all pairwise absolute differences.
+- `ZScoreNormalizer::window_q3()` — 75th-percentile value of the window.
+- `ZScoreNormalizer::window_coefficient_of_variation()` — coefficient of variation (`std / mean`).
+- `ZScoreNormalizer::window_second_moment()` — second statistical moment (mean of squared values).
+
+---
+
 ## [2.6.0] - 2026-03-20
 
 ### Added
