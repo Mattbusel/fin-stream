@@ -7335,6 +7335,62 @@ impl MinMaxNormalizer {
         Some(best as f64 / vals.len() as f64)
     }
 
+    /// Fraction of values below zero in the window.
+    pub fn window_below_zero_pct(&self) -> Option<f64> {
+        if self.window.is_empty() { return None; }
+        use rust_decimal::prelude::ToPrimitive;
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.is_empty() { return None; }
+        let count = vals.iter().filter(|&&v| v < 0.0).count();
+        Some(count as f64 / vals.len() as f64)
+    }
+
+    /// Fraction of values strictly positive in the window.
+    pub fn window_positive_pct(&self) -> Option<f64> {
+        if self.window.is_empty() { return None; }
+        use rust_decimal::prelude::ToPrimitive;
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.is_empty() { return None; }
+        let count = vals.iter().filter(|&&v| v > 0.0).count();
+        Some(count as f64 / vals.len() as f64)
+    }
+
+    /// Fraction of consecutive pairs that are monotonically increasing or decreasing runs.
+    pub fn window_monotone_run_pct(&self) -> Option<f64> {
+        if self.window.len() < 2 { return None; }
+        use rust_decimal::prelude::ToPrimitive;
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.len() < 2 { return None; }
+        let pairs = vals.len() - 1;
+        let same_dir = vals.windows(2).filter(|w| w[1] != w[0]).count();
+        // a monotone run means consecutive diffs have same sign
+        let monotone = vals.windows(3).filter(|w| {
+            let d1 = w[1] - w[0];
+            let d2 = w[2] - w[1];
+            d1 * d2 > 0.0
+        }).count();
+        if pairs < 2 { return Some(0.0); }
+        let _ = same_dir;
+        Some(monotone as f64 / (pairs - 1) as f64)
+    }
+
+    /// Variance of the upper half of window values (above median).
+    pub fn window_upper_half_var(&self) -> Option<f64> {
+        if self.window.len() < 2 { return None; }
+        let mut vals: Vec<f64> = self.window.iter().filter_map(|v| {
+            use rust_decimal::prelude::ToPrimitive;
+            v.to_f64()
+        }).collect();
+        if vals.len() < 2 { return None; }
+        vals.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let med_idx = vals.len() / 2;
+        let upper = &vals[med_idx..];
+        if upper.len() < 2 { return None; }
+        let mean = upper.iter().sum::<f64>() / upper.len() as f64;
+        let var = upper.iter().map(|x| (x - mean).powi(2)).sum::<f64>() / (upper.len() - 1) as f64;
+        Some(var)
+    }
+
 }
 
 #[cfg(test)]
@@ -15896,6 +15952,62 @@ mod tests {
         let r = n.window_dominant_value_pct().unwrap();
         assert!((r - 1.0).abs() < 1e-9);
     }
+
+    #[test]
+    fn test_minmax_window_below_zero_pct_empty_none() {
+        assert!(norm(4).window_below_zero_pct().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_below_zero_pct_all_positive_zero() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        let r = n.window_below_zero_pct().unwrap();
+        assert_eq!(r, 0.0);
+    }
+
+    #[test]
+    fn test_minmax_window_positive_pct_empty_none() {
+        assert!(norm(4).window_positive_pct().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_positive_pct_all_positive_one() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        let r = n.window_positive_pct().unwrap();
+        assert_eq!(r, 1.0);
+    }
+
+    #[test]
+    fn test_minmax_window_monotone_run_pct_too_few_none() {
+        let mut n = norm(4);
+        n.update(dec!(1));
+        assert!(n.window_monotone_run_pct().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_monotone_run_pct_returns_bounded() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let r = n.window_monotone_run_pct().unwrap();
+        assert!(r >= 0.0 && r <= 1.0);
+    }
+
+    #[test]
+    fn test_minmax_window_upper_half_var_too_few_none() {
+        let mut n = norm(4);
+        n.update(dec!(1));
+        assert!(n.window_upper_half_var().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_upper_half_var_returns_nonneg() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let r = n.window_upper_half_var().unwrap();
+        assert!(r >= 0.0);
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -23179,6 +23291,59 @@ impl ZScoreNormalizer {
             if count > best { best = count; }
         }
         Some(best as f64 / vals.len() as f64)
+    }
+
+    /// Fraction of values below zero in the window.
+    pub fn window_below_zero_pct(&self) -> Option<f64> {
+        if self.window.is_empty() { return None; }
+        use rust_decimal::prelude::ToPrimitive;
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.is_empty() { return None; }
+        let count = vals.iter().filter(|&&v| v < 0.0).count();
+        Some(count as f64 / vals.len() as f64)
+    }
+
+    /// Fraction of values strictly positive in the window.
+    pub fn window_positive_pct(&self) -> Option<f64> {
+        if self.window.is_empty() { return None; }
+        use rust_decimal::prelude::ToPrimitive;
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.is_empty() { return None; }
+        let count = vals.iter().filter(|&&v| v > 0.0).count();
+        Some(count as f64 / vals.len() as f64)
+    }
+
+    /// Fraction of consecutive pairs that are monotonically increasing or decreasing runs.
+    pub fn window_monotone_run_pct(&self) -> Option<f64> {
+        if self.window.len() < 2 { return None; }
+        use rust_decimal::prelude::ToPrimitive;
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.len() < 2 { return None; }
+        let pairs = vals.len() - 1;
+        let monotone = vals.windows(3).filter(|w| {
+            let d1 = w[1] - w[0];
+            let d2 = w[2] - w[1];
+            d1 * d2 > 0.0
+        }).count();
+        if pairs < 2 { return Some(0.0); }
+        Some(monotone as f64 / (pairs - 1) as f64)
+    }
+
+    /// Variance of the upper half of window values (above median).
+    pub fn window_upper_half_var(&self) -> Option<f64> {
+        if self.window.len() < 2 { return None; }
+        let mut vals: Vec<f64> = self.window.iter().filter_map(|v| {
+            use rust_decimal::prelude::ToPrimitive;
+            v.to_f64()
+        }).collect();
+        if vals.len() < 2 { return None; }
+        vals.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let med_idx = vals.len() / 2;
+        let upper = &vals[med_idx..];
+        if upper.len() < 2 { return None; }
+        let mean = upper.iter().sum::<f64>() / upper.len() as f64;
+        let var = upper.iter().map(|x| (x - mean).powi(2)).sum::<f64>() / (upper.len() - 1) as f64;
+        Some(var)
     }
 
 }
@@ -31690,5 +31855,61 @@ mod zscore_stability_tests {
         for v in [dec!(5), dec!(5), dec!(5)] { n.update(v); }
         let r = n.window_dominant_value_pct().unwrap();
         assert!((r - 1.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_zscore_window_below_zero_pct_empty_none() {
+        assert!(znorm(4).window_below_zero_pct().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_below_zero_pct_all_positive_zero() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        let r = n.window_below_zero_pct().unwrap();
+        assert_eq!(r, 0.0);
+    }
+
+    #[test]
+    fn test_zscore_window_positive_pct_empty_none() {
+        assert!(znorm(4).window_positive_pct().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_positive_pct_all_positive_one() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        let r = n.window_positive_pct().unwrap();
+        assert_eq!(r, 1.0);
+    }
+
+    #[test]
+    fn test_zscore_window_monotone_run_pct_too_few_none() {
+        let mut n = znorm(4);
+        n.update(dec!(1));
+        assert!(n.window_monotone_run_pct().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_monotone_run_pct_returns_bounded() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let r = n.window_monotone_run_pct().unwrap();
+        assert!(r >= 0.0 && r <= 1.0);
+    }
+
+    #[test]
+    fn test_zscore_window_upper_half_var_too_few_none() {
+        let mut n = znorm(4);
+        n.update(dec!(1));
+        assert!(n.window_upper_half_var().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_upper_half_var_returns_nonneg() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let r = n.window_upper_half_var().unwrap();
+        assert!(r >= 0.0);
     }
 }

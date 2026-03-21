@@ -9,6 +9,30 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.10.52] - 2026-03-20
+
+### Added
+
+**`tick` module — `NormalizedTick` analytics (round 201)**
+- `NormalizedTick::tick_price_reversal_count(ticks)` — count of price direction reversals.
+- `NormalizedTick::tick_qty_trend_sign(ticks)` — sign of quantity trend from first to second half.
+- `NormalizedTick::tick_last_side_streak(ticks)` — length of the current side streak at window end.
+- `NormalizedTick::tick_mid_price_vol(ticks)` — volume-weighted mean price.
+
+**`ohlcv` module — `OhlcvBar` analytics (round 201)**
+- `OhlcvBar::bar_close_vol_rank(bars)` — mean normalized rank of close prices across bars.
+- `OhlcvBar::bar_open_high_spread(bars)` — mean (high - open) / (high - low) across bars.
+- `OhlcvBar::bar_body_direction_run(bars)` — length of the longest same-direction candle run.
+- `OhlcvBar::bar_vol_close_spread(bars)` — mean volume per unit of body (close-open) spread.
+
+**`norm` module — `MinMaxNormalizer` + `ZScoreNormalizer` analytics (round 201)**
+- `window_below_zero_pct()` — fraction of values below zero in the window.
+- `window_positive_pct()` — fraction of strictly positive values in the window.
+- `window_monotone_run_pct()` — fraction of consecutive triplets that are monotone.
+- `window_upper_half_var()` — variance of the upper half of window values (above median).
+
+---
+
 ## [2.10.51] - 2026-03-20
 
 ### Added

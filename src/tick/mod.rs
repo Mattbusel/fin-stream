@@ -10099,6 +10099,58 @@ impl NormalizedTick {
         Some(num / (dp * dq))
     }
 
+    /// Count of price reversals (direction changes in tick-to-tick moves).
+    pub fn tick_price_reversal_count(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 3 { return None; }
+        let prices: Vec<f64> = ticks.iter().filter_map(|t| t.price.to_f64()).collect();
+        if prices.len() < 3 { return None; }
+        let count = prices.windows(3).filter(|w| {
+            let d1 = w[1] - w[0];
+            let d2 = w[2] - w[1];
+            d1 * d2 < 0.0
+        }).count();
+        Some(count as f64)
+    }
+
+    /// Sign of quantity trend: +1 if second half mean > first half mean, else -1 or 0.
+    pub fn tick_qty_trend_sign(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 2 { return None; }
+        let half = ticks.len() / 2;
+        let first: Vec<f64> = ticks[..half].iter().filter_map(|t| t.quantity.to_f64()).collect();
+        let second: Vec<f64> = ticks[half..].iter().filter_map(|t| t.quantity.to_f64()).collect();
+        if first.is_empty() || second.is_empty() { return None; }
+        let m1 = first.iter().sum::<f64>() / first.len() as f64;
+        let m2 = second.iter().sum::<f64>() / second.len() as f64;
+        if m2 > m1 { Some(1.0) } else if m2 < m1 { Some(-1.0) } else { Some(0.0) }
+    }
+
+    /// Length of the current side streak at the end of the tick window.
+    pub fn tick_last_side_streak(ticks: &[NormalizedTick]) -> Option<f64> {
+        if ticks.is_empty() { return None; }
+        let last_side = ticks.last()?.side;
+        if last_side.is_none() { return None; }
+        let streak = ticks.iter().rev()
+            .take_while(|t| t.side == last_side)
+            .count();
+        Some(streak as f64)
+    }
+
+    /// Volume-weighted mid price (mean of price * quantity / total quantity).
+    pub fn tick_mid_price_vol(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() { return None; }
+        let total_qty: f64 = ticks.iter().filter_map(|t| t.quantity.to_f64()).sum();
+        if total_qty == 0.0 { return None; }
+        let wprice: f64 = ticks.iter().filter_map(|t| {
+            let p = t.price.to_f64()?;
+            let q = t.quantity.to_f64()?;
+            Some(p * q)
+        }).sum();
+        Some(wprice / total_qty)
+    }
+
     /// Skewness of trade-side assignment: (buy_count - sell_count) / total_with_side.
     pub fn tick_side_skew(ticks: &[NormalizedTick]) -> Option<f64> {
         if ticks.is_empty() { return None; }
@@ -23099,5 +23151,77 @@ mod tests {
         t2.side = Some(TradeSide::Buy);
         let r = NormalizedTick::tick_side_skew(&[t1, t2]).unwrap();
         assert!((r - 1.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_tick_price_reversal_count_too_few_none() {
+        use rust_decimal_macros::dec;
+        let t = make_tick_pq(dec!(100), dec!(1));
+        assert!(NormalizedTick::tick_price_reversal_count(&[t]).is_none());
+    }
+
+    #[test]
+    fn test_tick_price_reversal_count_zigzag() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(110), dec!(1)),
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(110), dec!(1)),
+        ];
+        let r = NormalizedTick::tick_price_reversal_count(&ticks).unwrap();
+        assert!(r >= 1.0);
+    }
+
+    #[test]
+    fn test_tick_qty_trend_sign_too_few_none() {
+        use rust_decimal_macros::dec;
+        let t = make_tick_pq(dec!(100), dec!(1));
+        assert!(NormalizedTick::tick_qty_trend_sign(&[t]).is_none());
+    }
+
+    #[test]
+    fn test_tick_qty_trend_sign_increasing() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(100), dec!(5)),
+        ];
+        let r = NormalizedTick::tick_qty_trend_sign(&ticks).unwrap();
+        assert_eq!(r, 1.0);
+    }
+
+    #[test]
+    fn test_tick_last_side_streak_empty_none() {
+        assert!(NormalizedTick::tick_last_side_streak(&[]).is_none());
+    }
+
+    #[test]
+    fn test_tick_last_side_streak_counts() {
+        use rust_decimal_macros::dec;
+        let mut t1 = make_tick_pq(dec!(100), dec!(1));
+        t1.side = Some(TradeSide::Buy);
+        let mut t2 = make_tick_pq(dec!(100), dec!(1));
+        t2.side = Some(TradeSide::Sell);
+        let mut t3 = make_tick_pq(dec!(100), dec!(1));
+        t3.side = Some(TradeSide::Sell);
+        let r = NormalizedTick::tick_last_side_streak(&[t1, t2, t3]).unwrap();
+        assert_eq!(r, 2.0);
+    }
+
+    #[test]
+    fn test_tick_mid_price_vol_empty_none() {
+        assert!(NormalizedTick::tick_mid_price_vol(&[]).is_none());
+    }
+
+    #[test]
+    fn test_tick_mid_price_vol_returns_weighted_price() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(200), dec!(1)),
+        ];
+        let r = NormalizedTick::tick_mid_price_vol(&ticks).unwrap();
+        assert!((r - 150.0).abs() < 1e-6);
     }
 }
