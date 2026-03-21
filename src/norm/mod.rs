@@ -1922,6 +1922,66 @@ impl MinMaxNormalizer {
         Some(variance)
     }
 
+    // ── round-96 ─────────────────────────────────────────────────────────────
+
+    /// Population standard deviation of the rolling window.
+    /// Returns `None` if the window is empty or variance is negative (should not occur).
+    pub fn window_std_dev(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let variance = self.window_variance()?;
+        Some(variance.to_f64().unwrap_or(0.0).sqrt())
+    }
+
+    /// Ratio of the window minimum to the window maximum.
+    /// Returns `None` if the window is empty or max is zero.
+    pub fn window_min_max_ratio(&self) -> Option<Decimal> {
+        if self.window.is_empty() {
+            return None;
+        }
+        let min = self.window.iter().copied().min()?;
+        let max = self.window.iter().copied().max()?;
+        if max.is_zero() {
+            return None;
+        }
+        Some(min / max)
+    }
+
+    /// Bias of recent observations vs older ones: mean of last half minus mean
+    /// of first half, as a fraction of the overall mean.
+    /// Returns `None` for windows with fewer than 4 values or zero overall mean.
+    pub fn recent_bias(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 4 {
+            return None;
+        }
+        let n = self.window.len();
+        let vals: Vec<Decimal> = self.window.iter().copied().collect();
+        let half = n / 2;
+        let old_mean: Decimal = vals[..half].iter().copied().sum::<Decimal>() / Decimal::from(half);
+        let new_mean: Decimal =
+            vals[half..].iter().copied().sum::<Decimal>() / Decimal::from(n - half);
+        let overall_mean: Decimal = vals.iter().copied().sum::<Decimal>() / Decimal::from(n);
+        if overall_mean.is_zero() {
+            return None;
+        }
+        Some(((new_mean - old_mean) / overall_mean).to_f64().unwrap_or(0.0))
+    }
+
+    /// Range of the window (max − min) as a percentage of the minimum value.
+    /// Returns `None` if the window is empty or the minimum is zero.
+    pub fn window_range_pct(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() {
+            return None;
+        }
+        let min = self.window.iter().copied().min()?;
+        let max = self.window.iter().copied().max()?;
+        if min.is_zero() {
+            return None;
+        }
+        Some(((max - min) / min).to_f64().unwrap_or(0.0))
+    }
+
 }
 
 #[cfg(test)]
@@ -4272,6 +4332,52 @@ mod tests {
         for _ in 0..4 { n.update(dec!(7)); }
         assert_eq!(n.window_variance().unwrap(), dec!(0));
     }
+
+    // ── round-96 tests ────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_minmax_window_std_dev_none_for_empty() {
+        assert!(norm(4).window_std_dev().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_std_dev_zero_for_constant() {
+        let mut n = norm(4);
+        for _ in 0..4 { n.update(dec!(5)); }
+        assert!(n.window_std_dev().unwrap().abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_minmax_window_min_max_ratio_none_for_empty() {
+        assert!(norm(4).window_min_max_ratio().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_min_max_ratio_one_for_constant() {
+        let mut n = norm(4);
+        for _ in 0..4 { n.update(dec!(3)); }
+        assert_eq!(n.window_min_max_ratio().unwrap(), dec!(1));
+    }
+
+    #[test]
+    fn test_minmax_recent_bias_none_for_small_window() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        assert!(n.recent_bias().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_range_pct_none_for_empty() {
+        assert!(norm(4).window_range_pct().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_range_pct_zero_for_constant() {
+        let mut n = norm(4);
+        for _ in 0..4 { n.update(dec!(5)); }
+        let r = n.window_range_pct().unwrap();
+        assert!(r.abs() < 1e-9, "constant → range_pct=0, got {}", r);
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -6154,6 +6260,66 @@ impl ZScoreNormalizer {
         let mean: Decimal = self.window.iter().copied().sum::<Decimal>() / n;
         let variance = self.window.iter().map(|v| (*v - mean) * (*v - mean)).sum::<Decimal>() / n;
         Some(variance)
+    }
+
+    // ── round-96 ─────────────────────────────────────────────────────────────
+
+    /// Population standard deviation of the rolling window.
+    /// Returns `None` if the window is empty.
+    pub fn window_std_dev(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let variance = self.window_variance()?;
+        Some(variance.to_f64().unwrap_or(0.0).sqrt())
+    }
+
+    /// Ratio of the window minimum to the window maximum.
+    /// Returns `None` if the window is empty or max is zero.
+    pub fn window_min_max_ratio(&self) -> Option<Decimal> {
+        if self.window.is_empty() {
+            return None;
+        }
+        let min = self.window.iter().copied().min()?;
+        let max = self.window.iter().copied().max()?;
+        if max.is_zero() {
+            return None;
+        }
+        Some(min / max)
+    }
+
+    /// Bias of recent observations vs older ones: mean of last half minus mean
+    /// of first half, as a fraction of the overall mean.
+    /// Returns `None` for windows with fewer than 4 values or zero overall mean.
+    pub fn recent_bias(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 4 {
+            return None;
+        }
+        let n = self.window.len();
+        let vals: Vec<Decimal> = self.window.iter().copied().collect();
+        let half = n / 2;
+        let old_mean: Decimal = vals[..half].iter().copied().sum::<Decimal>() / Decimal::from(half);
+        let new_mean: Decimal =
+            vals[half..].iter().copied().sum::<Decimal>() / Decimal::from(n - half);
+        let overall_mean: Decimal = vals.iter().copied().sum::<Decimal>() / Decimal::from(n);
+        if overall_mean.is_zero() {
+            return None;
+        }
+        Some(((new_mean - old_mean) / overall_mean).to_f64().unwrap_or(0.0))
+    }
+
+    /// Range of the window (max − min) as a percentage of the minimum value.
+    /// Returns `None` if the window is empty or the minimum is zero.
+    pub fn window_range_pct(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() {
+            return None;
+        }
+        let min = self.window.iter().copied().min()?;
+        let max = self.window.iter().copied().max()?;
+        if min.is_zero() {
+            return None;
+        }
+        Some(((max - min) / min).to_f64().unwrap_or(0.0))
     }
 
 }
@@ -8658,5 +8824,51 @@ mod zscore_stability_tests {
         let mut n = znorm(4);
         for _ in 0..4 { n.update(dec!(7)); }
         assert_eq!(n.window_variance().unwrap(), dec!(0));
+    }
+
+    // ── round-96 tests ────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_zscore_window_std_dev_none_for_empty() {
+        assert!(znorm(4).window_std_dev().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_std_dev_zero_for_constant() {
+        let mut n = znorm(4);
+        for _ in 0..4 { n.update(dec!(5)); }
+        assert!(n.window_std_dev().unwrap().abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_zscore_window_min_max_ratio_none_for_empty() {
+        assert!(znorm(4).window_min_max_ratio().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_min_max_ratio_one_for_constant() {
+        let mut n = znorm(4);
+        for _ in 0..4 { n.update(dec!(3)); }
+        assert_eq!(n.window_min_max_ratio().unwrap(), dec!(1));
+    }
+
+    #[test]
+    fn test_zscore_recent_bias_none_for_small_window() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        assert!(n.recent_bias().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_range_pct_none_for_empty() {
+        assert!(znorm(4).window_range_pct().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_range_pct_zero_for_constant() {
+        let mut n = znorm(4);
+        for _ in 0..4 { n.update(dec!(5)); }
+        let r = n.window_range_pct().unwrap();
+        assert!(r.abs() < 1e-9, "constant → range_pct=0, got {}", r);
     }
 }

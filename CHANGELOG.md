@@ -9,6 +9,30 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.4.7] - 2026-03-20
+
+### Added
+
+**`tick` module — `NormalizedTick` analytics (round 96)**
+- `NormalizedTick::qty_weighted_spread(ticks)` — quantity-weighted average deviation of tick prices from VWAP.
+- `NormalizedTick::large_tick_fraction(ticks)` — fraction of ticks with quantity above the mean quantity.
+- `NormalizedTick::net_price_drift(ticks)` — mean signed price change per consecutive pair.
+- `NormalizedTick::tick_arrival_entropy(ticks)` — approximate entropy of inter-arrival time distribution (5-bin).
+
+**`ohlcv` module — `OhlcvBar` analytics (round 96)**
+- `OhlcvBar::open_to_close_momentum(bars)` — mean signed `(close − open) / open` return per bar.
+- `OhlcvBar::volume_dispersion(bars)` — coefficient of variation of bar volumes.
+- `OhlcvBar::shadow_dominance(bars)` — mean fraction of each bar's range occupied by wicks vs body.
+- `OhlcvBar::true_range_mean(bars)` — mean true range across consecutive bar pairs.
+
+**`norm` module — `MinMaxNormalizer` and `ZScoreNormalizer` analytics (round 96)**
+- `window_std_dev() -> Option<f64>` — population standard deviation of the rolling window.
+- `window_min_max_ratio() -> Option<Decimal>` — ratio of window minimum to window maximum.
+- `recent_bias() -> Option<f64>` — mean of the second half minus mean of the first half, as fraction of overall mean.
+- `window_range_pct() -> Option<f64>` — `(max − min) / min` of the rolling window.
+
+---
+
 ## [2.4.6] - 2026-03-20
 
 ### Added

@@ -3975,6 +3975,88 @@ impl NormalizedTick {
         Some((net / total).to_f64().unwrap_or(0.0))
     }
 
+    // ── round-96 ─────────────────────────────────────────────────────────────
+
+    /// Quantity-weighted average spread between each tick's price and the VWAP.
+    /// Returns `None` for an empty slice or zero total quantity.
+    pub fn qty_weighted_spread(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() {
+            return None;
+        }
+        let total_qty: Decimal = ticks.iter().map(|t| t.quantity).sum();
+        if total_qty.is_zero() {
+            return None;
+        }
+        let vwap = ticks.iter().map(|t| t.price * t.quantity).sum::<Decimal>() / total_qty;
+        let spread = ticks
+            .iter()
+            .map(|t| (t.price - vwap).abs() * t.quantity)
+            .sum::<Decimal>()
+            / total_qty;
+        Some(spread.to_f64().unwrap_or(0.0))
+    }
+
+    /// Fraction of ticks whose quantity exceeds the mean quantity.
+    /// Returns `None` for an empty slice.
+    pub fn large_tick_fraction(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() {
+            return None;
+        }
+        let n = Decimal::from(ticks.len());
+        let mean_qty: Decimal = ticks.iter().map(|t| t.quantity).sum::<Decimal>() / n;
+        let above = ticks.iter().filter(|t| t.quantity > mean_qty).count();
+        Some(above as f64 / ticks.len() as f64)
+    }
+
+    /// Net directional price drift: sum of signed price changes divided by the
+    /// number of consecutive pairs.  Returns `None` for fewer than 2 ticks.
+    pub fn net_price_drift(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 2 {
+            return None;
+        }
+        let net: Decimal = ticks.windows(2).map(|w| w[1].price - w[0].price).sum();
+        let pairs = Decimal::from(ticks.len() - 1);
+        Some((net / pairs).to_f64().unwrap_or(0.0))
+    }
+
+    /// Approximate entropy of tick inter-arrival times: −Σ p·ln(p) over
+    /// quantised gap buckets (5 equal-width bins).  Returns `None` for fewer
+    /// than 3 ticks or when all gaps are identical.
+    pub fn tick_arrival_entropy(ticks: &[NormalizedTick]) -> Option<f64> {
+        if ticks.len() < 3 {
+            return None;
+        }
+        let gaps: Vec<u64> = ticks
+            .windows(2)
+            .map(|w| w[1].received_at_ms.saturating_sub(w[0].received_at_ms))
+            .collect();
+        let min_gap = *gaps.iter().min()?;
+        let max_gap = *gaps.iter().max()?;
+        if min_gap == max_gap {
+            return None;
+        }
+        let range = (max_gap - min_gap) as f64;
+        let n_bins = 5usize;
+        let mut bins = vec![0usize; n_bins];
+        for &g in &gaps {
+            let idx = (((g - min_gap) as f64 / range) * (n_bins - 1) as f64).round() as usize;
+            bins[idx.min(n_bins - 1)] += 1;
+        }
+        let total = gaps.len() as f64;
+        let entropy = bins
+            .iter()
+            .filter(|&&c| c > 0)
+            .map(|&c| {
+                let p = c as f64 / total;
+                -p * p.ln()
+            })
+            .sum::<f64>();
+        Some(entropy)
+    }
+
 }
 
 
@@ -9501,5 +9583,70 @@ mod tests {
         ];
         let imb = NormalizedTick::cumulative_qty_imbalance(&ticks).unwrap();
         assert!(imb.abs() < 1e-9, "balanced → 0.0, got {}", imb);
+    }
+
+    // ── round-96 tests ────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_qty_weighted_spread_none_for_empty() {
+        assert!(NormalizedTick::qty_weighted_spread(&[]).is_none());
+    }
+
+    #[test]
+    fn test_qty_weighted_spread_zero_for_uniform_price() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(100), dec!(2)),
+        ];
+        let s = NormalizedTick::qty_weighted_spread(&ticks).unwrap();
+        assert!(s.abs() < 1e-9, "uniform price → spread=0, got {}", s);
+    }
+
+    #[test]
+    fn test_large_tick_fraction_none_for_empty() {
+        assert!(NormalizedTick::large_tick_fraction(&[]).is_none());
+    }
+
+    #[test]
+    fn test_large_tick_fraction_basic() {
+        use rust_decimal_macros::dec;
+        // mean = 2; only qty=3 is above
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(101), dec!(3)),
+        ];
+        let f = NormalizedTick::large_tick_fraction(&ticks).unwrap();
+        assert!((f - 0.5).abs() < 1e-9, "expected 0.5, got {}", f);
+    }
+
+    #[test]
+    fn test_net_price_drift_none_for_single() {
+        use rust_decimal_macros::dec;
+        assert!(NormalizedTick::net_price_drift(&[make_tick_pq(dec!(100), dec!(1))]).is_none());
+    }
+
+    #[test]
+    fn test_net_price_drift_positive_for_rising() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(102), dec!(1)),
+        ];
+        let d = NormalizedTick::net_price_drift(&ticks).unwrap();
+        assert!((d - 2.0).abs() < 1e-9, "expected 2.0, got {}", d);
+    }
+
+    #[test]
+    fn test_tick_arrival_entropy_none_for_two_ticks() {
+        let ticks = vec![make_tick_at(0), make_tick_at(10)];
+        assert!(NormalizedTick::tick_arrival_entropy(&ticks).is_none());
+    }
+
+    #[test]
+    fn test_tick_arrival_entropy_none_for_uniform_gaps() {
+        let ticks = vec![make_tick_at(0), make_tick_at(10), make_tick_at(20)];
+        // all gaps equal → None
+        assert!(NormalizedTick::tick_arrival_entropy(&ticks).is_none());
     }
 }
