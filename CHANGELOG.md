@@ -9,6 +9,36 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.10.8] - 2026-03-20
+
+### Added
+
+**`tick` module — `NormalizedTick` analytics (round 157)**
+- `NormalizedTick::tick_price_range_zscore(ticks)` — z-score of the price range relative to std dev.
+- `NormalizedTick::side_buy_size_mean(ticks)` — mean quantity of Buy-side ticks.
+- `NormalizedTick::price_crossover_count(ticks)` — count of price crossings of the running mean.
+- `NormalizedTick::tick_large_qty_fraction(ticks)` — fraction of ticks with qty above 75th percentile.
+
+**`ohlcv` module — `OhlcvBar` analytics (round 157)**
+- `OhlcvBar::bar_ema_close_trend(bars)` — EMA(0.1) trend of close: last EMA minus first EMA.
+- `OhlcvBar::bar_close_vs_open_std(bars)` — std dev of (close - open) across bars.
+- `OhlcvBar::bar_high_vs_close_ratio(bars)` — mean ratio of high to close across bars.
+- `OhlcvBar::bar_low_vs_open_ratio(bars)` — mean ratio of low to open across bars.
+
+**`norm` module — `MinMaxNormalizer` analytics (round 157)**
+- `MinMaxNormalizer::window_mean_oscillation()` — mean absolute deviation of consecutive differences.
+- `MinMaxNormalizer::window_monotone_score()` — fraction of pairs in the dominant direction.
+- `MinMaxNormalizer::window_stddev_trend()` — change in std dev from first to second half of window.
+- `MinMaxNormalizer::window_zero_cross_fraction()` — fraction of sign-alternating consecutive pairs.
+
+**`norm` module — `ZScoreNormalizer` analytics (round 157)**
+- `ZScoreNormalizer::window_mean_oscillation()` — mean absolute deviation of consecutive differences.
+- `ZScoreNormalizer::window_monotone_score()` — fraction of pairs in the dominant direction.
+- `ZScoreNormalizer::window_stddev_trend()` — change in std dev from first to second half of window.
+- `ZScoreNormalizer::window_zero_cross_fraction()` — fraction of sign-alternating consecutive pairs.
+
+---
+
 ## [2.10.7] - 2026-03-20
 
 ### Added

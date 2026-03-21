@@ -5140,6 +5140,52 @@ impl MinMaxNormalizer {
         Some(last - min)
     }
 
+    // ── round-157 ────────────────────────────────────────────────────────────
+
+    /// Mean absolute deviation of consecutive differences (oscillation measure).
+    pub fn window_mean_oscillation(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let diffs: Vec<f64> = vals.windows(2).map(|w| w[1] - w[0]).collect();
+        let mean_diff = diffs.iter().sum::<f64>() / diffs.len() as f64;
+        Some(diffs.iter().map(|d| (d - mean_diff).abs()).sum::<f64>() / diffs.len() as f64)
+    }
+
+    /// Monotone score: fraction of consecutive pairs in the dominant direction.
+    pub fn window_monotone_score(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let pairs = vals.len() - 1;
+        let rises = vals.windows(2).filter(|w| w[1] > w[0]).count();
+        let falls = pairs - rises;
+        Some(rises.max(falls) as f64 / pairs as f64)
+    }
+
+    /// Trend of window std dev: difference between std dev of second half minus first half.
+    pub fn window_stddev_trend(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 4 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let mid = vals.len() / 2;
+        let std_half = |v: &[f64]| -> f64 {
+            let m = v.iter().sum::<f64>() / v.len() as f64;
+            (v.iter().map(|x| (x - m).powi(2)).sum::<f64>() / v.len() as f64).sqrt()
+        };
+        Some(std_half(&vals[mid..]) - std_half(&vals[..mid]))
+    }
+
+    /// Fraction of consecutive pairs where the sign of the change alternates.
+    pub fn window_zero_cross_fraction(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 3 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let diffs: Vec<f64> = vals.windows(2).map(|w| w[1] - w[0]).collect();
+        let sign_changes = diffs.windows(2).filter(|w| w[0] * w[1] < 0.0).count();
+        Some(sign_changes as f64 / (diffs.len() - 1) as f64)
+    }
+
 }
 
 #[cfg(test)]
@@ -11085,6 +11131,72 @@ mod tests {
         let d = n.window_last_vs_min().unwrap();
         assert!((d - 0.0).abs() < 1e-9, "expected 0.0, got {}", d);
     }
+
+    // ── round-157 ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_minmax_window_mean_oscillation_none_for_single() {
+        let mut n = norm(4);
+        n.update(dec!(5));
+        assert!(n.window_mean_oscillation().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_mean_oscillation_constant() {
+        let mut n = norm(3);
+        for v in [dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        // all diffs=0, mean_diff=0, MAD=0
+        let o = n.window_mean_oscillation().unwrap();
+        assert!((o - 0.0).abs() < 1e-9, "expected 0.0, got {}", o);
+    }
+
+    #[test]
+    fn test_minmax_window_monotone_score_none_for_single() {
+        let mut n = norm(4);
+        n.update(dec!(5));
+        assert!(n.window_monotone_score().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_monotone_score_perfectly_ascending() {
+        let mut n = norm(3);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        // all rising → score = 1.0
+        let s = n.window_monotone_score().unwrap();
+        assert!((s - 1.0).abs() < 1e-9, "expected 1.0, got {}", s);
+    }
+
+    #[test]
+    fn test_minmax_window_stddev_trend_none_for_three() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        assert!(n.window_stddev_trend().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_stddev_trend_uniform() {
+        let mut n = norm(4);
+        for v in [dec!(5), dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        // all uniform → both halves have std=0 → trend=0
+        let t = n.window_stddev_trend().unwrap();
+        assert!((t - 0.0).abs() < 1e-9, "expected 0.0, got {}", t);
+    }
+
+    #[test]
+    fn test_minmax_window_zero_cross_fraction_none_for_two() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2)] { n.update(v); }
+        assert!(n.window_zero_cross_fraction().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_zero_cross_fraction_alternating() {
+        let mut n = norm(4);
+        // alternating: 1,3,1,3 → diffs: +2,-2,+2 → all adjacent sign changes
+        for v in [dec!(1), dec!(3), dec!(1), dec!(3)] { n.update(v); }
+        let f = n.window_zero_cross_fraction().unwrap();
+        assert!((f - 1.0).abs() < 1e-9, "expected 1.0, got {}", f);
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -16169,6 +16281,52 @@ impl ZScoreNormalizer {
         let last = self.window.back()?.to_f64()?;
         let min = self.window.iter().map(|v| v.to_f64().unwrap_or(f64::INFINITY)).fold(f64::INFINITY, f64::min);
         Some(last - min)
+    }
+
+    // ── round-157 ────────────────────────────────────────────────────────────
+
+    /// Mean absolute deviation of consecutive differences (oscillation measure).
+    pub fn window_mean_oscillation(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let diffs: Vec<f64> = vals.windows(2).map(|w| w[1] - w[0]).collect();
+        let mean_diff = diffs.iter().sum::<f64>() / diffs.len() as f64;
+        Some(diffs.iter().map(|d| (d - mean_diff).abs()).sum::<f64>() / diffs.len() as f64)
+    }
+
+    /// Monotone score: fraction of consecutive pairs in the dominant direction.
+    pub fn window_monotone_score(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let pairs = vals.len() - 1;
+        let rises = vals.windows(2).filter(|w| w[1] > w[0]).count();
+        let falls = pairs - rises;
+        Some(rises.max(falls) as f64 / pairs as f64)
+    }
+
+    /// Trend of window std dev: difference between std dev of second half minus first half.
+    pub fn window_stddev_trend(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 4 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let mid = vals.len() / 2;
+        let std_half = |v: &[f64]| -> f64 {
+            let m = v.iter().sum::<f64>() / v.len() as f64;
+            (v.iter().map(|x| (x - m).powi(2)).sum::<f64>() / v.len() as f64).sqrt()
+        };
+        Some(std_half(&vals[mid..]) - std_half(&vals[..mid]))
+    }
+
+    /// Fraction of consecutive pairs where the sign of the change alternates.
+    pub fn window_zero_cross_fraction(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 3 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let diffs: Vec<f64> = vals.windows(2).map(|w| w[1] - w[0]).collect();
+        let sign_changes = diffs.windows(2).filter(|w| w[0] * w[1] < 0.0).count();
+        Some(sign_changes as f64 / (diffs.len() - 1) as f64)
     }
 
 }
@@ -22115,5 +22273,67 @@ mod zscore_stability_tests {
         for v in [dec!(5), dec!(3), dec!(1)] { n.update(v); }
         let d = n.window_last_vs_min().unwrap();
         assert!((d - 0.0).abs() < 1e-9, "expected 0.0, got {}", d);
+    }
+
+    // ── round-157 ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_zscore_window_mean_oscillation_none_for_single() {
+        let mut n = znorm(4);
+        n.update(dec!(5));
+        assert!(n.window_mean_oscillation().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_mean_oscillation_constant() {
+        let mut n = znorm(3);
+        for v in [dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        let o = n.window_mean_oscillation().unwrap();
+        assert!((o - 0.0).abs() < 1e-9, "expected 0.0, got {}", o);
+    }
+
+    #[test]
+    fn test_zscore_window_monotone_score_none_for_single() {
+        let mut n = znorm(4);
+        n.update(dec!(5));
+        assert!(n.window_monotone_score().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_monotone_score_perfectly_ascending() {
+        let mut n = znorm(3);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        let s = n.window_monotone_score().unwrap();
+        assert!((s - 1.0).abs() < 1e-9, "expected 1.0, got {}", s);
+    }
+
+    #[test]
+    fn test_zscore_window_stddev_trend_none_for_three() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        assert!(n.window_stddev_trend().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_stddev_trend_uniform() {
+        let mut n = znorm(4);
+        for v in [dec!(5), dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        let t = n.window_stddev_trend().unwrap();
+        assert!((t - 0.0).abs() < 1e-9, "expected 0.0, got {}", t);
+    }
+
+    #[test]
+    fn test_zscore_window_zero_cross_fraction_none_for_two() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2)] { n.update(v); }
+        assert!(n.window_zero_cross_fraction().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_zero_cross_fraction_alternating() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(3), dec!(1), dec!(3)] { n.update(v); }
+        let f = n.window_zero_cross_fraction().unwrap();
+        assert!((f - 1.0).abs() < 1e-9, "expected 1.0, got {}", f);
     }
 }

@@ -7498,6 +7498,57 @@ impl NormalizedTick {
         Some(last - first)
     }
 
+    // ── round-157 ────────────────────────────────────────────────────────────
+
+    /// Z-score of the price range (max-min) relative to the price std dev.
+    pub fn tick_price_range_zscore(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 2 { return None; }
+        let prices: Vec<f64> = ticks.iter().filter_map(|t| t.price.to_f64()).collect();
+        if prices.len() < 2 { return None; }
+        let mean = prices.iter().sum::<f64>() / prices.len() as f64;
+        let var = prices.iter().map(|p| (p - mean).powi(2)).sum::<f64>() / prices.len() as f64;
+        let std = var.sqrt();
+        if std == 0.0 { return None; }
+        let min = prices.iter().cloned().fold(f64::INFINITY, f64::min);
+        let max = prices.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        Some((max - min) / std)
+    }
+
+    /// Mean quantity of Buy-side ticks.
+    pub fn side_buy_size_mean(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let buy_qtys: Vec<f64> = ticks.iter()
+            .filter(|t| matches!(t.side, Some(TradeSide::Buy)))
+            .filter_map(|t| t.quantity.to_f64()).collect();
+        if buy_qtys.is_empty() { return None; }
+        Some(buy_qtys.iter().sum::<f64>() / buy_qtys.len() as f64)
+    }
+
+    /// Count of times price crosses above or below its running mean.
+    pub fn price_crossover_count(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 2 { return None; }
+        let prices: Vec<f64> = ticks.iter().filter_map(|t| t.price.to_f64()).collect();
+        if prices.len() < 2 { return None; }
+        let mean = prices.iter().sum::<f64>() / prices.len() as f64;
+        let above: Vec<bool> = prices.iter().map(|&p| p >= mean).collect();
+        let crosses = above.windows(2).filter(|w| w[0] != w[1]).count();
+        Some(crosses as f64)
+    }
+
+    /// Fraction of ticks with quantity above the 75th percentile of quantities.
+    pub fn tick_large_qty_fraction(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() { return None; }
+        let mut qtys: Vec<f64> = ticks.iter().filter_map(|t| t.quantity.to_f64()).collect();
+        if qtys.is_empty() { return None; }
+        qtys.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let q75 = qtys[3 * qtys.len() / 4];
+        let large = ticks.iter().filter(|t| t.quantity.to_f64().map_or(false, |q| q > q75)).count();
+        Some(large as f64 / ticks.len() as f64)
+    }
+
 }
 
 
@@ -17146,5 +17197,71 @@ mod tests {
         let ticks = vec![make_tick_pq(dec!(100), dec!(1)), make_tick_pq(dec!(110), dec!(1))];
         let c = NormalizedTick::tick_net_price_change(&ticks).unwrap();
         assert!((c - 10.0).abs() < 1e-9, "expected 10.0, got {}", c);
+    }
+
+    // ── round-157 ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_tick_price_range_zscore_none_for_single() {
+        use rust_decimal_macros::dec;
+        assert!(NormalizedTick::tick_price_range_zscore(&[make_tick_pq(dec!(100), dec!(1))]).is_none());
+    }
+
+    #[test]
+    fn test_tick_price_range_zscore_uniform_none() {
+        use rust_decimal_macros::dec;
+        // same price → std=0 → None
+        let ticks = vec![make_tick_pq(dec!(100), dec!(1)), make_tick_pq(dec!(100), dec!(1))];
+        assert!(NormalizedTick::tick_price_range_zscore(&ticks).is_none());
+    }
+
+    #[test]
+    fn test_side_buy_size_mean_none_for_no_buys() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![make_tick_pq(dec!(100), dec!(1))];
+        assert!(NormalizedTick::side_buy_size_mean(&ticks).is_none());
+    }
+
+    #[test]
+    fn test_side_buy_size_mean_basic() {
+        use rust_decimal_macros::dec;
+        let mut t = make_tick_pq(dec!(100), dec!(4));
+        t.side = Some(crate::tick::TradeSide::Buy);
+        let m = NormalizedTick::side_buy_size_mean(&[t]).unwrap();
+        assert!((m - 4.0).abs() < 1e-9, "expected 4.0, got {}", m);
+    }
+
+    #[test]
+    fn test_price_crossover_count_none_for_single() {
+        use rust_decimal_macros::dec;
+        assert!(NormalizedTick::price_crossover_count(&[make_tick_pq(dec!(100), dec!(1))]).is_none());
+    }
+
+    #[test]
+    fn test_price_crossover_count_constant() {
+        use rust_decimal_macros::dec;
+        // same price → always on mean → no crosses → 0
+        let ticks = vec![make_tick_pq(dec!(100), dec!(1)), make_tick_pq(dec!(100), dec!(1))];
+        let c = NormalizedTick::price_crossover_count(&ticks).unwrap();
+        assert!((c - 0.0).abs() < 1e-9, "expected 0.0, got {}", c);
+    }
+
+    #[test]
+    fn test_tick_large_qty_fraction_none_for_empty() {
+        assert!(NormalizedTick::tick_large_qty_fraction(&[]).is_none());
+    }
+
+    #[test]
+    fn test_tick_large_qty_fraction_uniform() {
+        use rust_decimal_macros::dec;
+        // all same qty → q75=same → none strictly above → 0.0
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(5)),
+            make_tick_pq(dec!(101), dec!(5)),
+            make_tick_pq(dec!(102), dec!(5)),
+            make_tick_pq(dec!(103), dec!(5)),
+        ];
+        let f = NormalizedTick::tick_large_qty_fraction(&ticks).unwrap();
+        assert!((f - 0.0).abs() < 1e-9, "expected 0.0, got {}", f);
     }
 }
