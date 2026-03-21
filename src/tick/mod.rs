@@ -8326,6 +8326,64 @@ impl NormalizedTick {
         Some(v2 / v1)
     }
 
+    // ── round-170 ────────────────────────────────────────────────────────────
+
+    /// 90th percentile minus 10th percentile of tick prices (price spread).
+    pub fn price_quantile_spread(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() { return None; }
+        let mut prices: Vec<f64> = ticks.iter().filter_map(|t| t.price.to_f64()).collect();
+        if prices.is_empty() { return None; }
+        prices.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let n = prices.len();
+        let p10 = prices[(n as f64 * 0.10) as usize];
+        let p90 = prices[((n as f64 * 0.90) as usize).min(n - 1)];
+        Some(p90 - p10)
+    }
+
+    /// Rate of change of quantity between consecutive ticks (mean qty second-diff proxy).
+    pub fn tick_volume_velocity(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 2 { return None; }
+        let diffs: Vec<f64> = ticks.windows(2).filter_map(|w| {
+            let a = w[0].quantity.to_f64()?;
+            let b = w[1].quantity.to_f64()?;
+            Some(b - a)
+        }).collect();
+        if diffs.is_empty() { return None; }
+        Some(diffs.iter().sum::<f64>() / diffs.len() as f64)
+    }
+
+    /// Mean magnitude of negative price moves (downward pressure).
+    pub fn price_down_pressure(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 2 { return None; }
+        let downs: Vec<f64> = ticks.windows(2).filter_map(|w| {
+            let a = w[0].price.to_f64()?;
+            let b = w[1].price.to_f64()?;
+            let d = b - a;
+            if d < 0.0 { Some(d.abs()) } else { None }
+        }).collect();
+        if downs.is_empty() { return None; }
+        Some(downs.iter().sum::<f64>() / downs.len() as f64)
+    }
+
+    /// Z-score range: (max_zscore - min_zscore) of tick prices.
+    pub fn price_zscore_range(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 2 { return None; }
+        let prices: Vec<f64> = ticks.iter().filter_map(|t| t.price.to_f64()).collect();
+        if prices.len() < 2 { return None; }
+        let n = prices.len() as f64;
+        let mean = prices.iter().sum::<f64>() / n;
+        let std = (prices.iter().map(|p| (p - mean).powi(2)).sum::<f64>() / n).sqrt();
+        if std == 0.0 { return None; }
+        let zscores: Vec<f64> = prices.iter().map(|p| (p - mean) / std).collect();
+        let max_z = zscores.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        let min_z = zscores.iter().cloned().fold(f64::INFINITY, f64::min);
+        Some(max_z - min_z)
+    }
+
 }
 
 
@@ -18936,5 +18994,85 @@ mod tests {
             make_tick_pq(dec!(102), dec!(1)),
         ];
         assert!(NormalizedTick::price_variance_ratio(&ticks).is_none());
+    }
+
+    // ── round-170 tests ──────────────────────────────────────────────────────
+
+    #[test]
+    fn test_price_quantile_spread_none_for_empty() {
+        assert!(NormalizedTick::price_quantile_spread(&[]).is_none());
+    }
+
+    #[test]
+    fn test_price_quantile_spread_constant_zero() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(100), dec!(1)),
+        ];
+        let s = NormalizedTick::price_quantile_spread(&ticks).unwrap();
+        assert!((s - 0.0).abs() < 1e-9, "expected 0.0, got {}", s);
+    }
+
+    #[test]
+    fn test_tick_volume_velocity_none_for_single() {
+        use rust_decimal_macros::dec;
+        assert!(NormalizedTick::tick_volume_velocity(&[make_tick_pq(dec!(100), dec!(1))]).is_none());
+    }
+
+    #[test]
+    fn test_tick_volume_velocity_constant_zero() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(5)),
+            make_tick_pq(dec!(101), dec!(5)),
+        ];
+        let v = NormalizedTick::tick_volume_velocity(&ticks).unwrap();
+        assert!((v - 0.0).abs() < 1e-9, "expected 0.0, got {}", v);
+    }
+
+    #[test]
+    fn test_price_down_pressure_none_for_no_downs() {
+        use rust_decimal_macros::dec;
+        // all up → no downs → None
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(101), dec!(1)),
+        ];
+        assert!(NormalizedTick::price_down_pressure(&ticks).is_none());
+    }
+
+    #[test]
+    fn test_price_down_pressure_one_down() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(102), dec!(1)),
+            make_tick_pq(dec!(100), dec!(1)),
+        ];
+        let p = NormalizedTick::price_down_pressure(&ticks).unwrap();
+        assert!((p - 2.0).abs() < 1e-9, "expected 2.0, got {}", p);
+    }
+
+    #[test]
+    fn test_price_zscore_range_none_for_constant() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(100), dec!(1)),
+        ];
+        assert!(NormalizedTick::price_zscore_range(&ticks).is_none());
+    }
+
+    #[test]
+    fn test_price_zscore_range_two_values() {
+        use rust_decimal_macros::dec;
+        // [100, 102] → mean=101, std=1 → zscores=[-1,+1] → range=2
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(102), dec!(1)),
+        ];
+        let r = NormalizedTick::price_zscore_range(&ticks).unwrap();
+        assert!((r - 2.0).abs() < 1e-9, "expected 2.0, got {}", r);
     }
 }

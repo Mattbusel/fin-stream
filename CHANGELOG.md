@@ -9,6 +9,30 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.10.21] - 2026-03-20
+
+### Added
+
+**`tick` module — `NormalizedTick` analytics (round 170)**
+- `NormalizedTick::price_quantile_spread(ticks)` — 90th minus 10th percentile of tick prices.
+- `NormalizedTick::tick_volume_velocity(ticks)` — mean consecutive quantity difference.
+- `NormalizedTick::price_down_pressure(ticks)` — mean magnitude of negative price moves.
+- `NormalizedTick::price_zscore_range(ticks)` — max z-score minus min z-score of prices.
+
+**`ohlcv` module — `OhlcvBar` analytics (round 170)**
+- `OhlcvBar::bar_volume_entropy(bars)` — histogram entropy of bar volumes (4 bins).
+- `OhlcvBar::bar_open_prev_close_gap(bars)` — mean (open[i] - close[i-1]) gap.
+- `OhlcvBar::bar_avg_true_range(bars)` — classic Average True Range.
+- `OhlcvBar::bar_close_momentum_std(bars)` — std dev of consecutive close differences.
+
+**`norm` module — `MinMaxNormalizer` + `ZScoreNormalizer` analytics (round 170)**
+- `window_rolling_sharpe()` — mean / std (Sharpe-like ratio).
+- `window_up_down_ratio()` — count of up diffs / count of down diffs.
+- `window_directional_bias()` — fraction of values above first window value.
+- `window_sign_momentum()` — sign(last_diff) - sign(first_diff).
+
+---
+
 ## [2.10.20] - 2026-03-20
 
 ### Added

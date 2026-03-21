@@ -5814,6 +5814,52 @@ impl MinMaxNormalizer {
         Some((max - mean) / (mean - min))
     }
 
+    // ── round-170 ────────────────────────────────────────────────────────────
+
+    /// Mean / std of window values (Sharpe-like ratio). None if std=0.
+    pub fn window_rolling_sharpe(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let n = vals.len() as f64;
+        let mean = vals.iter().sum::<f64>() / n;
+        let std = (vals.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / n).sqrt();
+        if std == 0.0 { return None; }
+        Some(mean / std)
+    }
+
+    /// Count of positive diffs / count of negative diffs (up/down ratio).
+    pub fn window_up_down_ratio(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let ups = vals.windows(2).filter(|w| w[1] > w[0]).count();
+        let downs = vals.windows(2).filter(|w| w[1] < w[0]).count();
+        if downs == 0 { return None; }
+        Some(ups as f64 / downs as f64)
+    }
+
+    /// Fraction of window values above the first value in the window.
+    pub fn window_directional_bias(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let base = vals[0];
+        let above = vals[1..].iter().filter(|&&v| v > base).count();
+        Some(above as f64 / (vals.len() - 1) as f64)
+    }
+
+    /// Sign momentum: sign(last_diff) - sign(first_diff), measuring directional change.
+    pub fn window_sign_momentum(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let first_diff = vals[1] - vals[0];
+        let last_diff = vals[vals.len() - 1] - vals[vals.len() - 2];
+        let sign = |x: f64| -> f64 { if x > 0.0 { 1.0 } else if x < 0.0 { -1.0 } else { 0.0 } };
+        Some(sign(last_diff) - sign(first_diff))
+    }
+
 }
 
 #[cfg(test)]
@@ -12561,6 +12607,66 @@ mod tests {
         for v in [dec!(4), dec!(6), dec!(10)] { n.update(v); }
         assert!(n.window_range_asymmetry().is_some());
     }
+
+    // ── round-170 tests ──────────────────────────────────────────────────────
+
+    #[test]
+    fn test_minmax_window_rolling_sharpe_none_for_empty() {
+        let n = norm(4);
+        assert!(n.window_rolling_sharpe().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_rolling_sharpe_constant_none() {
+        let mut n = norm(3);
+        for v in [dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        assert!(n.window_rolling_sharpe().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_up_down_ratio_none_for_single() {
+        let mut n = norm(4);
+        n.update(dec!(5));
+        assert!(n.window_up_down_ratio().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_up_down_ratio_all_up_none() {
+        let mut n = norm(3);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        assert!(n.window_up_down_ratio().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_directional_bias_none_for_single() {
+        let mut n = norm(4);
+        n.update(dec!(5));
+        assert!(n.window_directional_bias().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_directional_bias_all_above_one() {
+        let mut n = norm(3);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        let b = n.window_directional_bias().unwrap();
+        assert!((b - 1.0).abs() < 1e-9, "expected 1.0, got {}", b);
+    }
+
+    #[test]
+    fn test_minmax_window_sign_momentum_none_for_single() {
+        let mut n = norm(4);
+        n.update(dec!(5));
+        assert!(n.window_sign_momentum().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_sign_momentum_monotone_zero() {
+        let mut n = norm(3);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        let m = n.window_sign_momentum().unwrap();
+        // first_diff=1 (sign=1), last_diff=1 (sign=1) → 1-1=0
+        assert!((m - 0.0).abs() < 1e-9, "expected 0.0, got {}", m);
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -18323,6 +18429,52 @@ impl ZScoreNormalizer {
         let min = vals.iter().cloned().fold(f64::INFINITY, f64::min);
         if (mean - min).abs() < 1e-12 { return None; }
         Some((max - mean) / (mean - min))
+    }
+
+    // ── round-170 ────────────────────────────────────────────────────────────
+
+    /// Mean / std of window values (Sharpe-like ratio). None if std=0.
+    pub fn window_rolling_sharpe(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let n = vals.len() as f64;
+        let mean = vals.iter().sum::<f64>() / n;
+        let std = (vals.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / n).sqrt();
+        if std == 0.0 { return None; }
+        Some(mean / std)
+    }
+
+    /// Count of positive diffs / count of negative diffs (up/down ratio).
+    pub fn window_up_down_ratio(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let ups = vals.windows(2).filter(|w| w[1] > w[0]).count();
+        let downs = vals.windows(2).filter(|w| w[1] < w[0]).count();
+        if downs == 0 { return None; }
+        Some(ups as f64 / downs as f64)
+    }
+
+    /// Fraction of window values above the first value in the window.
+    pub fn window_directional_bias(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let base = vals[0];
+        let above = vals[1..].iter().filter(|&&v| v > base).count();
+        Some(above as f64 / (vals.len() - 1) as f64)
+    }
+
+    /// Sign momentum: sign(last_diff) - sign(first_diff), measuring directional change.
+    pub fn window_sign_momentum(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let first_diff = vals[1] - vals[0];
+        let last_diff = vals[vals.len() - 1] - vals[vals.len() - 2];
+        let sign = |x: f64| -> f64 { if x > 0.0 { 1.0 } else if x < 0.0 { -1.0 } else { 0.0 } };
+        Some(sign(last_diff) - sign(first_diff))
     }
 
 }
@@ -25043,5 +25195,64 @@ mod zscore_stability_tests {
         let mut n = znorm(3);
         for v in [dec!(4), dec!(6), dec!(10)] { n.update(v); }
         assert!(n.window_range_asymmetry().is_some());
+    }
+
+    // ── round-170 tests ──────────────────────────────────────────────────────
+
+    #[test]
+    fn test_zscore_window_rolling_sharpe_none_for_empty() {
+        let n = znorm(4);
+        assert!(n.window_rolling_sharpe().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_rolling_sharpe_constant_none() {
+        let mut n = znorm(3);
+        for v in [dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        assert!(n.window_rolling_sharpe().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_up_down_ratio_none_for_single() {
+        let mut n = znorm(4);
+        n.update(dec!(5));
+        assert!(n.window_up_down_ratio().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_up_down_ratio_all_up_none() {
+        let mut n = znorm(3);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        assert!(n.window_up_down_ratio().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_directional_bias_none_for_single() {
+        let mut n = znorm(4);
+        n.update(dec!(5));
+        assert!(n.window_directional_bias().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_directional_bias_all_above_one() {
+        let mut n = znorm(3);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        let b = n.window_directional_bias().unwrap();
+        assert!((b - 1.0).abs() < 1e-9, "expected 1.0, got {}", b);
+    }
+
+    #[test]
+    fn test_zscore_window_sign_momentum_none_for_single() {
+        let mut n = znorm(4);
+        n.update(dec!(5));
+        assert!(n.window_sign_momentum().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_sign_momentum_monotone_zero() {
+        let mut n = znorm(3);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        let m = n.window_sign_momentum().unwrap();
+        assert!((m - 0.0).abs() < 1e-9, "expected 0.0, got {}", m);
     }
 }

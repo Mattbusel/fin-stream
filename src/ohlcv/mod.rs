@@ -8005,6 +8005,73 @@ impl OhlcvBar {
         Some(entropy)
     }
 
+    // ── round-170 ────────────────────────────────────────────────────────────
+
+    /// Histogram entropy of bar volumes (4 equal-width bins).
+    pub fn bar_volume_entropy(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let vols: Vec<f64> = bars.iter().filter_map(|b| b.volume.to_f64()).collect();
+        if vols.is_empty() { return None; }
+        let min = vols.iter().cloned().fold(f64::INFINITY, f64::min);
+        let max = vols.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        if (max - min).abs() < 1e-12 { return Some(0.0); }
+        let n_bins = 4usize;
+        let bin_w = (max - min) / n_bins as f64;
+        let mut counts = vec![0usize; n_bins];
+        for &v in &vols {
+            let idx = ((v - min) / bin_w) as usize;
+            counts[idx.min(n_bins - 1)] += 1;
+        }
+        let total = vols.len() as f64;
+        let entropy: f64 = counts.iter()
+            .filter(|&&c| c > 0)
+            .map(|&c| { let p = c as f64 / total; -p * p.ln() })
+            .sum();
+        Some(entropy)
+    }
+
+    /// Mean (open[i] - close[i-1]) gap across consecutive bars.
+    pub fn bar_open_prev_close_gap(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.len() < 2 { return None; }
+        let gaps: Vec<f64> = bars.windows(2).filter_map(|w| {
+            let prev_close = w[0].close.to_f64()?;
+            let curr_open = w[1].open.to_f64()?;
+            Some(curr_open - prev_close)
+        }).collect();
+        if gaps.is_empty() { return None; }
+        Some(gaps.iter().sum::<f64>() / gaps.len() as f64)
+    }
+
+    /// Classic Average True Range: mean(max(H-L, |H-prev_C|, |L-prev_C|)).
+    pub fn bar_avg_true_range(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.len() < 2 { return None; }
+        let trs: Vec<f64> = bars.windows(2).filter_map(|w| {
+            let h = w[1].high.to_f64()?;
+            let l = w[1].low.to_f64()?;
+            let pc = w[0].close.to_f64()?;
+            let tr = (h - l).max((h - pc).abs()).max((l - pc).abs());
+            Some(tr)
+        }).collect();
+        if trs.is_empty() { return None; }
+        Some(trs.iter().sum::<f64>() / trs.len() as f64)
+    }
+
+    /// Std dev of consecutive close-to-close differences.
+    pub fn bar_close_momentum_std(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.len() < 3 { return None; }
+        let closes: Vec<f64> = bars.iter().filter_map(|b| b.close.to_f64()).collect();
+        if closes.len() < 3 { return None; }
+        let diffs: Vec<f64> = closes.windows(2).map(|w| w[1] - w[0]).collect();
+        let n = diffs.len() as f64;
+        let mean = diffs.iter().sum::<f64>() / n;
+        let var = diffs.iter().map(|d| (d - mean).powi(2)).sum::<f64>() / n;
+        Some(var.sqrt())
+    }
+
 }
 
 impl std::fmt::Display for OhlcvBar {
@@ -18249,5 +18316,78 @@ mod tests {
         ];
         let e = OhlcvBar::bar_range_entropy(&bars).unwrap();
         assert!((e - 0.0).abs() < 1e-9, "expected 0.0, got {}", e);
+    }
+
+    // ── round-170 tests ──────────────────────────────────────────────────────
+
+    #[test]
+    fn test_bar_volume_entropy_none_for_empty() {
+        assert!(OhlcvBar::bar_volume_entropy(&[]).is_none());
+    }
+
+    #[test]
+    fn test_bar_volume_entropy_constant_zero() {
+        let bars = vec![
+            make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105)),
+            make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105)),
+        ];
+        let e = OhlcvBar::bar_volume_entropy(&bars).unwrap();
+        assert!((e - 0.0).abs() < 1e-9, "expected 0.0, got {}", e);
+    }
+
+    #[test]
+    fn test_bar_open_prev_close_gap_none_for_single() {
+        let bars = vec![make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105))];
+        assert!(OhlcvBar::bar_open_prev_close_gap(&bars).is_none());
+    }
+
+    #[test]
+    fn test_bar_open_prev_close_gap_no_gap_zero() {
+        // open[1]=close[0]=105 → gap=0
+        let bars = vec![
+            make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105)),
+            make_ohlcv_bar(dec!(105), dec!(115), dec!(95), dec!(110)),
+        ];
+        let g = OhlcvBar::bar_open_prev_close_gap(&bars).unwrap();
+        assert!((g - 0.0).abs() < 1e-9, "expected 0.0, got {}", g);
+    }
+
+    #[test]
+    fn test_bar_avg_true_range_none_for_single() {
+        let bars = vec![make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105))];
+        assert!(OhlcvBar::bar_avg_true_range(&bars).is_none());
+    }
+
+    #[test]
+    fn test_bar_avg_true_range_basic() {
+        // bar1: H=110, L=90, prev_C=105 → TR=max(20, |110-105|=5, |90-105|=15)=20
+        let bars = vec![
+            make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105)),
+            make_ohlcv_bar(dec!(105), dec!(115), dec!(85), dec!(108)),
+        ];
+        // bar2: H=115, L=85, prev_C=105 → TR=max(30, |115-105|=10, |85-105|=20)=30
+        let atr = OhlcvBar::bar_avg_true_range(&bars).unwrap();
+        assert!((atr - 30.0).abs() < 1e-9, "expected 30.0, got {}", atr);
+    }
+
+    #[test]
+    fn test_bar_close_momentum_std_none_for_short() {
+        let bars = vec![
+            make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105)),
+            make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(108)),
+        ];
+        assert!(OhlcvBar::bar_close_momentum_std(&bars).is_none());
+    }
+
+    #[test]
+    fn test_bar_close_momentum_std_constant_zero() {
+        let bars = vec![
+            make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105)),
+            make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(107)),
+            make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(109)),
+        ];
+        // diffs: [2, 2] → std=0
+        let s = OhlcvBar::bar_close_momentum_std(&bars).unwrap();
+        assert!((s - 0.0).abs() < 1e-9, "expected 0.0, got {}", s);
     }
 }
