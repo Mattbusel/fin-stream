@@ -12,18 +12,22 @@ composable ingestion pipeline from raw exchange ticks to normalized, transformed
 features ready for downstream models or trade execution. Built on Tokio. Targets
 100 K+ ticks/second throughput with zero heap allocation on the fast path.
 
+**v2.4.0** — 40 K+ lines of production Rust. Includes an extensive analytics
+suite: 200+ static analytics on `NormalizedTick`, 200+ on `OhlcvBar`, and 80+
+rolling-window analytics on `MinMaxNormalizer` and `ZScoreNormalizer` (rounds 1–88).
+
 ## What Is Included
 
 | Module | Purpose | Key types |
 |---|---|---|
 | `ws` | WebSocket connection lifecycle with exponential-backoff reconnect and backpressure | `WsManager`, `ConnectionConfig`, `ReconnectPolicy` |
-| `tick` | Convert raw exchange payloads (Binance/Coinbase/Alpaca/Polygon) into a single canonical form | `RawTick`, `NormalizedTick`, `Exchange`, `TradeSide`, `TickNormalizer` |
+| `tick` | Convert raw exchange payloads (Binance/Coinbase/Alpaca/Polygon) into a single canonical form; 200+ batch analytics on tick slices | `RawTick`, `NormalizedTick`, `Exchange`, `TradeSide`, `TickNormalizer` |
 | `ring` | Lock-free SPSC ring buffer: zero-allocation hot path between normalizer and consumers | `SpscRing<T, N>`, `SpscProducer`, `SpscConsumer` |
 | `book` | Incremental order book delta streaming with snapshot reset and crossed-book detection | `OrderBook`, `BookDelta`, `BookSide`, `PriceLevel` |
-| `ohlcv` | Bar construction at any `Seconds / Minutes / Hours` timeframe with optional gap-fill bars | `OhlcvAggregator`, `OhlcvBar`, `Timeframe` |
+| `ohlcv` | Bar construction at any `Seconds / Minutes / Hours` timeframe with optional gap-fill bars; 200+ batch analytics on bar slices | `OhlcvAggregator`, `OhlcvBar`, `Timeframe` |
 | `health` | Per-feed staleness detection with configurable thresholds and a circuit-breaker | `HealthMonitor`, `FeedHealth`, `HealthStatus` |
 | `session` | Trading-status classification (Open / Extended / Closed) for US Equity, Crypto, Forex | `SessionAwareness`, `MarketSession`, `TradingStatus` |
-| `norm` | Rolling min-max and z-score normalizers for streaming observations | `MinMaxNormalizer`, `ZScoreNormalizer` |
+| `norm` | Rolling min-max and z-score normalizers for streaming observations; 80+ analytics each (moments, percentiles, entropy, trend, etc.) | `MinMaxNormalizer`, `ZScoreNormalizer` |
 | `lorentz` | Lorentz spacetime transforms for feature engineering on price-time coordinates | `LorentzTransform`, `SpacetimePoint` |
 | `error` | Unified typed error hierarchy covering every pipeline failure mode | `StreamError` |
 
@@ -74,6 +78,57 @@ Tick Source (WebSocket / simulation)
    [ HealthMonitor ]       -- per-feed staleness detection, circuit-breaker
    [ SessionAwareness ]    -- Open / Extended / Closed classification
 ```
+
+## Analytics Suite
+
+Over 88 rounds of development, fin-stream has accumulated a comprehensive
+analytics suite covering every layer of the pipeline.
+
+### `NormalizedTick` Batch Analytics (200+ functions)
+
+Static methods operating on `&[NormalizedTick]` slices for microstructure analysis:
+
+| Category | Example functions |
+|---|---|
+| VWAP / price | `vwap`, `vwap_deviation_std`, `volume_weighted_mid_price`, `mid_price_drift` |
+| Volume / notional | `total_volume`, `buy_volume`, `sell_volume`, `buy_notional`, `sell_notional_fraction`, `max_notional`, `min_notional`, `trade_notional_std` |
+| Side / flow | `buy_count`, `sell_count`, `buy_sell_count_ratio`, `buy_sell_size_ratio`, `order_flow_imbalance`, `buy_sell_avg_qty_ratio` |
+| Price movement | `price_range`, `price_mean`, `price_mad`, `price_dispersion`, `max_price_gap`, `price_range_velocity`, `max_price_drop`, `max_price_rise` |
+| Tick direction | `uptick_count`, `downtick_count`, `uptick_fraction`, `tick_direction_bias`, `price_mean_crossover_count` |
+| Timing / arrival | `tick_count_per_ms`, `volume_per_ms`, `inter_arrival_variance`, `inter_arrival_cv`, `notional_per_second` |
+| Concentration | `quantity_concentration`, `price_level_volume`, `quantity_std`, `notional_skewness` |
+| Running extremes | `running_high_count`, `running_low_count`, `max_consecutive_side_run` |
+| Spread / efficiency | `spread_efficiency`, `realized_spread`, `adverse_selection_score`, `price_impact_per_unit` |
+
+### `OhlcvBar` Batch Analytics (200+ functions)
+
+Static methods operating on `&[OhlcvBar]` slices:
+
+| Category | Example functions |
+|---|---|
+| Candle structure | `body_fraction`, `bullish_ratio`, `avg_bar_efficiency`, `avg_wick_symmetry`, `body_to_range_std` |
+| Highs / lows | `peak_close`, `trough_close`, `max_high`, `min_low`, `higher_highs_count`, `lower_lows_count`, `new_high_count`, `new_low_count` |
+| Volume | `mean_volume`, `up_volume_fraction`, `down_close_volume`, `up_close_volume`, `max_bar_volume`, `min_bar_volume`, `high_volume_fraction` |
+| Close statistics | `mean_close`, `close_std`, `close_skewness`, `close_at_high_fraction`, `close_at_low_fraction`, `close_cluster_count` |
+| Range / movement | `total_range`, `range_std_dev`, `avg_range_pct_of_open`, `volume_per_range`, `total_body_movement`, `avg_open_to_close` |
+| Patterns | `continuation_bar_count`, `zero_volume_fraction`, `complete_fraction` |
+| Shadow analysis | `avg_lower_shadow_ratio`, `tail_upper_fraction`, `tail_lower_fraction`, `avg_lower_wick_to_range` |
+| VWAP / price | `mean_vwap`, `normalized_close`, `price_channel_position`, `candle_score` |
+
+### Normalizer Analytics (80+ functions each)
+
+Both `MinMaxNormalizer` and `ZScoreNormalizer` expose identical analytics suites:
+
+| Category | Example functions |
+|---|---|
+| Central tendency | `mean`, `median`, `geometric_mean`, `harmonic_mean`, `exponential_weighted_mean` |
+| Dispersion | `variance_f64`, `std_dev`, `interquartile_range`, `range_over_mean`, `coeff_of_variation`, `rms` |
+| Shape | `skewness`, `kurtosis`, `second_moment`, `tail_variance` |
+| Rank / quantile | `percentile_rank`, `quantile_range`, `value_rank`, `distance_from_median` |
+| Threshold | `count_above`, `above_median_fraction`, `below_mean_fraction`, `outlier_fraction`, `zero_fraction` |
+| Trend | `momentum`, `rolling_mean_change`, `is_mean_stable`, `sign_flip_count`, `new_max_count`, `new_min_count` |
+| Extremes | `max_fraction`, `min_fraction`, `peak_to_trough_ratio`, `range_normalized_value` |
+| Misc | `ema_of_z_scores`, `rms`, `distinct_count`, `interquartile_mean`, `latest_minus_mean`, `latest_to_mean_ratio` |
 
 ## Mathematical Definitions
 
@@ -504,18 +559,39 @@ OhlcvBar::high_close_ratio(&self) -> Option<f64>
 OhlcvBar::lower_shadow_pct(&self) -> Option<f64>
 OhlcvBar::open_close_ratio(&self) -> Option<f64>
 OhlcvBar::is_wide_range_bar(&self, threshold: Decimal) -> bool
-OhlcvBar::close_to_low_ratio(&self) -> Option<f64>   // (close - low) / (high - low)
+OhlcvBar::close_to_low_ratio(&self) -> Option<f64>
 OhlcvBar::volume_per_trade(&self) -> Option<Decimal>
 OhlcvBar::price_range_overlap(&self, other: &OhlcvBar) -> bool
-OhlcvBar::bar_height_pct(&self) -> Option<f64>        // (high - low) / open
+OhlcvBar::bar_height_pct(&self) -> Option<f64>
 OhlcvBar::is_bullish_engulfing(&self, prev: &OhlcvBar) -> bool
-OhlcvBar::close_gap(&self, prev: &OhlcvBar) -> Decimal  // open - prev.close
+OhlcvBar::close_gap(&self, prev: &OhlcvBar) -> Decimal
 OhlcvBar::close_above_midpoint(&self) -> bool
-OhlcvBar::close_momentum(&self, prev: &OhlcvBar) -> Decimal  // close - prev.close
-OhlcvBar::bar_range(&self) -> Decimal                 // high - low
+OhlcvBar::close_momentum(&self, prev: &OhlcvBar) -> Decimal
+OhlcvBar::bar_range(&self) -> Decimal
+
+// Batch analytics added in rounds 42–88 (static, operate on &[OhlcvBar])
+// See Analytics Suite section for the full categorized list (200+ functions).
+// Representative selection:
+OhlcvBar::bullish_ratio(bars: &[OhlcvBar]) -> Option<f64>
+OhlcvBar::peak_close(bars: &[OhlcvBar]) -> Option<Decimal>
+OhlcvBar::trough_close(bars: &[OhlcvBar]) -> Option<Decimal>
+OhlcvBar::body_fraction(bars: &[OhlcvBar]) -> Option<f64>
+OhlcvBar::up_volume_fraction(bars: &[OhlcvBar]) -> Option<f64>
+OhlcvBar::range_std_dev(bars: &[OhlcvBar]) -> Option<f64>
+OhlcvBar::higher_highs_count(bars: &[OhlcvBar]) -> usize
+OhlcvBar::lower_lows_count(bars: &[OhlcvBar]) -> usize
+OhlcvBar::mean_close(bars: &[OhlcvBar]) -> Option<Decimal>
+OhlcvBar::close_std(bars: &[OhlcvBar]) -> Option<f64>
+OhlcvBar::mean_vwap(bars: &[OhlcvBar]) -> Option<Decimal>
+OhlcvBar::total_body_movement(bars: &[OhlcvBar]) -> Decimal
+OhlcvBar::avg_wick_symmetry(bars: &[OhlcvBar]) -> Option<f64>
+OhlcvBar::complete_fraction(bars: &[OhlcvBar]) -> Option<f64>
 ```
 
 ### `norm` module
+
+Both normalizers expose 80+ analytics. Only core methods are shown here; see
+the **Analytics Suite** section above for the full categorized function list.
 
 ```rust
 // Min-max rolling normalizer
@@ -528,8 +604,9 @@ MinMaxNormalizer::len(&self) -> usize
 MinMaxNormalizer::is_empty(&self) -> bool
 MinMaxNormalizer::window_size(&self) -> usize
 MinMaxNormalizer::count_above(&self, threshold: f64) -> usize
-MinMaxNormalizer::normalized_range(&mut self) -> Option<f64>   // (max - min) / max
-MinMaxNormalizer::fraction_above_mid(&mut self) -> Option<f64> // fraction of window above midpoint
+MinMaxNormalizer::normalized_range(&mut self) -> Option<f64>
+MinMaxNormalizer::fraction_above_mid(&mut self) -> Option<f64>
+// ... 70+ additional analytics (moments, percentiles, trend, shape — see Analytics Suite)
 
 // Z-score rolling normalizer
 ZScoreNormalizer::new(window_size: usize) -> ZScoreNormalizer
@@ -547,11 +624,12 @@ ZScoreNormalizer::ema_of_z_scores(&self, alpha: f64) -> Option<f64>
 ZScoreNormalizer::trim_outliers(&self, z_threshold: f64) -> Vec<f64>
 ZScoreNormalizer::is_outlier(&self, value: f64, z_threshold: f64) -> bool
 ZScoreNormalizer::clamp_to_window(&self, value: f64) -> f64
-ZScoreNormalizer::rolling_mean_change(&self) -> Option<f64>   // second_half_mean - first_half_mean
+ZScoreNormalizer::rolling_mean_change(&self) -> Option<f64>
 ZScoreNormalizer::count_positive_z_scores(&self) -> usize
 ZScoreNormalizer::above_threshold_count(&self, z_threshold: f64) -> usize
-ZScoreNormalizer::window_span_f64(&self) -> Option<f64>       // max - min over window
+ZScoreNormalizer::window_span_f64(&self) -> Option<f64>
 ZScoreNormalizer::is_mean_stable(&self, threshold: f64) -> bool
+// ... 60+ additional analytics (see Analytics Suite)
 ```
 
 ### `lorentz` module
