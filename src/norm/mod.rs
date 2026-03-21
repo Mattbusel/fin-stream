@@ -3421,6 +3421,49 @@ mod tests {
         let r = n.peak_to_trough_ratio().unwrap();
         assert!((r - 8.0).abs() < 1e-9, "max=8, min=1 → ratio=8, got {}", r);
     }
+
+    #[test]
+    fn test_minmax_second_moment_none_for_empty() {
+        let n = norm(4);
+        assert!(n.second_moment().is_none());
+    }
+
+    #[test]
+    fn test_minmax_second_moment_correct() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        // (1 + 4 + 9) / 3 = 14/3 ≈ 4.667
+        let m = n.second_moment().unwrap();
+        assert!((m - 14.0 / 3.0).abs() < 1e-9, "second moment ≈ 4.667, got {}", m);
+    }
+
+    #[test]
+    fn test_minmax_range_over_mean_none_for_empty() {
+        let n = norm(4);
+        assert!(n.range_over_mean().is_none());
+    }
+
+    #[test]
+    fn test_minmax_range_over_mean_positive() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let r = n.range_over_mean().unwrap();
+        assert!(r > 0.0, "range/mean should be positive, got {}", r);
+    }
+
+    #[test]
+    fn test_minmax_above_median_fraction_none_for_empty() {
+        let n = norm(4);
+        assert!(n.above_median_fraction().is_none());
+    }
+
+    #[test]
+    fn test_minmax_above_median_fraction_in_range() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let f = n.above_median_fraction().unwrap();
+        assert!(f >= 0.0 && f <= 1.0, "fraction in [0,1], got {}", f);
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.

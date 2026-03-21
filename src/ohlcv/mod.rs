@@ -8443,4 +8443,75 @@ mod tests {
         let f = OhlcvBar::open_range_fraction(&[b]).unwrap();
         assert!(f >= 0.0 && f <= 1.0, "fraction in [0,1], got {}", f);
     }
+
+    #[test]
+    fn test_close_skewness_none_for_two_bars() {
+        let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let b2 = make_ohlcv_bar(dec!(105), dec!(115), dec!(95), dec!(110));
+        assert!(OhlcvBar::close_skewness(&[b1, b2]).is_none());
+    }
+
+    #[test]
+    fn test_close_skewness_returns_value_for_three_bars() {
+        let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100));
+        let b2 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let b3 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(200));
+        let s = OhlcvBar::close_skewness(&[b1, b2, b3]);
+        assert!(s.is_some(), "skewness should be computed for 3 bars");
+    }
+
+    #[test]
+    fn test_volume_above_median_fraction_none_for_empty() {
+        assert!(OhlcvBar::volume_above_median_fraction(&[]).is_none());
+    }
+
+    #[test]
+    fn test_volume_above_median_fraction_in_range() {
+        let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let b2 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let f = OhlcvBar::volume_above_median_fraction(&[b1, b2]).unwrap();
+        assert!(f >= 0.0 && f <= 1.0, "fraction in [0,1], got {}", f);
+    }
+
+    #[test]
+    fn test_typical_price_sum_zero_for_empty() {
+        assert_eq!(OhlcvBar::typical_price_sum(&[]), dec!(0));
+    }
+
+    #[test]
+    fn test_typical_price_sum_correct_value() {
+        let b = make_ohlcv_bar(dec!(100), dec!(120), dec!(80), dec!(100));
+        // typical = (120+80+100)/3 = 300/3 = 100
+        assert_eq!(OhlcvBar::typical_price_sum(&[b]), dec!(100));
+    }
+
+    #[test]
+    fn test_max_body_size_none_for_empty() {
+        assert!(OhlcvBar::max_body_size(&[]).is_none());
+    }
+
+    #[test]
+    fn test_max_body_size_correct_value() {
+        let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(108));
+        let b2 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(103));
+        assert_eq!(OhlcvBar::max_body_size(&[b1, b2]).unwrap(), dec!(8));
+    }
+
+    #[test]
+    fn test_min_body_size_none_for_empty() {
+        assert!(OhlcvBar::min_body_size(&[]).is_none());
+    }
+
+    #[test]
+    fn test_avg_lower_wick_to_range_none_for_empty() {
+        assert!(OhlcvBar::avg_lower_wick_to_range(&[]).is_none());
+    }
+
+    #[test]
+    fn test_avg_lower_wick_to_range_zero_for_open_at_low() {
+        // open = low, so lower wick = 0
+        let b = make_ohlcv_bar(dec!(90), dec!(110), dec!(90), dec!(105));
+        let r = OhlcvBar::avg_lower_wick_to_range(&[b]).unwrap();
+        assert!(r.abs() < 1e-9, "open=low → lower wick=0, got {}", r);
+    }
 }
