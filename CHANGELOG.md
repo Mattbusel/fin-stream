@@ -9,6 +9,29 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.10.62] - 2026-03-20
+
+### Added
+
+**`tick` module — `NormalizedTick` analytics (round 211)**
+- `NormalizedTick::tick_qty_coefficient_var(ticks)` — coefficient of variation of tick quantities.
+- `NormalizedTick::tick_consecutive_buys(ticks)` — count of trailing consecutive buy ticks.
+- `NormalizedTick::tick_buy_participation(ticks)` — buy volume as fraction of total volume.
+- `NormalizedTick::tick_price_net_delta(ticks)` — signed price change from first to last tick.
+
+**`ohlcv` module — `OhlcvBar` analytics (round 211)**
+- `OhlcvBar::bar_bull_fraction(bars)` — fraction of bars where close > open.
+- `OhlcvBar::bar_bear_fraction(bars)` — fraction of bars where close < open.
+- `OhlcvBar::bar_oc_volatility(bars)` — std dev of (close - open) values across bars.
+- `OhlcvBar::bar_high_vol_corr(bars)` — Pearson correlation between bar highs and volumes.
+
+**`norm` module — `MinMaxNormalizer` + `ZScoreNormalizer` analytics (round 211)**
+- `window_midpoint_ratio()` — (max + min) / 2 relative to mean.
+- `window_last_vs_mean_abs()` — absolute deviation of last value from window mean.
+- `window_second_diff_mean()` — mean of second-order differences (curvature of series).
+
+---
+
 ## [2.10.61] - 2026-03-20
 
 ### Added

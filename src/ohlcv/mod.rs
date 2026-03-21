@@ -9856,6 +9856,52 @@ impl OhlcvBar {
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
+    /// Fraction of bars where close > open (bullish fraction).
+    pub fn bar_bull_fraction(bars: &[OhlcvBar]) -> Option<f64> {
+        if bars.is_empty() { return None; }
+        let bulls = bars.iter().filter(|b| b.close > b.open).count();
+        Some(bulls as f64 / bars.len() as f64)
+    }
+
+    /// Fraction of bars where close < open (bearish fraction).
+    pub fn bar_bear_fraction(bars: &[OhlcvBar]) -> Option<f64> {
+        if bars.is_empty() { return None; }
+        let bears = bars.iter().filter(|b| b.close < b.open).count();
+        Some(bears as f64 / bars.len() as f64)
+    }
+
+    /// Mean absolute (close - open) / (high - low) — body-to-range ratio std dev proxy.
+    pub fn bar_oc_volatility(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.len() < 2 { return None; }
+        let vals: Vec<f64> = bars.iter().filter_map(|b| {
+            let oc = (b.close - b.open).to_f64()?;
+            Some(oc)
+        }).collect();
+        if vals.len() < 2 { return None; }
+        let mean = vals.iter().sum::<f64>() / vals.len() as f64;
+        let var = vals.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / (vals.len() - 1) as f64;
+        Some(var.sqrt())
+    }
+
+    /// Std dev of per-bar high prices (high price variability).
+    pub fn bar_high_vol_corr(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.len() < 2 { return None; }
+        let highs: Vec<f64> = bars.iter().filter_map(|b| b.high.to_f64()).collect();
+        let vols: Vec<f64> = bars.iter().filter_map(|b| b.volume.to_f64()).collect();
+        if highs.len() < 2 || vols.len() < 2 || highs.len() != vols.len() { return None; }
+        let n = highs.len() as f64;
+        let mh = highs.iter().sum::<f64>() / n;
+        let mv = vols.iter().sum::<f64>() / n;
+        let num: f64 = highs.iter().zip(vols.iter()).map(|(h, v)| (h - mh) * (v - mv)).sum();
+        let dh: f64 = highs.iter().map(|h| (h - mh).powi(2)).sum::<f64>();
+        let dv: f64 = vols.iter().map(|v| (v - mv).powi(2)).sum::<f64>();
+        let denom = (dh * dv).sqrt();
+        if denom == 0.0 { return None; }
+        Some(num / denom)
+    }
+
     /// Mean upper shadow as fraction of range: (high - max(open,close)) / (high - low).
     pub fn bar_upper_shadow_pct(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
@@ -22917,5 +22963,65 @@ mod tests {
         let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(104));
         let r = OhlcvBar::bar_body_center(&[b1]).unwrap();
         assert!((r - 102.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_bar_bull_fraction_empty_none() {
+        assert!(OhlcvBar::bar_bull_fraction(&[]).is_none());
+    }
+
+    #[test]
+    fn test_bar_bull_fraction_all_bullish_one() {
+        let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(108));
+        let b2 = make_ohlcv_bar(dec!(100), dec!(115), dec!(95), dec!(112));
+        let r = OhlcvBar::bar_bull_fraction(&[b1, b2]).unwrap();
+        assert_eq!(r, 1.0);
+    }
+
+    #[test]
+    fn test_bar_bear_fraction_empty_none() {
+        assert!(OhlcvBar::bar_bear_fraction(&[]).is_none());
+    }
+
+    #[test]
+    fn test_bar_bear_fraction_all_bearish_one() {
+        let b1 = make_ohlcv_bar(dec!(108), dec!(110), dec!(90), dec!(100));
+        let b2 = make_ohlcv_bar(dec!(112), dec!(115), dec!(95), dec!(105));
+        let r = OhlcvBar::bar_bear_fraction(&[b1, b2]).unwrap();
+        assert_eq!(r, 1.0);
+    }
+
+    #[test]
+    fn test_bar_oc_volatility_too_few_none() {
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        assert!(OhlcvBar::bar_oc_volatility(&[b]).is_none());
+    }
+
+    #[test]
+    fn test_bar_oc_volatility_nonneg() {
+        let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let b2 = make_ohlcv_bar(dec!(100), dec!(115), dec!(85), dec!(98));
+        let b3 = make_ohlcv_bar(dec!(100), dec!(112), dec!(88), dec!(108));
+        let r = OhlcvBar::bar_oc_volatility(&[b1, b2, b3]).unwrap();
+        assert!(r >= 0.0);
+    }
+
+    #[test]
+    fn test_bar_high_vol_corr_too_few_none() {
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        assert!(OhlcvBar::bar_high_vol_corr(&[b]).is_none());
+    }
+
+    #[test]
+    fn test_bar_high_vol_corr_bounded() {
+        use rust_decimal_macros::dec;
+        let mut b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        b1.volume = dec!(10);
+        let mut b2 = make_ohlcv_bar(dec!(100), dec!(120), dec!(85), dec!(115));
+        b2.volume = dec!(20);
+        let mut b3 = make_ohlcv_bar(dec!(100), dec!(108), dec!(88), dec!(103));
+        b3.volume = dec!(5);
+        let r = OhlcvBar::bar_high_vol_corr(&[b1, b2, b3]).unwrap();
+        assert!(r >= -1.0 && r <= 1.0);
     }
 }

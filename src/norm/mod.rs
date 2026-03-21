@@ -7802,6 +7802,39 @@ impl MinMaxNormalizer {
         Some(changes as f64 / (vals.len() - 1) as f64)
     }
 
+    /// Ratio of window midpoint value to mean: (max+min)/2 / mean.
+    pub fn window_midpoint_ratio(&self) -> Option<f64> {
+        if self.window.is_empty() { return None; }
+        use rust_decimal::prelude::ToPrimitive;
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.is_empty() { return None; }
+        let min = vals.iter().cloned().fold(f64::INFINITY, f64::min);
+        let max = vals.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        let mean = vals.iter().sum::<f64>() / vals.len() as f64;
+        if mean == 0.0 { return None; }
+        Some((min + max) / 2.0 / mean)
+    }
+
+    /// Mean absolute deviation of the last value from the window mean.
+    pub fn window_last_vs_mean_abs(&self) -> Option<f64> {
+        if self.window.is_empty() { return None; }
+        use rust_decimal::prelude::ToPrimitive;
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.is_empty() { return None; }
+        let mean = vals.iter().sum::<f64>() / vals.len() as f64;
+        Some((*vals.last()? - mean).abs())
+    }
+
+    /// Mean of second-order differences (acceleration of change in window).
+    pub fn window_second_diff_mean(&self) -> Option<f64> {
+        if self.window.len() < 3 { return None; }
+        use rust_decimal::prelude::ToPrimitive;
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.len() < 3 { return None; }
+        let second_diffs: Vec<f64> = vals.windows(3).map(|w| w[2] - 2.0 * w[1] + w[0]).collect();
+        Some(second_diffs.iter().sum::<f64>() / second_diffs.len() as f64)
+    }
+
 }
 
 #[cfg(test)]
@@ -16878,6 +16911,49 @@ mod tests {
         let r = n.window_sign_change_pct().unwrap();
         assert!(r > 0.0);
     }
+
+    #[test]
+    fn test_minmax_window_midpoint_ratio_empty_none() {
+        let n = norm(5);
+        assert!(n.window_midpoint_ratio().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_midpoint_ratio_returns_value() {
+        let mut n = norm(5);
+        for v in [dec!(2), dec!(4), dec!(6), dec!(8)] { n.update(v); }
+        let r = n.window_midpoint_ratio().unwrap();
+        assert!(r > 0.0);
+    }
+
+    #[test]
+    fn test_minmax_window_last_vs_mean_abs_empty_none() {
+        let n = norm(5);
+        assert!(n.window_last_vs_mean_abs().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_last_vs_mean_abs_nonneg() {
+        let mut n = norm(5);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let r = n.window_last_vs_mean_abs().unwrap();
+        assert!(r >= 0.0);
+    }
+
+    #[test]
+    fn test_minmax_window_second_diff_mean_too_few_none() {
+        let mut n = norm(5);
+        for v in [dec!(1), dec!(2)] { n.update(v); }
+        assert!(n.window_second_diff_mean().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_second_diff_mean_linear_zero() {
+        let mut n = norm(5);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let r = n.window_second_diff_mean().unwrap();
+        assert!(r.abs() < 1e-10);
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -24625,6 +24701,39 @@ impl ZScoreNormalizer {
         if vals.len() < 2 { return None; }
         let changes = vals.windows(2).filter(|w| w[0] * w[1] < 0.0).count();
         Some(changes as f64 / (vals.len() - 1) as f64)
+    }
+
+    /// Ratio of window midpoint value to mean: (max+min)/2 / mean.
+    pub fn window_midpoint_ratio(&self) -> Option<f64> {
+        if self.window.is_empty() { return None; }
+        use rust_decimal::prelude::ToPrimitive;
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.is_empty() { return None; }
+        let min = vals.iter().cloned().fold(f64::INFINITY, f64::min);
+        let max = vals.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        let mean = vals.iter().sum::<f64>() / vals.len() as f64;
+        if mean == 0.0 { return None; }
+        Some((min + max) / 2.0 / mean)
+    }
+
+    /// Mean absolute deviation of the last value from the window mean.
+    pub fn window_last_vs_mean_abs(&self) -> Option<f64> {
+        if self.window.is_empty() { return None; }
+        use rust_decimal::prelude::ToPrimitive;
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.is_empty() { return None; }
+        let mean = vals.iter().sum::<f64>() / vals.len() as f64;
+        Some((*vals.last()? - mean).abs())
+    }
+
+    /// Mean of second-order differences (acceleration of change in window).
+    pub fn window_second_diff_mean(&self) -> Option<f64> {
+        if self.window.len() < 3 { return None; }
+        use rust_decimal::prelude::ToPrimitive;
+        let vals: Vec<f64> = self.window.iter().filter_map(|v| v.to_f64()).collect();
+        if vals.len() < 3 { return None; }
+        let second_diffs: Vec<f64> = vals.windows(3).map(|w| w[2] - 2.0 * w[1] + w[0]).collect();
+        Some(second_diffs.iter().sum::<f64>() / second_diffs.len() as f64)
     }
 
 }
@@ -33651,5 +33760,48 @@ mod zscore_stability_tests {
         for v in [dec!(1), dec!(-1), dec!(1), dec!(-1), dec!(1)] { n.update(v); }
         let r = n.window_sign_change_pct().unwrap();
         assert!(r > 0.0);
+    }
+
+    #[test]
+    fn test_zscore_window_midpoint_ratio_empty_none() {
+        let n = znorm(5);
+        assert!(n.window_midpoint_ratio().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_midpoint_ratio_returns_value() {
+        let mut n = znorm(5);
+        for v in [dec!(2), dec!(4), dec!(6), dec!(8)] { n.update(v); }
+        let r = n.window_midpoint_ratio().unwrap();
+        assert!(r > 0.0);
+    }
+
+    #[test]
+    fn test_zscore_window_last_vs_mean_abs_empty_none() {
+        let n = znorm(5);
+        assert!(n.window_last_vs_mean_abs().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_last_vs_mean_abs_nonneg() {
+        let mut n = znorm(5);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let r = n.window_last_vs_mean_abs().unwrap();
+        assert!(r >= 0.0);
+    }
+
+    #[test]
+    fn test_zscore_window_second_diff_mean_too_few_none() {
+        let mut n = znorm(5);
+        for v in [dec!(1), dec!(2)] { n.update(v); }
+        assert!(n.window_second_diff_mean().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_second_diff_mean_linear_zero() {
+        let mut n = znorm(5);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let r = n.window_second_diff_mean().unwrap();
+        assert!(r.abs() < 1e-10);
     }
 }
