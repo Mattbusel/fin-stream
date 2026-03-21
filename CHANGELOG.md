@@ -9,6 +9,30 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.10.10] - 2026-03-20
+
+### Added
+
+**`tick` module — `NormalizedTick` analytics (round 159)**
+- `NormalizedTick::price_ema_crossover(ticks)` — count of times price crosses EMA (alpha=0.1).
+- `NormalizedTick::tick_spread_vs_ema(ticks)` — std dev of (price - EMA) spread.
+- `NormalizedTick::price_log_return_mean(ticks)` — mean of ln(price[i+1]/price[i]) log returns.
+- `NormalizedTick::price_range_pct_mean(ticks)` — (max-min)/mean * 100 as price range percentage.
+
+**`ohlcv` module — `OhlcvBar` analytics (round 159)**
+- `OhlcvBar::bar_open_mean(bars)` — mean open price across all bars.
+- `OhlcvBar::bar_high_mean(bars)` — mean high price across all bars.
+- `OhlcvBar::bar_low_mean(bars)` — mean low price across all bars.
+- `OhlcvBar::bar_open_std(bars)` — standard deviation of open prices across all bars.
+
+**`norm` module — `MinMaxNormalizer` + `ZScoreNormalizer` analytics (round 159)**
+- `window_mean_below_zero()` — mean of window values that are below zero.
+- `window_mean_above_zero()` — mean of window values that are above zero.
+- `window_running_max_fraction()` — fraction of values at or above the running max at their step.
+- `window_variance_change()` — change in variance between first and second half of window.
+
+---
+
 ## [2.10.9] - 2026-03-20
 
 ### Added

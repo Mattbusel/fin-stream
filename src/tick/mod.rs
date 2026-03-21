@@ -7607,6 +7607,68 @@ impl NormalizedTick {
         Some((qtys.last()? - mean) / std)
     }
 
+    // ── round-159 ────────────────────────────────────────────────────────────
+
+    /// Number of times price crosses above or below its EMA (alpha=0.1).
+    pub fn price_ema_crossover(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 2 { return None; }
+        let prices: Vec<f64> = ticks.iter().filter_map(|t| t.price.to_f64()).collect();
+        if prices.len() < 2 { return None; }
+        let alpha = 0.1_f64;
+        let mut ema = prices[0];
+        let mut emas: Vec<f64> = vec![ema];
+        for &p in &prices[1..] {
+            ema = alpha * p + (1.0 - alpha) * ema;
+            emas.push(ema);
+        }
+        let above: Vec<bool> = prices.iter().zip(emas.iter()).map(|(p, e)| p >= e).collect();
+        Some(above.windows(2).filter(|w| w[0] != w[1]).count() as f64)
+    }
+
+    /// Std dev of (price - EMA) spread across ticks (alpha=0.1).
+    pub fn tick_spread_vs_ema(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 2 { return None; }
+        let prices: Vec<f64> = ticks.iter().filter_map(|t| t.price.to_f64()).collect();
+        if prices.len() < 2 { return None; }
+        let alpha = 0.1_f64;
+        let mut ema = prices[0];
+        let spreads: Vec<f64> = std::iter::once(0.0).chain(prices[1..].iter().map(|&p| {
+            ema = alpha * p + (1.0 - alpha) * ema;
+            p - ema
+        })).collect();
+        let mean = spreads.iter().sum::<f64>() / spreads.len() as f64;
+        let var = spreads.iter().map(|s| (s - mean).powi(2)).sum::<f64>() / spreads.len() as f64;
+        Some(var.sqrt())
+    }
+
+    /// Mean of log returns: mean(ln(price[i+1] / price[i])).
+    pub fn price_log_return_mean(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 2 { return None; }
+        let prices: Vec<f64> = ticks.iter().filter_map(|t| t.price.to_f64()).collect();
+        if prices.len() < 2 { return None; }
+        let log_rets: Vec<f64> = prices.windows(2)
+            .filter_map(|w| if w[0] > 0.0 { Some((w[1] / w[0]).ln()) } else { None })
+            .collect();
+        if log_rets.is_empty() { return None; }
+        Some(log_rets.iter().sum::<f64>() / log_rets.len() as f64)
+    }
+
+    /// Mean of (high - low) / mean_price across ticks as a percentage range proxy.
+    pub fn price_range_pct_mean(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() { return None; }
+        let prices: Vec<f64> = ticks.iter().filter_map(|t| t.price.to_f64()).collect();
+        if prices.is_empty() { return None; }
+        let mean = prices.iter().sum::<f64>() / prices.len() as f64;
+        if mean == 0.0 { return None; }
+        let min = prices.iter().cloned().fold(f64::INFINITY, f64::min);
+        let max = prices.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        Some((max - min) / mean * 100.0)
+    }
+
 }
 
 
@@ -17386,5 +17448,76 @@ mod tests {
         // uniform qty → std=0 → None
         let ticks = vec![make_tick_pq(dec!(100), dec!(5)), make_tick_pq(dec!(101), dec!(5))];
         assert!(NormalizedTick::tick_qty_zscore_last(&ticks).is_none());
+    }
+
+    // ── round-159 ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_price_ema_crossover_none_for_empty() {
+        assert!(NormalizedTick::price_ema_crossover(&[]).is_none());
+    }
+
+    #[test]
+    fn test_price_ema_crossover_constant_zero() {
+        use rust_decimal_macros::dec;
+        // constant price → ema stays at price → no crossings
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(100), dec!(1)),
+        ];
+        let c = NormalizedTick::price_ema_crossover(&ticks).unwrap();
+        assert!((c - 0.0).abs() < 1e-9, "expected 0.0, got {}", c);
+    }
+
+    #[test]
+    fn test_tick_spread_vs_ema_none_for_empty() {
+        assert!(NormalizedTick::tick_spread_vs_ema(&[]).is_none());
+    }
+
+    #[test]
+    fn test_tick_spread_vs_ema_constant_zero() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(100), dec!(1)),
+        ];
+        let s = NormalizedTick::tick_spread_vs_ema(&ticks).unwrap();
+        assert!((s - 0.0).abs() < 1e-9, "expected 0.0, got {}", s);
+    }
+
+    #[test]
+    fn test_price_log_return_mean_none_for_single() {
+        use rust_decimal_macros::dec;
+        assert!(NormalizedTick::price_log_return_mean(&[make_tick_pq(dec!(100), dec!(1))]).is_none());
+    }
+
+    #[test]
+    fn test_price_log_return_mean_constant_zero() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(100), dec!(1)),
+        ];
+        let r = NormalizedTick::price_log_return_mean(&ticks).unwrap();
+        assert!((r - 0.0).abs() < 1e-9, "expected 0.0, got {}", r);
+    }
+
+    #[test]
+    fn test_price_range_pct_mean_none_for_empty() {
+        assert!(NormalizedTick::price_range_pct_mean(&[]).is_none());
+    }
+
+    #[test]
+    fn test_price_range_pct_mean_constant_zero() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(100), dec!(1)),
+        ];
+        let r = NormalizedTick::price_range_pct_mean(&ticks).unwrap();
+        assert!((r - 0.0).abs() < 1e-9, "expected 0.0, got {}", r);
     }
 }
