@@ -9703,6 +9703,60 @@ impl NormalizedTick {
         Some((weighted / (n * sum)) - (n + 1.0) / n)
     }
 
+    /// Variance of price velocities (successive price differences).
+    pub fn tick_price_vel_var(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 3 { return None; }
+        let prices: Vec<f64> = ticks.iter().filter_map(|t| t.price.to_f64()).collect();
+        if prices.len() < 3 { return None; }
+        let vels: Vec<f64> = prices.windows(2).map(|w| w[1] - w[0]).collect();
+        let mean = vels.iter().sum::<f64>() / vels.len() as f64;
+        Some(vels.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / vels.len() as f64)
+    }
+
+    /// Net signed quantity: sum of buy quantities minus sum of sell quantities.
+    pub fn tick_net_qty_signed(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() { return None; }
+        let buy: f64 = ticks.iter()
+            .filter(|t| t.side == Some(TradeSide::Buy))
+            .filter_map(|t| t.quantity.to_f64())
+            .sum();
+        let sell: f64 = ticks.iter()
+            .filter(|t| t.side == Some(TradeSide::Sell))
+            .filter_map(|t| t.quantity.to_f64())
+            .sum();
+        Some(buy - sell)
+    }
+
+    /// Fraction of prices more than 2 std deviations from the mean.
+    pub fn price_outlier_fraction(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 3 { return None; }
+        let prices: Vec<f64> = ticks.iter().filter_map(|t| t.price.to_f64()).collect();
+        if prices.len() < 3 { return None; }
+        let n = prices.len() as f64;
+        let mean = prices.iter().sum::<f64>() / n;
+        let std = (prices.iter().map(|p| (p - mean).powi(2)).sum::<f64>() / n).sqrt();
+        if std == 0.0 { return Some(0.0); }
+        let outliers = prices.iter().filter(|&&p| (p - mean).abs() > 2.0 * std).count();
+        Some(outliers as f64 / n)
+    }
+
+    /// Z-score of the last tick's volume relative to the window of volumes.
+    pub fn tick_vol_zscore_last(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() { return None; }
+        let vols: Vec<f64> = ticks.iter().filter_map(|t| t.quantity.to_f64()).collect();
+        if vols.is_empty() { return None; }
+        let n = vols.len() as f64;
+        let mean = vols.iter().sum::<f64>() / n;
+        let std = (vols.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / n).sqrt();
+        if std == 0.0 { return None; }
+        let last = *vols.last()?;
+        Some((last - mean) / std)
+    }
+
 }
 
 
@@ -22135,5 +22189,84 @@ mod tests {
         ];
         let g = NormalizedTick::tick_qty_gini(&ticks).unwrap();
         assert!(g.abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_tick_price_vel_var_too_few_none() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![make_tick_pq(dec!(100), dec!(1)), make_tick_pq(dec!(101), dec!(1))];
+        assert!(NormalizedTick::tick_price_vel_var(&ticks).is_none());
+    }
+
+    #[test]
+    fn test_tick_price_vel_var_constant_velocity_zero() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(101), dec!(1)),
+            make_tick_pq(dec!(102), dec!(1)),
+        ];
+        let v = NormalizedTick::tick_price_vel_var(&ticks).unwrap();
+        assert!(v.abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_tick_net_qty_signed_empty_none() {
+        // No sided ticks → buy=0, sell=0 → result = 0
+        use rust_decimal_macros::dec;
+        let ticks = vec![make_tick_pq(dec!(100), dec!(1))];
+        let r = NormalizedTick::tick_net_qty_signed(&ticks).unwrap();
+        assert!(r.abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_tick_net_qty_signed_buy_dominant() {
+        use rust_decimal_macros::dec;
+        let mut b = make_tick_pq(dec!(100), dec!(10));
+        b.side = Some(TradeSide::Buy);
+        let r = NormalizedTick::tick_net_qty_signed(&[b]).unwrap();
+        assert!((r - 10.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_price_outlier_fraction_too_few_none() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![make_tick_pq(dec!(100), dec!(1)), make_tick_pq(dec!(101), dec!(1))];
+        assert!(NormalizedTick::price_outlier_fraction(&ticks).is_none());
+    }
+
+    #[test]
+    fn test_price_outlier_fraction_constant_zero() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(100), dec!(1)),
+        ];
+        let r = NormalizedTick::price_outlier_fraction(&ticks).unwrap();
+        assert!(r.abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_tick_vol_zscore_last_empty_none() {
+        assert!(NormalizedTick::tick_vol_zscore_last(&[]).is_none());
+    }
+
+    #[test]
+    fn test_tick_vol_zscore_last_constant_none() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![make_tick_pq(dec!(100), dec!(5)), make_tick_pq(dec!(101), dec!(5))];
+        assert!(NormalizedTick::tick_vol_zscore_last(&ticks).is_none());
+    }
+
+    #[test]
+    fn test_tick_vol_zscore_last_returns_value() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(101), dec!(2)),
+            make_tick_pq(dec!(102), dec!(10)),
+        ];
+        assert!(NormalizedTick::tick_vol_zscore_last(&ticks).is_some());
     }
 }

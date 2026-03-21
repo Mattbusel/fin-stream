@@ -9,6 +9,30 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.10.45] - 2026-03-20
+
+### Added
+
+**`tick` module — `NormalizedTick` analytics (round 194)**
+- `NormalizedTick::tick_price_vel_var(ticks)` — variance of price velocities (successive differences).
+- `NormalizedTick::tick_net_qty_signed(ticks)` — buy volume minus sell volume.
+- `NormalizedTick::price_outlier_fraction(ticks)` — fraction of prices more than 2 std devs from mean.
+- `NormalizedTick::tick_vol_zscore_last(ticks)` — z-score of the last tick's volume relative to the window.
+
+**`ohlcv` module — `OhlcvBar` analytics (round 194)**
+- `OhlcvBar::bar_oc_momentum(bars)` — mean (close - open): positive = bullish, negative = bearish.
+- `OhlcvBar::bar_close_vs_vwap(bars)` — mean (close - OHLC/4) as VWAP-proximity measure.
+- `OhlcvBar::bar_hl_zscore(bars)` — z-score of last bar's HL range vs distribution.
+- `OhlcvBar::bar_candle_speed(bars)` — total HL range / number of bars.
+
+**`norm` module — `MinMaxNormalizer` + `ZScoreNormalizer` analytics (round 194)**
+- `window_coefficient_skew()` — Pearson's second skewness: 3*(mean - median) / std.
+- `window_l2_norm()` — Euclidean (L2) norm of window values.
+- `window_norm_ratio()` — L1 norm / L2 norm (sparsity measure).
+- `window_cumulative_max()` — maximum value seen across the window.
+
+---
+
 ## [2.10.44] - 2026-03-20
 
 ### Added

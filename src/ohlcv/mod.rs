@@ -9425,6 +9425,57 @@ impl OhlcvBar {
         Some(var.sqrt())
     }
 
+    /// Mean (close - open) momentum: positive = net bullish, negative = net bearish.
+    pub fn bar_oc_momentum(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let vals: Vec<f64> = bars.iter()
+            .filter_map(|b| (b.close - b.open).to_f64())
+            .collect();
+        if vals.is_empty() { return None; }
+        Some(vals.iter().sum::<f64>() / vals.len() as f64)
+    }
+
+    /// Mean (close - VWAP) across bars. Uses (open+high+low+close)/4 as VWAP proxy.
+    pub fn bar_close_vs_vwap(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let four = rust_decimal::Decimal::new(4, 0);
+        let vals: Vec<f64> = bars.iter().filter_map(|b| {
+            let vwap = ((b.open + b.high + b.low + b.close) / four).to_f64()?;
+            let close = b.close.to_f64()?;
+            Some(close - vwap)
+        }).collect();
+        if vals.is_empty() { return None; }
+        Some(vals.iter().sum::<f64>() / vals.len() as f64)
+    }
+
+    /// Z-score of HL ranges across bars (last bar's range vs distribution).
+    pub fn bar_hl_zscore(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.len() < 2 { return None; }
+        let ranges: Vec<f64> = bars.iter()
+            .filter_map(|b| (b.high - b.low).to_f64())
+            .collect();
+        if ranges.len() < 2 { return None; }
+        let n = ranges.len() as f64;
+        let mean = ranges.iter().sum::<f64>() / n;
+        let std = (ranges.iter().map(|r| (r - mean).powi(2)).sum::<f64>() / n).sqrt();
+        if std == 0.0 { return None; }
+        let last = *ranges.last()?;
+        Some((last - mean) / std)
+    }
+
+    /// Mean candle speed: HL range / number of bars.
+    pub fn bar_candle_speed(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let total_range: f64 = bars.iter()
+            .filter_map(|b| (b.high - b.low).to_f64())
+            .sum();
+        Some(total_range / bars.len() as f64)
+    }
+
 }
 
 impl std::fmt::Display for OhlcvBar {
@@ -21116,5 +21167,55 @@ mod tests {
         let b1 = make_ohlcv_bar(dec!(100), dec!(115), dec!(90), dec!(110));
         let r = OhlcvBar::bar_close_open_std(&[b0, b1]).unwrap();
         assert!(r.abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_bar_oc_momentum_empty_none() {
+        assert!(OhlcvBar::bar_oc_momentum(&[]).is_none());
+    }
+
+    #[test]
+    fn test_bar_oc_momentum_bullish_positive() {
+        let b = make_ohlcv_bar(dec!(100), dec!(115), dec!(90), dec!(110));
+        let r = OhlcvBar::bar_oc_momentum(&[b]).unwrap();
+        assert!(r > 0.0);
+    }
+
+    #[test]
+    fn test_bar_close_vs_vwap_empty_none() {
+        assert!(OhlcvBar::bar_close_vs_vwap(&[]).is_none());
+    }
+
+    #[test]
+    fn test_bar_close_vs_vwap_returns_value() {
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let r = OhlcvBar::bar_close_vs_vwap(&[b]);
+        assert!(r.is_some());
+    }
+
+    #[test]
+    fn test_bar_hl_zscore_single_none() {
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        assert!(OhlcvBar::bar_hl_zscore(&[b]).is_none());
+    }
+
+    #[test]
+    fn test_bar_hl_zscore_constant_none() {
+        let b0 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        assert!(OhlcvBar::bar_hl_zscore(&[b0, b1]).is_none());
+    }
+
+    #[test]
+    fn test_bar_candle_speed_empty_none() {
+        assert!(OhlcvBar::bar_candle_speed(&[]).is_none());
+    }
+
+    #[test]
+    fn test_bar_candle_speed_value() {
+        // HL range = 110-90 = 20, 1 bar → speed=20
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let r = OhlcvBar::bar_candle_speed(&[b]).unwrap();
+        assert!((r - 20.0).abs() < 1e-9);
     }
 }

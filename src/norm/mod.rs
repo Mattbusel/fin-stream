@@ -6948,6 +6948,48 @@ impl MinMaxNormalizer {
         Some(w_var)
     }
 
+    /// Pearson's second skewness coefficient: 3*(mean - median)/std.
+    pub fn window_coefficient_skew(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 3 { return None; }
+        let mut vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let n = vals.len() as f64;
+        let mean = vals.iter().sum::<f64>() / n;
+        vals.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let mid = vals.len() / 2;
+        let median = if vals.len() % 2 == 0 { (vals[mid - 1] + vals[mid]) / 2.0 } else { vals[mid] };
+        let std = (vals.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / n).sqrt();
+        if std == 0.0 { return None; }
+        Some(3.0 * (mean - median) / std)
+    }
+
+    /// L2 norm (Euclidean norm) of window values.
+    pub fn window_l2_norm(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        Some(vals.iter().map(|v| v.powi(2)).sum::<f64>().sqrt())
+    }
+
+    /// Ratio of L1 norm to L2 norm (sparsity measure).
+    pub fn window_norm_ratio(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let l1: f64 = vals.iter().map(|v| v.abs()).sum();
+        let l2: f64 = vals.iter().map(|v| v.powi(2)).sum::<f64>().sqrt();
+        if l2 == 0.0 { return None; }
+        Some(l1 / l2)
+    }
+
+    /// Cumulative maximum of window values.
+    pub fn window_cumulative_max(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        Some(vals.iter().cloned().fold(f64::NEG_INFINITY, f64::max))
+    }
+
 }
 
 #[cfg(test)]
@@ -15112,6 +15154,63 @@ mod tests {
         let r = n.window_decay_variance().unwrap();
         assert!(r.abs() < 1e-9);
     }
+
+    #[test]
+    fn test_minmax_window_coefficient_skew_none_for_two() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2)] { n.update(v); }
+        assert!(n.window_coefficient_skew().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_coefficient_skew_symmetric_zero() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        let r = n.window_coefficient_skew().unwrap();
+        assert!(r.abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_minmax_window_l2_norm_none_for_empty() {
+        let n = norm(4);
+        assert!(n.window_l2_norm().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_l2_norm_value() {
+        let mut n = norm(4);
+        for v in [dec!(3), dec!(4)] { n.update(v); }
+        let r = n.window_l2_norm().unwrap();
+        assert!((r - 5.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_minmax_window_norm_ratio_none_for_empty() {
+        let n = norm(4);
+        assert!(n.window_norm_ratio().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_norm_ratio_positive() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(1)] { n.update(v); }
+        let r = n.window_norm_ratio().unwrap();
+        assert!(r > 0.0);
+    }
+
+    #[test]
+    fn test_minmax_window_cumulative_max_none_for_empty() {
+        let n = norm(4);
+        assert!(n.window_cumulative_max().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_cumulative_max_value() {
+        let mut n = norm(4);
+        for v in [dec!(3), dec!(1), dec!(5), dec!(2)] { n.update(v); }
+        let r = n.window_cumulative_max().unwrap();
+        assert!((r - 5.0).abs() < 1e-9);
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -22008,6 +22107,48 @@ impl ZScoreNormalizer {
             .map(|(v, w)| w * (v - w_mean).powi(2))
             .sum::<f64>() / w_sum;
         Some(w_var)
+    }
+
+    /// Pearson's second skewness coefficient: 3*(mean - median)/std.
+    pub fn window_coefficient_skew(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 3 { return None; }
+        let mut vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let n = vals.len() as f64;
+        let mean = vals.iter().sum::<f64>() / n;
+        vals.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let mid = vals.len() / 2;
+        let median = if vals.len() % 2 == 0 { (vals[mid - 1] + vals[mid]) / 2.0 } else { vals[mid] };
+        let std = (vals.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / n).sqrt();
+        if std == 0.0 { return None; }
+        Some(3.0 * (mean - median) / std)
+    }
+
+    /// L2 norm (Euclidean norm) of window values.
+    pub fn window_l2_norm(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        Some(vals.iter().map(|v| v.powi(2)).sum::<f64>().sqrt())
+    }
+
+    /// Ratio of L1 norm to L2 norm (sparsity measure).
+    pub fn window_norm_ratio(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let l1: f64 = vals.iter().map(|v| v.abs()).sum();
+        let l2: f64 = vals.iter().map(|v| v.powi(2)).sum::<f64>().sqrt();
+        if l2 == 0.0 { return None; }
+        Some(l1 / l2)
+    }
+
+    /// Cumulative maximum of window values.
+    pub fn window_cumulative_max(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        Some(vals.iter().cloned().fold(f64::NEG_INFINITY, f64::max))
     }
 
 }
@@ -30122,5 +30263,62 @@ mod zscore_stability_tests {
         for v in [dec!(5), dec!(5), dec!(5)] { n.update(v); }
         let r = n.window_decay_variance().unwrap();
         assert!(r.abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_zscore_window_coefficient_skew_none_for_two() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2)] { n.update(v); }
+        assert!(n.window_coefficient_skew().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_coefficient_skew_symmetric_zero() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        let r = n.window_coefficient_skew().unwrap();
+        assert!(r.abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_zscore_window_l2_norm_none_for_empty() {
+        let n = znorm(4);
+        assert!(n.window_l2_norm().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_l2_norm_value() {
+        let mut n = znorm(4);
+        for v in [dec!(3), dec!(4)] { n.update(v); }
+        let r = n.window_l2_norm().unwrap();
+        assert!((r - 5.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_zscore_window_norm_ratio_none_for_empty() {
+        let n = znorm(4);
+        assert!(n.window_norm_ratio().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_norm_ratio_positive() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(1)] { n.update(v); }
+        let r = n.window_norm_ratio().unwrap();
+        assert!(r > 0.0);
+    }
+
+    #[test]
+    fn test_zscore_window_cumulative_max_none_for_empty() {
+        let n = znorm(4);
+        assert!(n.window_cumulative_max().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_cumulative_max_value() {
+        let mut n = znorm(4);
+        for v in [dec!(3), dec!(1), dec!(5), dec!(2)] { n.update(v); }
+        let r = n.window_cumulative_max().unwrap();
+        assert!((r - 5.0).abs() < 1e-9);
     }
 }
