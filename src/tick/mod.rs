@@ -5997,6 +5997,66 @@ impl NormalizedTick {
         Some(weighted.iter().sum::<f64>() / total_qty)
     }
 
+    // ── round-130 ────────────────────────────────────────────────────────────
+
+    /// Price median deviation: mean absolute deviation from the median price.
+    pub fn price_median_deviation(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() { return None; }
+        let mut prices: Vec<f64> = ticks.iter().map(|t| t.price.to_f64().unwrap_or(0.0)).collect();
+        prices.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let median = if prices.len() % 2 == 0 {
+            (prices[prices.len() / 2 - 1] + prices[prices.len() / 2]) / 2.0
+        } else {
+            prices[prices.len() / 2]
+        };
+        let mad = prices.iter().map(|&p| (p - median).abs()).sum::<f64>() / prices.len() as f64;
+        Some(mad)
+    }
+
+    /// Tick autocorrelation lag-1: correlation between consecutive price changes.
+    pub fn tick_autocorr_lag1(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 3 { return None; }
+        let prices: Vec<f64> = ticks.iter().map(|t| t.price.to_f64().unwrap_or(0.0)).collect();
+        let diffs: Vec<f64> = prices.windows(2).map(|w| w[1] - w[0]).collect();
+        if diffs.len() < 2 { return None; }
+        let n = diffs.len() as f64;
+        let mean = diffs.iter().sum::<f64>() / n;
+        let variance = diffs.iter().map(|&d| (d - mean).powi(2)).sum::<f64>() / n;
+        if variance == 0.0 { return None; }
+        let cov: f64 = diffs.windows(2).map(|w| (w[0] - mean) * (w[1] - mean)).sum::<f64>()
+            / (diffs.len() - 1) as f64;
+        Some(cov / variance)
+    }
+
+    /// Side momentum ratio: sum of buy qty minus sum of sell qty over total qty.
+    pub fn side_momentum_ratio(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let buy_qty: f64 = ticks.iter()
+            .filter(|t| matches!(t.side, Some(TradeSide::Buy)))
+            .filter_map(|t| t.quantity.to_f64())
+            .sum();
+        let sell_qty: f64 = ticks.iter()
+            .filter(|t| matches!(t.side, Some(TradeSide::Sell)))
+            .filter_map(|t| t.quantity.to_f64())
+            .sum();
+        let total = buy_qty + sell_qty;
+        if total == 0.0 { return None; }
+        Some((buy_qty - sell_qty) / total)
+    }
+
+    /// Price stability score: 1 minus coefficient of variation of prices.
+    pub fn price_stability_score(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() { return None; }
+        let prices: Vec<f64> = ticks.iter().map(|t| t.price.to_f64().unwrap_or(0.0)).collect();
+        let mean = prices.iter().sum::<f64>() / prices.len() as f64;
+        if mean == 0.0 { return None; }
+        let std = (prices.iter().map(|&p| (p - mean).powi(2)).sum::<f64>() / prices.len() as f64).sqrt();
+        Some(1.0 - (std / mean.abs()))
+    }
+
 }
 
 
@@ -13675,5 +13735,77 @@ mod tests {
         sell.side = Some(TradeSide::Sell);
         let r = NormalizedTick::side_weighted_price(&[buy, sell]).unwrap();
         assert!(r.abs() < 1e-9, "expected ~0.0 for equal buy/sell, got {}", r);
+    }
+
+    // ── round-130 ────────────────────────────────────────────────────────────
+    #[test]
+    fn test_price_median_deviation_none_for_empty() {
+        assert!(NormalizedTick::price_median_deviation(&[]).is_none());
+    }
+
+    #[test]
+    fn test_price_median_deviation_identical() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(100), dec!(1)),
+        ];
+        let d = NormalizedTick::price_median_deviation(&ticks).unwrap();
+        assert!(d.abs() < 1e-9, "expected 0.0 for identical prices, got {}", d);
+    }
+
+    #[test]
+    fn test_tick_autocorr_lag1_none_for_two() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(101), dec!(1)),
+        ];
+        assert!(NormalizedTick::tick_autocorr_lag1(&ticks).is_none());
+    }
+
+    #[test]
+    fn test_tick_autocorr_lag1_alternating() {
+        use rust_decimal_macros::dec;
+        // alternating moves have negative autocorrelation
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(102), dec!(1)),
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(102), dec!(1)),
+        ];
+        let ac = NormalizedTick::tick_autocorr_lag1(&ticks).unwrap();
+        assert!(ac < 0.0, "expected negative autocorr for alternating, got {}", ac);
+    }
+
+    #[test]
+    fn test_side_momentum_ratio_none_for_no_sides() {
+        use rust_decimal_macros::dec;
+        assert!(NormalizedTick::side_momentum_ratio(&[make_tick_pq(dec!(100), dec!(1))]).is_none());
+    }
+
+    #[test]
+    fn test_side_momentum_ratio_all_buy() {
+        use rust_decimal_macros::dec;
+        let mut t = make_tick_pq(dec!(100), dec!(1));
+        t.side = Some(TradeSide::Buy);
+        let r = NormalizedTick::side_momentum_ratio(&[t]).unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "expected 1.0 for all buy, got {}", r);
+    }
+
+    #[test]
+    fn test_price_stability_score_none_for_empty() {
+        assert!(NormalizedTick::price_stability_score(&[]).is_none());
+    }
+
+    #[test]
+    fn test_price_stability_score_identical() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(100), dec!(1)),
+        ];
+        let s = NormalizedTick::price_stability_score(&ticks).unwrap();
+        assert!((s - 1.0).abs() < 1e-9, "expected 1.0 for identical prices, got {}", s);
     }
 }

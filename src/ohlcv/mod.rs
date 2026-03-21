@@ -5889,6 +5889,66 @@ impl OhlcvBar {
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
+    // ── round-130 ────────────────────────────────────────────────────────────
+
+    /// Close-body-range ratio: mean of body size / (high - low) per bar.
+    pub fn close_body_range_ratio(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let vals: Vec<f64> = bars.iter().filter_map(|b| {
+            let body = (b.close - b.open).abs().to_f64()?;
+            let range = (b.high - b.low).to_f64()?;
+            if range == 0.0 { return None; }
+            Some(body / range)
+        }).collect();
+        if vals.is_empty() { return None; }
+        Some(vals.iter().sum::<f64>() / vals.len() as f64)
+    }
+
+    /// Average body percent: mean of body / open across bars.
+    pub fn avg_body_pct(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let vals: Vec<f64> = bars.iter().filter_map(|b| {
+            let body = (b.close - b.open).abs().to_f64()?;
+            let o = b.open.to_f64()?;
+            if o == 0.0 { return None; }
+            Some(body / o)
+        }).collect();
+        if vals.is_empty() { return None; }
+        Some(vals.iter().sum::<f64>() / vals.len() as f64)
+    }
+
+    /// Bar symmetry: mean of |upper_shadow - lower_shadow| / range per bar.
+    pub fn bar_symmetry(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let vals: Vec<f64> = bars.iter().filter_map(|b| {
+            let hi = b.high.to_f64()?;
+            let lo = b.low.to_f64()?;
+            let op = b.open.to_f64()?;
+            let cl = b.close.to_f64()?;
+            let range = hi - lo;
+            if range == 0.0 { return None; }
+            let body_hi = op.max(cl);
+            let body_lo = op.min(cl);
+            let upper = hi - body_hi;
+            let lower = body_lo - lo;
+            Some((upper - lower).abs() / range)
+        }).collect();
+        if vals.is_empty() { return None; }
+        Some(vals.iter().sum::<f64>() / vals.len() as f64)
+    }
+
+    /// Open gap direction: fraction of bars where open > prior close (gap up).
+    pub fn open_gap_direction(bars: &[OhlcvBar]) -> Option<f64> {
+        if bars.len() < 2 { return None; }
+        let count = bars.windows(2)
+            .filter(|w| w[1].open > w[0].close)
+            .count();
+        Some(count as f64 / (bars.len() - 1) as f64)
+    }
+
 }
 
 impl std::fmt::Display for OhlcvBar {
@@ -13775,5 +13835,59 @@ mod tests {
         let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
         let s = OhlcvBar::open_high_spread(&[b]).unwrap();
         assert!((s - 0.1).abs() < 1e-9, "expected 0.1, got {}", s);
+    }
+
+    // ── round-130 ────────────────────────────────────────────────────────────
+    #[test]
+    fn test_close_body_range_ratio_none_for_empty() {
+        assert!(OhlcvBar::close_body_range_ratio(&[]).is_none());
+    }
+
+    #[test]
+    fn test_close_body_range_ratio_full_body() {
+        // open=90, close=110, high=110, low=90 → body=20, range=20 → ratio=1.0
+        let b = make_ohlcv_bar(dec!(90), dec!(110), dec!(90), dec!(110));
+        let r = OhlcvBar::close_body_range_ratio(&[b]).unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "expected 1.0, got {}", r);
+    }
+
+    #[test]
+    fn test_avg_body_pct_none_for_empty() {
+        assert!(OhlcvBar::avg_body_pct(&[]).is_none());
+    }
+
+    #[test]
+    fn test_avg_body_pct_basic() {
+        // open=100, close=110 → body=10, pct=0.1
+        let b = make_ohlcv_bar(dec!(100), dec!(115), dec!(85), dec!(110));
+        let p = OhlcvBar::avg_body_pct(&[b]).unwrap();
+        assert!((p - 0.1).abs() < 1e-9, "expected 0.1, got {}", p);
+    }
+
+    #[test]
+    fn test_bar_symmetry_none_for_empty() {
+        assert!(OhlcvBar::bar_symmetry(&[]).is_none());
+    }
+
+    #[test]
+    fn test_bar_symmetry_symmetric_bar() {
+        // open=105, close=95, high=110, low=90 → upper=5, lower=5 → asymmetry=0
+        let b = make_ohlcv_bar(dec!(105), dec!(110), dec!(90), dec!(95));
+        let s = OhlcvBar::bar_symmetry(&[b]).unwrap();
+        assert!(s.abs() < 1e-9, "expected 0.0 for symmetric bar, got {}", s);
+    }
+
+    #[test]
+    fn test_open_gap_direction_none_for_single() {
+        assert!(OhlcvBar::open_gap_direction(&[make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105))]).is_none());
+    }
+
+    #[test]
+    fn test_open_gap_direction_gap_up() {
+        // close of b1 = 105, open of b2 = 110 → gap up
+        let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let b2 = make_ohlcv_bar(dec!(110), dec!(120), dec!(100), dec!(115));
+        let g = OhlcvBar::open_gap_direction(&[b1, b2]).unwrap();
+        assert!((g - 1.0).abs() < 1e-9, "expected 1.0 for gap up, got {}", g);
     }
 }

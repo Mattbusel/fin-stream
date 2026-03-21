@@ -3832,6 +3832,56 @@ impl MinMaxNormalizer {
         Some(count)
     }
 
+    // ── round-130 ────────────────────────────────────────────────────────────
+
+    /// Mean absolute deviation from the window mean.
+    pub fn window_mad(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let mean = vals.iter().sum::<f64>() / vals.len() as f64;
+        let mad = vals.iter().map(|&v| (v - mean).abs()).sum::<f64>() / vals.len() as f64;
+        Some(mad)
+    }
+
+    /// Entropy ratio: actual entropy / max possible entropy for window size.
+    pub fn window_entropy_ratio(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let total: f64 = vals.iter().sum();
+        if total == 0.0 { return None; }
+        let entropy: f64 = vals.iter().map(|&v| {
+            let p = v / total;
+            if p > 0.0 { -p * p.ln() } else { 0.0 }
+        }).sum();
+        let max_entropy = (vals.len() as f64).ln();
+        if max_entropy == 0.0 { return None; }
+        Some(entropy / max_entropy)
+    }
+
+    /// Plateau count: number of consecutive equal values in the window.
+    pub fn window_plateau_count(&self) -> Option<usize> {
+        if self.window.len() < 2 { return None; }
+        let count = self.window.iter()
+            .collect::<Vec<_>>()
+            .windows(2)
+            .filter(|w| w[0] == w[1])
+            .count();
+        Some(count)
+    }
+
+    /// Direction bias: fraction of steps that are upward minus fraction downward.
+    pub fn window_direction_bias(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let n = (vals.len() - 1) as f64;
+        let up = vals.windows(2).filter(|w| w[1] > w[0]).count() as f64;
+        let dn = vals.windows(2).filter(|w| w[1] < w[0]).count() as f64;
+        Some((up - dn) / n)
+    }
+
 }
 
 #[cfg(test)]
@@ -8099,6 +8149,65 @@ mod tests {
         let c = n.window_cycle_count().unwrap();
         assert_eq!(c, 1);
     }
+
+    // ── round-130 ────────────────────────────────────────────────────────────
+    #[test]
+    fn test_minmax_window_mad_none_for_empty() {
+        let n = norm(3);
+        assert!(n.window_mad().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_mad_identical() {
+        let mut n = norm(3);
+        for v in [dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        let m = n.window_mad().unwrap();
+        assert!(m.abs() < 1e-9, "expected 0.0 for identical, got {}", m);
+    }
+
+    #[test]
+    fn test_minmax_window_entropy_ratio_none_for_empty() {
+        let n = norm(3);
+        assert!(n.window_entropy_ratio().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_entropy_ratio_uniform() {
+        let mut n = norm(2);
+        for v in [dec!(1), dec!(1)] { n.update(v); }
+        let e = n.window_entropy_ratio().unwrap();
+        assert!((e - 1.0).abs() < 1e-9, "expected 1.0 for uniform, got {}", e);
+    }
+
+    #[test]
+    fn test_minmax_window_plateau_count_none_for_single() {
+        let mut n = norm(3);
+        n.update(dec!(5));
+        assert!(n.window_plateau_count().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_plateau_count_all_equal() {
+        let mut n = norm(3);
+        for v in [dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        let p = n.window_plateau_count().unwrap();
+        assert_eq!(p, 2);
+    }
+
+    #[test]
+    fn test_minmax_window_direction_bias_none_for_single() {
+        let mut n = norm(3);
+        n.update(dec!(5));
+        assert!(n.window_direction_bias().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_direction_bias_all_up() {
+        let mut n = norm(3);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        let b = n.window_direction_bias().unwrap();
+        assert!((b - 1.0).abs() < 1e-9, "expected 1.0 for all up, got {}", b);
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -11875,6 +11984,56 @@ impl ZScoreNormalizer {
             .filter(|w| w[0] * w[1] < 0.0)
             .count();
         Some(count)
+    }
+
+    // ── round-130 ────────────────────────────────────────────────────────────
+
+    /// Mean absolute deviation from the window mean.
+    pub fn window_mad(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let mean = vals.iter().sum::<f64>() / vals.len() as f64;
+        let mad = vals.iter().map(|&v| (v - mean).abs()).sum::<f64>() / vals.len() as f64;
+        Some(mad)
+    }
+
+    /// Entropy ratio: actual entropy / max possible entropy for window size.
+    pub fn window_entropy_ratio(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let total: f64 = vals.iter().sum();
+        if total == 0.0 { return None; }
+        let entropy: f64 = vals.iter().map(|&v| {
+            let p = v / total;
+            if p > 0.0 { -p * p.ln() } else { 0.0 }
+        }).sum();
+        let max_entropy = (vals.len() as f64).ln();
+        if max_entropy == 0.0 { return None; }
+        Some(entropy / max_entropy)
+    }
+
+    /// Plateau count: number of consecutive equal values in the window.
+    pub fn window_plateau_count(&self) -> Option<usize> {
+        if self.window.len() < 2 { return None; }
+        let count = self.window.iter()
+            .collect::<Vec<_>>()
+            .windows(2)
+            .filter(|w| w[0] == w[1])
+            .count();
+        Some(count)
+    }
+
+    /// Direction bias: fraction of steps that are upward minus fraction downward.
+    pub fn window_direction_bias(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let n = (vals.len() - 1) as f64;
+        let up = vals.windows(2).filter(|w| w[1] > w[0]).count() as f64;
+        let dn = vals.windows(2).filter(|w| w[1] < w[0]).count() as f64;
+        Some((up - dn) / n)
     }
 
 }
@@ -16206,5 +16365,64 @@ mod zscore_stability_tests {
         for v in [dec!(1), dec!(3), dec!(2)] { n.update(v); }
         let c = n.window_cycle_count().unwrap();
         assert_eq!(c, 1);
+    }
+
+    // ── round-130 ────────────────────────────────────────────────────────────
+    #[test]
+    fn test_zscore_window_mad_none_for_empty() {
+        let n = znorm(3);
+        assert!(n.window_mad().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_mad_identical() {
+        let mut n = znorm(3);
+        for v in [dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        let m = n.window_mad().unwrap();
+        assert!(m.abs() < 1e-9, "expected 0.0 for identical, got {}", m);
+    }
+
+    #[test]
+    fn test_zscore_window_entropy_ratio_none_for_empty() {
+        let n = znorm(3);
+        assert!(n.window_entropy_ratio().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_entropy_ratio_uniform() {
+        let mut n = znorm(2);
+        for v in [dec!(1), dec!(1)] { n.update(v); }
+        let e = n.window_entropy_ratio().unwrap();
+        assert!((e - 1.0).abs() < 1e-9, "expected 1.0 for uniform, got {}", e);
+    }
+
+    #[test]
+    fn test_zscore_window_plateau_count_none_for_single() {
+        let mut n = znorm(3);
+        n.update(dec!(5));
+        assert!(n.window_plateau_count().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_plateau_count_all_equal() {
+        let mut n = znorm(3);
+        for v in [dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        let p = n.window_plateau_count().unwrap();
+        assert_eq!(p, 2);
+    }
+
+    #[test]
+    fn test_zscore_window_direction_bias_none_for_single() {
+        let mut n = znorm(3);
+        n.update(dec!(5));
+        assert!(n.window_direction_bias().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_direction_bias_all_up() {
+        let mut n = znorm(3);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        let b = n.window_direction_bias().unwrap();
+        assert!((b - 1.0).abs() < 1e-9, "expected 1.0 for all up, got {}", b);
     }
 }

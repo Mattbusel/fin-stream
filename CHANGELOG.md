@@ -9,6 +9,36 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.8.1] - 2026-03-20
+
+### Added
+
+**`tick` module — `NormalizedTick` analytics (round 130)**
+- `NormalizedTick::price_median_deviation(ticks)` — mean absolute deviation from the median price.
+- `NormalizedTick::tick_autocorr_lag1(ticks)` — lag-1 autocorrelation of consecutive price changes.
+- `NormalizedTick::side_momentum_ratio(ticks)` — (buy_qty - sell_qty) / total_qty.
+- `NormalizedTick::price_stability_score(ticks)` — 1 minus coefficient of variation of prices.
+
+**`ohlcv` module — `OhlcvBar` analytics (round 130)**
+- `OhlcvBar::close_body_range_ratio(bars)` — mean of body size / (high - low) per bar.
+- `OhlcvBar::avg_body_pct(bars)` — mean of |close - open| / open per bar.
+- `OhlcvBar::bar_symmetry(bars)` — mean of |upper_shadow - lower_shadow| / range.
+- `OhlcvBar::open_gap_direction(bars)` — fraction of bars where open exceeds prior close.
+
+**`norm` module — `MinMaxNormalizer` analytics (round 130)**
+- `MinMaxNormalizer::window_mad()` — mean absolute deviation from the window mean.
+- `MinMaxNormalizer::window_entropy_ratio()` — actual entropy / max possible entropy for window size.
+- `MinMaxNormalizer::window_plateau_count()` — count of consecutive equal adjacent values.
+- `MinMaxNormalizer::window_direction_bias()` — fraction up minus fraction down over window steps.
+
+**`norm` module — `ZScoreNormalizer` analytics (round 130)**
+- `ZScoreNormalizer::window_mad()` — mean absolute deviation from the window mean.
+- `ZScoreNormalizer::window_entropy_ratio()` — actual entropy / max possible entropy for window size.
+- `ZScoreNormalizer::window_plateau_count()` — count of consecutive equal adjacent values.
+- `ZScoreNormalizer::window_direction_bias()` — fraction up minus fraction down over window steps.
+
+---
+
 ## [2.8.0] - 2026-03-20
 
 ### Added
