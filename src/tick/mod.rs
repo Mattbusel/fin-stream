@@ -7227,6 +7227,58 @@ impl NormalizedTick {
         Some(if buy_qty > sell_qty { (buy_qty - sell_qty) / total } else { 0.0 })
     }
 
+    // ── round-152 ────────────────────────────────────────────────────────────
+
+    /// Std dev of second-order price differences (price acceleration).
+    pub fn price_acceleration_std(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 3 { return None; }
+        let prices: Vec<f64> = ticks.iter().filter_map(|t| t.price.to_f64()).collect();
+        if prices.len() < 3 { return None; }
+        let accels: Vec<f64> = prices.windows(3).map(|w| w[2] - 2.0 * w[1] + w[0]).collect();
+        let mean = accels.iter().sum::<f64>() / accels.len() as f64;
+        let var = accels.iter().map(|a| (a - mean).powi(2)).sum::<f64>() / accels.len() as f64;
+        Some(var.sqrt())
+    }
+
+    /// Range of received_at_ms timestamps (max - min latency spread).
+    pub fn tick_latency_spread(ticks: &[NormalizedTick]) -> Option<f64> {
+        if ticks.is_empty() { return None; }
+        let min = ticks.iter().map(|t| t.received_at_ms).min()?;
+        let max = ticks.iter().map(|t| t.received_at_ms).max()?;
+        Some((max - min) as f64)
+    }
+
+    /// Entropy of the buy/sell quantity distribution (−p*log(p) formula).
+    pub fn side_qty_entropy(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let buy_qty: f64 = ticks.iter()
+            .filter(|t| matches!(t.side, Some(TradeSide::Buy)))
+            .filter_map(|t| t.quantity.to_f64()).sum();
+        let sell_qty: f64 = ticks.iter()
+            .filter(|t| matches!(t.side, Some(TradeSide::Sell)))
+            .filter_map(|t| t.quantity.to_f64()).sum();
+        let total = buy_qty + sell_qty;
+        if total == 0.0 { return None; }
+        let pb = buy_qty / total;
+        let ps = sell_qty / total;
+        let entropy = [pb, ps].iter().filter(|&&p| p > 0.0)
+            .map(|&p| -p * p.ln()).sum::<f64>();
+        Some(entropy)
+    }
+
+    /// Coefficient of variation of inter-arrival times (regularity measure).
+    pub fn tick_arrival_regularity(ticks: &[NormalizedTick]) -> Option<f64> {
+        if ticks.len() < 2 { return None; }
+        let gaps: Vec<f64> = ticks.windows(2)
+            .map(|w| (w[1].received_at_ms as f64) - (w[0].received_at_ms as f64))
+            .collect();
+        let mean = gaps.iter().sum::<f64>() / gaps.len() as f64;
+        if mean == 0.0 { return None; }
+        let var = gaps.iter().map(|g| (g - mean).powi(2)).sum::<f64>() / gaps.len() as f64;
+        Some(var.sqrt() / mean)
+    }
+
 }
 
 
@@ -16535,5 +16587,73 @@ mod tests {
         // no sided ticks → total=0 → None
         let ticks = vec![make_tick_pq(dec!(100), dec!(5))];
         assert!(NormalizedTick::qty_buy_dominance(&ticks).is_none());
+    }
+
+    // ── round-152 ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_price_acceleration_std_none_for_two() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![make_tick_pq(dec!(100), dec!(1)), make_tick_pq(dec!(101), dec!(1))];
+        assert!(NormalizedTick::price_acceleration_std(&ticks).is_none());
+    }
+
+    #[test]
+    fn test_price_acceleration_std_linear_zero() {
+        use rust_decimal_macros::dec;
+        // perfectly linear prices → second diff = 0 → std = 0
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(101), dec!(1)),
+            make_tick_pq(dec!(102), dec!(1)),
+        ];
+        let s = NormalizedTick::price_acceleration_std(&ticks).unwrap();
+        assert!((s - 0.0).abs() < 1e-9, "expected 0.0, got {}", s);
+    }
+
+    #[test]
+    fn test_tick_latency_spread_none_for_empty() {
+        assert!(NormalizedTick::tick_latency_spread(&[]).is_none());
+    }
+
+    #[test]
+    fn test_tick_latency_spread_same_timestamps() {
+        use rust_decimal_macros::dec;
+        let mut t1 = make_tick_pq(dec!(100), dec!(1));
+        t1.received_at_ms = 500;
+        let mut t2 = make_tick_pq(dec!(101), dec!(1));
+        t2.received_at_ms = 500;
+        let s = NormalizedTick::tick_latency_spread(&[t1, t2]).unwrap();
+        assert!((s - 0.0).abs() < 1e-9, "expected 0.0, got {}", s);
+    }
+
+    #[test]
+    fn test_side_qty_entropy_none_for_empty() {
+        assert!(NormalizedTick::side_qty_entropy(&[]).is_none());
+    }
+
+    #[test]
+    fn test_side_qty_entropy_no_sides() {
+        use rust_decimal_macros::dec;
+        // no sided ticks → total=0 → None
+        let ticks = vec![make_tick_pq(dec!(100), dec!(5))];
+        assert!(NormalizedTick::side_qty_entropy(&ticks).is_none());
+    }
+
+    #[test]
+    fn test_tick_arrival_regularity_none_for_single() {
+        use rust_decimal_macros::dec;
+        assert!(NormalizedTick::tick_arrival_regularity(&[make_tick_pq(dec!(100), dec!(1))]).is_none());
+    }
+
+    #[test]
+    fn test_tick_arrival_regularity_equal_gaps() {
+        use rust_decimal_macros::dec;
+        // equal gaps → std=0 → regularity=0
+        let mut t1 = make_tick_pq(dec!(100), dec!(1)); t1.received_at_ms = 0;
+        let mut t2 = make_tick_pq(dec!(101), dec!(1)); t2.received_at_ms = 10;
+        let mut t3 = make_tick_pq(dec!(102), dec!(1)); t3.received_at_ms = 20;
+        let r = NormalizedTick::tick_arrival_regularity(&[t1, t2, t3]).unwrap();
+        assert!((r - 0.0).abs() < 1e-9, "expected 0.0, got {}", r);
     }
 }

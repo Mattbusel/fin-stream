@@ -6998,6 +6998,56 @@ impl OhlcvBar {
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
+    // ── round-152 ────────────────────────────────────────────────────────────
+
+    /// Mean total wick length (high - low minus |close - open|) across bars.
+    pub fn bar_wicks_mean(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let vals: Vec<f64> = bars.iter().filter_map(|b| {
+            let range = (b.high - b.low).to_f64()?;
+            let body = (b.close - b.open).abs().to_f64()?;
+            Some(range - body)
+        }).collect();
+        if vals.is_empty() { return None; }
+        Some(vals.iter().sum::<f64>() / vals.len() as f64)
+    }
+
+    /// Mean ratio of total wick to bar range (shadow ratio).
+    pub fn bar_shadow_ratio(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let vals: Vec<f64> = bars.iter().filter_map(|b| {
+            let range = (b.high - b.low).to_f64()?;
+            if range == 0.0 { return None; }
+            let body = (b.close - b.open).abs().to_f64()?;
+            Some((range - body) / range)
+        }).collect();
+        if vals.is_empty() { return None; }
+        Some(vals.iter().sum::<f64>() / vals.len() as f64)
+    }
+
+    /// Sum of consecutive close-to-close changes (momentum proxy).
+    pub fn bar_momentum_strength(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.len() < 2 { return None; }
+        let gaps: Vec<f64> = bars.windows(2)
+            .filter_map(|w| (w[1].close - w[0].close).to_f64()).collect();
+        if gaps.is_empty() { return None; }
+        Some(gaps.iter().sum::<f64>())
+    }
+
+    /// Volatility proxy: std dev of (high - low) across bars.
+    pub fn bar_range_std(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let ranges: Vec<f64> = bars.iter().filter_map(|b| (b.high - b.low).to_f64()).collect();
+        if ranges.len() < 2 { return None; }
+        let mean = ranges.iter().sum::<f64>() / ranges.len() as f64;
+        let var = ranges.iter().map(|r| (r - mean).powi(2)).sum::<f64>() / ranges.len() as f64;
+        Some(var.sqrt())
+    }
+
 }
 
 impl std::fmt::Display for OhlcvBar {
@@ -16169,5 +16219,68 @@ mod tests {
         // open=close → body=0 → filtered → None
         let bars = vec![make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100))];
         assert!(OhlcvBar::bar_tail_ratio(&bars).is_none());
+    }
+
+    // ── round-152 ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_bar_wicks_mean_none_for_empty() {
+        assert!(OhlcvBar::bar_wicks_mean(&[]).is_none());
+    }
+
+    #[test]
+    fn test_bar_wicks_mean_basic() {
+        // high=110, low=90, open=100, close=105 → range=20, body=5, wicks=15
+        let bars = vec![make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105))];
+        let w = OhlcvBar::bar_wicks_mean(&bars).unwrap();
+        assert!((w - 15.0).abs() < 1e-9, "expected 15.0, got {}", w);
+    }
+
+    #[test]
+    fn test_bar_shadow_ratio_none_for_empty() {
+        assert!(OhlcvBar::bar_shadow_ratio(&[]).is_none());
+    }
+
+    #[test]
+    fn test_bar_shadow_ratio_full_body() {
+        // open=low=90, close=high=110 → no wicks → shadow=0
+        let bars = vec![make_ohlcv_bar(dec!(90), dec!(110), dec!(90), dec!(110))];
+        let s = OhlcvBar::bar_shadow_ratio(&bars).unwrap();
+        assert!((s - 0.0).abs() < 1e-9, "expected 0.0, got {}", s);
+    }
+
+    #[test]
+    fn test_bar_momentum_strength_none_for_single() {
+        let bars = vec![make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105))];
+        assert!(OhlcvBar::bar_momentum_strength(&bars).is_none());
+    }
+
+    #[test]
+    fn test_bar_momentum_strength_ascending() {
+        // closes: 100, 110, 120 → gaps: 10, 10 → sum = 20
+        let bars = vec![
+            make_ohlcv_bar(dec!(90), dec!(105), dec!(85), dec!(100)),
+            make_ohlcv_bar(dec!(100), dec!(115), dec!(95), dec!(110)),
+            make_ohlcv_bar(dec!(110), dec!(125), dec!(105), dec!(120)),
+        ];
+        let m = OhlcvBar::bar_momentum_strength(&bars).unwrap();
+        assert!((m - 20.0).abs() < 1e-9, "expected 20.0, got {}", m);
+    }
+
+    #[test]
+    fn test_bar_range_std_none_for_single() {
+        let bars = vec![make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105))];
+        assert!(OhlcvBar::bar_range_std(&bars).is_none());
+    }
+
+    #[test]
+    fn test_bar_range_std_equal_ranges() {
+        // all bars have same range → std = 0
+        let bars = vec![
+            make_ohlcv_bar(dec!(100), dec!(120), dec!(100), dec!(110)),
+            make_ohlcv_bar(dec!(110), dec!(130), dec!(110), dec!(120)),
+        ];
+        let s = OhlcvBar::bar_range_std(&bars).unwrap();
+        assert!((s - 0.0).abs() < 1e-9, "expected 0.0, got {}", s);
     }
 }

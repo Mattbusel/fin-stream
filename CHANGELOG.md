@@ -9,6 +9,36 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.10.3] - 2026-03-20
+
+### Added
+
+**`tick` module — `NormalizedTick` analytics (round 152)**
+- `NormalizedTick::price_acceleration_std(ticks)` — std dev of second-order price differences.
+- `NormalizedTick::tick_latency_spread(ticks)` — range of received_at_ms timestamps (max - min).
+- `NormalizedTick::side_qty_entropy(ticks)` — Shannon entropy of buy/sell quantity distribution.
+- `NormalizedTick::tick_arrival_regularity(ticks)` — coefficient of variation of inter-arrival times.
+
+**`ohlcv` module — `OhlcvBar` analytics (round 152)**
+- `OhlcvBar::bar_wicks_mean(bars)` — mean total wick length (range minus body) across bars.
+- `OhlcvBar::bar_shadow_ratio(bars)` — mean ratio of total wick to bar range.
+- `OhlcvBar::bar_momentum_strength(bars)` — sum of consecutive close-to-close changes.
+- `OhlcvBar::bar_range_std(bars)` — std dev of high-low range across bars.
+
+**`norm` module — `MinMaxNormalizer` analytics (round 152)**
+- `MinMaxNormalizer::window_entropy_score()` — Shannon entropy of window values (8 buckets).
+- `MinMaxNormalizer::window_quartile_spread()` — interquartile range (Q3 - Q1) of the window.
+- `MinMaxNormalizer::window_max_to_min_ratio()` — ratio of window max to window min.
+- `MinMaxNormalizer::window_upper_fraction()` — fraction of window values exceeding the mean.
+
+**`norm` module — `ZScoreNormalizer` analytics (round 152)**
+- `ZScoreNormalizer::window_entropy_score()` — Shannon entropy of window values (8 buckets).
+- `ZScoreNormalizer::window_quartile_spread()` — interquartile range (Q3 - Q1) of the window.
+- `ZScoreNormalizer::window_max_to_min_ratio()` — ratio of window max to window min.
+- `ZScoreNormalizer::window_upper_fraction()` — fraction of window values exceeding the mean.
+
+---
+
 ## [2.10.2] - 2026-03-20
 
 ### Added
