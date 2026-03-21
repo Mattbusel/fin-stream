@@ -4375,6 +4375,50 @@ impl MinMaxNormalizer {
         Some(count)
     }
 
+    // ── round-141 ────────────────────────────────────────────────────────────
+
+    /// Up fraction: fraction of steps in the window that are strictly increasing.
+    pub fn window_up_fraction(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let ups = vals.windows(2).filter(|w| w[1] > w[0]).count() as f64;
+        Some(ups / (vals.len() - 1) as f64)
+    }
+
+    /// Half range: half of (max - min) in the window (semi-range).
+    pub fn window_half_range(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let max = vals.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        let min = vals.iter().cloned().fold(f64::INFINITY, f64::min);
+        Some((max - min) / 2.0)
+    }
+
+    /// Negative count: number of values below zero in the window.
+    pub fn window_negative_count(&self) -> Option<usize> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let count = self.window.iter()
+            .filter(|v| v.to_f64().unwrap_or(0.0) < 0.0)
+            .count();
+        Some(count)
+    }
+
+    /// Trend purity: fraction of steps in the direction of the overall trend (sign of first-to-last diff).
+    pub fn window_trend_purity(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let overall = vals.last()? - vals.first()?;
+        if overall == 0.0 { return Some(0.0); }
+        let aligned = vals.windows(2)
+            .filter(|w| (w[1] - w[0]) * overall > 0.0)
+            .count() as f64;
+        Some(aligned / (vals.len() - 1) as f64)
+    }
+
 }
 
 #[cfg(test)]
@@ -9322,6 +9366,67 @@ mod tests {
         let e = n.window_extrema_count().unwrap();
         assert_eq!(e, 3, "expected 3 extrema, got {}", e);
     }
+
+    // ── round-141 ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_minmax_window_up_fraction_none_for_single() {
+        let mut n = norm(4);
+        n.update(dec!(5));
+        assert!(n.window_up_fraction().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_up_fraction_all_up() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let f = n.window_up_fraction().unwrap();
+        assert!((f - 1.0).abs() < 1e-9, "expected 1.0, got {}", f);
+    }
+
+    #[test]
+    fn test_minmax_window_half_range_none_for_empty() {
+        let n = norm(4);
+        assert!(n.window_half_range().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_half_range_basic() {
+        let mut n = norm(4);
+        for v in [dec!(2), dec!(4), dec!(6), dec!(8)] { n.update(v); }
+        // range=6, half=3
+        let hr = n.window_half_range().unwrap();
+        assert!((hr - 3.0).abs() < 1e-9, "expected 3.0, got {}", hr);
+    }
+
+    #[test]
+    fn test_minmax_window_negative_count_none_for_empty() {
+        let n = norm(4);
+        assert!(n.window_negative_count().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_negative_count_no_negatives() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let c = n.window_negative_count().unwrap();
+        assert_eq!(c, 0, "expected 0 negatives, got {}", c);
+    }
+
+    #[test]
+    fn test_minmax_window_trend_purity_none_for_single() {
+        let mut n = norm(4);
+        n.update(dec!(5));
+        assert!(n.window_trend_purity().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_trend_purity_pure_uptrend() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let p = n.window_trend_purity().unwrap();
+        assert!((p - 1.0).abs() < 1e-9, "expected 1.0 for pure uptrend, got {}", p);
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -13641,6 +13746,50 @@ impl ZScoreNormalizer {
             .filter(|w| (w[1] > w[0] && w[1] > w[2]) || (w[1] < w[0] && w[1] < w[2]))
             .count();
         Some(count)
+    }
+
+    // ── round-141 ────────────────────────────────────────────────────────────
+
+    /// Up fraction: fraction of steps in the window that are strictly increasing.
+    pub fn window_up_fraction(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let ups = vals.windows(2).filter(|w| w[1] > w[0]).count() as f64;
+        Some(ups / (vals.len() - 1) as f64)
+    }
+
+    /// Half range: half of (max - min) in the window (semi-range).
+    pub fn window_half_range(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let max = vals.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        let min = vals.iter().cloned().fold(f64::INFINITY, f64::min);
+        Some((max - min) / 2.0)
+    }
+
+    /// Negative count: number of values below zero in the window.
+    pub fn window_negative_count(&self) -> Option<usize> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let count = self.window.iter()
+            .filter(|v| v.to_f64().unwrap_or(0.0) < 0.0)
+            .count();
+        Some(count)
+    }
+
+    /// Trend purity: fraction of steps in the direction of the overall trend (sign of first-to-last diff).
+    pub fn window_trend_purity(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let overall = vals.last()? - vals.first()?;
+        if overall == 0.0 { return Some(0.0); }
+        let aligned = vals.windows(2)
+            .filter(|w| (w[1] - w[0]) * overall > 0.0)
+            .count() as f64;
+        Some(aligned / (vals.len() - 1) as f64)
     }
 
 }
@@ -18631,5 +18780,65 @@ mod zscore_stability_tests {
         for v in [dec!(1), dec!(3), dec!(1), dec!(3), dec!(1)] { n.update(v); }
         let e = n.window_extrema_count().unwrap();
         assert_eq!(e, 3, "expected 3 extrema, got {}", e);
+    }
+
+    // ── round-141 ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_zscore_window_up_fraction_none_for_single() {
+        let mut n = znorm(4);
+        n.update(dec!(5));
+        assert!(n.window_up_fraction().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_up_fraction_all_up() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let f = n.window_up_fraction().unwrap();
+        assert!((f - 1.0).abs() < 1e-9, "expected 1.0, got {}", f);
+    }
+
+    #[test]
+    fn test_zscore_window_half_range_none_for_empty() {
+        let n = znorm(4);
+        assert!(n.window_half_range().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_half_range_basic() {
+        let mut n = znorm(4);
+        for v in [dec!(2), dec!(4), dec!(6), dec!(8)] { n.update(v); }
+        let hr = n.window_half_range().unwrap();
+        assert!((hr - 3.0).abs() < 1e-9, "expected 3.0, got {}", hr);
+    }
+
+    #[test]
+    fn test_zscore_window_negative_count_none_for_empty() {
+        let n = znorm(4);
+        assert!(n.window_negative_count().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_negative_count_no_negatives() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let c = n.window_negative_count().unwrap();
+        assert_eq!(c, 0, "expected 0 negatives, got {}", c);
+    }
+
+    #[test]
+    fn test_zscore_window_trend_purity_none_for_single() {
+        let mut n = znorm(4);
+        n.update(dec!(5));
+        assert!(n.window_trend_purity().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_trend_purity_pure_uptrend() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let p = n.window_trend_purity().unwrap();
+        assert!((p - 1.0).abs() < 1e-9, "expected 1.0 for pure uptrend, got {}", p);
     }
 }

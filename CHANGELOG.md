@@ -9,6 +9,36 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.9.2] - 2026-03-20
+
+### Added
+
+**`tick` module — `NormalizedTick` analytics (round 141)**
+- `NormalizedTick::tick_latency_variance(ticks)` — variance of inter-tick time gaps in milliseconds.
+- `NormalizedTick::qty_buy_fraction(ticks)` — fraction of total quantity from Buy-sided ticks.
+- `NormalizedTick::side_qty_mean_ratio(ticks)` — mean Buy quantity / mean Sell quantity.
+- `NormalizedTick::price_abs_mean(ticks)` — mean of absolute price values.
+
+**`ohlcv` module — `OhlcvBar` analytics (round 141)**
+- `OhlcvBar::bar_open_low_spread(bars)` — mean of (open - low) per bar.
+- `OhlcvBar::close_low_body_ratio(bars)` — mean of (close - low) / |close - open| per bar.
+- `OhlcvBar::bar_high_close_spread(bars)` — mean of (high - close) per bar.
+- `OhlcvBar::volume_body_ratio(bars)` — mean of volume / |close - open| per bar.
+
+**`norm` module — `MinMaxNormalizer` analytics (round 141)**
+- `MinMaxNormalizer::window_up_fraction()` — fraction of steps that are strictly increasing.
+- `MinMaxNormalizer::window_half_range()` — half of (max - min) in the window.
+- `MinMaxNormalizer::window_negative_count()` — number of values below zero in the window.
+- `MinMaxNormalizer::window_trend_purity()` — fraction of steps aligned with the overall trend direction.
+
+**`norm` module — `ZScoreNormalizer` analytics (round 141)**
+- `ZScoreNormalizer::window_up_fraction()` — fraction of steps that are strictly increasing.
+- `ZScoreNormalizer::window_half_range()` — half of (max - min) in the window.
+- `ZScoreNormalizer::window_negative_count()` — number of values below zero in the window.
+- `ZScoreNormalizer::window_trend_purity()` — fraction of steps aligned with the overall trend direction.
+
+---
+
 ## [2.9.1] - 2026-03-20
 
 ### Added

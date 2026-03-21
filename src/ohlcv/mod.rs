@@ -6451,6 +6451,52 @@ impl OhlcvBar {
         Some(sum / bars.len() as f64)
     }
 
+    // ── round-141 ────────────────────────────────────────────────────────────
+
+    /// Bar open-low spread: mean of (open - low) per bar.
+    pub fn bar_open_low_spread(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let sum: f64 = bars.iter().map(|b| (b.open - b.low).to_f64().unwrap_or(0.0)).sum();
+        Some(sum / bars.len() as f64)
+    }
+
+    /// Close-low body ratio: mean of (close - low) / |close - open| per bar.
+    pub fn close_low_body_ratio(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let vals: Vec<f64> = bars.iter().filter_map(|b| {
+            let body = (b.close - b.open).abs().to_f64()?;
+            if body == 0.0 { return None; }
+            let cl = (b.close - b.low).to_f64()?;
+            Some(cl / body)
+        }).collect();
+        if vals.is_empty() { return None; }
+        Some(vals.iter().sum::<f64>() / vals.len() as f64)
+    }
+
+    /// Bar high-close spread: mean of (high - close) per bar.
+    pub fn bar_high_close_spread(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let sum: f64 = bars.iter().map(|b| (b.high - b.close).to_f64().unwrap_or(0.0)).sum();
+        Some(sum / bars.len() as f64)
+    }
+
+    /// Volume-body ratio: mean of volume / |close - open| per bar.
+    pub fn volume_body_ratio(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let vals: Vec<f64> = bars.iter().filter_map(|b| {
+            let body = (b.close - b.open).abs().to_f64()?;
+            if body == 0.0 { return None; }
+            let vol = b.volume.to_f64()?;
+            Some(vol / body)
+        }).collect();
+        if vals.is_empty() { return None; }
+        Some(vals.iter().sum::<f64>() / vals.len() as f64)
+    }
+
 }
 
 impl std::fmt::Display for OhlcvBar {
@@ -14948,5 +14994,59 @@ mod tests {
         let bars = vec![make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105))];
         let s = OhlcvBar::high_open_spread(&bars).unwrap();
         assert!((s - 10.0).abs() < 1e-9, "expected 10.0, got {}", s);
+    }
+
+    // ── round-141 ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_bar_open_low_spread_none_for_empty() {
+        assert!(OhlcvBar::bar_open_low_spread(&[]).is_none());
+    }
+
+    #[test]
+    fn test_bar_open_low_spread_basic() {
+        // open=100, low=90 → spread=10
+        let bars = vec![make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105))];
+        let s = OhlcvBar::bar_open_low_spread(&bars).unwrap();
+        assert!((s - 10.0).abs() < 1e-9, "expected 10.0, got {}", s);
+    }
+
+    #[test]
+    fn test_close_low_body_ratio_none_for_empty() {
+        assert!(OhlcvBar::close_low_body_ratio(&[]).is_none());
+    }
+
+    #[test]
+    fn test_close_low_body_ratio_basic() {
+        // open=100, close=110, low=90 → body=10, (close-low)=20 → ratio=2.0
+        let bars = vec![make_ohlcv_bar(dec!(100), dec!(115), dec!(90), dec!(110))];
+        let r = OhlcvBar::close_low_body_ratio(&bars).unwrap();
+        assert!((r - 2.0).abs() < 1e-9, "expected 2.0, got {}", r);
+    }
+
+    #[test]
+    fn test_bar_high_close_spread_none_for_empty() {
+        assert!(OhlcvBar::bar_high_close_spread(&[]).is_none());
+    }
+
+    #[test]
+    fn test_bar_high_close_spread_basic() {
+        // high=110, close=105 → spread=5
+        let bars = vec![make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105))];
+        let s = OhlcvBar::bar_high_close_spread(&bars).unwrap();
+        assert!((s - 5.0).abs() < 1e-9, "expected 5.0, got {}", s);
+    }
+
+    #[test]
+    fn test_volume_body_ratio_none_for_empty() {
+        assert!(OhlcvBar::volume_body_ratio(&[]).is_none());
+    }
+
+    #[test]
+    fn test_volume_body_ratio_basic() {
+        // volume=1, |close-open|=5 → ratio=0.2
+        let bars = vec![make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105))];
+        let r = OhlcvBar::volume_body_ratio(&bars).unwrap();
+        assert!((r - 0.2).abs() < 1e-9, "expected 0.2, got {}", r);
     }
 }

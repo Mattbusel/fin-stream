@@ -6596,6 +6596,57 @@ impl NormalizedTick {
         Some(transitions / (sided.len() - 1) as f64)
     }
 
+    // ── round-141 ────────────────────────────────────────────────────────────
+
+    /// Tick latency variance: variance of inter-tick time gaps in milliseconds.
+    pub fn tick_latency_variance(ticks: &[NormalizedTick]) -> Option<f64> {
+        if ticks.len() < 3 { return None; }
+        let gaps: Vec<f64> = ticks.windows(2)
+            .map(|w| w[1].received_at_ms.saturating_sub(w[0].received_at_ms) as f64)
+            .collect();
+        let mean = gaps.iter().sum::<f64>() / gaps.len() as f64;
+        let variance = gaps.iter().map(|&g| (g - mean).powi(2)).sum::<f64>() / gaps.len() as f64;
+        Some(variance)
+    }
+
+    /// Quantity buy fraction: fraction of total quantity from Buy-sided ticks.
+    pub fn qty_buy_fraction(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let total: f64 = ticks.iter().map(|t| t.quantity.to_f64().unwrap_or(0.0)).sum();
+        if total == 0.0 { return None; }
+        let buy: f64 = ticks.iter()
+            .filter(|t| matches!(t.side, Some(TradeSide::Buy)))
+            .map(|t| t.quantity.to_f64().unwrap_or(0.0))
+            .sum();
+        Some(buy / total)
+    }
+
+    /// Side quantity mean ratio: mean Buy qty / mean Sell qty.
+    pub fn side_qty_mean_ratio(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let buy_qtys: Vec<f64> = ticks.iter()
+            .filter(|t| matches!(t.side, Some(TradeSide::Buy)))
+            .map(|t| t.quantity.to_f64().unwrap_or(0.0))
+            .collect();
+        let sell_qtys: Vec<f64> = ticks.iter()
+            .filter(|t| matches!(t.side, Some(TradeSide::Sell)))
+            .map(|t| t.quantity.to_f64().unwrap_or(0.0))
+            .collect();
+        if buy_qtys.is_empty() || sell_qtys.is_empty() { return None; }
+        let buy_mean = buy_qtys.iter().sum::<f64>() / buy_qtys.len() as f64;
+        let sell_mean = sell_qtys.iter().sum::<f64>() / sell_qtys.len() as f64;
+        if sell_mean == 0.0 { return None; }
+        Some(buy_mean / sell_mean)
+    }
+
+    /// Price absolute mean: mean of absolute price values.
+    pub fn price_abs_mean(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() { return None; }
+        let sum: f64 = ticks.iter().map(|t| t.price.abs().to_f64().unwrap_or(0.0)).sum();
+        Some(sum / ticks.len() as f64)
+    }
+
 }
 
 
@@ -15081,5 +15132,78 @@ mod tests {
         // 2 transitions out of 2 pairs → 1.0
         let r = NormalizedTick::side_transition_rate(&[t1, t2, t3]).unwrap();
         assert!((r - 1.0).abs() < 1e-9, "expected 1.0 for alternating, got {}", r);
+    }
+
+    // ── round-141 ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_tick_latency_variance_none_for_two() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![make_tick_pq(dec!(100), dec!(1)), make_tick_pq(dec!(101), dec!(1))];
+        assert!(NormalizedTick::tick_latency_variance(&ticks).is_none());
+    }
+
+    #[test]
+    fn test_tick_latency_variance_uniform_gaps() {
+        use rust_decimal_macros::dec;
+        let mut t1 = make_tick_pq(dec!(100), dec!(1));
+        t1.received_at_ms = 1000;
+        let mut t2 = make_tick_pq(dec!(101), dec!(1));
+        t2.received_at_ms = 1010;
+        let mut t3 = make_tick_pq(dec!(102), dec!(1));
+        t3.received_at_ms = 1020;
+        // uniform gaps → variance=0
+        let v = NormalizedTick::tick_latency_variance(&[t1, t2, t3]).unwrap();
+        assert!((v - 0.0).abs() < 1e-9, "expected 0.0, got {}", v);
+    }
+
+    #[test]
+    fn test_qty_buy_fraction_none_for_zero_total() {
+        assert!(NormalizedTick::qty_buy_fraction(&[]).is_none());
+    }
+
+    #[test]
+    fn test_qty_buy_fraction_all_buy() {
+        use rust_decimal_macros::dec;
+        use crate::tick::TradeSide;
+        let mut t = make_tick_pq(dec!(100), dec!(5));
+        t.side = Some(TradeSide::Buy);
+        let f = NormalizedTick::qty_buy_fraction(&[t]).unwrap();
+        assert!((f - 1.0).abs() < 1e-9, "expected 1.0, got {}", f);
+    }
+
+    #[test]
+    fn test_side_qty_mean_ratio_none_for_no_sides() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![make_tick_pq(dec!(100), dec!(1))];
+        assert!(NormalizedTick::side_qty_mean_ratio(&ticks).is_none());
+    }
+
+    #[test]
+    fn test_side_qty_mean_ratio_equal_sides() {
+        use rust_decimal_macros::dec;
+        use crate::tick::TradeSide;
+        let mut buy = make_tick_pq(dec!(100), dec!(4));
+        buy.side = Some(TradeSide::Buy);
+        let mut sell = make_tick_pq(dec!(100), dec!(4));
+        sell.side = Some(TradeSide::Sell);
+        let r = NormalizedTick::side_qty_mean_ratio(&[buy, sell]).unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "expected 1.0, got {}", r);
+    }
+
+    #[test]
+    fn test_price_abs_mean_none_for_empty() {
+        assert!(NormalizedTick::price_abs_mean(&[]).is_none());
+    }
+
+    #[test]
+    fn test_price_abs_mean_basic() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(200), dec!(1)),
+        ];
+        let m = NormalizedTick::price_abs_mean(&ticks).unwrap();
+        assert!((m - 150.0).abs() < 1e-9, "expected 150.0, got {}", m);
     }
 }
