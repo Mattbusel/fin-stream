@@ -9,6 +9,30 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.10.36] - 2026-03-20
+
+### Added
+
+**`tick` module — `NormalizedTick` analytics (round 185)**
+- `NormalizedTick::tick_side_volume_mean(ticks)` — mean buy quantity minus mean sell quantity.
+- `NormalizedTick::price_max_consecutive_up(ticks)` — longest consecutive run of rising prices.
+- `NormalizedTick::tick_qty_above_median(ticks)` — fraction of ticks with quantity above the median.
+- `NormalizedTick::price_return_std(ticks)` — standard deviation of price returns.
+
+**`ohlcv` module — `OhlcvBar` analytics (round 185)**
+- `OhlcvBar::bar_open_close_std(bars)` — standard deviation of (close - open) per bar.
+- `OhlcvBar::bar_hl_return(bars)` — mean (high - low) / open: range as fraction of open.
+- `OhlcvBar::bar_shadow_body_mean(bars)` — mean (upper + lower shadow) / body per bar.
+- `OhlcvBar::bar_close_range_std(bars)` — standard deviation of close-to-close differences.
+
+**`norm` module — `MinMaxNormalizer` + `ZScoreNormalizer` analytics (round 185)**
+- `window_softmax_entropy()` — entropy of the softmax distribution over window values.
+- `window_argmax_pos()` — 0-based index of the maximum value in the window.
+- `window_below_zero_count()` — count of window values strictly below zero.
+- `window_above_zero_count()` — count of window values strictly above zero.
+
+---
+
 ## [2.10.35] - 2026-03-20
 
 ### Added

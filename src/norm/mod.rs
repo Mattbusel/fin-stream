@@ -6508,6 +6508,43 @@ impl MinMaxNormalizer {
         Some(vals.iter().filter(|&&v| v < mean).count() as f64)
     }
 
+    /// Softmax entropy of window values: -sum(p_i * log(p_i)) where p = softmax(vals).
+    pub fn window_softmax_entropy(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let max = vals.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        let exps: Vec<f64> = vals.iter().map(|v| (v - max).exp()).collect();
+        let sum: f64 = exps.iter().sum();
+        if sum == 0.0 { return None; }
+        let probs: Vec<f64> = exps.iter().map(|e| e / sum).collect();
+        let entropy = probs.iter().filter(|&&p| p > 0.0).map(|&p| -p * p.ln()).sum();
+        Some(entropy)
+    }
+
+    /// Index (0-based) of the maximum value in the window.
+    pub fn window_argmax_pos(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(f64::NEG_INFINITY)).collect();
+        let idx = vals.iter().enumerate().max_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(std::cmp::Ordering::Equal)).map(|(i, _)| i)?;
+        Some(idx as f64)
+    }
+
+    /// Count of window values strictly below zero.
+    pub fn window_below_zero_count(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        Some(self.window.iter().filter(|v| v.to_f64().unwrap_or(0.0) < 0.0).count() as f64)
+    }
+
+    /// Count of window values strictly above zero.
+    pub fn window_above_zero_count(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        Some(self.window.iter().filter(|v| v.to_f64().unwrap_or(0.0) > 0.0).count() as f64)
+    }
+
 }
 
 #[cfg(test)]
@@ -14150,6 +14187,65 @@ mod tests {
         let r = n.window_below_mean_count().unwrap();
         assert!((r - 0.0).abs() < 1e-9, "expected 0.0, got {}", r);
     }
+
+    #[test]
+    fn test_minmax_window_softmax_entropy_none_for_empty() {
+        let n = norm(4);
+        assert!(n.window_softmax_entropy().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_softmax_entropy_uniform_max() {
+        // Equal values → uniform softmax → max entropy = ln(n)
+        let mut n = norm(4);
+        for v in [dec!(2), dec!(2), dec!(2), dec!(2)] { n.update(v); }
+        let r = n.window_softmax_entropy().unwrap();
+        let expected = (4.0f64).ln();
+        assert!((r - expected).abs() < 1e-6, "expected {}, got {}", expected, r);
+    }
+
+    #[test]
+    fn test_minmax_window_argmax_pos_none_for_empty() {
+        let n = norm(4);
+        assert!(n.window_argmax_pos().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_argmax_pos_last_is_max() {
+        // 1, 2, 3, 4 → argmax=3
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let r = n.window_argmax_pos().unwrap();
+        assert!((r - 3.0).abs() < 1e-9, "expected 3.0, got {}", r);
+    }
+
+    #[test]
+    fn test_minmax_window_below_zero_count_none_for_empty() {
+        let n = norm(4);
+        assert!(n.window_below_zero_count().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_below_zero_count_all_positive_zero() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let r = n.window_below_zero_count().unwrap();
+        assert!((r - 0.0).abs() < 1e-9, "expected 0.0, got {}", r);
+    }
+
+    #[test]
+    fn test_minmax_window_above_zero_count_none_for_empty() {
+        let n = norm(4);
+        assert!(n.window_above_zero_count().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_above_zero_count_all_positive() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let r = n.window_above_zero_count().unwrap();
+        assert!((r - 4.0).abs() < 1e-9, "expected 4.0, got {}", r);
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -20606,6 +20702,43 @@ impl ZScoreNormalizer {
         let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
         let mean = vals.iter().sum::<f64>() / vals.len() as f64;
         Some(vals.iter().filter(|&&v| v < mean).count() as f64)
+    }
+
+    /// Softmax entropy of window values: -sum(p_i * log(p_i)) where p = softmax(vals).
+    pub fn window_softmax_entropy(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let max = vals.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        let exps: Vec<f64> = vals.iter().map(|v| (v - max).exp()).collect();
+        let sum: f64 = exps.iter().sum();
+        if sum == 0.0 { return None; }
+        let probs: Vec<f64> = exps.iter().map(|e| e / sum).collect();
+        let entropy = probs.iter().filter(|&&p| p > 0.0).map(|&p| -p * p.ln()).sum();
+        Some(entropy)
+    }
+
+    /// Index (0-based) of the maximum value in the window.
+    pub fn window_argmax_pos(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(f64::NEG_INFINITY)).collect();
+        let idx = vals.iter().enumerate().max_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(std::cmp::Ordering::Equal)).map(|(i, _)| i)?;
+        Some(idx as f64)
+    }
+
+    /// Count of window values strictly below zero.
+    pub fn window_below_zero_count(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        Some(self.window.iter().filter(|v| v.to_f64().unwrap_or(0.0) < 0.0).count() as f64)
+    }
+
+    /// Count of window values strictly above zero.
+    pub fn window_above_zero_count(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        Some(self.window.iter().filter(|v| v.to_f64().unwrap_or(0.0) > 0.0).count() as f64)
     }
 
 }
@@ -28205,5 +28338,62 @@ mod zscore_stability_tests {
         for v in [dec!(5), dec!(5), dec!(5), dec!(5)] { n.update(v); }
         let r = n.window_below_mean_count().unwrap();
         assert!((r - 0.0).abs() < 1e-9, "expected 0.0, got {}", r);
+    }
+
+    #[test]
+    fn test_zscore_window_softmax_entropy_none_for_empty() {
+        let n = znorm(4);
+        assert!(n.window_softmax_entropy().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_softmax_entropy_uniform_max() {
+        let mut n = znorm(4);
+        for v in [dec!(2), dec!(2), dec!(2), dec!(2)] { n.update(v); }
+        let r = n.window_softmax_entropy().unwrap();
+        let expected = (4.0f64).ln();
+        assert!((r - expected).abs() < 1e-6, "expected {}, got {}", expected, r);
+    }
+
+    #[test]
+    fn test_zscore_window_argmax_pos_none_for_empty() {
+        let n = znorm(4);
+        assert!(n.window_argmax_pos().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_argmax_pos_last_is_max() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let r = n.window_argmax_pos().unwrap();
+        assert!((r - 3.0).abs() < 1e-9, "expected 3.0, got {}", r);
+    }
+
+    #[test]
+    fn test_zscore_window_below_zero_count_none_for_empty() {
+        let n = znorm(4);
+        assert!(n.window_below_zero_count().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_below_zero_count_all_positive_zero() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let r = n.window_below_zero_count().unwrap();
+        assert!((r - 0.0).abs() < 1e-9, "expected 0.0, got {}", r);
+    }
+
+    #[test]
+    fn test_zscore_window_above_zero_count_none_for_empty() {
+        let n = znorm(4);
+        assert!(n.window_above_zero_count().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_above_zero_count_all_positive() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let r = n.window_above_zero_count().unwrap();
+        assert!((r - 4.0).abs() < 1e-9, "expected 4.0, got {}", r);
     }
 }
