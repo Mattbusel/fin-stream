@@ -8443,6 +8443,71 @@ impl NormalizedTick {
         Some(ups.iter().sum::<f64>() / ups.len() as f64)
     }
 
+    // ── round-172 ────────────────────────────────────────────────────────────
+
+    /// Fraction of price moves that represent a new local minimum vs prior price.
+    pub fn price_drawdown_rate(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 2 { return None; }
+        let prices: Vec<f64> = ticks.iter().filter_map(|t| t.price.to_f64()).collect();
+        if prices.len() < 2 { return None; }
+        let mut running_max = prices[0];
+        let drawdowns = prices[1..].iter().filter(|&&p| {
+            if p < running_max { true } else { running_max = p; false }
+        }).count();
+        Some(drawdowns as f64 / (prices.len() - 1) as f64)
+    }
+
+    /// Mean price divided by mean quantity (price-weighted drift ratio).
+    pub fn tick_price_drift(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() { return None; }
+        let prices: Vec<f64> = ticks.iter().filter_map(|t| t.price.to_f64()).collect();
+        let qtys: Vec<f64> = ticks.iter().filter_map(|t| t.quantity.to_f64()).collect();
+        if prices.is_empty() || qtys.is_empty() { return None; }
+        let mean_price = prices.iter().sum::<f64>() / prices.len() as f64;
+        let mean_qty = qtys.iter().sum::<f64>() / qtys.len() as f64;
+        if mean_qty == 0.0 { return None; }
+        Some(mean_price / mean_qty)
+    }
+
+    /// RSI-proxy: mean_up / (mean_up + mean_down) * 100 over tick price changes.
+    pub fn price_rsi_proxy(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 2 { return None; }
+        let diffs: Vec<f64> = ticks.windows(2).filter_map(|w| {
+            let a = w[0].price.to_f64()?;
+            let b = w[1].price.to_f64()?;
+            Some(b - a)
+        }).collect();
+        let ups: Vec<f64> = diffs.iter().filter(|&&d| d > 0.0).copied().collect();
+        let downs: Vec<f64> = diffs.iter().filter(|&&d| d < 0.0).map(|d| d.abs()).collect();
+        let mean_up = if ups.is_empty() { 0.0 } else { ups.iter().sum::<f64>() / ups.len() as f64 };
+        let mean_down = if downs.is_empty() { 0.0 } else { downs.iter().sum::<f64>() / downs.len() as f64 };
+        let total = mean_up + mean_down;
+        if total == 0.0 { return None; }
+        Some(mean_up / total * 100.0)
+    }
+
+    /// Fraction of ticks where price crosses its running mean (mean cross rate).
+    pub fn price_mean_cross_rate(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 2 { return None; }
+        let prices: Vec<f64> = ticks.iter().filter_map(|t| t.price.to_f64()).collect();
+        if prices.len() < 2 { return None; }
+        let mut crossings = 0usize;
+        let mut sum = prices[0];
+        let mut prev_above = prices[0] > sum;
+        for i in 1..prices.len() {
+            sum += prices[i];
+            let running_mean = sum / (i + 1) as f64;
+            let above = prices[i] > running_mean;
+            if above != prev_above { crossings += 1; }
+            prev_above = above;
+        }
+        Some(crossings as f64 / (prices.len() - 1) as f64)
+    }
+
 }
 
 
@@ -19212,5 +19277,77 @@ mod tests {
         ];
         let p = NormalizedTick::price_up_pressure(&ticks).unwrap();
         assert!((p - 3.0).abs() < 1e-9, "expected 3.0, got {}", p);
+    }
+
+    // ── round-172 tests ──────────────────────────────────────────────────────
+
+    #[test]
+    fn test_price_drawdown_rate_none_for_single() {
+        use rust_decimal_macros::dec;
+        assert!(NormalizedTick::price_drawdown_rate(&[make_tick_pq(dec!(100), dec!(1))]).is_none());
+    }
+
+    #[test]
+    fn test_price_drawdown_rate_monotone_up_zero() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(101), dec!(1)),
+            make_tick_pq(dec!(102), dec!(1)),
+        ];
+        let r = NormalizedTick::price_drawdown_rate(&ticks).unwrap();
+        assert!((r - 0.0).abs() < 1e-9, "expected 0.0, got {}", r);
+    }
+
+    #[test]
+    fn test_tick_price_drift_none_for_empty() {
+        assert!(NormalizedTick::tick_price_drift(&[]).is_none());
+    }
+
+    #[test]
+    fn test_tick_price_drift_unit_qty() {
+        use rust_decimal_macros::dec;
+        // price=100, qty=1 → drift=100
+        let ticks = vec![make_tick_pq(dec!(100), dec!(1))];
+        let d = NormalizedTick::tick_price_drift(&ticks).unwrap();
+        assert!((d - 100.0).abs() < 1e-9, "expected 100.0, got {}", d);
+    }
+
+    #[test]
+    fn test_price_rsi_proxy_none_for_single() {
+        use rust_decimal_macros::dec;
+        assert!(NormalizedTick::price_rsi_proxy(&[make_tick_pq(dec!(100), dec!(1))]).is_none());
+    }
+
+    #[test]
+    fn test_price_rsi_proxy_all_up_100() {
+        use rust_decimal_macros::dec;
+        // all ups → mean_down=0 → total=mean_up → RSI=100
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(101), dec!(1)),
+            make_tick_pq(dec!(102), dec!(1)),
+        ];
+        let r = NormalizedTick::price_rsi_proxy(&ticks).unwrap();
+        assert!((r - 100.0).abs() < 1e-9, "expected 100.0, got {}", r);
+    }
+
+    #[test]
+    fn test_price_mean_cross_rate_none_for_single() {
+        use rust_decimal_macros::dec;
+        assert!(NormalizedTick::price_mean_cross_rate(&[make_tick_pq(dec!(100), dec!(1))]).is_none());
+    }
+
+    #[test]
+    fn test_price_mean_cross_rate_constant_zero() {
+        use rust_decimal_macros::dec;
+        // constant prices → running mean equals price → no crossings (all equal)
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(100), dec!(1)),
+        ];
+        let r = NormalizedTick::price_mean_cross_rate(&ticks).unwrap();
+        assert!((r - 0.0).abs() < 1e-9, "expected 0.0, got {}", r);
     }
 }

@@ -9,6 +9,30 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.10.23] - 2026-03-20
+
+### Added
+
+**`tick` module — `NormalizedTick` analytics (round 172)**
+- `NormalizedTick::price_drawdown_rate(ticks)` — fraction of price moves that set a new local minimum.
+- `NormalizedTick::tick_price_drift(ticks)` — mean price / mean quantity ratio.
+- `NormalizedTick::price_rsi_proxy(ticks)` — RSI-like ratio: mean_up / (mean_up + mean_down) * 100.
+- `NormalizedTick::price_mean_cross_rate(ticks)` — fraction of ticks crossing the running mean.
+
+**`ohlcv` module — `OhlcvBar` analytics (round 172)**
+- `OhlcvBar::bar_candle_efficiency(bars)` — mean |close-open| / range per bar.
+- `OhlcvBar::bar_momentum_score(bars)` — sum of (close-open)/range per bar (signed directional).
+- `OhlcvBar::bar_open_close_pct(bars)` — mean (close-open)/open*100 per bar.
+- `OhlcvBar::bar_high_close_ratio(bars)` — mean high/close per bar.
+
+**`norm` module — `MinMaxNormalizer` + `ZScoreNormalizer` analytics (round 172)**
+- `window_sortino_proxy()` — mean / std-of-negative-diffs (Sortino-like ratio).
+- `window_mean_above_mean()` — mean of values above the window mean.
+- `window_parabolic_trend()` — mean second derivative of window values.
+- `window_relative_strength()` — sum-of-ups / sum-of-abs-downs (RS in RSI formula).
+
+---
+
 ## [2.10.22] - 2026-03-20
 
 ### Added

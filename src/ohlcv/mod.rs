@@ -8130,6 +8130,70 @@ impl OhlcvBar {
         Some(returns.iter().sum::<f64>() / returns.len() as f64)
     }
 
+    // ── round-172 ────────────────────────────────────────────────────────────
+
+    /// Mean of |close - open| / (high - low) per bar (candle efficiency / body ratio).
+    pub fn bar_candle_efficiency(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let vals: Vec<f64> = bars.iter().filter_map(|b| {
+            let o = b.open.to_f64()?;
+            let h = b.high.to_f64()?;
+            let l = b.low.to_f64()?;
+            let c = b.close.to_f64()?;
+            let range = h - l;
+            if range == 0.0 { return None; }
+            Some((c - o).abs() / range)
+        }).collect();
+        if vals.is_empty() { return None; }
+        Some(vals.iter().sum::<f64>() / vals.len() as f64)
+    }
+
+    /// Sum of (close - open) / range per bar — signed directional momentum score.
+    pub fn bar_momentum_score(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let vals: Vec<f64> = bars.iter().filter_map(|b| {
+            let o = b.open.to_f64()?;
+            let h = b.high.to_f64()?;
+            let l = b.low.to_f64()?;
+            let c = b.close.to_f64()?;
+            let range = h - l;
+            if range == 0.0 { return None; }
+            Some((c - o) / range)
+        }).collect();
+        if vals.is_empty() { return None; }
+        Some(vals.iter().sum::<f64>())
+    }
+
+    /// Mean of (close - open) / open * 100 per bar (open-to-close pct change).
+    pub fn bar_open_close_pct(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let vals: Vec<f64> = bars.iter().filter_map(|b| {
+            let o = b.open.to_f64()?;
+            let c = b.close.to_f64()?;
+            if o == 0.0 { return None; }
+            Some((c - o) / o * 100.0)
+        }).collect();
+        if vals.is_empty() { return None; }
+        Some(vals.iter().sum::<f64>() / vals.len() as f64)
+    }
+
+    /// Mean of high / close per bar (high-to-close ratio).
+    pub fn bar_high_close_ratio(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let vals: Vec<f64> = bars.iter().filter_map(|b| {
+            let h = b.high.to_f64()?;
+            let c = b.close.to_f64()?;
+            if c == 0.0 { return None; }
+            Some(h / c)
+        }).collect();
+        if vals.is_empty() { return None; }
+        Some(vals.iter().sum::<f64>() / vals.len() as f64)
+    }
+
 }
 
 impl std::fmt::Display for OhlcvBar {
@@ -18507,5 +18571,59 @@ mod tests {
         ];
         let r = OhlcvBar::bar_close_return_mean(&bars).unwrap();
         assert!((r - 0.0).abs() < 1e-9, "expected 0.0, got {}", r);
+    }
+
+    // ── round-172 tests ──────────────────────────────────────────────────────
+
+    #[test]
+    fn test_bar_candle_efficiency_none_for_empty() {
+        assert!(OhlcvBar::bar_candle_efficiency(&[]).is_none());
+    }
+
+    #[test]
+    fn test_bar_candle_efficiency_doji_zero() {
+        // open=close → |close-open|/range = 0
+        let bar = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100));
+        let e = OhlcvBar::bar_candle_efficiency(&[bar]).unwrap();
+        assert!((e - 0.0).abs() < 1e-9, "expected 0.0, got {}", e);
+    }
+
+    #[test]
+    fn test_bar_momentum_score_none_for_empty() {
+        assert!(OhlcvBar::bar_momentum_score(&[]).is_none());
+    }
+
+    #[test]
+    fn test_bar_momentum_score_bullish_positive() {
+        // close>open → positive score
+        let bar = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(108));
+        // (108-100)/(110-90) = 8/20 = 0.4
+        let m = OhlcvBar::bar_momentum_score(&[bar]).unwrap();
+        assert!(m > 0.0, "expected positive, got {}", m);
+    }
+
+    #[test]
+    fn test_bar_open_close_pct_none_for_empty() {
+        assert!(OhlcvBar::bar_open_close_pct(&[]).is_none());
+    }
+
+    #[test]
+    fn test_bar_open_close_pct_doji_zero() {
+        let bar = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100));
+        let p = OhlcvBar::bar_open_close_pct(&[bar]).unwrap();
+        assert!((p - 0.0).abs() < 1e-9, "expected 0.0, got {}", p);
+    }
+
+    #[test]
+    fn test_bar_high_close_ratio_none_for_empty() {
+        assert!(OhlcvBar::bar_high_close_ratio(&[]).is_none());
+    }
+
+    #[test]
+    fn test_bar_high_close_ratio_close_equals_high() {
+        // high=close=110 → ratio=1.0
+        let bar = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(110));
+        let r = OhlcvBar::bar_high_close_ratio(&[bar]).unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "expected 1.0, got {}", r);
     }
 }

@@ -5908,6 +5908,59 @@ impl MinMaxNormalizer {
         Some(last_diff / first_diff)
     }
 
+    // ── round-172 ────────────────────────────────────────────────────────────
+
+    /// Sortino-proxy: mean / std_of_negative_diffs. None if no negative changes.
+    pub fn window_sortino_proxy(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let n = vals.len() as f64;
+        let mean = vals.iter().sum::<f64>() / n;
+        let neg_diffs: Vec<f64> = vals.windows(2)
+            .filter_map(|w| { let d = w[1] - w[0]; if d < 0.0 { Some(d) } else { None } })
+            .collect();
+        if neg_diffs.is_empty() { return None; }
+        let nd = neg_diffs.len() as f64;
+        let neg_mean = neg_diffs.iter().sum::<f64>() / nd;
+        let neg_std = (neg_diffs.iter().map(|d| (d - neg_mean).powi(2)).sum::<f64>() / nd).sqrt();
+        if neg_std == 0.0 { return None; }
+        Some(mean / neg_std)
+    }
+
+    /// Mean of window values that are above the overall mean (upper tail mean).
+    pub fn window_mean_above_mean(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let mean = vals.iter().sum::<f64>() / vals.len() as f64;
+        let above: Vec<f64> = vals.iter().filter(|&&v| v > mean).copied().collect();
+        if above.is_empty() { return None; }
+        Some(above.iter().sum::<f64>() / above.len() as f64)
+    }
+
+    /// Parabolic trend score: mean(diffs[i+1] - diffs[i]) — mean second derivative.
+    pub fn window_parabolic_trend(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 3 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let diffs: Vec<f64> = vals.windows(2).map(|w| w[1] - w[0]).collect();
+        let second_diffs: Vec<f64> = diffs.windows(2).map(|w| w[1] - w[0]).collect();
+        if second_diffs.is_empty() { return None; }
+        Some(second_diffs.iter().sum::<f64>() / second_diffs.len() as f64)
+    }
+
+    /// Relative strength: sum_of_ups / sum_of_abs_downs (RS used in RSI formula).
+    pub fn window_relative_strength(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let up_sum: f64 = vals.windows(2).filter_map(|w| { let d = w[1]-w[0]; if d > 0.0 { Some(d) } else { None } }).sum();
+        let down_sum: f64 = vals.windows(2).filter_map(|w| { let d = w[1]-w[0]; if d < 0.0 { Some(d.abs()) } else { None } }).sum();
+        if down_sum == 0.0 { return None; }
+        Some(up_sum / down_sum)
+    }
+
 }
 
 #[cfg(test)]
@@ -12776,6 +12829,65 @@ mod tests {
         let r = n.window_diff_ratio().unwrap();
         assert!((r - 1.0).abs() < 1e-9, "expected 1.0, got {}", r);
     }
+
+    // ── round-172 tests ──────────────────────────────────────────────────────
+
+    #[test]
+    fn test_minmax_window_sortino_proxy_none_for_single() {
+        let mut n = norm(4);
+        n.update(dec!(5));
+        assert!(n.window_sortino_proxy().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_sortino_proxy_all_up_none() {
+        let mut n = norm(3);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        assert!(n.window_sortino_proxy().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_mean_above_mean_none_for_empty() {
+        let n = norm(4);
+        assert!(n.window_mean_above_mean().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_mean_above_mean_constant_none() {
+        let mut n = norm(3);
+        for v in [dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        assert!(n.window_mean_above_mean().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_parabolic_trend_none_for_short() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2)] { n.update(v); }
+        assert!(n.window_parabolic_trend().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_parabolic_trend_linear_zero() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        // constant diffs → second diffs=0 → parabolic=0
+        let p = n.window_parabolic_trend().unwrap();
+        assert!((p - 0.0).abs() < 1e-9, "expected 0.0, got {}", p);
+    }
+
+    #[test]
+    fn test_minmax_window_relative_strength_none_for_single() {
+        let mut n = norm(4);
+        n.update(dec!(5));
+        assert!(n.window_relative_strength().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_relative_strength_all_up_none() {
+        let mut n = norm(3);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        assert!(n.window_relative_strength().is_none());
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -18632,6 +18744,59 @@ impl ZScoreNormalizer {
         let last_diff = vals[vals.len() - 1] - vals[vals.len() - 2];
         if first_diff.abs() < 1e-12 { return None; }
         Some(last_diff / first_diff)
+    }
+
+    // ── round-172 ────────────────────────────────────────────────────────────
+
+    /// Sortino-proxy: mean / std_of_negative_diffs. None if no negative changes.
+    pub fn window_sortino_proxy(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let n = vals.len() as f64;
+        let mean = vals.iter().sum::<f64>() / n;
+        let neg_diffs: Vec<f64> = vals.windows(2)
+            .filter_map(|w| { let d = w[1] - w[0]; if d < 0.0 { Some(d) } else { None } })
+            .collect();
+        if neg_diffs.is_empty() { return None; }
+        let nd = neg_diffs.len() as f64;
+        let neg_mean = neg_diffs.iter().sum::<f64>() / nd;
+        let neg_std = (neg_diffs.iter().map(|d| (d - neg_mean).powi(2)).sum::<f64>() / nd).sqrt();
+        if neg_std == 0.0 { return None; }
+        Some(mean / neg_std)
+    }
+
+    /// Mean of window values that are above the overall mean (upper tail mean).
+    pub fn window_mean_above_mean(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let mean = vals.iter().sum::<f64>() / vals.len() as f64;
+        let above: Vec<f64> = vals.iter().filter(|&&v| v > mean).copied().collect();
+        if above.is_empty() { return None; }
+        Some(above.iter().sum::<f64>() / above.len() as f64)
+    }
+
+    /// Parabolic trend score: mean(diffs[i+1] - diffs[i]) — mean second derivative.
+    pub fn window_parabolic_trend(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 3 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let diffs: Vec<f64> = vals.windows(2).map(|w| w[1] - w[0]).collect();
+        let second_diffs: Vec<f64> = diffs.windows(2).map(|w| w[1] - w[0]).collect();
+        if second_diffs.is_empty() { return None; }
+        Some(second_diffs.iter().sum::<f64>() / second_diffs.len() as f64)
+    }
+
+    /// Relative strength: sum_of_ups / sum_of_abs_downs (RS used in RSI formula).
+    pub fn window_relative_strength(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let up_sum: f64 = vals.windows(2).filter_map(|w| { let d = w[1]-w[0]; if d > 0.0 { Some(d) } else { None } }).sum();
+        let down_sum: f64 = vals.windows(2).filter_map(|w| { let d = w[1]-w[0]; if d < 0.0 { Some(d.abs()) } else { None } }).sum();
+        if down_sum == 0.0 { return None; }
+        Some(up_sum / down_sum)
     }
 
 }
@@ -25471,5 +25636,63 @@ mod zscore_stability_tests {
         for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
         let r = n.window_diff_ratio().unwrap();
         assert!((r - 1.0).abs() < 1e-9, "expected 1.0, got {}", r);
+    }
+
+    // ── round-172 tests ──────────────────────────────────────────────────────
+
+    #[test]
+    fn test_zscore_window_sortino_proxy_none_for_single() {
+        let mut n = znorm(4);
+        n.update(dec!(5));
+        assert!(n.window_sortino_proxy().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_sortino_proxy_all_up_none() {
+        let mut n = znorm(3);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        assert!(n.window_sortino_proxy().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_mean_above_mean_none_for_empty() {
+        let n = znorm(4);
+        assert!(n.window_mean_above_mean().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_mean_above_mean_constant_none() {
+        let mut n = znorm(3);
+        for v in [dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        assert!(n.window_mean_above_mean().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_parabolic_trend_none_for_short() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2)] { n.update(v); }
+        assert!(n.window_parabolic_trend().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_parabolic_trend_linear_zero() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let p = n.window_parabolic_trend().unwrap();
+        assert!((p - 0.0).abs() < 1e-9, "expected 0.0, got {}", p);
+    }
+
+    #[test]
+    fn test_zscore_window_relative_strength_none_for_single() {
+        let mut n = znorm(4);
+        n.update(dec!(5));
+        assert!(n.window_relative_strength().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_relative_strength_all_up_none() {
+        let mut n = znorm(3);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        assert!(n.window_relative_strength().is_none());
     }
 }
