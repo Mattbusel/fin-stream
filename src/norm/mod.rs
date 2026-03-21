@@ -2772,6 +2772,195 @@ mod tests {
         let iqr = n.quantile_range().unwrap();
         assert!(iqr >= 0.0, "IQR should be non-negative, got {}", iqr);
     }
+
+    // ── MinMaxNormalizer::upper_quartile / lower_quartile ─────────────────────
+
+    #[test]
+    fn test_minmax_upper_quartile_none_for_empty() {
+        assert!(norm(4).upper_quartile().is_none());
+    }
+
+    #[test]
+    fn test_minmax_lower_quartile_none_for_empty() {
+        assert!(norm(4).lower_quartile().is_none());
+    }
+
+    #[test]
+    fn test_minmax_upper_ge_lower_quartile() {
+        let mut n = norm(8);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4), dec!(5), dec!(6), dec!(7), dec!(8)] {
+            n.update(v);
+        }
+        let q3 = n.upper_quartile().unwrap();
+        let q1 = n.lower_quartile().unwrap();
+        assert!(q3 >= q1, "Q3 ({}) should be >= Q1 ({})", q3, q1);
+    }
+
+    // ── MinMaxNormalizer::sign_change_rate ────────────────────────────────────
+
+    #[test]
+    fn test_minmax_sign_change_rate_none_for_fewer_than_3() {
+        let mut n = norm(4);
+        n.update(dec!(1));
+        n.update(dec!(2));
+        assert!(n.sign_change_rate().is_none());
+    }
+
+    #[test]
+    fn test_minmax_sign_change_rate_one_for_zigzag() {
+        let mut n = norm(5);
+        // 1, 3, 1, 3, 1 → diffs: +,−,+,− → every adjacent pair flips → 1.0
+        for v in [dec!(1), dec!(3), dec!(1), dec!(3), dec!(1)] { n.update(v); }
+        let r = n.sign_change_rate().unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "zigzag should give 1.0, got {}", r);
+    }
+
+    #[test]
+    fn test_minmax_sign_change_rate_zero_for_monotone() {
+        let mut n = norm(5);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4), dec!(5)] { n.update(v); }
+        let r = n.sign_change_rate().unwrap();
+        assert!((r - 0.0).abs() < 1e-9, "monotone should give 0.0, got {}", r);
+    }
+
+    // ── round-79 ─────────────────────────────────────────────────────────────
+
+    // ── MinMaxNormalizer::consecutive_below_mean ──────────────────────────────
+
+    #[test]
+    fn test_consecutive_below_mean_none_for_single_value() {
+        let mut n = norm(5);
+        n.update(dec!(10));
+        assert!(n.consecutive_below_mean().is_none());
+    }
+
+    #[test]
+    fn test_consecutive_below_mean_zero_when_latest_above_mean() {
+        let mut n = norm(5);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4), dec!(100)] { n.update(v); }
+        let c = n.consecutive_below_mean().unwrap();
+        assert_eq!(c, 0, "latest above mean → streak=0, got {}", c);
+    }
+
+    #[test]
+    fn test_consecutive_below_mean_counts_trailing_below() {
+        let mut n = norm(5);
+        for v in [dec!(100), dec!(100), dec!(1), dec!(1), dec!(1)] { n.update(v); }
+        let c = n.consecutive_below_mean().unwrap();
+        assert!(c >= 3, "last 3 below mean → streak>=3, got {}", c);
+    }
+
+    // ── MinMaxNormalizer::drift_rate ──────────────────────────────────────────
+
+    #[test]
+    fn test_drift_rate_none_for_single_value() {
+        let mut n = norm(5);
+        n.update(dec!(10));
+        assert!(n.drift_rate().is_none());
+    }
+
+    #[test]
+    fn test_drift_rate_positive_for_rising_series() {
+        let mut n = norm(6);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4), dec!(5), dec!(6)] { n.update(v); }
+        let d = n.drift_rate().unwrap();
+        assert!(d > 0.0, "rising series → positive drift, got {}", d);
+    }
+
+    #[test]
+    fn test_drift_rate_negative_for_falling_series() {
+        let mut n = norm(6);
+        for v in [dec!(6), dec!(5), dec!(4), dec!(3), dec!(2), dec!(1)] { n.update(v); }
+        let d = n.drift_rate().unwrap();
+        assert!(d < 0.0, "falling series → negative drift, got {}", d);
+    }
+
+    // ── MinMaxNormalizer::peak_to_trough_ratio ────────────────────────────────
+
+    #[test]
+    fn test_peak_to_trough_ratio_none_for_empty() {
+        assert!(norm(4).peak_to_trough_ratio().is_none());
+    }
+
+    #[test]
+    fn test_peak_to_trough_ratio_one_for_constant() {
+        let mut n = norm(4);
+        for v in [dec!(10), dec!(10), dec!(10), dec!(10)] { n.update(v); }
+        let r = n.peak_to_trough_ratio().unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "constant → ratio=1, got {}", r);
+    }
+
+    #[test]
+    fn test_peak_to_trough_ratio_above_one_for_spread() {
+        let mut n = norm(4);
+        for v in [dec!(10), dec!(20), dec!(30), dec!(40)] { n.update(v); }
+        let r = n.peak_to_trough_ratio().unwrap();
+        assert!(r > 1.0, "spread → ratio>1, got {}", r);
+    }
+
+    // ── MinMaxNormalizer::normalized_deviation ────────────────────────────────
+
+    #[test]
+    fn test_normalized_deviation_none_for_empty() {
+        assert!(norm(4).normalized_deviation().is_none());
+    }
+
+    #[test]
+    fn test_normalized_deviation_none_for_constant() {
+        let mut n = norm(4);
+        for v in [dec!(5), dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        assert!(n.normalized_deviation().is_none());
+    }
+
+    #[test]
+    fn test_normalized_deviation_positive_for_latest_above_mean() {
+        let mut n = norm(5);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4), dec!(10)] { n.update(v); }
+        let d = n.normalized_deviation().unwrap();
+        assert!(d > 0.0, "latest above mean → positive deviation, got {}", d);
+    }
+
+    // ── MinMaxNormalizer::window_cv_pct ───────────────────────────────────────
+
+    #[test]
+    fn test_window_cv_pct_none_for_single_value() {
+        let mut n = norm(5);
+        n.update(dec!(10));
+        assert!(n.window_cv_pct().is_none());
+    }
+
+    #[test]
+    fn test_window_cv_pct_positive_for_varied_values() {
+        let mut n = norm(4);
+        for v in [dec!(10), dec!(20), dec!(30), dec!(40)] { n.update(v); }
+        let cv = n.window_cv_pct().unwrap();
+        assert!(cv > 0.0, "expected positive CV%, got {}", cv);
+    }
+
+    // ── MinMaxNormalizer::latest_rank_pct ─────────────────────────────────────
+
+    #[test]
+    fn test_latest_rank_pct_none_for_single_value() {
+        let mut n = norm(5);
+        n.update(dec!(10));
+        assert!(n.latest_rank_pct().is_none());
+    }
+
+    #[test]
+    fn test_latest_rank_pct_one_for_max_value() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(100)] { n.update(v); }
+        let r = n.latest_rank_pct().unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "latest is max → rank=1, got {}", r);
+    }
+
+    #[test]
+    fn test_latest_rank_pct_zero_for_min_value() {
+        let mut n = norm(4);
+        for v in [dec!(10), dec!(20), dec!(30), dec!(1)] { n.update(v); }
+        let r = n.latest_rank_pct().unwrap();
+        assert!(r.abs() < 1e-9, "latest is min → rank=0, got {}", r);
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -5799,5 +5988,54 @@ mod zscore_stability_tests {
         for v in [dec!(1), dec!(2), dec!(3), dec!(4), dec!(5)] { n.update(v); }
         let iqr = n.quantile_range().unwrap();
         assert!(iqr >= 0.0, "IQR should be non-negative, got {}", iqr);
+    }
+
+    // ── ZScoreNormalizer::upper_quartile / lower_quartile ─────────────────────
+
+    #[test]
+    fn test_zscore_upper_quartile_none_for_empty() {
+        assert!(znorm(4).upper_quartile().is_none());
+    }
+
+    #[test]
+    fn test_zscore_lower_quartile_none_for_empty() {
+        assert!(znorm(4).lower_quartile().is_none());
+    }
+
+    #[test]
+    fn test_zscore_upper_ge_lower_quartile() {
+        let mut n = znorm(8);
+        for v in [dec!(10), dec!(20), dec!(30), dec!(40), dec!(50), dec!(60), dec!(70), dec!(80)] {
+            n.update(v);
+        }
+        let q3 = n.upper_quartile().unwrap();
+        let q1 = n.lower_quartile().unwrap();
+        assert!(q3 >= q1, "Q3 ({}) should be >= Q1 ({})", q3, q1);
+    }
+
+    // ── ZScoreNormalizer::sign_change_rate ────────────────────────────────────
+
+    #[test]
+    fn test_zscore_sign_change_rate_none_for_fewer_than_3() {
+        let mut n = znorm(4);
+        n.update(dec!(1));
+        n.update(dec!(2));
+        assert!(n.sign_change_rate().is_none());
+    }
+
+    #[test]
+    fn test_zscore_sign_change_rate_one_for_zigzag() {
+        let mut n = znorm(5);
+        for v in [dec!(1), dec!(3), dec!(1), dec!(3), dec!(1)] { n.update(v); }
+        let r = n.sign_change_rate().unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "zigzag should give 1.0, got {}", r);
+    }
+
+    #[test]
+    fn test_zscore_sign_change_rate_zero_for_monotone() {
+        let mut n = znorm(5);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4), dec!(5)] { n.update(v); }
+        let r = n.sign_change_rate().unwrap();
+        assert!((r - 0.0).abs() < 1e-9, "monotone should give 0.0, got {}", r);
     }
 }
