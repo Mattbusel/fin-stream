@@ -3929,6 +3929,61 @@ impl MinMaxNormalizer {
         Some(above / vals.len() as f64)
     }
 
+    // ── round-132 ────────────────────────────────────────────────────────────
+
+    /// Maximum consecutive run of increasing values in the window.
+    pub fn window_max_run_up(&self) -> Option<usize> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let mut max_run = 0usize;
+        let mut cur_run = 0usize;
+        for w in vals.windows(2) {
+            if w[1] > w[0] { cur_run += 1; max_run = max_run.max(cur_run); }
+            else { cur_run = 0; }
+        }
+        Some(max_run)
+    }
+
+    /// Maximum consecutive run of decreasing values in the window.
+    pub fn window_max_run_dn(&self) -> Option<usize> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let mut max_run = 0usize;
+        let mut cur_run = 0usize;
+        for w in vals.windows(2) {
+            if w[1] < w[0] { cur_run += 1; max_run = max_run.max(cur_run); }
+            else { cur_run = 0; }
+        }
+        Some(max_run)
+    }
+
+    /// Sum of all consecutive differences in the window.
+    pub fn window_diff_sum(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let sum: f64 = vals.windows(2).map(|w| w[1] - w[0]).sum();
+        Some(sum)
+    }
+
+    /// Longest run in the same direction (up or down).
+    pub fn window_run_length(&self) -> Option<usize> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let mut max_run = 0usize;
+        let mut cur_run = 1usize;
+        let diffs: Vec<f64> = vals.windows(2).map(|w| w[1] - w[0]).collect();
+        for i in 1..diffs.len() {
+            if diffs[i] * diffs[i - 1] > 0.0 { cur_run += 1; max_run = max_run.max(cur_run); }
+            else { max_run = max_run.max(cur_run); cur_run = 1; }
+        }
+        max_run = max_run.max(cur_run);
+        Some(max_run)
+    }
+
 }
 
 #[cfg(test)]
@@ -8315,6 +8370,68 @@ mod tests {
         let p = n.window_pct_above_mean().unwrap();
         assert!((p - 0.5).abs() < 1e-9, "expected 0.5, got {}", p);
     }
+
+    // ── round-132 ────────────────────────────────────────────────────────────
+    #[test]
+    fn test_minmax_window_max_run_up_none_for_single() {
+        let mut n = norm(3);
+        n.update(dec!(1));
+        assert!(n.window_max_run_up().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_max_run_up_basic() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(2)] { n.update(v); }
+        let r = n.window_max_run_up().unwrap();
+        assert_eq!(r, 2);
+    }
+
+    #[test]
+    fn test_minmax_window_max_run_dn_none_for_single() {
+        let mut n = norm(3);
+        n.update(dec!(1));
+        assert!(n.window_max_run_dn().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_max_run_dn_basic() {
+        let mut n = norm(4);
+        for v in [dec!(4), dec!(3), dec!(2), dec!(3)] { n.update(v); }
+        let r = n.window_max_run_dn().unwrap();
+        assert_eq!(r, 2);
+    }
+
+    #[test]
+    fn test_minmax_window_diff_sum_none_for_single() {
+        let mut n = norm(3);
+        n.update(dec!(1));
+        assert!(n.window_diff_sum().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_diff_sum_monotone() {
+        let mut n = norm(3);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        // diffs: 1, 1 → sum=2
+        let s = n.window_diff_sum().unwrap();
+        assert!((s - 2.0).abs() < 1e-9, "expected 2.0, got {}", s);
+    }
+
+    #[test]
+    fn test_minmax_window_run_length_none_for_single() {
+        let mut n = norm(3);
+        n.update(dec!(1));
+        assert!(n.window_run_length().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_run_length_basic() {
+        let mut n = norm(3);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        let r = n.window_run_length().unwrap();
+        assert_eq!(r, 2);
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -12188,6 +12305,61 @@ impl ZScoreNormalizer {
         let mean = vals.iter().sum::<f64>() / vals.len() as f64;
         let above = vals.iter().filter(|&&v| v > mean).count() as f64;
         Some(above / vals.len() as f64)
+    }
+
+    // ── round-132 ────────────────────────────────────────────────────────────
+
+    /// Maximum consecutive run of increasing values in the window.
+    pub fn window_max_run_up(&self) -> Option<usize> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let mut max_run = 0usize;
+        let mut cur_run = 0usize;
+        for w in vals.windows(2) {
+            if w[1] > w[0] { cur_run += 1; max_run = max_run.max(cur_run); }
+            else { cur_run = 0; }
+        }
+        Some(max_run)
+    }
+
+    /// Maximum consecutive run of decreasing values in the window.
+    pub fn window_max_run_dn(&self) -> Option<usize> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let mut max_run = 0usize;
+        let mut cur_run = 0usize;
+        for w in vals.windows(2) {
+            if w[1] < w[0] { cur_run += 1; max_run = max_run.max(cur_run); }
+            else { cur_run = 0; }
+        }
+        Some(max_run)
+    }
+
+    /// Sum of all consecutive differences in the window.
+    pub fn window_diff_sum(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let sum: f64 = vals.windows(2).map(|w| w[1] - w[0]).sum();
+        Some(sum)
+    }
+
+    /// Longest run in the same direction (up or down).
+    pub fn window_run_length(&self) -> Option<usize> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let mut max_run = 0usize;
+        let mut cur_run = 1usize;
+        let diffs: Vec<f64> = vals.windows(2).map(|w| w[1] - w[0]).collect();
+        for i in 1..diffs.len() {
+            if diffs[i] * diffs[i - 1] > 0.0 { cur_run += 1; max_run = max_run.max(cur_run); }
+            else { max_run = max_run.max(cur_run); cur_run = 1; }
+        }
+        max_run = max_run.max(cur_run);
+        Some(max_run)
     }
 
 }
@@ -16637,5 +16809,66 @@ mod zscore_stability_tests {
         for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
         let p = n.window_pct_above_mean().unwrap();
         assert!((p - 0.5).abs() < 1e-9, "expected 0.5, got {}", p);
+    }
+
+    // ── round-132 ────────────────────────────────────────────────────────────
+    #[test]
+    fn test_zscore_window_max_run_up_none_for_single() {
+        let mut n = znorm(3);
+        n.update(dec!(1));
+        assert!(n.window_max_run_up().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_max_run_up_basic() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(2)] { n.update(v); }
+        let r = n.window_max_run_up().unwrap();
+        assert_eq!(r, 2);
+    }
+
+    #[test]
+    fn test_zscore_window_max_run_dn_none_for_single() {
+        let mut n = znorm(3);
+        n.update(dec!(1));
+        assert!(n.window_max_run_dn().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_max_run_dn_basic() {
+        let mut n = znorm(4);
+        for v in [dec!(4), dec!(3), dec!(2), dec!(3)] { n.update(v); }
+        let r = n.window_max_run_dn().unwrap();
+        assert_eq!(r, 2);
+    }
+
+    #[test]
+    fn test_zscore_window_diff_sum_none_for_single() {
+        let mut n = znorm(3);
+        n.update(dec!(1));
+        assert!(n.window_diff_sum().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_diff_sum_monotone() {
+        let mut n = znorm(3);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        let s = n.window_diff_sum().unwrap();
+        assert!((s - 2.0).abs() < 1e-9, "expected 2.0, got {}", s);
+    }
+
+    #[test]
+    fn test_zscore_window_run_length_none_for_single() {
+        let mut n = znorm(3);
+        n.update(dec!(1));
+        assert!(n.window_run_length().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_run_length_basic() {
+        let mut n = znorm(3);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        let r = n.window_run_length().unwrap();
+        assert_eq!(r, 2);
     }
 }

@@ -6121,6 +6121,55 @@ impl NormalizedTick {
         Some(buy_mean - sell_mean)
     }
 
+    // ── round-132 ────────────────────────────────────────────────────────────
+
+    /// Price z-score absolute: absolute value of z-score of the last price.
+    pub fn price_zscore_abs(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 2 { return None; }
+        let prices: Vec<f64> = ticks.iter().map(|t| t.price.to_f64().unwrap_or(0.0)).collect();
+        let mean = prices.iter().sum::<f64>() / prices.len() as f64;
+        let std = (prices.iter().map(|&p| (p - mean).powi(2)).sum::<f64>() / prices.len() as f64).sqrt();
+        if std == 0.0 { return None; }
+        let last = *prices.last()?;
+        Some(((last - mean) / std).abs())
+    }
+
+    /// Tick reversal count: number of direction changes in consecutive price moves.
+    pub fn tick_reversal_count(ticks: &[NormalizedTick]) -> Option<usize> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 3 { return None; }
+        let prices: Vec<f64> = ticks.iter().map(|t| t.price.to_f64().unwrap_or(0.0)).collect();
+        let diffs: Vec<f64> = prices.windows(2).map(|w| w[1] - w[0]).collect();
+        let count = diffs.windows(2).filter(|w| w[0] * w[1] < 0.0).count();
+        Some(count)
+    }
+
+    /// Tick price range ratio: price range / mean price.
+    pub fn tick_price_range_ratio(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() { return None; }
+        let prices: Vec<f64> = ticks.iter().map(|t| t.price.to_f64().unwrap_or(0.0)).collect();
+        let mean = prices.iter().sum::<f64>() / prices.len() as f64;
+        if mean == 0.0 { return None; }
+        let max = prices.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        let min = prices.iter().cloned().fold(f64::INFINITY, f64::min);
+        Some((max - min) / mean.abs())
+    }
+
+    /// Price range skew: (mean - min) / (max - min), measures if prices cluster near min.
+    pub fn price_range_skew(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() { return None; }
+        let prices: Vec<f64> = ticks.iter().map(|t| t.price.to_f64().unwrap_or(0.0)).collect();
+        let mean = prices.iter().sum::<f64>() / prices.len() as f64;
+        let max = prices.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        let min = prices.iter().cloned().fold(f64::INFINITY, f64::min);
+        let range = max - min;
+        if range == 0.0 { return None; }
+        Some((mean - min) / range)
+    }
+
 }
 
 
@@ -13940,5 +13989,79 @@ mod tests {
         sell.side = Some(TradeSide::Sell);
         let s = NormalizedTick::side_price_spread(&[buy, sell]).unwrap();
         assert!(s.abs() < 1e-9, "expected 0.0 for equal sides, got {}", s);
+    }
+
+    // ── round-132 ────────────────────────────────────────────────────────────
+    #[test]
+    fn test_price_zscore_abs_none_for_single() {
+        use rust_decimal_macros::dec;
+        assert!(NormalizedTick::price_zscore_abs(&[make_tick_pq(dec!(100), dec!(1))]).is_none());
+    }
+
+    #[test]
+    fn test_price_zscore_abs_last_at_mean() {
+        use rust_decimal_macros::dec;
+        // all same price → std=0 → None
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(100), dec!(1)),
+        ];
+        assert!(NormalizedTick::price_zscore_abs(&ticks).is_none());
+    }
+
+    #[test]
+    fn test_tick_reversal_count_none_for_two() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(101), dec!(1)),
+        ];
+        assert!(NormalizedTick::tick_reversal_count(&ticks).is_none());
+    }
+
+    #[test]
+    fn test_tick_reversal_count_one_reversal() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(102), dec!(1)),
+            make_tick_pq(dec!(101), dec!(1)),
+        ];
+        let c = NormalizedTick::tick_reversal_count(&ticks).unwrap();
+        assert_eq!(c, 1);
+    }
+
+    #[test]
+    fn test_tick_price_range_ratio_none_for_empty() {
+        assert!(NormalizedTick::tick_price_range_ratio(&[]).is_none());
+    }
+
+    #[test]
+    fn test_tick_price_range_ratio_basic() {
+        use rust_decimal_macros::dec;
+        // prices: 100, 110 → range=10, mean=105 → ratio≈0.095
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(110), dec!(1)),
+        ];
+        let r = NormalizedTick::tick_price_range_ratio(&ticks).unwrap();
+        assert!(r > 0.0, "expected positive ratio, got {}", r);
+    }
+
+    #[test]
+    fn test_price_range_skew_none_for_empty() {
+        assert!(NormalizedTick::price_range_skew(&[]).is_none());
+    }
+
+    #[test]
+    fn test_price_range_skew_midpoint() {
+        use rust_decimal_macros::dec;
+        // prices: 100, 110 → mean=105, min=100, range=10 → skew=0.5
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(110), dec!(1)),
+        ];
+        let s = NormalizedTick::price_range_skew(&ticks).unwrap();
+        assert!((s - 0.5).abs() < 1e-9, "expected 0.5, got {}", s);
     }
 }

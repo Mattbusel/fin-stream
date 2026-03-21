@@ -6000,6 +6000,61 @@ impl OhlcvBar {
         Some(sum)
     }
 
+    // ── round-132 ────────────────────────────────────────────────────────────
+
+    /// Bar volume trend: mean of consecutive volume differences.
+    pub fn bar_volume_trend(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.len() < 2 { return None; }
+        let vols: Vec<f64> = bars.iter().map(|b| b.volume.to_f64().unwrap_or(0.0)).collect();
+        let diffs: Vec<f64> = vols.windows(2).map(|w| w[1] - w[0]).collect();
+        Some(diffs.iter().sum::<f64>() / diffs.len() as f64)
+    }
+
+    /// Close-low spread: mean of (close - low) / (high - low) per bar.
+    pub fn close_low_spread(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let vals: Vec<f64> = bars.iter().filter_map(|b| {
+            let cl = b.close.to_f64()?;
+            let lo = b.low.to_f64()?;
+            let hi = b.high.to_f64()?;
+            let range = hi - lo;
+            if range == 0.0 { return None; }
+            Some((cl - lo) / range)
+        }).collect();
+        if vals.is_empty() { return None; }
+        Some(vals.iter().sum::<f64>() / vals.len() as f64)
+    }
+
+    /// Bar midpoint trend: mean of consecutive midpoint (high+low)/2 differences.
+    pub fn bar_midpoint_trend(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.len() < 2 { return None; }
+        let mids: Vec<f64> = bars.iter().map(|b| {
+            let hi = b.high.to_f64().unwrap_or(0.0);
+            let lo = b.low.to_f64().unwrap_or(0.0);
+            (hi + lo) / 2.0
+        }).collect();
+        let diffs: Vec<f64> = mids.windows(2).map(|w| w[1] - w[0]).collect();
+        Some(diffs.iter().sum::<f64>() / diffs.len() as f64)
+    }
+
+    /// Bar spread score: mean of (high - low) / close per bar.
+    pub fn bar_spread_score(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let vals: Vec<f64> = bars.iter().filter_map(|b| {
+            let hi = b.high.to_f64()?;
+            let lo = b.low.to_f64()?;
+            let cl = b.close.to_f64()?;
+            if cl == 0.0 { return None; }
+            Some((hi - lo) / cl)
+        }).collect();
+        if vals.is_empty() { return None; }
+        Some(vals.iter().sum::<f64>() / vals.len() as f64)
+    }
+
 }
 
 impl std::fmt::Display for OhlcvBar {
@@ -13994,5 +14049,60 @@ mod tests {
         let b3 = make_ohlcv_bar(dec!(105), dec!(120), dec!(100), dec!(115));
         let m = OhlcvBar::bar_close_momentum(&[b1, b2, b3]).unwrap();
         assert!((m - 2.0).abs() < 1e-9, "expected 2.0 for 2 up moves, got {}", m);
+    }
+
+    // ── round-132 ────────────────────────────────────────────────────────────
+    #[test]
+    fn test_bar_volume_trend_none_for_single() {
+        assert!(OhlcvBar::bar_volume_trend(&[make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105))]).is_none());
+    }
+
+    #[test]
+    fn test_bar_volume_trend_increasing() {
+        let mut b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        b1.volume = dec!(10);
+        let mut b2 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        b2.volume = dec!(20);
+        let t = OhlcvBar::bar_volume_trend(&[b1, b2]).unwrap();
+        assert!(t > 0.0, "expected positive trend, got {}", t);
+    }
+
+    #[test]
+    fn test_close_low_spread_none_for_empty() {
+        assert!(OhlcvBar::close_low_spread(&[]).is_none());
+    }
+
+    #[test]
+    fn test_close_low_spread_close_at_high() {
+        // open=90, high=110, low=90, close=110 → (110-90)/(110-90) = 1.0
+        let b = make_ohlcv_bar(dec!(90), dec!(110), dec!(90), dec!(110));
+        let s = OhlcvBar::close_low_spread(&[b]).unwrap();
+        assert!((s - 1.0).abs() < 1e-9, "expected 1.0, got {}", s);
+    }
+
+    #[test]
+    fn test_bar_midpoint_trend_none_for_single() {
+        assert!(OhlcvBar::bar_midpoint_trend(&[make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105))]).is_none());
+    }
+
+    #[test]
+    fn test_bar_midpoint_trend_rising() {
+        let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let b2 = make_ohlcv_bar(dec!(110), dec!(120), dec!(100), dec!(115));
+        let t = OhlcvBar::bar_midpoint_trend(&[b1, b2]).unwrap();
+        assert!(t > 0.0, "expected positive trend, got {}", t);
+    }
+
+    #[test]
+    fn test_bar_spread_score_none_for_empty() {
+        assert!(OhlcvBar::bar_spread_score(&[]).is_none());
+    }
+
+    #[test]
+    fn test_bar_spread_score_basic() {
+        // range=20, close=105 → spread=20/105
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let s = OhlcvBar::bar_spread_score(&[b]).unwrap();
+        assert!(s > 0.0, "expected positive score, got {}", s);
     }
 }

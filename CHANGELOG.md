@@ -9,6 +9,36 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.8.3] - 2026-03-20
+
+### Added
+
+**`tick` module — `NormalizedTick` analytics (round 132)**
+- `NormalizedTick::price_zscore_abs(ticks)` — absolute value of z-score of the last price.
+- `NormalizedTick::tick_reversal_count(ticks)` — number of direction changes in consecutive price moves.
+- `NormalizedTick::tick_price_range_ratio(ticks)` — price range / mean price.
+- `NormalizedTick::price_range_skew(ticks)` — (mean - min) / (max - min) price distribution skew.
+
+**`ohlcv` module — `OhlcvBar` analytics (round 132)**
+- `OhlcvBar::bar_volume_trend(bars)` — mean of consecutive volume differences.
+- `OhlcvBar::close_low_spread(bars)` — mean of (close - low) / (high - low) per bar.
+- `OhlcvBar::bar_midpoint_trend(bars)` — mean of consecutive bar midpoint differences.
+- `OhlcvBar::bar_spread_score(bars)` — mean of (high - low) / close per bar.
+
+**`norm` module — `MinMaxNormalizer` analytics (round 132)**
+- `MinMaxNormalizer::window_max_run_up()` — maximum consecutive run of increasing values.
+- `MinMaxNormalizer::window_max_run_dn()` — maximum consecutive run of decreasing values.
+- `MinMaxNormalizer::window_diff_sum()` — sum of all consecutive differences in the window.
+- `MinMaxNormalizer::window_run_length()` — longest directional run (up or down) in window.
+
+**`norm` module — `ZScoreNormalizer` analytics (round 132)**
+- `ZScoreNormalizer::window_max_run_up()` — maximum consecutive run of increasing values.
+- `ZScoreNormalizer::window_max_run_dn()` — maximum consecutive run of decreasing values.
+- `ZScoreNormalizer::window_diff_sum()` — sum of all consecutive differences in the window.
+- `ZScoreNormalizer::window_run_length()` — longest directional run (up or down) in window.
+
+---
+
 ## [2.8.2] - 2026-03-20
 
 ### Added
