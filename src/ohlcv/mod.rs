@@ -6743,6 +6743,66 @@ impl OhlcvBar {
         Some(total / bars.len() as f64)
     }
 
+    // ── round-147 ────────────────────────────────────────────────────────────
+
+    /// Mean signed distance of close from VWAP (price-volume weighted avg price).
+    pub fn bar_close_to_vwap(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let total_vol: f64 = bars.iter().filter_map(|b| b.volume.to_f64()).sum();
+        if total_vol == 0.0 { return None; }
+        let vwap: f64 = bars.iter().filter_map(|b| {
+            let c = b.close.to_f64()?;
+            let v = b.volume.to_f64()?;
+            Some(c * v)
+        }).sum::<f64>() / total_vol;
+        let diffs: Vec<f64> = bars.iter().filter_map(|b| {
+            Some(b.close.to_f64()? - vwap)
+        }).collect();
+        if diffs.is_empty() { return None; }
+        Some(diffs.iter().sum::<f64>() / diffs.len() as f64)
+    }
+
+    /// Exponential moving average proxy of close prices (alpha=2/(n+1)).
+    pub fn close_ema_proxy(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let n = bars.len();
+        let alpha = 2.0 / (n as f64 + 1.0);
+        let mut ema = bars[0].close.to_f64()?;
+        for b in bars.iter().skip(1) {
+            let c = b.close.to_f64()?;
+            ema = alpha * c + (1.0 - alpha) * ema;
+        }
+        Some(ema)
+    }
+
+    /// Mean second-order change of bar ranges (acceleration of range).
+    pub fn bar_range_acceleration(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.len() < 3 { return None; }
+        let ranges: Vec<f64> = bars.iter().filter_map(|b| (b.high - b.low).to_f64()).collect();
+        if ranges.len() < 3 { return None; }
+        let accels: Vec<f64> = ranges.windows(3)
+            .map(|w| (w[2] - w[1]) - (w[1] - w[0]))
+            .collect();
+        Some(accels.iter().sum::<f64>() / accels.len() as f64)
+    }
+
+    /// Mean of (open - close range) / bar range across bars.
+    pub fn open_close_range_ratio(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let vals: Vec<f64> = bars.iter().filter_map(|b| {
+            let range = (b.high - b.low).to_f64()?;
+            if range == 0.0 { return None; }
+            let body = (b.open - b.close).abs().to_f64()?;
+            Some(body / range)
+        }).collect();
+        if vals.is_empty() { return None; }
+        Some(vals.iter().sum::<f64>() / vals.len() as f64)
+    }
+
 }
 
 impl std::fmt::Display for OhlcvBar {
@@ -15598,5 +15658,69 @@ mod tests {
         ];
         let v = OhlcvBar::bar_volume_per_bar(&bars).unwrap();
         assert!((v - 1.0).abs() < 1e-9, "expected 1.0, got {}", v);
+    }
+
+    // ── round-147 ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_bar_close_to_vwap_none_for_empty() {
+        assert!(OhlcvBar::bar_close_to_vwap(&[]).is_none());
+    }
+
+    #[test]
+    fn test_bar_close_to_vwap_basic() {
+        // All bars have same close and volume, VWAP = close, mean diff = 0
+        let bars = vec![
+            make_ohlcv_bar(dec!(90), dec!(110), dec!(85), dec!(100)),
+            make_ohlcv_bar(dec!(95), dec!(115), dec!(90), dec!(100)),
+        ];
+        let d = OhlcvBar::bar_close_to_vwap(&bars).unwrap();
+        assert!((d - 0.0).abs() < 1e-9, "expected 0.0, got {}", d);
+    }
+
+    #[test]
+    fn test_close_ema_proxy_none_for_empty() {
+        assert!(OhlcvBar::close_ema_proxy(&[]).is_none());
+    }
+
+    #[test]
+    fn test_close_ema_proxy_single() {
+        let bars = vec![make_ohlcv_bar(dec!(90), dec!(110), dec!(85), dec!(100))];
+        let e = OhlcvBar::close_ema_proxy(&bars).unwrap();
+        assert!((e - 100.0).abs() < 1e-9, "expected 100.0, got {}", e);
+    }
+
+    #[test]
+    fn test_bar_range_acceleration_none_for_two() {
+        let bars = vec![
+            make_ohlcv_bar(dec!(90), dec!(110), dec!(85), dec!(100)),
+            make_ohlcv_bar(dec!(100), dec!(120), dec!(95), dec!(110)),
+        ];
+        assert!(OhlcvBar::bar_range_acceleration(&bars).is_none());
+    }
+
+    #[test]
+    fn test_bar_range_acceleration_constant_range() {
+        // ranges all=25 → diffs=0,0 → accel=0
+        let bars = vec![
+            make_ohlcv_bar(dec!(90), dec!(115), dec!(90), dec!(100)),
+            make_ohlcv_bar(dec!(100), dec!(125), dec!(100), dec!(110)),
+            make_ohlcv_bar(dec!(110), dec!(135), dec!(110), dec!(120)),
+        ];
+        let a = OhlcvBar::bar_range_acceleration(&bars).unwrap();
+        assert!((a - 0.0).abs() < 1e-9, "expected 0.0, got {}", a);
+    }
+
+    #[test]
+    fn test_open_close_range_ratio_none_for_empty() {
+        assert!(OhlcvBar::open_close_range_ratio(&[]).is_none());
+    }
+
+    #[test]
+    fn test_open_close_range_ratio_doji() {
+        // open=close=100, high=110, low=90 → body=0, range=20, ratio=0
+        let bars = vec![make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100))];
+        let r = OhlcvBar::open_close_range_ratio(&bars).unwrap();
+        assert!((r - 0.0).abs() < 1e-9, "expected 0.0, got {}", r);
     }
 }

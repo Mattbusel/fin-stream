@@ -9,6 +9,36 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.9.8] - 2026-03-20
+
+### Added
+
+**`tick` module — `NormalizedTick` analytics (round 147)**
+- `NormalizedTick::price_quantile_range(ticks)` — interquartile range of tick prices (Q3 - Q1).
+- `NormalizedTick::side_price_mean_diff(ticks)` — absolute difference between mean Buy and Sell prices.
+- `NormalizedTick::tick_latency_skew(ticks)` — skewness of inter-arrival time gaps.
+- `NormalizedTick::tick_qty_concentration(ticks)` — fraction of quantity held by top 20% of ticks.
+
+**`ohlcv` module — `OhlcvBar` analytics (round 147)**
+- `OhlcvBar::bar_close_to_vwap(bars)` — mean signed distance of close from volume-weighted average price.
+- `OhlcvBar::close_ema_proxy(bars)` — EMA of close prices with alpha=2/(n+1).
+- `OhlcvBar::bar_range_acceleration(bars)` — mean second-order change of bar ranges.
+- `OhlcvBar::open_close_range_ratio(bars)` — mean ratio of body size to bar range.
+
+**`norm` module — `MinMaxNormalizer` analytics (round 147)**
+- `MinMaxNormalizer::window_last_vs_mean()` — deviation of the last window value from the window mean.
+- `MinMaxNormalizer::window_change_acceleration()` — mean second-order change of consecutive window values.
+- `MinMaxNormalizer::window_positive_run_length()` — longest consecutive run of positive window values.
+- `MinMaxNormalizer::window_geometric_trend()` — geometric mean of successive value ratios.
+
+**`norm` module — `ZScoreNormalizer` analytics (round 147)**
+- `ZScoreNormalizer::window_last_vs_mean()` — deviation of the last window value from the window mean.
+- `ZScoreNormalizer::window_change_acceleration()` — mean second-order change of consecutive window values.
+- `ZScoreNormalizer::window_positive_run_length()` — longest consecutive run of positive window values.
+- `ZScoreNormalizer::window_geometric_trend()` — geometric mean of successive value ratios.
+
+---
+
 ## [2.9.7] - 2026-03-20
 
 ### Added

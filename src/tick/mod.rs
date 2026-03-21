@@ -6927,6 +6927,66 @@ impl NormalizedTick {
         Some(all_qtys.iter().filter(|&&q| q > median).count())
     }
 
+    // ── round-147 ────────────────────────────────────────────────────────────
+
+    /// Interquartile range of tick prices (Q3 - Q1).
+    pub fn price_quantile_range(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() { return None; }
+        let mut prices: Vec<f64> = ticks.iter().filter_map(|t| t.price.to_f64()).collect();
+        if prices.len() < 4 { return None; }
+        prices.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let n = prices.len();
+        let q1 = prices[(n - 1) / 4];
+        let q3 = prices[(3 * (n - 1)) / 4];
+        Some(q3 - q1)
+    }
+
+    /// Absolute difference between mean Buy price and mean Sell price.
+    pub fn side_price_mean_diff(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let buy_prices: Vec<f64> = ticks.iter()
+            .filter(|t| matches!(t.side, Some(TradeSide::Buy)))
+            .filter_map(|t| t.price.to_f64()).collect();
+        let sell_prices: Vec<f64> = ticks.iter()
+            .filter(|t| matches!(t.side, Some(TradeSide::Sell)))
+            .filter_map(|t| t.price.to_f64()).collect();
+        if buy_prices.is_empty() || sell_prices.is_empty() { return None; }
+        let buy_mean = buy_prices.iter().sum::<f64>() / buy_prices.len() as f64;
+        let sell_mean = sell_prices.iter().sum::<f64>() / sell_prices.len() as f64;
+        Some((buy_mean - sell_mean).abs())
+    }
+
+    /// Skewness of tick latency (received_at_ms inter-arrival times).
+    pub fn tick_latency_skew(ticks: &[NormalizedTick]) -> Option<f64> {
+        if ticks.len() < 3 { return None; }
+        let gaps: Vec<f64> = ticks.windows(2)
+            .map(|w| w[1].received_at_ms as f64 - w[0].received_at_ms as f64)
+            .collect();
+        if gaps.len() < 2 { return None; }
+        let n = gaps.len() as f64;
+        let mean = gaps.iter().sum::<f64>() / n;
+        let var = gaps.iter().map(|g| (g - mean).powi(2)).sum::<f64>() / n;
+        let std = var.sqrt();
+        if std == 0.0 { return Some(0.0); }
+        let skew = gaps.iter().map(|g| ((g - mean) / std).powi(3)).sum::<f64>() / n;
+        Some(skew)
+    }
+
+    /// Fraction of quantity held by the top 20% of ticks by quantity (concentration).
+    pub fn tick_qty_concentration(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() { return None; }
+        let mut qtys: Vec<f64> = ticks.iter().filter_map(|t| t.quantity.to_f64()).collect();
+        if qtys.is_empty() { return None; }
+        let total: f64 = qtys.iter().sum();
+        if total == 0.0 { return Some(0.0); }
+        qtys.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let top_n = ((qtys.len() as f64 * 0.2).ceil() as usize).max(1);
+        let top_sum: f64 = qtys.iter().rev().take(top_n).sum();
+        Some(top_sum / total)
+    }
+
 }
 
 
@@ -15870,5 +15930,92 @@ mod tests {
         // sorted qtys: [1,2,5], median=2; above: [5] → count=1
         let c = NormalizedTick::qty_above_median_count(&ticks).unwrap();
         assert_eq!(c, 1);
+    }
+
+    // ── round-147 ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_price_quantile_range_none_for_few() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(101), dec!(1)),
+        ];
+        assert!(NormalizedTick::price_quantile_range(&ticks).is_none());
+    }
+
+    #[test]
+    fn test_price_quantile_range_basic() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(10), dec!(1)),
+            make_tick_pq(dec!(20), dec!(1)),
+            make_tick_pq(dec!(30), dec!(1)),
+            make_tick_pq(dec!(40), dec!(1)),
+        ];
+        let r = NormalizedTick::price_quantile_range(&ticks).unwrap();
+        assert!(r >= 0.0, "IQR should be non-negative, got {}", r);
+    }
+
+    #[test]
+    fn test_side_price_mean_diff_none_for_no_sides() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![make_tick_pq(dec!(100), dec!(1))];
+        assert!(NormalizedTick::side_price_mean_diff(&ticks).is_none());
+    }
+
+    #[test]
+    fn test_side_price_mean_diff_same_price() {
+        use rust_decimal_macros::dec;
+        use crate::tick::TradeSide;
+        let mut b = make_tick_pq(dec!(100), dec!(1));
+        b.side = Some(TradeSide::Buy);
+        let mut s = make_tick_pq(dec!(100), dec!(1));
+        s.side = Some(TradeSide::Sell);
+        let d = NormalizedTick::side_price_mean_diff(&[b, s]).unwrap();
+        assert!((d - 0.0).abs() < 1e-9, "expected 0.0, got {}", d);
+    }
+
+    #[test]
+    fn test_tick_latency_skew_none_for_two() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(101), dec!(1)),
+        ];
+        assert!(NormalizedTick::tick_latency_skew(&ticks).is_none());
+    }
+
+    #[test]
+    fn test_tick_latency_skew_uniform_gaps() {
+        use rust_decimal_macros::dec;
+        // uniform gaps → skew = 0
+        let mut t1 = make_tick_pq(dec!(100), dec!(1));
+        t1.received_at_ms = 0;
+        let mut t2 = make_tick_pq(dec!(101), dec!(1));
+        t2.received_at_ms = 10;
+        let mut t3 = make_tick_pq(dec!(102), dec!(1));
+        t3.received_at_ms = 20;
+        let s = NormalizedTick::tick_latency_skew(&[t1, t2, t3]).unwrap();
+        assert!(s.abs() < 1e-9, "expected ~0 skew, got {}", s);
+    }
+
+    #[test]
+    fn test_tick_qty_concentration_none_for_empty() {
+        assert!(NormalizedTick::tick_qty_concentration(&[]).is_none());
+    }
+
+    #[test]
+    fn test_tick_qty_concentration_returns_fraction() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(100), dec!(10)),
+        ];
+        let c = NormalizedTick::tick_qty_concentration(&ticks).unwrap();
+        assert!(c > 0.0 && c <= 1.0, "expected fraction in (0,1], got {}", c);
     }
 }

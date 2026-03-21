@@ -4658,6 +4658,61 @@ impl MinMaxNormalizer {
         Some(in_tail as f64 / n as f64)
     }
 
+    // ── round-147 ────────────────────────────────────────────────────────────
+
+    /// Deviation of the last window value from the window mean.
+    pub fn window_last_vs_mean(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let last = self.window.back()?.to_f64()?;
+        let mean = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).sum::<f64>()
+            / self.window.len() as f64;
+        Some(last - mean)
+    }
+
+    /// Mean second-order change of consecutive window values (acceleration).
+    pub fn window_change_acceleration(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 3 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let accels: Vec<f64> = vals.windows(3).map(|w| (w[2] - w[1]) - (w[1] - w[0])).collect();
+        Some(accels.iter().sum::<f64>() / accels.len() as f64)
+    }
+
+    /// Length of the longest consecutive run of positive (>0) window values.
+    pub fn window_positive_run_length(&self) -> Option<usize> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let mut max_run = 0usize;
+        let mut run = 0usize;
+        for &v in &vals {
+            if v > 0.0 {
+                run += 1;
+                if run > max_run { max_run = run; }
+            } else {
+                run = 0;
+            }
+        }
+        Some(max_run)
+    }
+
+    /// Geometric mean of successive ratios (value[i]/value[i-1]) as a trend indicator.
+    pub fn window_geometric_trend(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let log_sum: f64 = vals.windows(2).filter_map(|w| {
+            if w[0] == 0.0 { return None; }
+            let r = w[1] / w[0];
+            if r <= 0.0 { return None; }
+            Some(r.ln())
+        }).sum();
+        let count = vals.windows(2).filter(|w| w[0] != 0.0 && w[1] / w[0] > 0.0).count();
+        if count == 0 { return None; }
+        Some((log_sum / count as f64).exp())
+    }
+
 }
 
 #[cfg(test)]
@@ -9978,6 +10033,69 @@ mod tests {
         let tw = n.window_tail_weight().unwrap();
         assert!(tw > 0.0, "tail weight should be > 0, got {}", tw);
     }
+
+    // ── round-147 ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_minmax_window_last_vs_mean_none_for_empty() {
+        let n = norm(4);
+        assert!(n.window_last_vs_mean().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_last_vs_mean_basic() {
+        let mut n = norm(3);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        // mean=2, last=3 → deviation=1
+        let d = n.window_last_vs_mean().unwrap();
+        assert!((d - 1.0).abs() < 1e-9, "expected 1.0, got {}", d);
+    }
+
+    #[test]
+    fn test_minmax_window_change_acceleration_none_for_two() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2)] { n.update(v); }
+        assert!(n.window_change_acceleration().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_change_acceleration_constant() {
+        let mut n = norm(3);
+        // vals: 1,2,3 → diffs: 1,1 → accel: 0
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        let a = n.window_change_acceleration().unwrap();
+        assert!((a - 0.0).abs() < 1e-9, "expected 0.0, got {}", a);
+    }
+
+    #[test]
+    fn test_minmax_window_positive_run_length_none_for_empty() {
+        let n = norm(4);
+        assert!(n.window_positive_run_length().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_positive_run_length_all_positive() {
+        let mut n = norm(3);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        let r = n.window_positive_run_length().unwrap();
+        assert_eq!(r, 3);
+    }
+
+    #[test]
+    fn test_minmax_window_geometric_trend_none_for_single() {
+        let mut n = norm(4);
+        n.update(dec!(5));
+        assert!(n.window_geometric_trend().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_geometric_trend_constant() {
+        let mut n = norm(3);
+        for v in [dec!(4), dec!(4), dec!(4)] { n.update(v); }
+        // ratios all=1 → geometric trend=1
+        let gt = n.window_geometric_trend().unwrap();
+        assert!((gt - 1.0).abs() < 1e-9, "expected 1.0, got {}", gt);
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -14580,6 +14698,61 @@ impl ZScoreNormalizer {
         let upper = vals[n - tail];
         let in_tail = vals.iter().filter(|&&v| v <= lower || v >= upper).count();
         Some(in_tail as f64 / n as f64)
+    }
+
+    // ── round-147 ────────────────────────────────────────────────────────────
+
+    /// Deviation of the last window value from the window mean.
+    pub fn window_last_vs_mean(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let last = self.window.back()?.to_f64()?;
+        let mean = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).sum::<f64>()
+            / self.window.len() as f64;
+        Some(last - mean)
+    }
+
+    /// Mean second-order change of consecutive window values (acceleration).
+    pub fn window_change_acceleration(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 3 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let accels: Vec<f64> = vals.windows(3).map(|w| (w[2] - w[1]) - (w[1] - w[0])).collect();
+        Some(accels.iter().sum::<f64>() / accels.len() as f64)
+    }
+
+    /// Length of the longest consecutive run of positive (>0) window values.
+    pub fn window_positive_run_length(&self) -> Option<usize> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let mut max_run = 0usize;
+        let mut run = 0usize;
+        for &v in &vals {
+            if v > 0.0 {
+                run += 1;
+                if run > max_run { max_run = run; }
+            } else {
+                run = 0;
+            }
+        }
+        Some(max_run)
+    }
+
+    /// Geometric mean of successive ratios (value[i]/value[i-1]) as a trend indicator.
+    pub fn window_geometric_trend(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let log_sum: f64 = vals.windows(2).filter_map(|w| {
+            if w[0] == 0.0 { return None; }
+            let r = w[1] / w[0];
+            if r <= 0.0 { return None; }
+            Some(r.ln())
+        }).sum();
+        let count = vals.windows(2).filter(|w| w[0] != 0.0 && w[1] / w[0] > 0.0).count();
+        if count == 0 { return None; }
+        Some((log_sum / count as f64).exp())
     }
 
 }
@@ -19928,5 +20101,65 @@ mod zscore_stability_tests {
                   dec!(6), dec!(7), dec!(8), dec!(9), dec!(10)] { n.update(v); }
         let tw = n.window_tail_weight().unwrap();
         assert!(tw > 0.0, "tail weight should be > 0, got {}", tw);
+    }
+
+    // ── round-147 ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_zscore_window_last_vs_mean_none_for_empty() {
+        let n = znorm(4);
+        assert!(n.window_last_vs_mean().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_last_vs_mean_basic() {
+        let mut n = znorm(3);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        let d = n.window_last_vs_mean().unwrap();
+        assert!((d - 1.0).abs() < 1e-9, "expected 1.0, got {}", d);
+    }
+
+    #[test]
+    fn test_zscore_window_change_acceleration_none_for_two() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2)] { n.update(v); }
+        assert!(n.window_change_acceleration().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_change_acceleration_constant() {
+        let mut n = znorm(3);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        let a = n.window_change_acceleration().unwrap();
+        assert!((a - 0.0).abs() < 1e-9, "expected 0.0, got {}", a);
+    }
+
+    #[test]
+    fn test_zscore_window_positive_run_length_none_for_empty() {
+        let n = znorm(4);
+        assert!(n.window_positive_run_length().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_positive_run_length_all_positive() {
+        let mut n = znorm(3);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        let r = n.window_positive_run_length().unwrap();
+        assert_eq!(r, 3);
+    }
+
+    #[test]
+    fn test_zscore_window_geometric_trend_none_for_single() {
+        let mut n = znorm(4);
+        n.update(dec!(5));
+        assert!(n.window_geometric_trend().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_geometric_trend_constant() {
+        let mut n = znorm(3);
+        for v in [dec!(4), dec!(4), dec!(4)] { n.update(v); }
+        let gt = n.window_geometric_trend().unwrap();
+        assert!((gt - 1.0).abs() < 1e-9, "expected 1.0, got {}", gt);
     }
 }
