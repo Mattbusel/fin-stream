@@ -1700,6 +1700,25 @@ impl MinMaxNormalizer {
         Some(count as f64 / self.window.len() as f64)
     }
 
+    // ── round-89 ─────────────────────────────────────────────────────────────
+
+    /// Cumulative sum of all window values (running total).
+    pub fn cumulative_sum(&self) -> Decimal {
+        self.window.iter().copied().sum()
+    }
+
+    /// Ratio of the window maximum to the window minimum.
+    /// Returns `None` if the window is empty or minimum is zero.
+    pub fn max_to_min_ratio(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let max = self.window.iter().copied().max()?;
+        let min = self.window.iter().copied().min()?;
+        if min.is_zero() {
+            return None;
+        }
+        (max / min).to_f64()
+    }
+
 }
 
 #[cfg(test)]
@@ -3834,6 +3853,34 @@ mod tests {
         let f = n.zero_fraction().unwrap();
         assert!(f.abs() < 1e-9, "no zeros → fraction=0, got {}", f);
     }
+
+    // ── round-89 tests ────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_minmax_cumulative_sum_zero_for_empty() {
+        let n = norm(4);
+        assert_eq!(n.cumulative_sum(), rust_decimal::Decimal::ZERO);
+    }
+
+    #[test]
+    fn test_minmax_cumulative_sum_correct() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        assert_eq!(n.cumulative_sum(), dec!(6));
+    }
+
+    #[test]
+    fn test_minmax_max_to_min_ratio_none_for_empty() {
+        assert!(norm(4).max_to_min_ratio().is_none());
+    }
+
+    #[test]
+    fn test_minmax_max_to_min_ratio_one_for_constant() {
+        let mut n = norm(4);
+        for _ in 0..4 { n.update(dec!(5)); }
+        let r = n.max_to_min_ratio().unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "constant window → ratio=1, got {}", r);
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -5498,6 +5545,25 @@ impl ZScoreNormalizer {
         }
         let count = self.window.iter().filter(|&&v| v == Decimal::ZERO).count();
         Some(count as f64 / self.window.len() as f64)
+    }
+
+    // ── round-89 ─────────────────────────────────────────────────────────────
+
+    /// Cumulative sum of all window values.
+    pub fn cumulative_sum(&self) -> Decimal {
+        self.window.iter().copied().sum()
+    }
+
+    /// Ratio of the window maximum to the window minimum.
+    /// Returns `None` if the window is empty or minimum is zero.
+    pub fn max_to_min_ratio(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let max = self.window.iter().copied().max()?;
+        let min = self.window.iter().copied().min()?;
+        if min.is_zero() {
+            return None;
+        }
+        (max / min).to_f64()
     }
 
 }
@@ -7775,5 +7841,33 @@ mod zscore_stability_tests {
         for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
         let f = n.zero_fraction().unwrap();
         assert!(f.abs() < 1e-9, "no zeros → fraction=0, got {}", f);
+    }
+
+    // ── round-89 tests ────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_zscore_cumulative_sum_zero_for_empty() {
+        let n = znorm(4);
+        assert_eq!(n.cumulative_sum(), rust_decimal::Decimal::ZERO);
+    }
+
+    #[test]
+    fn test_zscore_cumulative_sum_correct() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        assert_eq!(n.cumulative_sum(), dec!(6));
+    }
+
+    #[test]
+    fn test_zscore_max_to_min_ratio_none_for_empty() {
+        assert!(znorm(4).max_to_min_ratio().is_none());
+    }
+
+    #[test]
+    fn test_zscore_max_to_min_ratio_one_for_constant() {
+        let mut n = znorm(4);
+        for _ in 0..4 { n.update(dec!(5)); }
+        let r = n.max_to_min_ratio().unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "constant window → ratio=1, got {}", r);
     }
 }

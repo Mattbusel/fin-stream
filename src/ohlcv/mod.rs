@@ -3506,6 +3506,57 @@ impl OhlcvBar {
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
+    // ── round-89 ─────────────────────────────────────────────────────────────
+
+    /// Maximum run of consecutive bullish bars (`close > open`).
+    ///
+    /// Returns `0` for an empty slice.
+    pub fn max_consecutive_up_bars(bars: &[OhlcvBar]) -> usize {
+        let mut max_run = 0usize;
+        let mut run = 0usize;
+        for b in bars {
+            if b.close > b.open {
+                run += 1;
+                if run > max_run {
+                    max_run = run;
+                }
+            } else {
+                run = 0;
+            }
+        }
+        max_run
+    }
+
+    /// Mean upper shadow as a fraction of total bar range.
+    /// Upper shadow = high − max(open, close).  Bars with zero range are excluded.
+    pub fn avg_upper_shadow_fraction(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter(|b| b.high > b.low)
+            .filter_map(|b| {
+                let range = b.high - b.low;
+                let upper = b.high - b.close.max(b.open);
+                (upper / range).to_f64()
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
+        Some(vals.iter().sum::<f64>() / vals.len() as f64)
+    }
+
+    /// Ratio of up-bars (close > open) to down-bars (close < open).
+    /// Returns `None` if no down-bars exist.
+    pub fn up_down_bar_ratio(bars: &[OhlcvBar]) -> Option<f64> {
+        let ups = bars.iter().filter(|b| b.close > b.open).count();
+        let downs = bars.iter().filter(|b| b.close < b.open).count();
+        if downs == 0 {
+            return None;
+        }
+        Some(ups as f64 / downs as f64)
+    }
+
 }
 
 impl std::fmt::Display for OhlcvBar {
@@ -9109,5 +9160,54 @@ mod tests {
         let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100));
         let r = OhlcvBar::mean_high_low_ratio(&[b]).unwrap();
         assert!(r > 1.0, "high > low → ratio > 1, got {}", r);
+    }
+
+    // ── round-89 tests ────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_max_consecutive_up_bars_zero_for_empty() {
+        assert_eq!(OhlcvBar::max_consecutive_up_bars(&[]), 0);
+    }
+
+    #[test]
+    fn test_max_consecutive_up_bars_zero_for_all_down() {
+        let b = make_ohlcv_bar(dec!(105), dec!(110), dec!(90), dec!(100)); // close < open
+        assert_eq!(OhlcvBar::max_consecutive_up_bars(&[b]), 0);
+    }
+
+    #[test]
+    fn test_max_consecutive_up_bars_correct_run() {
+        let up = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105)); // up
+        let dn = make_ohlcv_bar(dec!(105), dec!(115), dec!(90), dec!(100)); // down
+        let up2 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(108)); // up
+        let up3 = make_ohlcv_bar(dec!(108), dec!(120), dec!(100), dec!(115)); // up
+        assert_eq!(OhlcvBar::max_consecutive_up_bars(&[up, dn, up2, up3]), 2);
+    }
+
+    #[test]
+    fn test_avg_upper_shadow_fraction_none_for_empty() {
+        assert!(OhlcvBar::avg_upper_shadow_fraction(&[]).is_none());
+    }
+
+    #[test]
+    fn test_avg_upper_shadow_fraction_in_range() {
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100)); // close==open, upper=10, range=20
+        let f = OhlcvBar::avg_upper_shadow_fraction(&[b]).unwrap();
+        assert!(f >= 0.0 && f <= 1.0, "fraction in [0,1], got {}", f);
+    }
+
+    #[test]
+    fn test_up_down_bar_ratio_none_for_no_down_bars() {
+        // All up-close bars
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        assert!(OhlcvBar::up_down_bar_ratio(&[b]).is_none());
+    }
+
+    #[test]
+    fn test_up_down_bar_ratio_one_for_balanced() {
+        let up_bar = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let dn_bar = make_ohlcv_bar(dec!(105), dec!(110), dec!(90), dec!(100));
+        let r = OhlcvBar::up_down_bar_ratio(&[up_bar, dn_bar]).unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "1 up / 1 down → 1.0, got {}", r);
     }
 }

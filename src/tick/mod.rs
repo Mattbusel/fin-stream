@@ -3373,18 +3373,18 @@ impl NormalizedTick {
             .count()
     }
 
-    /// Interquartile range of prices (Q3 − Q1).
+    /// Interquartile range of quantities (Q3 − Q1).
     ///
     /// Returns `None` for fewer than 4 ticks.
-    pub fn price_iqr(ticks: &[NormalizedTick]) -> Option<Decimal> {
+    pub fn quantity_iqr(ticks: &[NormalizedTick]) -> Option<Decimal> {
         if ticks.len() < 4 {
             return None;
         }
-        let mut prices: Vec<Decimal> = ticks.iter().map(|t| t.price).collect();
-        prices.sort();
-        let n = prices.len();
-        let q1 = prices[n / 4];
-        let q3 = prices[(3 * n) / 4];
+        let mut qtys: Vec<Decimal> = ticks.iter().map(|t| t.quantity).collect();
+        qtys.sort();
+        let n = qtys.len();
+        let q1 = qtys[n / 4];
+        let q3 = qtys[(3 * n) / 4];
         Some(q3 - q1)
     }
 
@@ -3400,6 +3400,49 @@ impl NormalizedTick {
         let q3 = prices[(3 * prices.len()) / 4];
         let count = ticks.iter().filter(|t| t.price > q3).count();
         Some(count as f64 / ticks.len() as f64)
+    }
+
+    /// Ratio of buy-side notional to total notional (`buy_qty·price / total_qty·price`).
+    /// Returns `None` for empty slices or zero total notional.
+    pub fn buy_notional_ratio(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() {
+            return None;
+        }
+        let total_notional: Decimal = ticks.iter().map(|t| t.price * t.quantity).sum();
+        if total_notional.is_zero() {
+            return None;
+        }
+        let buy_notional: Decimal = ticks
+            .iter()
+            .filter(|t| t.side == Some(TradeSide::Buy))
+            .map(|t| t.price * t.quantity)
+            .sum();
+        (buy_notional / total_notional).to_f64()
+    }
+
+    /// Standard deviation of tick-to-tick signed returns.
+    /// Returns `None` for fewer than 3 ticks (need ≥ 2 returns).
+    pub fn return_std(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 3 {
+            return None;
+        }
+        let returns: Vec<f64> = ticks
+            .windows(2)
+            .filter_map(|w| {
+                let prev = w[0].price.to_f64()?;
+                if prev == 0.0 { return None; }
+                Some((w[1].price.to_f64()? - prev) / prev)
+            })
+            .collect();
+        if returns.len() < 2 {
+            return None;
+        }
+        let n = returns.len() as f64;
+        let mean = returns.iter().sum::<f64>() / n;
+        let var = returns.iter().map(|r| (r - mean).powi(2)).sum::<f64>() / (n - 1.0);
+        Some(var.sqrt())
     }
 
 }
@@ -8327,5 +8370,116 @@ mod tests {
         ];
         let f = NormalizedTick::price_reversal_fraction(&ticks).unwrap();
         assert!((f - 1.0).abs() < 1e-9, "perfect zigzag → 1.0, got {}", f);
+    }
+
+    // ── round-89 tests ────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_near_vwap_fraction_none_for_empty() {
+        use rust_decimal_macros::dec;
+        assert!(NormalizedTick::near_vwap_fraction(&[], dec!(1)).is_none());
+    }
+
+    #[test]
+    fn test_near_vwap_fraction_one_for_all_at_vwap() {
+        use rust_decimal_macros::dec;
+        // All ticks at same price → price == VWAP, band = 0 → fraction = 1
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(100), dec!(1)),
+        ];
+        let f = NormalizedTick::near_vwap_fraction(&ticks, dec!(0)).unwrap();
+        assert!((f - 1.0).abs() < 1e-9, "all at VWAP → 1.0, got {}", f);
+    }
+
+    #[test]
+    fn test_mean_tick_return_none_for_single() {
+        use rust_decimal_macros::dec;
+        let t = make_tick_pq(dec!(100), dec!(1));
+        assert!(NormalizedTick::mean_tick_return(&[t]).is_none());
+    }
+
+    #[test]
+    fn test_mean_tick_return_zero_for_constant_price() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(100), dec!(1)),
+        ];
+        let r = NormalizedTick::mean_tick_return(&ticks).unwrap();
+        assert!(r.abs() < 1e-9, "constant price → mean_return=0, got {}", r);
+    }
+
+    #[test]
+    fn test_passive_buy_count_zero_for_no_sides() {
+        use rust_decimal_macros::dec;
+        let t = make_tick_pq(dec!(100), dec!(1));
+        assert_eq!(NormalizedTick::passive_buy_count(&[t]), 0);
+    }
+
+    #[test]
+    fn test_quantity_iqr_none_for_small_slice() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(101), dec!(2)),
+        ];
+        assert!(NormalizedTick::quantity_iqr(&ticks).is_none());
+    }
+
+    #[test]
+    fn test_quantity_iqr_positive_for_varied_quantities() {
+        use rust_decimal_macros::dec;
+        let ticks: Vec<_> = [dec!(1), dec!(2), dec!(8), dec!(16), dec!(32), dec!(64), dec!(128), dec!(256)]
+            .iter()
+            .map(|&q| make_tick_pq(dec!(100), q))
+            .collect();
+        let iqr = NormalizedTick::quantity_iqr(&ticks).unwrap();
+        assert!(iqr > dec!(0));
+    }
+
+    #[test]
+    fn test_top_quartile_price_fraction_none_for_small_slice() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(101), dec!(1)),
+        ];
+        assert!(NormalizedTick::top_quartile_price_fraction(&ticks).is_none());
+    }
+
+    #[test]
+    fn test_buy_notional_ratio_none_for_empty() {
+        assert!(NormalizedTick::buy_notional_ratio(&[]).is_none());
+    }
+
+    #[test]
+    fn test_buy_notional_ratio_one_for_all_buys() {
+        use rust_decimal_macros::dec;
+        let mut t = make_tick_pq(dec!(100), dec!(1));
+        t.side = Some(TradeSide::Buy);
+        let r = NormalizedTick::buy_notional_ratio(&[t]).unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "all buys → ratio=1, got {}", r);
+    }
+
+    #[test]
+    fn test_return_std_none_for_two_ticks() {
+        use rust_decimal_macros::dec;
+        let t1 = make_tick_pq(dec!(100), dec!(1));
+        let t2 = make_tick_pq(dec!(101), dec!(1));
+        assert!(NormalizedTick::return_std(&[t1, t2]).is_none());
+    }
+
+    #[test]
+    fn test_return_std_zero_for_constant_price() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(100), dec!(1)),
+        ];
+        let s = NormalizedTick::return_std(&ticks).unwrap();
+        assert!(s.abs() < 1e-9, "constant price → return_std=0, got {}", s);
     }
 }
