@@ -6647,6 +6647,62 @@ impl NormalizedTick {
         Some(sum / ticks.len() as f64)
     }
 
+    // ── round-142 ────────────────────────────────────────────────────────────
+
+    /// Price range persistence: fraction of bars where price range is wider than the previous bar's range.
+    pub fn price_range_persistence(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 2 { return None; }
+        let prices: Vec<f64> = ticks.iter().map(|t| t.price.to_f64().unwrap_or(0.0)).collect();
+        let changes: Vec<f64> = prices.windows(2).map(|w| (w[1] - w[0]).abs()).collect();
+        if changes.len() < 2 { return None; }
+        let persist = changes.windows(2).filter(|w| w[1] > w[0]).count() as f64;
+        Some(persist / (changes.len() - 1) as f64)
+    }
+
+    /// Tick volume mean: mean of (price × quantity) per tick (mean notional).
+    pub fn tick_volume_mean(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() { return None; }
+        let sum: f64 = ticks.iter()
+            .map(|t| (t.price * t.quantity).to_f64().unwrap_or(0.0))
+            .sum();
+        Some(sum / ticks.len() as f64)
+    }
+
+    /// Side price variance: variance of prices for the dominant-count side.
+    pub fn side_price_variance(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let buy_prices: Vec<f64> = ticks.iter()
+            .filter(|t| matches!(t.side, Some(TradeSide::Buy)))
+            .map(|t| t.price.to_f64().unwrap_or(0.0))
+            .collect();
+        let sell_prices: Vec<f64> = ticks.iter()
+            .filter(|t| matches!(t.side, Some(TradeSide::Sell)))
+            .map(|t| t.price.to_f64().unwrap_or(0.0))
+            .collect();
+        let prices = if buy_prices.len() >= sell_prices.len() { &buy_prices } else { &sell_prices };
+        if prices.len() < 2 { return None; }
+        let mean = prices.iter().sum::<f64>() / prices.len() as f64;
+        let variance = prices.iter().map(|&p| (p - mean).powi(2)).sum::<f64>() / prices.len() as f64;
+        Some(variance)
+    }
+
+    /// Quantity flow ratio: sum of Buy qty / sum of Sell qty.
+    pub fn qty_flow_ratio(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let buy_vol: f64 = ticks.iter()
+            .filter(|t| matches!(t.side, Some(TradeSide::Buy)))
+            .map(|t| t.quantity.to_f64().unwrap_or(0.0))
+            .sum();
+        let sell_vol: f64 = ticks.iter()
+            .filter(|t| matches!(t.side, Some(TradeSide::Sell)))
+            .map(|t| t.quantity.to_f64().unwrap_or(0.0))
+            .sum();
+        if sell_vol == 0.0 { return None; }
+        Some(buy_vol / sell_vol)
+    }
+
 }
 
 
@@ -15205,5 +15261,85 @@ mod tests {
         ];
         let m = NormalizedTick::price_abs_mean(&ticks).unwrap();
         assert!((m - 150.0).abs() < 1e-9, "expected 150.0, got {}", m);
+    }
+
+    // ── round-142 ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_price_range_persistence_none_for_two() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![make_tick_pq(dec!(100), dec!(1)), make_tick_pq(dec!(105), dec!(1))];
+        assert!(NormalizedTick::price_range_persistence(&ticks).is_none());
+    }
+
+    #[test]
+    fn test_price_range_persistence_expanding() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(102), dec!(1)),
+            make_tick_pq(dec!(106), dec!(1)),
+            make_tick_pq(dec!(112), dec!(1)),
+        ];
+        // changes: 2, 4, 6 → all expanding → 1.0
+        let r = NormalizedTick::price_range_persistence(&ticks).unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "expected 1.0, got {}", r);
+    }
+
+    #[test]
+    fn test_tick_volume_mean_none_for_empty() {
+        assert!(NormalizedTick::tick_volume_mean(&[]).is_none());
+    }
+
+    #[test]
+    fn test_tick_volume_mean_basic() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(2)),
+            make_tick_pq(dec!(200), dec!(3)),
+        ];
+        // (100*2 + 200*3) / 2 = (200 + 600) / 2 = 400
+        let m = NormalizedTick::tick_volume_mean(&ticks).unwrap();
+        assert!((m - 400.0).abs() < 1e-6, "expected 400.0, got {}", m);
+    }
+
+    #[test]
+    fn test_side_price_variance_none_for_no_sides() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![make_tick_pq(dec!(100), dec!(1))];
+        assert!(NormalizedTick::side_price_variance(&ticks).is_none());
+    }
+
+    #[test]
+    fn test_side_price_variance_constant_buy_prices() {
+        use rust_decimal_macros::dec;
+        use crate::tick::TradeSide;
+        let mut t1 = make_tick_pq(dec!(100), dec!(1));
+        t1.side = Some(TradeSide::Buy);
+        let mut t2 = make_tick_pq(dec!(100), dec!(1));
+        t2.side = Some(TradeSide::Buy);
+        let v = NormalizedTick::side_price_variance(&[t1, t2]).unwrap();
+        assert!((v - 0.0).abs() < 1e-9, "expected 0.0, got {}", v);
+    }
+
+    #[test]
+    fn test_qty_flow_ratio_none_for_no_sell() {
+        use rust_decimal_macros::dec;
+        use crate::tick::TradeSide;
+        let mut t = make_tick_pq(dec!(100), dec!(1));
+        t.side = Some(TradeSide::Buy);
+        assert!(NormalizedTick::qty_flow_ratio(&[t]).is_none());
+    }
+
+    #[test]
+    fn test_qty_flow_ratio_equal_sides() {
+        use rust_decimal_macros::dec;
+        use crate::tick::TradeSide;
+        let mut buy = make_tick_pq(dec!(100), dec!(5));
+        buy.side = Some(TradeSide::Buy);
+        let mut sell = make_tick_pq(dec!(100), dec!(5));
+        sell.side = Some(TradeSide::Sell);
+        let r = NormalizedTick::qty_flow_ratio(&[buy, sell]).unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "expected 1.0, got {}", r);
     }
 }

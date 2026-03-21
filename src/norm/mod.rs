@@ -4419,6 +4419,52 @@ impl MinMaxNormalizer {
         Some(aligned / (vals.len() - 1) as f64)
     }
 
+    // ── round-142 ────────────────────────────────────────────────────────────
+
+    /// Centered mean: mean of values centered around window median.
+    pub fn window_centered_mean(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let mut vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        vals.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let median = if vals.len() % 2 == 0 {
+            (vals[vals.len() / 2 - 1] + vals[vals.len() / 2]) / 2.0
+        } else {
+            vals[vals.len() / 2]
+        };
+        let centered: Vec<f64> = vals.iter().map(|&v| v - median).collect();
+        Some(centered.iter().sum::<f64>() / centered.len() as f64)
+    }
+
+    /// Last deviation: distance of the last value from the window mean.
+    pub fn window_last_deviation(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let mean = vals.iter().sum::<f64>() / vals.len() as f64;
+        let last = *vals.last()?;
+        Some(last - mean)
+    }
+
+    /// Step size mean: mean of absolute consecutive differences (average step size).
+    pub fn window_step_size_mean(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let total: f64 = vals.windows(2).map(|w| (w[1] - w[0]).abs()).sum();
+        Some(total / (vals.len() - 1) as f64)
+    }
+
+    /// Net up count: number of upward steps minus number of downward steps.
+    pub fn window_net_up_count(&self) -> Option<i64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let ups = vals.windows(2).filter(|w| w[1] > w[0]).count() as i64;
+        let downs = vals.windows(2).filter(|w| w[1] < w[0]).count() as i64;
+        Some(ups - downs)
+    }
+
 }
 
 #[cfg(test)]
@@ -9427,6 +9473,69 @@ mod tests {
         let p = n.window_trend_purity().unwrap();
         assert!((p - 1.0).abs() < 1e-9, "expected 1.0 for pure uptrend, got {}", p);
     }
+
+    // ── round-142 ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_minmax_window_centered_mean_none_for_empty() {
+        let n = norm(4);
+        assert!(n.window_centered_mean().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_centered_mean_symmetric() {
+        let mut n = norm(5);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4), dec!(5)] { n.update(v); }
+        // median=3, centered: -2,-1,0,1,2 → mean=0
+        let cm = n.window_centered_mean().unwrap();
+        assert!(cm.abs() < 1e-9, "expected 0.0, got {}", cm);
+    }
+
+    #[test]
+    fn test_minmax_window_last_deviation_none_for_empty() {
+        let n = norm(4);
+        assert!(n.window_last_deviation().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_last_deviation_last_is_highest() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(10)] { n.update(v); }
+        // mean=4, last=10 → dev=6
+        let d = n.window_last_deviation().unwrap();
+        assert!(d > 0.0, "expected positive deviation, got {}", d);
+    }
+
+    #[test]
+    fn test_minmax_window_step_size_mean_none_for_single() {
+        let mut n = norm(4);
+        n.update(dec!(5));
+        assert!(n.window_step_size_mean().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_step_size_mean_uniform() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(3), dec!(5), dec!(7)] { n.update(v); }
+        // all steps = 2 → mean = 2
+        let s = n.window_step_size_mean().unwrap();
+        assert!((s - 2.0).abs() < 1e-9, "expected 2.0, got {}", s);
+    }
+
+    #[test]
+    fn test_minmax_window_net_up_count_none_for_single() {
+        let mut n = norm(4);
+        n.update(dec!(5));
+        assert!(n.window_net_up_count().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_net_up_count_all_up() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let c = n.window_net_up_count().unwrap();
+        assert_eq!(c, 3, "expected 3, got {}", c);
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -13790,6 +13899,52 @@ impl ZScoreNormalizer {
             .filter(|w| (w[1] - w[0]) * overall > 0.0)
             .count() as f64;
         Some(aligned / (vals.len() - 1) as f64)
+    }
+
+    // ── round-142 ────────────────────────────────────────────────────────────
+
+    /// Centered mean: mean of values centered around window median.
+    pub fn window_centered_mean(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let mut vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        vals.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let median = if vals.len() % 2 == 0 {
+            (vals[vals.len() / 2 - 1] + vals[vals.len() / 2]) / 2.0
+        } else {
+            vals[vals.len() / 2]
+        };
+        let centered: Vec<f64> = vals.iter().map(|&v| v - median).collect();
+        Some(centered.iter().sum::<f64>() / centered.len() as f64)
+    }
+
+    /// Last deviation: distance of the last value from the window mean.
+    pub fn window_last_deviation(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let mean = vals.iter().sum::<f64>() / vals.len() as f64;
+        let last = *vals.last()?;
+        Some(last - mean)
+    }
+
+    /// Step size mean: mean of absolute consecutive differences (average step size).
+    pub fn window_step_size_mean(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let total: f64 = vals.windows(2).map(|w| (w[1] - w[0]).abs()).sum();
+        Some(total / (vals.len() - 1) as f64)
+    }
+
+    /// Net up count: number of upward steps minus number of downward steps.
+    pub fn window_net_up_count(&self) -> Option<i64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let ups = vals.windows(2).filter(|w| w[1] > w[0]).count() as i64;
+        let downs = vals.windows(2).filter(|w| w[1] < w[0]).count() as i64;
+        Some(ups - downs)
     }
 
 }
@@ -18840,5 +18995,65 @@ mod zscore_stability_tests {
         for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
         let p = n.window_trend_purity().unwrap();
         assert!((p - 1.0).abs() < 1e-9, "expected 1.0 for pure uptrend, got {}", p);
+    }
+
+    // ── round-142 ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_zscore_window_centered_mean_none_for_empty() {
+        let n = znorm(4);
+        assert!(n.window_centered_mean().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_centered_mean_symmetric() {
+        let mut n = znorm(5);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4), dec!(5)] { n.update(v); }
+        let cm = n.window_centered_mean().unwrap();
+        assert!(cm.abs() < 1e-9, "expected 0.0, got {}", cm);
+    }
+
+    #[test]
+    fn test_zscore_window_last_deviation_none_for_empty() {
+        let n = znorm(4);
+        assert!(n.window_last_deviation().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_last_deviation_last_is_highest() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(10)] { n.update(v); }
+        let d = n.window_last_deviation().unwrap();
+        assert!(d > 0.0, "expected positive deviation, got {}", d);
+    }
+
+    #[test]
+    fn test_zscore_window_step_size_mean_none_for_single() {
+        let mut n = znorm(4);
+        n.update(dec!(5));
+        assert!(n.window_step_size_mean().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_step_size_mean_uniform() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(3), dec!(5), dec!(7)] { n.update(v); }
+        let s = n.window_step_size_mean().unwrap();
+        assert!((s - 2.0).abs() < 1e-9, "expected 2.0, got {}", s);
+    }
+
+    #[test]
+    fn test_zscore_window_net_up_count_none_for_single() {
+        let mut n = znorm(4);
+        n.update(dec!(5));
+        assert!(n.window_net_up_count().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_net_up_count_all_up() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let c = n.window_net_up_count().unwrap();
+        assert_eq!(c, 3, "expected 3, got {}", c);
     }
 }

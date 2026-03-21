@@ -9,6 +9,36 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.9.3] - 2026-03-20
+
+### Added
+
+**`tick` module — `NormalizedTick` analytics (round 142)**
+- `NormalizedTick::price_range_persistence(ticks)` — fraction of moves where the absolute price change expands.
+- `NormalizedTick::tick_volume_mean(ticks)` — mean of (price × quantity) per tick.
+- `NormalizedTick::side_price_variance(ticks)` — price variance for the dominant-count side.
+- `NormalizedTick::qty_flow_ratio(ticks)` — Buy total quantity / Sell total quantity.
+
+**`ohlcv` module — `OhlcvBar` analytics (round 142)**
+- `OhlcvBar::bar_close_low_trend(bars)` — OLS slope of (close - low) per bar.
+- `OhlcvBar::open_body_skew(bars)` — mean of (open - midpoint) / body per bar.
+- `OhlcvBar::bar_volume_trend_ratio(bars)` — fraction of bars with volume above previous bar's volume.
+- `OhlcvBar::bar_body_range_ratio(bars)` — mean of |close - open| / (high - low) per bar.
+
+**`norm` module — `MinMaxNormalizer` analytics (round 142)**
+- `MinMaxNormalizer::window_centered_mean()` — mean of values centered around window median.
+- `MinMaxNormalizer::window_last_deviation()` — distance of the last value from the window mean.
+- `MinMaxNormalizer::window_step_size_mean()` — mean of absolute consecutive differences.
+- `MinMaxNormalizer::window_net_up_count()` — upward steps count minus downward steps count.
+
+**`norm` module — `ZScoreNormalizer` analytics (round 142)**
+- `ZScoreNormalizer::window_centered_mean()` — mean of values centered around window median.
+- `ZScoreNormalizer::window_last_deviation()` — distance of the last value from the window mean.
+- `ZScoreNormalizer::window_step_size_mean()` — mean of absolute consecutive differences.
+- `ZScoreNormalizer::window_net_up_count()` — upward steps count minus downward steps count.
+
+---
+
 ## [2.9.2] - 2026-03-20
 
 ### Added
