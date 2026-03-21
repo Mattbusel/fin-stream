@@ -6899,6 +6899,52 @@ impl OhlcvBar {
         Some(var.sqrt())
     }
 
+    // ── round-150 ────────────────────────────────────────────────────────────
+
+    /// Count of bars where close > prior bar's close (up closes).
+    pub fn bar_up_close_count(bars: &[OhlcvBar]) -> Option<usize> {
+        if bars.len() < 2 { return None; }
+        Some(bars.windows(2).filter(|w| w[1].close > w[0].close).count())
+    }
+
+    /// Mean ratio of bar range to body size (range / |close - open|).
+    pub fn bar_range_to_body(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let vals: Vec<f64> = bars.iter().filter_map(|b| {
+            let body = (b.close - b.open).abs().to_f64()?;
+            if body == 0.0 { return None; }
+            let range = (b.high - b.low).to_f64()?;
+            Some(range / body)
+        }).collect();
+        if vals.is_empty() { return None; }
+        Some(vals.iter().sum::<f64>() / vals.len() as f64)
+    }
+
+    /// Mean fraction of bar range from low to open (open position within range).
+    pub fn bar_open_range_fraction(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let vals: Vec<f64> = bars.iter().filter_map(|b| {
+            let range = (b.high - b.low).to_f64()?;
+            if range == 0.0 { return None; }
+            let open_pos = (b.open - b.low).to_f64()?;
+            Some(open_pos / range)
+        }).collect();
+        if vals.is_empty() { return None; }
+        Some(vals.iter().sum::<f64>() / vals.len() as f64)
+    }
+
+    /// Count of consecutive close direction changes (up→down or down→up).
+    pub fn close_direction_change_count(bars: &[OhlcvBar]) -> Option<usize> {
+        if bars.len() < 3 { return None; }
+        let dirs: Vec<i8> = bars.windows(2).map(|w| {
+            if w[1].close > w[0].close { 1 } else if w[1].close < w[0].close { -1 } else { 0 }
+        }).collect();
+        let count = dirs.windows(2).filter(|w| w[0] != 0 && w[1] != 0 && w[0] != w[1]).count();
+        Some(count)
+    }
+
 }
 
 impl std::fmt::Display for OhlcvBar {
@@ -15948,5 +15994,69 @@ mod tests {
         ];
         let s = OhlcvBar::bar_body_std(&bars).unwrap();
         assert!((s - 0.0).abs() < 1e-9, "expected 0.0, got {}", s);
+    }
+
+    // ── round-150 ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_bar_up_close_count_none_for_one() {
+        let bars = vec![make_ohlcv_bar(dec!(90), dec!(110), dec!(85), dec!(100))];
+        assert!(OhlcvBar::bar_up_close_count(&bars).is_none());
+    }
+
+    #[test]
+    fn test_bar_up_close_count_all_up() {
+        let bars = vec![
+            make_ohlcv_bar(dec!(90), dec!(100), dec!(85), dec!(95)),
+            make_ohlcv_bar(dec!(95), dec!(115), dec!(90), dec!(110)),
+        ];
+        let c = OhlcvBar::bar_up_close_count(&bars).unwrap();
+        assert_eq!(c, 1);
+    }
+
+    #[test]
+    fn test_bar_range_to_body_none_for_empty() {
+        assert!(OhlcvBar::bar_range_to_body(&[]).is_none());
+    }
+
+    #[test]
+    fn test_bar_range_to_body_no_body() {
+        // open=close → body=0 → filtered out → None
+        let bars = vec![make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100))];
+        assert!(OhlcvBar::bar_range_to_body(&bars).is_none());
+    }
+
+    #[test]
+    fn test_bar_open_range_fraction_none_for_empty() {
+        assert!(OhlcvBar::bar_open_range_fraction(&[]).is_none());
+    }
+
+    #[test]
+    fn test_bar_open_range_fraction_open_at_low() {
+        // open=low=90 → fraction=0
+        let bars = vec![make_ohlcv_bar(dec!(90), dec!(110), dec!(90), dec!(100))];
+        let f = OhlcvBar::bar_open_range_fraction(&bars).unwrap();
+        assert!((f - 0.0).abs() < 1e-9, "expected 0.0, got {}", f);
+    }
+
+    #[test]
+    fn test_close_direction_change_count_none_for_two() {
+        let bars = vec![
+            make_ohlcv_bar(dec!(90), dec!(110), dec!(85), dec!(100)),
+            make_ohlcv_bar(dec!(100), dec!(120), dec!(95), dec!(110)),
+        ];
+        assert!(OhlcvBar::close_direction_change_count(&bars).is_none());
+    }
+
+    #[test]
+    fn test_close_direction_change_count_no_changes() {
+        // closes: 100, 110, 120 → all up → no direction changes
+        let bars = vec![
+            make_ohlcv_bar(dec!(90), dec!(105), dec!(85), dec!(100)),
+            make_ohlcv_bar(dec!(100), dec!(115), dec!(95), dec!(110)),
+            make_ohlcv_bar(dec!(110), dec!(125), dec!(105), dec!(120)),
+        ];
+        let c = OhlcvBar::close_direction_change_count(&bars).unwrap();
+        assert_eq!(c, 0);
     }
 }

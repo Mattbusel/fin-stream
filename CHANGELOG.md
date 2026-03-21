@@ -9,6 +9,36 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.10.1] - 2026-03-20
+
+### Added
+
+**`tick` module — `NormalizedTick` analytics (round 150)**
+- `NormalizedTick::tick_spread_efficiency(ticks)` — mean price change per unit of price spread.
+- `NormalizedTick::qty_std_cv(ticks)` — coefficient of variation of tick quantities.
+- `NormalizedTick::side_weighted_qty(ticks)` — mean quantity weighted by trade side (+Buy/-Sell).
+- `NormalizedTick::tick_vol_spread(ticks)` — std dev of tick-to-tick volume (price × qty) changes.
+
+**`ohlcv` module — `OhlcvBar` analytics (round 150)**
+- `OhlcvBar::bar_up_close_count(bars)` — count of bars where close > prior bar's close.
+- `OhlcvBar::bar_range_to_body(bars)` — mean ratio of bar range to body size.
+- `OhlcvBar::bar_open_range_fraction(bars)` — mean fraction of bar range from low to open.
+- `OhlcvBar::close_direction_change_count(bars)` — count of consecutive close direction changes.
+
+**`norm` module — `MinMaxNormalizer` analytics (round 150)**
+- `MinMaxNormalizer::window_coeff_of_variation()` — coefficient of variation (std/mean) of the window.
+- `MinMaxNormalizer::window_mean_absolute_error()` — mean absolute deviation from window mean.
+- `MinMaxNormalizer::window_normalized_last()` — last value normalized to [0,1] within window range.
+- `MinMaxNormalizer::window_sign_bias()` — fraction positive minus fraction negative in the window.
+
+**`norm` module — `ZScoreNormalizer` analytics (round 150)**
+- `ZScoreNormalizer::window_coeff_of_variation()` — coefficient of variation (std/mean) of the window.
+- `ZScoreNormalizer::window_mean_absolute_error()` — mean absolute deviation from window mean.
+- `ZScoreNormalizer::window_normalized_last()` — last value normalized to [0,1] within window range.
+- `ZScoreNormalizer::window_sign_bias()` — fraction positive minus fraction negative in the window.
+
+---
+
 ## [2.10.0] - 2026-03-20
 
 ### Added

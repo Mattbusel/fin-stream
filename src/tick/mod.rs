@@ -7104,6 +7104,68 @@ impl NormalizedTick {
         Some((buy_vol - sell_vol) / total)
     }
 
+    // ── round-150 ────────────────────────────────────────────────────────────
+
+    /// Spread efficiency: mean price change per unit of spread (price volatility / range).
+    pub fn tick_spread_efficiency(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 2 { return None; }
+        let prices: Vec<f64> = ticks.iter().filter_map(|t| t.price.to_f64()).collect();
+        if prices.len() < 2 { return None; }
+        let min = prices.iter().cloned().fold(f64::INFINITY, f64::min);
+        let max = prices.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        let spread = max - min;
+        if spread == 0.0 { return None; }
+        let mean_change: f64 = prices.windows(2).map(|w| (w[1] - w[0]).abs()).sum::<f64>()
+            / (prices.len() - 1) as f64;
+        Some(mean_change / spread)
+    }
+
+    /// Coefficient of variation of tick quantities (std / mean).
+    pub fn qty_std_cv(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() { return None; }
+        let qtys: Vec<f64> = ticks.iter().filter_map(|t| t.quantity.to_f64()).collect();
+        if qtys.is_empty() { return None; }
+        let mean = qtys.iter().sum::<f64>() / qtys.len() as f64;
+        if mean == 0.0 { return None; }
+        let var = qtys.iter().map(|q| (q - mean).powi(2)).sum::<f64>() / qtys.len() as f64;
+        Some(var.sqrt() / mean)
+    }
+
+    /// Mean quantity weighted by side: Buy qty gets +1 weight, Sell gets -1.
+    pub fn side_weighted_qty(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() { return None; }
+        let weighted: f64 = ticks.iter().filter_map(|t| {
+            let q = t.quantity.to_f64()?;
+            let w = match t.side {
+                Some(TradeSide::Buy) => 1.0,
+                Some(TradeSide::Sell) => -1.0,
+                None => 0.0,
+            };
+            Some(w * q)
+        }).sum();
+        let n = ticks.len() as f64;
+        Some(weighted / n)
+    }
+
+    /// Standard deviation of tick-to-tick volume (quantity × price) changes.
+    pub fn tick_vol_spread(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 2 { return None; }
+        let vols: Vec<f64> = ticks.iter().filter_map(|t| {
+            let p = t.price.to_f64()?;
+            let q = t.quantity.to_f64()?;
+            Some(p * q)
+        }).collect();
+        if vols.len() < 2 { return None; }
+        let diffs: Vec<f64> = vols.windows(2).map(|w| (w[1] - w[0]).abs()).collect();
+        let mean = diffs.iter().sum::<f64>() / diffs.len() as f64;
+        let var = diffs.iter().map(|d| (d - mean).powi(2)).sum::<f64>() / diffs.len() as f64;
+        Some(var.sqrt())
+    }
+
 }
 
 
@@ -16281,5 +16343,73 @@ mod tests {
         s.side = Some(TradeSide::Sell);
         let fi = NormalizedTick::side_flow_imbalance(&[b, s]).unwrap();
         assert!((fi - 0.0).abs() < 1e-9, "expected 0.0, got {}", fi);
+    }
+
+    // ── round-150 ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_tick_spread_efficiency_none_for_single() {
+        use rust_decimal_macros::dec;
+        assert!(NormalizedTick::tick_spread_efficiency(&[make_tick_pq(dec!(100), dec!(1))]).is_none());
+    }
+
+    #[test]
+    fn test_tick_spread_efficiency_returns_some() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(102), dec!(1)),
+            make_tick_pq(dec!(101), dec!(1)),
+        ];
+        let e = NormalizedTick::tick_spread_efficiency(&ticks).unwrap();
+        assert!(e > 0.0, "expected positive efficiency, got {}", e);
+    }
+
+    #[test]
+    fn test_qty_std_cv_none_for_empty() {
+        assert!(NormalizedTick::qty_std_cv(&[]).is_none());
+    }
+
+    #[test]
+    fn test_qty_std_cv_equal_quantities() {
+        use rust_decimal_macros::dec;
+        // equal quantities → std=0 → cv=0
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(5)),
+            make_tick_pq(dec!(101), dec!(5)),
+        ];
+        let cv = NormalizedTick::qty_std_cv(&ticks).unwrap();
+        assert!((cv - 0.0).abs() < 1e-9, "expected 0.0, got {}", cv);
+    }
+
+    #[test]
+    fn test_side_weighted_qty_none_for_empty() {
+        assert!(NormalizedTick::side_weighted_qty(&[]).is_none());
+    }
+
+    #[test]
+    fn test_side_weighted_qty_no_sides_zero() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![make_tick_pq(dec!(100), dec!(5))];
+        let wq = NormalizedTick::side_weighted_qty(&ticks).unwrap();
+        assert!((wq - 0.0).abs() < 1e-9, "expected 0.0 for no-side tick, got {}", wq);
+    }
+
+    #[test]
+    fn test_tick_vol_spread_none_for_single() {
+        use rust_decimal_macros::dec;
+        assert!(NormalizedTick::tick_vol_spread(&[make_tick_pq(dec!(100), dec!(1))]).is_none());
+    }
+
+    #[test]
+    fn test_tick_vol_spread_equal_vols() {
+        use rust_decimal_macros::dec;
+        // same price*qty → vol spread std=0
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(2)),
+            make_tick_pq(dec!(100), dec!(2)),
+        ];
+        let s = NormalizedTick::tick_vol_spread(&ticks).unwrap();
+        assert!((s - 0.0).abs() < 1e-9, "expected 0.0, got {}", s);
     }
 }
