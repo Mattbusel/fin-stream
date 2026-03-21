@@ -6354,6 +6354,63 @@ impl MinMaxNormalizer {
         Some(peaks as f64)
     }
 
+    /// Slope of the least-squares linear fit to window values.
+    pub fn window_linear_slope(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let n = self.window.len();
+        if n < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let n_f = n as f64;
+        let sx: f64 = (0..n).map(|i| i as f64).sum();
+        let sy: f64 = vals.iter().sum();
+        let sxx: f64 = (0..n).map(|i| (i as f64).powi(2)).sum();
+        let sxy: f64 = vals.iter().enumerate().map(|(i, v)| i as f64 * v).sum();
+        let denom = n_f * sxx - sx * sx;
+        if denom == 0.0 { return None; }
+        Some((n_f * sxy - sx * sy) / denom)
+    }
+
+    /// Sum of signed differences from the mean (positive excess minus negative excess).
+    pub fn window_signed_variance(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let mean = vals.iter().sum::<f64>() / vals.len() as f64;
+        Some(vals.iter().map(|v| v - mean).sum::<f64>())
+    }
+
+    /// Count of consecutive pairs where value[i] < value[i+1].
+    pub fn window_consecutive_increase(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let count = vals.windows(2).filter(|w| w[1] > w[0]).count();
+        Some(count as f64)
+    }
+
+    /// Entropy proxy of window range buckets: -sum(p*log2(p)) for 10 buckets.
+    pub fn window_range_entropy(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let min = vals.iter().cloned().fold(f64::INFINITY, f64::min);
+        let max = vals.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        let range = max - min;
+        if range == 0.0 { return Some(0.0); }
+        let buckets = 10usize;
+        let mut counts = vec![0usize; buckets];
+        for v in &vals {
+            let idx = (((v - min) / range) * buckets as f64) as usize;
+            counts[idx.min(buckets - 1)] += 1;
+        }
+        let n = vals.len() as f64;
+        let entropy = counts.iter()
+            .filter(|&&c| c > 0)
+            .map(|&c| { let p = c as f64 / n; -p * p.log2() })
+            .sum();
+        Some(entropy)
+    }
+
 }
 
 #[cfg(test)]
@@ -13824,6 +13881,68 @@ mod tests {
         let r = n.window_peak_count_f64().unwrap();
         assert!((r - 1.0).abs() < 1e-9, "expected 1.0, got {}", r);
     }
+
+    #[test]
+    fn test_minmax_window_linear_slope_none_for_single() {
+        let mut n = norm(4);
+        n.update(dec!(5));
+        assert!(n.window_linear_slope().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_linear_slope_increasing() {
+        // 1, 2, 3, 4 → slope = 1.0
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let r = n.window_linear_slope().unwrap();
+        assert!((r - 1.0).abs() < 1e-6, "expected 1.0, got {}", r);
+    }
+
+    #[test]
+    fn test_minmax_window_signed_variance_none_for_empty() {
+        let n = norm(4);
+        assert!(n.window_signed_variance().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_signed_variance_symmetric_zero() {
+        // 1, 3, 1, 3 → mean=2 → sum of deviations = 0
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(3), dec!(1), dec!(3)] { n.update(v); }
+        let r = n.window_signed_variance().unwrap();
+        assert!(r.abs() < 1e-9, "expected 0.0, got {}", r);
+    }
+
+    #[test]
+    fn test_minmax_window_consecutive_increase_none_for_single() {
+        let mut n = norm(4);
+        n.update(dec!(5));
+        assert!(n.window_consecutive_increase().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_consecutive_increase_monotone() {
+        // 1,2,3,4 → 3 increases
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let r = n.window_consecutive_increase().unwrap();
+        assert!((r - 3.0).abs() < 1e-9, "expected 3.0, got {}", r);
+    }
+
+    #[test]
+    fn test_minmax_window_range_entropy_none_for_single() {
+        let mut n = norm(4);
+        n.update(dec!(5));
+        assert!(n.window_range_entropy().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_range_entropy_constant_zero() {
+        let mut n = norm(4);
+        for v in [dec!(5), dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        let r = n.window_range_entropy().unwrap();
+        assert!((r - 0.0).abs() < 1e-9, "expected 0.0, got {}", r);
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -20126,6 +20245,63 @@ impl ZScoreNormalizer {
         let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
         let peaks = vals.windows(3).filter(|w| w[1] > w[0] && w[1] > w[2]).count();
         Some(peaks as f64)
+    }
+
+    /// Slope of the least-squares linear fit to window values.
+    pub fn window_linear_slope(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        let n = self.window.len();
+        if n < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let n_f = n as f64;
+        let sx: f64 = (0..n).map(|i| i as f64).sum();
+        let sy: f64 = vals.iter().sum();
+        let sxx: f64 = (0..n).map(|i| (i as f64).powi(2)).sum();
+        let sxy: f64 = vals.iter().enumerate().map(|(i, v)| i as f64 * v).sum();
+        let denom = n_f * sxx - sx * sx;
+        if denom == 0.0 { return None; }
+        Some((n_f * sxy - sx * sy) / denom)
+    }
+
+    /// Sum of signed differences from the mean (positive excess minus negative excess).
+    pub fn window_signed_variance(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let mean = vals.iter().sum::<f64>() / vals.len() as f64;
+        Some(vals.iter().map(|v| v - mean).sum::<f64>())
+    }
+
+    /// Count of consecutive pairs where value[i] < value[i+1].
+    pub fn window_consecutive_increase(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let count = vals.windows(2).filter(|w| w[1] > w[0]).count();
+        Some(count as f64)
+    }
+
+    /// Entropy proxy of window range buckets: -sum(p*log2(p)) for 10 buckets.
+    pub fn window_range_entropy(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let min = vals.iter().cloned().fold(f64::INFINITY, f64::min);
+        let max = vals.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        let range = max - min;
+        if range == 0.0 { return Some(0.0); }
+        let buckets = 10usize;
+        let mut counts = vec![0usize; buckets];
+        for v in &vals {
+            let idx = (((v - min) / range) * buckets as f64) as usize;
+            counts[idx.min(buckets - 1)] += 1;
+        }
+        let n = vals.len() as f64;
+        let entropy = counts.iter()
+            .filter(|&&c| c > 0)
+            .map(|&c| { let p = c as f64 / n; -p * p.log2() })
+            .sum();
+        Some(entropy)
     }
 
 }
@@ -27558,5 +27734,64 @@ mod zscore_stability_tests {
         for v in [dec!(1), dec!(3), dec!(2), dec!(1)] { n.update(v); }
         let r = n.window_peak_count_f64().unwrap();
         assert!((r - 1.0).abs() < 1e-9, "expected 1.0, got {}", r);
+    }
+
+    #[test]
+    fn test_zscore_window_linear_slope_none_for_single() {
+        let mut n = znorm(4);
+        n.update(dec!(5));
+        assert!(n.window_linear_slope().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_linear_slope_increasing() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let r = n.window_linear_slope().unwrap();
+        assert!((r - 1.0).abs() < 1e-6, "expected 1.0, got {}", r);
+    }
+
+    #[test]
+    fn test_zscore_window_signed_variance_none_for_empty() {
+        let n = znorm(4);
+        assert!(n.window_signed_variance().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_signed_variance_symmetric_zero() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(3), dec!(1), dec!(3)] { n.update(v); }
+        let r = n.window_signed_variance().unwrap();
+        assert!(r.abs() < 1e-9, "expected 0.0, got {}", r);
+    }
+
+    #[test]
+    fn test_zscore_window_consecutive_increase_none_for_single() {
+        let mut n = znorm(4);
+        n.update(dec!(5));
+        assert!(n.window_consecutive_increase().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_consecutive_increase_monotone() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let r = n.window_consecutive_increase().unwrap();
+        assert!((r - 3.0).abs() < 1e-9, "expected 3.0, got {}", r);
+    }
+
+    #[test]
+    fn test_zscore_window_range_entropy_none_for_single() {
+        let mut n = znorm(4);
+        n.update(dec!(5));
+        assert!(n.window_range_entropy().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_range_entropy_constant_zero() {
+        let mut n = znorm(4);
+        for v in [dec!(5), dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        let r = n.window_range_entropy().unwrap();
+        assert!((r - 0.0).abs() < 1e-9, "expected 0.0, got {}", r);
     }
 }

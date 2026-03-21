@@ -9,6 +9,30 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.10.33] - 2026-03-20
+
+### Added
+
+**`tick` module — `NormalizedTick` analytics (round 182)**
+- `NormalizedTick::price_range_acceleration(ticks)` — mean second difference of prices: acceleration of price movement.
+- `NormalizedTick::tick_qty_concentration_ratio(ticks)` — fraction of ticks with quantity above the 90th percentile.
+- `NormalizedTick::tick_price_cluster_count(ticks)` — number of distinct price clusters using 1% bucket size.
+- `NormalizedTick::tick_side_streak_length(ticks)` — length of the longest consecutive run of the same trade side.
+
+**`ohlcv` module — `OhlcvBar` analytics (round 182)**
+- `OhlcvBar::bar_wicks_to_body_ratio(bars)` — mean (upper + lower wick) / body size ratio per bar.
+- `OhlcvBar::bar_close_to_high_pct(bars)` — mean (close - low) / (high - low) per bar.
+- `OhlcvBar::bar_body_to_shadow_pct(bars)` — mean body / total wick ratio per bar.
+- `OhlcvBar::bar_high_low_accel(bars)` — mean second difference of (high - low): acceleration of range change.
+
+**`norm` module — `MinMaxNormalizer` + `ZScoreNormalizer` analytics (round 182)**
+- `window_linear_slope()` — slope of the least-squares linear fit to window values.
+- `window_signed_variance()` — sum of signed deviations from the mean.
+- `window_consecutive_increase()` — count of consecutive increasing pairs in the window.
+- `window_range_entropy()` — entropy proxy of window values distributed across 10 equal-width buckets.
+
+---
+
 ## [2.10.32] - 2026-03-20
 
 ### Added

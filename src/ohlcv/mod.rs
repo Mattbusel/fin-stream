@@ -8732,6 +8732,71 @@ impl OhlcvBar {
         Some(std / mean)
     }
 
+    /// Mean (upper_wick + lower_wick) / body_size ratio per bar. None on empty.
+    pub fn bar_wicks_to_body_ratio(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let ratios: Vec<f64> = bars.iter().filter_map(|b| {
+            let o = b.open.to_f64()?;
+            let h = b.high.to_f64()?;
+            let l = b.low.to_f64()?;
+            let c = b.close.to_f64()?;
+            let body = (c - o).abs();
+            if body == 0.0 { return None; }
+            let upper = h - o.max(c);
+            let lower = o.min(c) - l;
+            Some((upper + lower) / body)
+        }).collect();
+        if ratios.is_empty() { return None; }
+        Some(ratios.iter().sum::<f64>() / ratios.len() as f64)
+    }
+
+    /// Mean (close - low) / (high - low) per bar: close position within range.
+    pub fn bar_close_to_high_pct(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let vals: Vec<f64> = bars.iter().filter_map(|b| {
+            let h = b.high.to_f64()?;
+            let l = b.low.to_f64()?;
+            let c = b.close.to_f64()?;
+            let range = h - l;
+            if range == 0.0 { return None; }
+            Some((c - l) / range)
+        }).collect();
+        if vals.is_empty() { return None; }
+        Some(vals.iter().sum::<f64>() / vals.len() as f64)
+    }
+
+    /// Mean body / (upper + lower wick) ratio. None if all bars have zero wicks.
+    pub fn bar_body_to_shadow_pct(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let vals: Vec<f64> = bars.iter().filter_map(|b| {
+            let o = b.open.to_f64()?;
+            let h = b.high.to_f64()?;
+            let l = b.low.to_f64()?;
+            let c = b.close.to_f64()?;
+            let body = (c - o).abs();
+            let wicks = (h - o.max(c)) + (o.min(c) - l);
+            if wicks == 0.0 { return None; }
+            Some(body / wicks)
+        }).collect();
+        if vals.is_empty() { return None; }
+        Some(vals.iter().sum::<f64>() / vals.len() as f64)
+    }
+
+    /// Mean second difference of (high - low): acceleration of range change.
+    pub fn bar_high_low_accel(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.len() < 3 { return None; }
+        let ranges: Vec<f64> = bars.iter().filter_map(|b| {
+            Some(b.high.to_f64()? - b.low.to_f64()?)
+        }).collect();
+        if ranges.len() < 3 { return None; }
+        let accels: Vec<f64> = ranges.windows(3).map(|w| (w[2] - w[1]) - (w[1] - w[0])).collect();
+        Some(accels.iter().sum::<f64>() / accels.len() as f64)
+    }
+
 }
 
 impl std::fmt::Display for OhlcvBar {
@@ -19732,5 +19797,69 @@ mod tests {
         let b2 = make_ohlcv_bar(dec!(110), dec!(120), dec!(100), dec!(115));
         let r = OhlcvBar::bar_volume_dispersion(&[b0, b1, b2]).unwrap();
         assert!((r - 0.0).abs() < 1e-9, "expected 0.0, got {}", r);
+    }
+
+    #[test]
+    fn test_bar_wicks_to_body_ratio_none_for_empty() {
+        assert!(OhlcvBar::bar_wicks_to_body_ratio(&[]).is_none());
+    }
+
+    #[test]
+    fn test_bar_wicks_to_body_ratio_doji_none() {
+        // open=close → body=0 → filtered out → None
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100));
+        assert!(OhlcvBar::bar_wicks_to_body_ratio(&[b]).is_none());
+    }
+
+    #[test]
+    fn test_bar_wicks_to_body_ratio_value() {
+        // open=100, high=120, low=80, close=110
+        // body=10, upper=max(open,close)=110→high-110=10, lower=min(open,close)=100→100-80=20
+        // wicks=30, ratio=3.0
+        let b = make_ohlcv_bar(dec!(100), dec!(120), dec!(80), dec!(110));
+        let r = OhlcvBar::bar_wicks_to_body_ratio(&[b]).unwrap();
+        assert!((r - 3.0).abs() < 1e-9, "expected 3.0, got {}", r);
+    }
+
+    #[test]
+    fn test_bar_close_to_high_pct_none_for_empty() {
+        assert!(OhlcvBar::bar_close_to_high_pct(&[]).is_none());
+    }
+
+    #[test]
+    fn test_bar_close_to_high_pct_at_high() {
+        // close=high → (close-low)/(high-low) = 1.0
+        let b = make_ohlcv_bar(dec!(100), dec!(120), dec!(80), dec!(120));
+        let r = OhlcvBar::bar_close_to_high_pct(&[b]).unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "expected 1.0, got {}", r);
+    }
+
+    #[test]
+    fn test_bar_body_to_shadow_pct_none_for_empty() {
+        assert!(OhlcvBar::bar_body_to_shadow_pct(&[]).is_none());
+    }
+
+    #[test]
+    fn test_bar_body_to_shadow_pct_no_wicks_none() {
+        // open=low, close=high → no wicks → filtered out → None
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(100), dec!(110));
+        assert!(OhlcvBar::bar_body_to_shadow_pct(&[b]).is_none());
+    }
+
+    #[test]
+    fn test_bar_high_low_accel_none_for_short() {
+        let b0 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let b1 = make_ohlcv_bar(dec!(105), dec!(115), dec!(95), dec!(110));
+        assert!(OhlcvBar::bar_high_low_accel(&[b0, b1]).is_none());
+    }
+
+    #[test]
+    fn test_bar_high_low_accel_constant_range_zero() {
+        // Each bar has range=20 → linear → accel=0
+        let b0 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100));
+        let b1 = make_ohlcv_bar(dec!(105), dec!(115), dec!(95), dec!(105));
+        let b2 = make_ohlcv_bar(dec!(110), dec!(120), dec!(100), dec!(110));
+        let r = OhlcvBar::bar_high_low_accel(&[b0, b1, b2]).unwrap();
+        assert!(r.abs() < 1e-9, "expected 0.0, got {}", r);
     }
 }

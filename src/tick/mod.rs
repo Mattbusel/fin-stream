@@ -9029,6 +9029,64 @@ impl NormalizedTick {
         Some(1.0 - (std / mean).min(1.0))
     }
 
+    /// Mean second difference of prices: acceleration of price movement.
+    pub fn price_range_acceleration(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 3 { return None; }
+        let prices: Vec<f64> = ticks.iter().filter_map(|t| t.price.to_f64()).collect();
+        if prices.len() < 3 { return None; }
+        let accels: Vec<f64> = prices.windows(3).map(|w| (w[2] - w[1]) - (w[1] - w[0])).collect();
+        Some(accels.iter().sum::<f64>() / accels.len() as f64)
+    }
+
+    /// Fraction of ticks where quantity is above 90th percentile of quantities.
+    pub fn tick_qty_concentration_ratio(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() { return None; }
+        let mut qtys: Vec<f64> = ticks.iter().filter_map(|t| t.quantity.to_f64()).collect();
+        if qtys.is_empty() { return None; }
+        qtys.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let p90_idx = ((qtys.len() as f64 * 0.9) as usize).min(qtys.len() - 1);
+        let p90 = qtys[p90_idx];
+        let count = qtys.iter().filter(|&&q| q > p90).count();
+        Some(count as f64 / qtys.len() as f64)
+    }
+
+    /// Number of distinct price clusters (buckets with tick size = 1% of price range).
+    pub fn tick_price_cluster_count(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 2 { return None; }
+        let prices: Vec<f64> = ticks.iter().filter_map(|t| t.price.to_f64()).collect();
+        if prices.len() < 2 { return None; }
+        let min = prices.iter().cloned().fold(f64::INFINITY, f64::min);
+        let max = prices.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        let range = max - min;
+        if range == 0.0 { return Some(1.0); }
+        let bucket_size = range * 0.01;
+        let mut buckets: std::collections::HashSet<i64> = std::collections::HashSet::new();
+        for p in &prices {
+            buckets.insert(((p - min) / bucket_size) as i64);
+        }
+        Some(buckets.len() as f64)
+    }
+
+    /// Length of the longest consecutive run of the same trade side.
+    pub fn tick_side_streak_length(ticks: &[NormalizedTick]) -> Option<f64> {
+        if ticks.is_empty() { return None; }
+        let sides: Vec<Option<TradeSide>> = ticks.iter().map(|t| t.side).collect();
+        let mut max_streak = 1usize;
+        let mut streak = 1usize;
+        for i in 1..sides.len() {
+            if sides[i].is_some() && sides[i] == sides[i - 1] {
+                streak += 1;
+                if streak > max_streak { max_streak = streak; }
+            } else {
+                streak = 1;
+            }
+        }
+        Some(max_streak as f64)
+    }
+
 }
 
 
@@ -20562,5 +20620,82 @@ mod tests {
     fn test_tick_arrival_interval_cv_single_none() {
         use rust_decimal_macros::dec;
         assert!(NormalizedTick::tick_arrival_interval_cv(&[make_tick_pq(dec!(100), dec!(1))]).is_none());
+    }
+
+    #[test]
+    fn test_price_range_acceleration_empty_none() {
+        use rust_decimal_macros::dec;
+        assert!(NormalizedTick::price_range_acceleration(&[]).is_none());
+    }
+
+    #[test]
+    fn test_price_range_acceleration_linear_zero() {
+        use rust_decimal_macros::dec;
+        // Linear: 10, 20, 30, 40 → second diffs = 0
+        let ticks = vec![
+            make_tick_pq(dec!(10), dec!(1)),
+            make_tick_pq(dec!(20), dec!(1)),
+            make_tick_pq(dec!(30), dec!(1)),
+            make_tick_pq(dec!(40), dec!(1)),
+        ];
+        let r = NormalizedTick::price_range_acceleration(&ticks).unwrap();
+        assert!(r.abs() < 1e-9, "expected 0.0, got {}", r);
+    }
+
+    #[test]
+    fn test_tick_qty_concentration_ratio_empty_none() {
+        use rust_decimal_macros::dec;
+        assert!(NormalizedTick::tick_qty_concentration_ratio(&[]).is_none());
+    }
+
+    #[test]
+    fn test_tick_qty_concentration_ratio_returns_fraction() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(101), dec!(2)),
+            make_tick_pq(dec!(102), dec!(3)),
+            make_tick_pq(dec!(103), dec!(4)),
+            make_tick_pq(dec!(104), dec!(10)),
+        ];
+        let r = NormalizedTick::tick_qty_concentration_ratio(&ticks).unwrap();
+        assert!(r >= 0.0 && r <= 1.0, "expected [0,1], got {}", r);
+    }
+
+    #[test]
+    fn test_tick_price_cluster_count_empty_none() {
+        use rust_decimal_macros::dec;
+        assert!(NormalizedTick::tick_price_cluster_count(&[]).is_none());
+    }
+
+    #[test]
+    fn test_tick_price_cluster_count_single_one() {
+        use rust_decimal_macros::dec;
+        // All same price → 1 cluster
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(100), dec!(1)),
+        ];
+        let r = NormalizedTick::tick_price_cluster_count(&ticks).unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "expected 1.0, got {}", r);
+    }
+
+    #[test]
+    fn test_tick_side_streak_length_empty_none() {
+        use rust_decimal_macros::dec;
+        assert!(NormalizedTick::tick_side_streak_length(&[]).is_none());
+    }
+
+    #[test]
+    fn test_tick_side_streak_length_no_side_one() {
+        use rust_decimal_macros::dec;
+        // side=None for all, no matching pairs → streak=1
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(101), dec!(1)),
+            make_tick_pq(dec!(102), dec!(1)),
+        ];
+        let r = NormalizedTick::tick_side_streak_length(&ticks).unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "expected 1.0, got {}", r);
     }
 }
