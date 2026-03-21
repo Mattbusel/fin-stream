@@ -6987,6 +6987,72 @@ impl NormalizedTick {
         Some(top_sum / total)
     }
 
+    // ── round-148 ────────────────────────────────────────────────────────────
+
+    /// Approximate entropy of tick prices using 5 equal-width bins.
+    pub fn price_entropy_bins(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() { return None; }
+        let prices: Vec<f64> = ticks.iter().filter_map(|t| t.price.to_f64()).collect();
+        if prices.is_empty() { return None; }
+        let min = prices.iter().cloned().fold(f64::INFINITY, f64::min);
+        let max = prices.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        if (max - min).abs() < 1e-12 { return Some(0.0); }
+        let num_bins = 5usize;
+        let bin_width = (max - min) / num_bins as f64;
+        let mut counts = vec![0usize; num_bins];
+        for &p in &prices {
+            let idx = (((p - min) / bin_width) as usize).min(num_bins - 1);
+            counts[idx] += 1;
+        }
+        let n = prices.len() as f64;
+        let entropy = counts.iter().filter(|&&c| c > 0).map(|&c| {
+            let p = c as f64 / n;
+            -p * p.ln()
+        }).sum::<f64>();
+        Some(entropy)
+    }
+
+    /// Price range as a percentage of mean price.
+    pub fn tick_price_range_pct(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() { return None; }
+        let prices: Vec<f64> = ticks.iter().filter_map(|t| t.price.to_f64()).collect();
+        if prices.is_empty() { return None; }
+        let min = prices.iter().cloned().fold(f64::INFINITY, f64::min);
+        let max = prices.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        let mean = prices.iter().sum::<f64>() / prices.len() as f64;
+        if mean == 0.0 { return None; }
+        Some((max - min) / mean * 100.0)
+    }
+
+    /// Number of side transitions (Buy→Sell or Sell→Buy) in the tick stream.
+    pub fn side_transition_count(ticks: &[NormalizedTick]) -> Option<usize> {
+        if ticks.len() < 2 { return None; }
+        let sides: Vec<Option<TradeSide>> = ticks.iter().map(|t| t.side).collect();
+        let count = sides.windows(2).filter(|w| {
+            matches!((w[0], w[1]),
+                (Some(TradeSide::Buy), Some(TradeSide::Sell)) |
+                (Some(TradeSide::Sell), Some(TradeSide::Buy)))
+        }).count();
+        Some(count)
+    }
+
+    /// Fraction of ticks whose price is above the volume-weighted average price.
+    pub fn qty_above_vwap_fraction(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() { return None; }
+        let total_qty: f64 = ticks.iter().filter_map(|t| t.quantity.to_f64()).sum();
+        if total_qty == 0.0 { return None; }
+        let vwap: f64 = ticks.iter().filter_map(|t| {
+            let p = t.price.to_f64()?;
+            let q = t.quantity.to_f64()?;
+            Some(p * q)
+        }).sum::<f64>() / total_qty;
+        let above = ticks.iter().filter(|t| t.price.to_f64().map_or(false, |p| p > vwap)).count();
+        Some(above as f64 / ticks.len() as f64)
+    }
+
 }
 
 
@@ -16017,5 +16083,78 @@ mod tests {
         ];
         let c = NormalizedTick::tick_qty_concentration(&ticks).unwrap();
         assert!(c > 0.0 && c <= 1.0, "expected fraction in (0,1], got {}", c);
+    }
+
+    // ── round-148 ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_price_entropy_bins_none_for_empty() {
+        assert!(NormalizedTick::price_entropy_bins(&[]).is_none());
+    }
+
+    #[test]
+    fn test_price_entropy_bins_uniform() {
+        use rust_decimal_macros::dec;
+        // all same price → entropy=0
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(100), dec!(1)),
+        ];
+        let e = NormalizedTick::price_entropy_bins(&ticks).unwrap();
+        assert!((e - 0.0).abs() < 1e-9, "expected 0.0, got {}", e);
+    }
+
+    #[test]
+    fn test_tick_price_range_pct_none_for_empty() {
+        assert!(NormalizedTick::tick_price_range_pct(&[]).is_none());
+    }
+
+    #[test]
+    fn test_tick_price_range_pct_basic() {
+        use rust_decimal_macros::dec;
+        // prices: 100, 110 → range=10, mean=105 → 10/105*100 ≈ 9.52
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(110), dec!(1)),
+        ];
+        let r = NormalizedTick::tick_price_range_pct(&ticks).unwrap();
+        assert!(r > 0.0, "expected positive range pct, got {}", r);
+    }
+
+    #[test]
+    fn test_side_transition_count_none_for_single() {
+        use rust_decimal_macros::dec;
+        assert!(NormalizedTick::side_transition_count(&[make_tick_pq(dec!(100), dec!(1))]).is_none());
+    }
+
+    #[test]
+    fn test_side_transition_count_alternating() {
+        use rust_decimal_macros::dec;
+        use crate::tick::TradeSide;
+        let mut b = make_tick_pq(dec!(100), dec!(1));
+        b.side = Some(TradeSide::Buy);
+        let mut s = make_tick_pq(dec!(100), dec!(1));
+        s.side = Some(TradeSide::Sell);
+        let mut b2 = make_tick_pq(dec!(100), dec!(1));
+        b2.side = Some(TradeSide::Buy);
+        let count = NormalizedTick::side_transition_count(&[b, s, b2]).unwrap();
+        assert_eq!(count, 2);
+    }
+
+    #[test]
+    fn test_qty_above_vwap_fraction_none_for_empty() {
+        assert!(NormalizedTick::qty_above_vwap_fraction(&[]).is_none());
+    }
+
+    #[test]
+    fn test_qty_above_vwap_fraction_returns_fraction() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(200), dec!(1)),
+        ];
+        // vwap = (100+200)/2 = 150; above: [200] → 1/2 = 0.5
+        let f = NormalizedTick::qty_above_vwap_fraction(&ticks).unwrap();
+        assert!((f - 0.5).abs() < 1e-9, "expected 0.5, got {}", f);
     }
 }

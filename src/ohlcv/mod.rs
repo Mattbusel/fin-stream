@@ -6803,6 +6803,58 @@ impl OhlcvBar {
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
+    // ── round-148 ────────────────────────────────────────────────────────────
+
+    /// Ratio of bar range standard deviation to mean range (coefficient of variation).
+    pub fn bar_volatility_ratio(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.len() < 2 { return None; }
+        let ranges: Vec<f64> = bars.iter().filter_map(|b| (b.high - b.low).to_f64()).collect();
+        if ranges.len() < 2 { return None; }
+        let mean = ranges.iter().sum::<f64>() / ranges.len() as f64;
+        if mean == 0.0 { return None; }
+        let var = ranges.iter().map(|r| (r - mean).powi(2)).sum::<f64>() / ranges.len() as f64;
+        Some(var.sqrt() / mean)
+    }
+
+    /// Mean deviation of close from EMA proxy across bars (close - EMA_proxy).
+    pub fn close_ema_deviation(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let n = bars.len();
+        let alpha = 2.0 / (n as f64 + 1.0);
+        let mut ema = bars[0].close.to_f64()?;
+        let mut deviations = vec![0.0f64];
+        for b in bars.iter().skip(1) {
+            let c = b.close.to_f64()?;
+            ema = alpha * c + (1.0 - alpha) * ema;
+            deviations.push(c - ema);
+        }
+        Some(deviations.iter().sum::<f64>() / deviations.len() as f64)
+    }
+
+    /// Count of doji bars (|open - close| / range < 0.1).
+    pub fn bar_doji_count(bars: &[OhlcvBar]) -> Option<usize> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let count = bars.iter().filter(|b| {
+            let range = (b.high - b.low).to_f64().unwrap_or(0.0);
+            if range == 0.0 { return true; }
+            let body = (b.open - b.close).abs().to_f64().unwrap_or(0.0);
+            body / range < 0.1
+        }).count();
+        Some(count)
+    }
+
+    /// Mean of (high - close) across bars.
+    pub fn bar_high_minus_close_mean(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let vals: Vec<f64> = bars.iter().filter_map(|b| (b.high - b.close).to_f64()).collect();
+        if vals.is_empty() { return None; }
+        Some(vals.iter().sum::<f64>() / vals.len() as f64)
+    }
+
 }
 
 impl std::fmt::Display for OhlcvBar {
@@ -15722,5 +15774,65 @@ mod tests {
         let bars = vec![make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100))];
         let r = OhlcvBar::open_close_range_ratio(&bars).unwrap();
         assert!((r - 0.0).abs() < 1e-9, "expected 0.0, got {}", r);
+    }
+
+    // ── round-148 ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_bar_volatility_ratio_none_for_one() {
+        let bars = vec![make_ohlcv_bar(dec!(90), dec!(110), dec!(85), dec!(100))];
+        assert!(OhlcvBar::bar_volatility_ratio(&bars).is_none());
+    }
+
+    #[test]
+    fn test_bar_volatility_ratio_constant_range() {
+        // same range → std=0 → ratio=0
+        let bars = vec![
+            make_ohlcv_bar(dec!(90), dec!(110), dec!(90), dec!(100)),
+            make_ohlcv_bar(dec!(100), dec!(120), dec!(100), dec!(110)),
+        ];
+        let r = OhlcvBar::bar_volatility_ratio(&bars).unwrap();
+        assert!((r - 0.0).abs() < 1e-9, "expected 0.0, got {}", r);
+    }
+
+    #[test]
+    fn test_close_ema_deviation_none_for_empty() {
+        assert!(OhlcvBar::close_ema_deviation(&[]).is_none());
+    }
+
+    #[test]
+    fn test_close_ema_deviation_single() {
+        let bars = vec![make_ohlcv_bar(dec!(90), dec!(110), dec!(85), dec!(100))];
+        let d = OhlcvBar::close_ema_deviation(&bars).unwrap();
+        assert!((d - 0.0).abs() < 1e-9, "expected 0.0, got {}", d);
+    }
+
+    #[test]
+    fn test_bar_doji_count_none_for_empty() {
+        assert!(OhlcvBar::bar_doji_count(&[]).is_none());
+    }
+
+    #[test]
+    fn test_bar_doji_count_all_doji() {
+        // open=close → body=0 → all doji
+        let bars = vec![
+            make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100)),
+            make_ohlcv_bar(dec!(105), dec!(115), dec!(95), dec!(105)),
+        ];
+        let c = OhlcvBar::bar_doji_count(&bars).unwrap();
+        assert_eq!(c, 2);
+    }
+
+    #[test]
+    fn test_bar_high_minus_close_mean_none_for_empty() {
+        assert!(OhlcvBar::bar_high_minus_close_mean(&[]).is_none());
+    }
+
+    #[test]
+    fn test_bar_high_minus_close_mean_basic() {
+        // high=110, close=100 → diff=10
+        let bars = vec![make_ohlcv_bar(dec!(90), dec!(110), dec!(85), dec!(100))];
+        let m = OhlcvBar::bar_high_minus_close_mean(&bars).unwrap();
+        assert!((m - 10.0).abs() < 1e-9, "expected 10.0, got {}", m);
     }
 }

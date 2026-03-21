@@ -4713,6 +4713,65 @@ impl MinMaxNormalizer {
         Some((log_sum / count as f64).exp())
     }
 
+    // ── round-148 ────────────────────────────────────────────────────────────
+
+    /// Mean of all pairwise absolute differences between window values.
+    pub fn window_pairwise_diff_mean(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let n = vals.len();
+        let mut sum = 0.0f64;
+        let mut count = 0usize;
+        for i in 0..n {
+            for j in (i + 1)..n {
+                sum += (vals[i] - vals[j]).abs();
+                count += 1;
+            }
+        }
+        if count == 0 { return None; }
+        Some(sum / count as f64)
+    }
+
+    /// Length of the longest consecutive run of negative (<0) window values.
+    pub fn window_negative_run_length(&self) -> Option<usize> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let mut max_run = 0usize;
+        let mut run = 0usize;
+        for &v in &vals {
+            if v < 0.0 {
+                run += 1;
+                if run > max_run { max_run = run; }
+            } else {
+                run = 0;
+            }
+        }
+        Some(max_run)
+    }
+
+    /// Number of times window values cross zero (sign changes).
+    pub fn window_cross_zero_count(&self) -> Option<usize> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let count = vals.windows(2).filter(|w| w[0] * w[1] < 0.0).count();
+        Some(count)
+    }
+
+    /// Mean reversion strength: mean of |val - window_mean| / window_std.
+    pub fn window_mean_reversion_strength(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let mean = vals.iter().sum::<f64>() / vals.len() as f64;
+        let var = vals.iter().map(|x| (x - mean).powi(2)).sum::<f64>() / vals.len() as f64;
+        let std = var.sqrt();
+        if std == 0.0 { return Some(0.0); }
+        Some(vals.iter().map(|&x| (x - mean).abs() / std).sum::<f64>() / vals.len() as f64)
+    }
+
 }
 
 #[cfg(test)]
@@ -10096,6 +10155,69 @@ mod tests {
         let gt = n.window_geometric_trend().unwrap();
         assert!((gt - 1.0).abs() < 1e-9, "expected 1.0, got {}", gt);
     }
+
+    // ── round-148 ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_minmax_window_pairwise_diff_mean_none_for_single() {
+        let mut n = norm(4);
+        n.update(dec!(5));
+        assert!(n.window_pairwise_diff_mean().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_pairwise_diff_mean_basic() {
+        let mut n = norm(3);
+        for v in [dec!(1), dec!(3), dec!(5)] { n.update(v); }
+        // pairs: |1-3|=2, |1-5|=4, |3-5|=2 → mean=8/3 ≈ 2.667
+        let d = n.window_pairwise_diff_mean().unwrap();
+        assert!((d - 8.0 / 3.0).abs() < 1e-9, "expected 8/3, got {}", d);
+    }
+
+    #[test]
+    fn test_minmax_window_negative_run_length_none_for_empty() {
+        let n = norm(4);
+        assert!(n.window_negative_run_length().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_negative_run_length_no_negatives() {
+        let mut n = norm(3);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        let r = n.window_negative_run_length().unwrap();
+        assert_eq!(r, 0);
+    }
+
+    #[test]
+    fn test_minmax_window_cross_zero_count_none_for_single() {
+        let mut n = norm(4);
+        n.update(dec!(5));
+        assert!(n.window_cross_zero_count().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_cross_zero_count_no_crossings() {
+        let mut n = norm(3);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        let c = n.window_cross_zero_count().unwrap();
+        assert_eq!(c, 0);
+    }
+
+    #[test]
+    fn test_minmax_window_mean_reversion_strength_none_for_single() {
+        let mut n = norm(4);
+        n.update(dec!(5));
+        assert!(n.window_mean_reversion_strength().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_mean_reversion_strength_uniform() {
+        let mut n = norm(3);
+        for v in [dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        // std=0 → strength=0
+        let s = n.window_mean_reversion_strength().unwrap();
+        assert!((s - 0.0).abs() < 1e-9, "expected 0.0, got {}", s);
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -14753,6 +14875,65 @@ impl ZScoreNormalizer {
         let count = vals.windows(2).filter(|w| w[0] != 0.0 && w[1] / w[0] > 0.0).count();
         if count == 0 { return None; }
         Some((log_sum / count as f64).exp())
+    }
+
+    // ── round-148 ────────────────────────────────────────────────────────────
+
+    /// Mean of all pairwise absolute differences between window values.
+    pub fn window_pairwise_diff_mean(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let n = vals.len();
+        let mut sum = 0.0f64;
+        let mut count = 0usize;
+        for i in 0..n {
+            for j in (i + 1)..n {
+                sum += (vals[i] - vals[j]).abs();
+                count += 1;
+            }
+        }
+        if count == 0 { return None; }
+        Some(sum / count as f64)
+    }
+
+    /// Length of the longest consecutive run of negative (<0) window values.
+    pub fn window_negative_run_length(&self) -> Option<usize> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let mut max_run = 0usize;
+        let mut run = 0usize;
+        for &v in &vals {
+            if v < 0.0 {
+                run += 1;
+                if run > max_run { max_run = run; }
+            } else {
+                run = 0;
+            }
+        }
+        Some(max_run)
+    }
+
+    /// Number of times window values cross zero (sign changes).
+    pub fn window_cross_zero_count(&self) -> Option<usize> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let count = vals.windows(2).filter(|w| w[0] * w[1] < 0.0).count();
+        Some(count)
+    }
+
+    /// Mean reversion strength: mean of |val - window_mean| / window_std.
+    pub fn window_mean_reversion_strength(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let mean = vals.iter().sum::<f64>() / vals.len() as f64;
+        let var = vals.iter().map(|x| (x - mean).powi(2)).sum::<f64>() / vals.len() as f64;
+        let std = var.sqrt();
+        if std == 0.0 { return Some(0.0); }
+        Some(vals.iter().map(|&x| (x - mean).abs() / std).sum::<f64>() / vals.len() as f64)
     }
 
 }
@@ -20161,5 +20342,66 @@ mod zscore_stability_tests {
         for v in [dec!(4), dec!(4), dec!(4)] { n.update(v); }
         let gt = n.window_geometric_trend().unwrap();
         assert!((gt - 1.0).abs() < 1e-9, "expected 1.0, got {}", gt);
+    }
+
+    // ── round-148 ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_zscore_window_pairwise_diff_mean_none_for_single() {
+        let mut n = znorm(4);
+        n.update(dec!(5));
+        assert!(n.window_pairwise_diff_mean().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_pairwise_diff_mean_basic() {
+        let mut n = znorm(3);
+        for v in [dec!(1), dec!(3), dec!(5)] { n.update(v); }
+        let d = n.window_pairwise_diff_mean().unwrap();
+        assert!((d - 8.0 / 3.0).abs() < 1e-9, "expected 8/3, got {}", d);
+    }
+
+    #[test]
+    fn test_zscore_window_negative_run_length_none_for_empty() {
+        let n = znorm(4);
+        assert!(n.window_negative_run_length().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_negative_run_length_no_negatives() {
+        let mut n = znorm(3);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        let r = n.window_negative_run_length().unwrap();
+        assert_eq!(r, 0);
+    }
+
+    #[test]
+    fn test_zscore_window_cross_zero_count_none_for_single() {
+        let mut n = znorm(4);
+        n.update(dec!(5));
+        assert!(n.window_cross_zero_count().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_cross_zero_count_no_crossings() {
+        let mut n = znorm(3);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        let c = n.window_cross_zero_count().unwrap();
+        assert_eq!(c, 0);
+    }
+
+    #[test]
+    fn test_zscore_window_mean_reversion_strength_none_for_single() {
+        let mut n = znorm(4);
+        n.update(dec!(5));
+        assert!(n.window_mean_reversion_strength().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_mean_reversion_strength_uniform() {
+        let mut n = znorm(3);
+        for v in [dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        let s = n.window_mean_reversion_strength().unwrap();
+        assert!((s - 0.0).abs() < 1e-9, "expected 0.0, got {}", s);
     }
 }

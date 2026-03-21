@@ -9,6 +9,36 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.9.9] - 2026-03-20
+
+### Added
+
+**`tick` module — `NormalizedTick` analytics (round 148)**
+- `NormalizedTick::price_entropy_bins(ticks)` — approximate entropy of tick prices using 5 equal-width bins.
+- `NormalizedTick::tick_price_range_pct(ticks)` — price range as a percentage of mean price.
+- `NormalizedTick::side_transition_count(ticks)` — number of Buy↔Sell side transitions in the stream.
+- `NormalizedTick::qty_above_vwap_fraction(ticks)` — fraction of ticks whose price is above the VWAP.
+
+**`ohlcv` module — `OhlcvBar` analytics (round 148)**
+- `OhlcvBar::bar_volatility_ratio(bars)` — coefficient of variation of bar ranges.
+- `OhlcvBar::close_ema_deviation(bars)` — mean deviation of close from the EMA proxy.
+- `OhlcvBar::bar_doji_count(bars)` — count of doji bars (|open-close|/range < 10%).
+- `OhlcvBar::bar_high_minus_close_mean(bars)` — mean of (high - close) across bars.
+
+**`norm` module — `MinMaxNormalizer` analytics (round 148)**
+- `MinMaxNormalizer::window_pairwise_diff_mean()` — mean of all pairwise absolute differences.
+- `MinMaxNormalizer::window_negative_run_length()` — longest consecutive run of negative values.
+- `MinMaxNormalizer::window_cross_zero_count()` — number of zero-crossing events in the window.
+- `MinMaxNormalizer::window_mean_reversion_strength()` — mean |deviation from mean| / std dev.
+
+**`norm` module — `ZScoreNormalizer` analytics (round 148)**
+- `ZScoreNormalizer::window_pairwise_diff_mean()` — mean of all pairwise absolute differences.
+- `ZScoreNormalizer::window_negative_run_length()` — longest consecutive run of negative values.
+- `ZScoreNormalizer::window_cross_zero_count()` — number of zero-crossing events in the window.
+- `ZScoreNormalizer::window_mean_reversion_strength()` — mean |deviation from mean| / std dev.
+
+---
+
 ## [2.9.8] - 2026-03-20
 
 ### Added
