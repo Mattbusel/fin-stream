@@ -6300,6 +6300,60 @@ impl MinMaxNormalizer {
         Some(valleys as f64)
     }
 
+    /// Mean length of consecutive runs of the same sign in window diffs.
+    pub fn window_run_length_mean(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let signs: Vec<i8> = vals.windows(2).map(|w| {
+            let d = w[1] - w[0];
+            if d > 0.0 { 1 } else if d < 0.0 { -1 } else { 0 }
+        }).collect();
+        if signs.is_empty() { return None; }
+        let mut runs = vec![1_usize];
+        for i in 1..signs.len() {
+            if signs[i] == signs[i - 1] { *runs.last_mut()? += 1; }
+            else { runs.push(1); }
+        }
+        Some(runs.iter().sum::<usize>() as f64 / runs.len() as f64)
+    }
+
+    /// Dispersion index: variance / mean of window values.
+    pub fn window_dispersion_index(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let mean = vals.iter().sum::<f64>() / vals.len() as f64;
+        if mean == 0.0 { return None; }
+        let var = vals.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / vals.len() as f64;
+        Some(var / mean)
+    }
+
+    /// Bimodality coefficient proxy: (skewness^2 + 1) / kurtosis.
+    pub fn window_bimodality_coeff(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 4 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let n = vals.len() as f64;
+        let mean = vals.iter().sum::<f64>() / n;
+        let var = vals.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / n;
+        if var == 0.0 { return None; }
+        let std = var.sqrt();
+        let skew = vals.iter().map(|v| ((v - mean) / std).powi(3)).sum::<f64>() / n;
+        let kurt = vals.iter().map(|v| ((v - mean) / std).powi(4)).sum::<f64>() / n;
+        if kurt == 0.0 { return None; }
+        Some((skew * skew + 1.0) / kurt)
+    }
+
+    /// Count of local maxima (peaks) in the window (f64 version).
+    pub fn window_peak_count_f64(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 3 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let peaks = vals.windows(3).filter(|w| w[1] > w[0] && w[1] > w[2]).count();
+        Some(peaks as f64)
+    }
+
 }
 
 #[cfg(test)]
@@ -13711,6 +13765,65 @@ mod tests {
         let r = n.window_valley_count().unwrap();
         assert!((r - 0.0).abs() < 1e-9, "expected 0.0, got {}", r);
     }
+
+    #[test]
+    fn test_minmax_window_run_length_mean_none_for_short() {
+        let mut n = norm(4);
+        n.update(dec!(1));
+        assert!(n.window_run_length_mean().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_run_length_mean_alternating() {
+        // diffs: +1,-1,+1 → runs of length 1 each → mean 1.0
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(1), dec!(2)] { n.update(v); }
+        let r = n.window_run_length_mean().unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "expected 1.0, got {}", r);
+    }
+
+    #[test]
+    fn test_minmax_window_dispersion_index_none_for_empty() {
+        let n = norm(4);
+        assert!(n.window_dispersion_index().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_dispersion_index_constant_zero() {
+        let mut n = norm(4);
+        for v in [dec!(5), dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        let r = n.window_dispersion_index().unwrap();
+        assert!((r - 0.0).abs() < 1e-9, "expected 0.0 variance, got {}", r);
+    }
+
+    #[test]
+    fn test_minmax_window_bimodality_coeff_none_for_short() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2)] { n.update(v); }
+        assert!(n.window_bimodality_coeff().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_bimodality_coeff_returns_some() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(3), dec!(1), dec!(3)] { n.update(v); }
+        assert!(n.window_bimodality_coeff().is_some());
+    }
+
+    #[test]
+    fn test_minmax_window_peak_count_f64_none_for_short() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2)] { n.update(v); }
+        assert!(n.window_peak_count_f64().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_peak_count_f64_one_peak() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(3), dec!(2), dec!(1)] { n.update(v); }
+        let r = n.window_peak_count_f64().unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "expected 1.0, got {}", r);
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -19959,6 +20072,60 @@ impl ZScoreNormalizer {
         let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
         let valleys = vals.windows(3).filter(|w| w[1] < w[0] && w[1] < w[2]).count();
         Some(valleys as f64)
+    }
+
+    /// Mean length of consecutive runs of the same sign in window diffs.
+    pub fn window_run_length_mean(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let signs: Vec<i8> = vals.windows(2).map(|w| {
+            let d = w[1] - w[0];
+            if d > 0.0 { 1 } else if d < 0.0 { -1 } else { 0 }
+        }).collect();
+        if signs.is_empty() { return None; }
+        let mut runs = vec![1_usize];
+        for i in 1..signs.len() {
+            if signs[i] == signs[i - 1] { *runs.last_mut()? += 1; }
+            else { runs.push(1); }
+        }
+        Some(runs.iter().sum::<usize>() as f64 / runs.len() as f64)
+    }
+
+    /// Dispersion index: variance / mean of window values.
+    pub fn window_dispersion_index(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let mean = vals.iter().sum::<f64>() / vals.len() as f64;
+        if mean == 0.0 { return None; }
+        let var = vals.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / vals.len() as f64;
+        Some(var / mean)
+    }
+
+    /// Bimodality coefficient proxy: (skewness^2 + 1) / kurtosis.
+    pub fn window_bimodality_coeff(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 4 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let n = vals.len() as f64;
+        let mean = vals.iter().sum::<f64>() / n;
+        let var = vals.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / n;
+        if var == 0.0 { return None; }
+        let std = var.sqrt();
+        let skew = vals.iter().map(|v| ((v - mean) / std).powi(3)).sum::<f64>() / n;
+        let kurt = vals.iter().map(|v| ((v - mean) / std).powi(4)).sum::<f64>() / n;
+        if kurt == 0.0 { return None; }
+        Some((skew * skew + 1.0) / kurt)
+    }
+
+    /// Count of local maxima (peaks) in the window (f64 version).
+    pub fn window_peak_count_f64(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 3 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let peaks = vals.windows(3).filter(|w| w[1] > w[0] && w[1] > w[2]).count();
+        Some(peaks as f64)
     }
 
 }
@@ -27333,5 +27500,63 @@ mod zscore_stability_tests {
         for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
         let r = n.window_valley_count().unwrap();
         assert!((r - 0.0).abs() < 1e-9, "expected 0.0, got {}", r);
+    }
+
+    #[test]
+    fn test_zscore_window_run_length_mean_none_for_short() {
+        let mut n = znorm(4);
+        n.update(dec!(1));
+        assert!(n.window_run_length_mean().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_run_length_mean_alternating() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(1), dec!(2)] { n.update(v); }
+        let r = n.window_run_length_mean().unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "expected 1.0, got {}", r);
+    }
+
+    #[test]
+    fn test_zscore_window_dispersion_index_none_for_empty() {
+        let n = znorm(4);
+        assert!(n.window_dispersion_index().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_dispersion_index_constant_zero() {
+        let mut n = znorm(4);
+        for v in [dec!(5), dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        let r = n.window_dispersion_index().unwrap();
+        assert!((r - 0.0).abs() < 1e-9, "expected 0.0 variance, got {}", r);
+    }
+
+    #[test]
+    fn test_zscore_window_bimodality_coeff_none_for_short() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2)] { n.update(v); }
+        assert!(n.window_bimodality_coeff().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_bimodality_coeff_returns_some() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(3), dec!(1), dec!(3)] { n.update(v); }
+        assert!(n.window_bimodality_coeff().is_some());
+    }
+
+    #[test]
+    fn test_zscore_window_peak_count_f64_none_for_short() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2)] { n.update(v); }
+        assert!(n.window_peak_count_f64().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_peak_count_f64_one_peak() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(3), dec!(2), dec!(1)] { n.update(v); }
+        let r = n.window_peak_count_f64().unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "expected 1.0, got {}", r);
     }
 }

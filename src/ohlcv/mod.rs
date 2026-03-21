@@ -8676,6 +8676,62 @@ impl OhlcvBar {
         Some(ups as f64 / (bars.len() - 1) as f64)
     }
 
+    /// Mean gap between close[i] and close[i-2]: 2-bar close gap acceleration.
+    pub fn bar_close_gap_accel(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.len() < 3 { return None; }
+        let vals: Vec<f64> = bars.windows(3).filter_map(|w| {
+            let c0 = w[0].close.to_f64()?;
+            let c2 = w[2].close.to_f64()?;
+            let c1 = w[1].close.to_f64()?;
+            Some((c2 - c1) - (c1 - c0))
+        }).collect();
+        if vals.is_empty() { return None; }
+        Some(vals.iter().sum::<f64>() / vals.len() as f64)
+    }
+
+    /// Mean upper_shadow - lower_shadow per bar: upper vs lower wick imbalance.
+    pub fn bar_shadow_imbalance(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let vals: Vec<f64> = bars.iter().filter_map(|b| {
+            let h = b.high.to_f64()?;
+            let l = b.low.to_f64()?;
+            let o = b.open.to_f64()?;
+            let c = b.close.to_f64()?;
+            let upper = h - o.max(c);
+            let lower = o.min(c) - l;
+            Some(upper - lower)
+        }).collect();
+        if vals.is_empty() { return None; }
+        Some(vals.iter().sum::<f64>() / vals.len() as f64)
+    }
+
+    /// Mean |open[i] - high[i-1]| gap — open vs prior high distance.
+    pub fn bar_open_prev_high_dist(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.len() < 2 { return None; }
+        let vals: Vec<f64> = bars.windows(2).filter_map(|w| {
+            let prev_h = w[0].high.to_f64()?;
+            let curr_o = w[1].open.to_f64()?;
+            Some((curr_o - prev_h).abs())
+        }).collect();
+        if vals.is_empty() { return None; }
+        Some(vals.iter().sum::<f64>() / vals.len() as f64)
+    }
+
+    /// Dispersion index of volume: std(volume) / mean(volume).
+    pub fn bar_volume_dispersion(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.len() < 2 { return None; }
+        let vols: Vec<f64> = bars.iter().filter_map(|b| b.volume.to_f64()).collect();
+        if vols.len() < 2 { return None; }
+        let mean = vols.iter().sum::<f64>() / vols.len() as f64;
+        if mean == 0.0 { return None; }
+        let std = (vols.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / vols.len() as f64).sqrt();
+        Some(std / mean)
+    }
+
 }
 
 impl std::fmt::Display for OhlcvBar {
@@ -19614,5 +19670,67 @@ mod tests {
         let b2 = make_ohlcv_bar(dec!(105), dec!(120), dec!(100), dec!(110));
         let r = OhlcvBar::bar_net_trend_strength(&[b0, b1, b2]).unwrap();
         assert!((r - 1.0).abs() < 1e-9, "expected 1.0, got {}", r);
+    }
+
+    #[test]
+    fn test_bar_close_gap_accel_none_for_short() {
+        let b0 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let b1 = make_ohlcv_bar(dec!(105), dec!(115), dec!(95), dec!(110));
+        assert!(OhlcvBar::bar_close_gap_accel(&[b0, b1]).is_none());
+    }
+
+    #[test]
+    fn test_bar_close_gap_accel_constant_zero() {
+        // Linear close: 100, 105, 110, 115 → second diffs all 0
+        let b0 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100));
+        let b1 = make_ohlcv_bar(dec!(105), dec!(115), dec!(95), dec!(105));
+        let b2 = make_ohlcv_bar(dec!(110), dec!(120), dec!(100), dec!(110));
+        let b3 = make_ohlcv_bar(dec!(115), dec!(125), dec!(105), dec!(115));
+        let r = OhlcvBar::bar_close_gap_accel(&[b0, b1, b2, b3]).unwrap();
+        assert!((r - 0.0).abs() < 1e-9, "expected 0.0, got {}", r);
+    }
+
+    #[test]
+    fn test_bar_shadow_imbalance_empty_none() {
+        assert!(OhlcvBar::bar_shadow_imbalance(&[]).is_none());
+    }
+
+    #[test]
+    fn test_bar_shadow_imbalance_symmetric_zero() {
+        // upper_shadow = high - max(open,close), lower_shadow = min(open,close) - low
+        // bar: open=100, high=110, low=90, close=100 → upper=10, lower=10 → imbalance=0
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100));
+        let r = OhlcvBar::bar_shadow_imbalance(&[b]).unwrap();
+        assert!((r - 0.0).abs() < 1e-9, "expected 0.0, got {}", r);
+    }
+
+    #[test]
+    fn test_bar_open_prev_high_dist_none_for_single() {
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        assert!(OhlcvBar::bar_open_prev_high_dist(&[b]).is_none());
+    }
+
+    #[test]
+    fn test_bar_open_prev_high_dist_value() {
+        // b0 high=110; b1 open=112 → |112-110|=2
+        let b0 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let b1 = make_ohlcv_bar(dec!(112), dec!(120), dec!(108), dec!(115));
+        let r = OhlcvBar::bar_open_prev_high_dist(&[b0, b1]).unwrap();
+        assert!((r - 2.0).abs() < 1e-9, "expected 2.0, got {}", r);
+    }
+
+    #[test]
+    fn test_bar_volume_dispersion_none_for_empty() {
+        assert!(OhlcvBar::bar_volume_dispersion(&[]).is_none());
+    }
+
+    #[test]
+    fn test_bar_volume_dispersion_constant_zero() {
+        // All volumes equal → std=0 → dispersion=0
+        let b0 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let b1 = make_ohlcv_bar(dec!(105), dec!(115), dec!(95), dec!(110));
+        let b2 = make_ohlcv_bar(dec!(110), dec!(120), dec!(100), dec!(115));
+        let r = OhlcvBar::bar_volume_dispersion(&[b0, b1, b2]).unwrap();
+        assert!((r - 0.0).abs() < 1e-9, "expected 0.0, got {}", r);
     }
 }

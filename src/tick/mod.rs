@@ -8968,6 +8968,67 @@ impl NormalizedTick {
         Some(m4 / var.powi(2) - 3.0)
     }
 
+    /// Mean absolute deviation of price from the (high+low)/2 midpoint.
+    pub fn price_high_low_midpoint_dev(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() { return None; }
+        let prices: Vec<f64> = ticks.iter().filter_map(|t| t.price.to_f64()).collect();
+        if prices.is_empty() { return None; }
+        let max = prices.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        let min = prices.iter().cloned().fold(f64::INFINITY, f64::min);
+        let midpoint = (max + min) / 2.0;
+        Some(prices.iter().map(|p| (p - midpoint).abs()).sum::<f64>() / prices.len() as f64)
+    }
+
+    /// Net signed volume flow: buy_qty - sell_qty.
+    pub fn tick_net_volume_flow(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() { return None; }
+        let mut net = 0.0_f64;
+        for t in ticks {
+            let q = t.quantity.to_f64()?;
+            match t.side {
+                Some(TradeSide::Buy) => net += q,
+                Some(TradeSide::Sell) => net -= q,
+                None => {}
+            }
+        }
+        Some(net)
+    }
+
+    /// R-squared of linear fit to price series: trend linearity measure.
+    pub fn price_trend_linearity(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 3 { return None; }
+        let prices: Vec<f64> = ticks.iter().filter_map(|t| t.price.to_f64()).collect();
+        if prices.len() < 3 { return None; }
+        let n = prices.len() as f64;
+        let xs: Vec<f64> = (0..prices.len()).map(|i| i as f64).collect();
+        let mx = xs.iter().sum::<f64>() / n;
+        let my = prices.iter().sum::<f64>() / n;
+        let sxy: f64 = xs.iter().zip(prices.iter()).map(|(x, y)| (x - mx) * (y - my)).sum();
+        let sxx: f64 = xs.iter().map(|x| (x - mx).powi(2)).sum();
+        let syy: f64 = prices.iter().map(|y| (y - my).powi(2)).sum();
+        if sxx == 0.0 || syy == 0.0 { return None; }
+        let r = sxy / (sxx.sqrt() * syy.sqrt());
+        Some(r * r)
+    }
+
+    /// Tick interval regularity: 1 - (std(intervals) / mean(intervals)) where interval = tick index.
+    pub fn tick_arrival_interval_cv(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 3 { return None; }
+        // Use received_at_ms intervals
+        let intervals: Vec<f64> = ticks.windows(2).map(|w| {
+            (w[1].received_at_ms as f64) - (w[0].received_at_ms as f64)
+        }).collect();
+        if intervals.is_empty() { return None; }
+        let mean = intervals.iter().sum::<f64>() / intervals.len() as f64;
+        if mean == 0.0 { return None; }
+        let std = (intervals.iter().map(|i| (i - mean).powi(2)).sum::<f64>() / intervals.len() as f64).sqrt();
+        Some(1.0 - (std / mean).min(1.0))
+    }
+
 }
 
 
@@ -20432,5 +20493,74 @@ mod tests {
             make_tick_pq(dec!(100), dec!(1)),
         ];
         assert!(NormalizedTick::price_kurtosis_proxy(&ticks).is_none());
+    }
+
+    #[test]
+    fn test_price_high_low_midpoint_dev_empty_none() {
+        use rust_decimal_macros::dec;
+        assert!(NormalizedTick::price_high_low_midpoint_dev(&[]).is_none());
+    }
+
+    #[test]
+    fn test_price_high_low_midpoint_dev_value() {
+        use rust_decimal_macros::dec;
+        // prices: 100, 110, 90 → high=110, low=90, mid=100 → devs: 0, 10, 10 → mean=6.666...
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(110), dec!(1)),
+            make_tick_pq(dec!(90), dec!(1)),
+        ];
+        let r = NormalizedTick::price_high_low_midpoint_dev(&ticks).unwrap();
+        assert!((r - 20.0 / 3.0).abs() < 1e-6, "got {}", r);
+    }
+
+    #[test]
+    fn test_tick_net_volume_flow_empty_none() {
+        use rust_decimal_macros::dec;
+        assert!(NormalizedTick::tick_net_volume_flow(&[]).is_none());
+    }
+
+    #[test]
+    fn test_tick_net_volume_flow_all_unknown_zero() {
+        use rust_decimal_macros::dec;
+        // side=None → no buy or sell → net=0.0
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(5)),
+            make_tick_pq(dec!(101), dec!(3)),
+        ];
+        let r = NormalizedTick::tick_net_volume_flow(&ticks).unwrap();
+        assert!((r - 0.0).abs() < 1e-9, "expected 0.0, got {}", r);
+    }
+
+    #[test]
+    fn test_price_trend_linearity_empty_none() {
+        use rust_decimal_macros::dec;
+        assert!(NormalizedTick::price_trend_linearity(&[]).is_none());
+    }
+
+    #[test]
+    fn test_price_trend_linearity_perfect_linear() {
+        use rust_decimal_macros::dec;
+        // Perfect linear: 10, 20, 30, 40 → R²=1.0
+        let ticks = vec![
+            make_tick_pq(dec!(10), dec!(1)),
+            make_tick_pq(dec!(20), dec!(1)),
+            make_tick_pq(dec!(30), dec!(1)),
+            make_tick_pq(dec!(40), dec!(1)),
+        ];
+        let r = NormalizedTick::price_trend_linearity(&ticks).unwrap();
+        assert!((r - 1.0).abs() < 1e-6, "expected 1.0, got {}", r);
+    }
+
+    #[test]
+    fn test_tick_arrival_interval_cv_empty_none() {
+        use rust_decimal_macros::dec;
+        assert!(NormalizedTick::tick_arrival_interval_cv(&[]).is_none());
+    }
+
+    #[test]
+    fn test_tick_arrival_interval_cv_single_none() {
+        use rust_decimal_macros::dec;
+        assert!(NormalizedTick::tick_arrival_interval_cv(&[make_tick_pq(dec!(100), dec!(1))]).is_none());
     }
 }

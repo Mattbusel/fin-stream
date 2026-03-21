@@ -9,6 +9,30 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.10.32] - 2026-03-20
+
+### Added
+
+**`tick` module — `NormalizedTick` analytics (round 181)**
+- `NormalizedTick::price_high_low_midpoint_dev(ticks)` — mean absolute deviation of price from the (high+low)/2 midpoint.
+- `NormalizedTick::tick_net_volume_flow(ticks)` — net signed volume flow: buy_qty - sell_qty.
+- `NormalizedTick::price_trend_linearity(ticks)` — R-squared of linear fit to the price series.
+- `NormalizedTick::tick_arrival_interval_cv(ticks)` — 1 minus the coefficient of variation of inter-arrival intervals.
+
+**`ohlcv` module — `OhlcvBar` analytics (round 181)**
+- `OhlcvBar::bar_close_gap_accel(bars)` — mean second difference of closes: acceleration of close movement.
+- `OhlcvBar::bar_shadow_imbalance(bars)` — mean (upper_shadow - lower_shadow) per bar.
+- `OhlcvBar::bar_open_prev_high_dist(bars)` — mean |open[i] - high[i-1]| gap between consecutive bars.
+- `OhlcvBar::bar_volume_dispersion(bars)` — std(volume) / mean(volume): volume dispersion index.
+
+**`norm` module — `MinMaxNormalizer` + `ZScoreNormalizer` analytics (round 181)**
+- `window_run_length_mean()` — mean length of consecutive runs of same sign in window diffs.
+- `window_dispersion_index()` — variance / mean of window values.
+- `window_bimodality_coeff()` — (skewness² + 1) / kurtosis proxy.
+- `window_peak_count_f64()` — count of local maxima in the window as f64.
+
+---
+
 ## [2.10.31] - 2026-03-20
 
 ### Added
