@@ -5339,6 +5339,67 @@ impl MinMaxNormalizer {
         Some(diffs.iter().sum::<f64>() / diffs.len() as f64)
     }
 
+    // ── round-161 ────────────────────────────────────────────────────────────
+
+    /// Shannon entropy of sign distribution (+/-/0) in the window.
+    pub fn window_sign_entropy(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let mut pos = 0usize; let mut neg = 0usize; let mut zer = 0usize;
+        for v in &self.window {
+            match v.to_f64().unwrap_or(0.0).partial_cmp(&0.0) {
+                Some(std::cmp::Ordering::Greater) => pos += 1,
+                Some(std::cmp::Ordering::Less) => neg += 1,
+                _ => zer += 1,
+            }
+        }
+        let n = self.window.len() as f64;
+        let entropy = [pos, neg, zer].iter()
+            .filter(|&&c| c > 0)
+            .map(|&c| { let p = c as f64 / n; -p * p.ln() })
+            .sum();
+        Some(entropy)
+    }
+
+    /// Count of local extrema (peaks + troughs) in the window.
+    pub fn window_local_extrema_count(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 3 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let count = vals.windows(3).filter(|w| {
+            (w[1] > w[0] && w[1] > w[2]) || (w[1] < w[0] && w[1] < w[2])
+        }).count();
+        Some(count as f64)
+    }
+
+    /// Lag-2 autocorrelation of window values.
+    pub fn window_autocorr_lag2(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 3 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let mean = vals.iter().sum::<f64>() / vals.len() as f64;
+        let variance: f64 = vals.iter().map(|&v| (v - mean).powi(2)).sum::<f64>() / vals.len() as f64;
+        if variance == 0.0 { return None; }
+        let cov: f64 = vals.windows(3).map(|w| (w[0] - mean) * (w[2] - mean)).sum::<f64>()
+            / (vals.len() - 2) as f64;
+        Some(cov / variance)
+    }
+
+    /// Fraction of window values strictly above the window median.
+    pub fn window_pct_above_median(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let mut sorted: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let median = if sorted.len() % 2 == 0 {
+            (sorted[sorted.len() / 2 - 1] + sorted[sorted.len() / 2]) / 2.0
+        } else {
+            sorted[sorted.len() / 2]
+        };
+        let above = sorted.iter().filter(|&&v| v > median).count();
+        Some(above as f64 / sorted.len() as f64)
+    }
+
 }
 
 #[cfg(test)]
@@ -11538,6 +11599,68 @@ mod tests {
         let d = n.window_mean_abs_diff().unwrap();
         assert!((d - 0.0).abs() < 1e-9, "expected 0.0, got {}", d);
     }
+
+    // ── round-161 ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_minmax_window_sign_entropy_none_for_empty() {
+        let n = norm(4);
+        assert!(n.window_sign_entropy().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_sign_entropy_all_positive() {
+        let mut n = norm(3);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        // all positive → entropy of single category = 0
+        let e = n.window_sign_entropy().unwrap();
+        assert!((e - 0.0).abs() < 1e-9, "expected 0.0, got {}", e);
+    }
+
+    #[test]
+    fn test_minmax_window_local_extrema_count_none_for_two() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2)] { n.update(v); }
+        assert!(n.window_local_extrema_count().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_local_extrema_count_monotone_zero() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let c = n.window_local_extrema_count().unwrap();
+        assert!((c - 0.0).abs() < 1e-9, "expected 0.0, got {}", c);
+    }
+
+    #[test]
+    fn test_minmax_window_autocorr_lag2_none_for_two() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2)] { n.update(v); }
+        assert!(n.window_autocorr_lag2().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_autocorr_lag2_uniform_none() {
+        let mut n = norm(3);
+        for v in [dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        // variance=0 → None
+        assert!(n.window_autocorr_lag2().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_pct_above_median_none_for_empty() {
+        let n = norm(4);
+        assert!(n.window_pct_above_median().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_pct_above_median_single() {
+        let mut n = norm(4);
+        n.update(dec!(5));
+        // single element is the median, nothing strictly above → 0.0
+        let p = n.window_pct_above_median().unwrap();
+        assert!((p - 0.0).abs() < 1e-9, "expected 0.0, got {}", p);
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -16825,6 +16948,67 @@ impl ZScoreNormalizer {
         let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
         let diffs: Vec<f64> = vals.windows(2).map(|w| (w[1] - w[0]).abs()).collect();
         Some(diffs.iter().sum::<f64>() / diffs.len() as f64)
+    }
+
+    // ── round-161 ────────────────────────────────────────────────────────────
+
+    /// Shannon entropy of sign distribution (+/-/0) in the window.
+    pub fn window_sign_entropy(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let mut pos = 0usize; let mut neg = 0usize; let mut zer = 0usize;
+        for v in &self.window {
+            match v.to_f64().unwrap_or(0.0).partial_cmp(&0.0) {
+                Some(std::cmp::Ordering::Greater) => pos += 1,
+                Some(std::cmp::Ordering::Less) => neg += 1,
+                _ => zer += 1,
+            }
+        }
+        let n = self.window.len() as f64;
+        let entropy = [pos, neg, zer].iter()
+            .filter(|&&c| c > 0)
+            .map(|&c| { let p = c as f64 / n; -p * p.ln() })
+            .sum();
+        Some(entropy)
+    }
+
+    /// Count of local extrema (peaks + troughs) in the window.
+    pub fn window_local_extrema_count(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 3 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let count = vals.windows(3).filter(|w| {
+            (w[1] > w[0] && w[1] > w[2]) || (w[1] < w[0] && w[1] < w[2])
+        }).count();
+        Some(count as f64)
+    }
+
+    /// Lag-2 autocorrelation of window values.
+    pub fn window_autocorr_lag2(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 3 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let mean = vals.iter().sum::<f64>() / vals.len() as f64;
+        let variance: f64 = vals.iter().map(|&v| (v - mean).powi(2)).sum::<f64>() / vals.len() as f64;
+        if variance == 0.0 { return None; }
+        let cov: f64 = vals.windows(3).map(|w| (w[0] - mean) * (w[2] - mean)).sum::<f64>()
+            / (vals.len() - 2) as f64;
+        Some(cov / variance)
+    }
+
+    /// Fraction of window values strictly above the window median.
+    pub fn window_pct_above_median(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let mut sorted: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let median = if sorted.len() % 2 == 0 {
+            (sorted[sorted.len() / 2 - 1] + sorted[sorted.len() / 2]) / 2.0
+        } else {
+            sorted[sorted.len() / 2]
+        };
+        let above = sorted.iter().filter(|&&v| v > median).count();
+        Some(above as f64 / sorted.len() as f64)
     }
 
 }
@@ -23010,5 +23194,64 @@ mod zscore_stability_tests {
         for v in [dec!(5), dec!(5), dec!(5)] { n.update(v); }
         let d = n.window_mean_abs_diff().unwrap();
         assert!((d - 0.0).abs() < 1e-9, "expected 0.0, got {}", d);
+    }
+
+    // ── round-161 ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_zscore_window_sign_entropy_none_for_empty() {
+        let n = znorm(4);
+        assert!(n.window_sign_entropy().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_sign_entropy_all_positive() {
+        let mut n = znorm(3);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        let e = n.window_sign_entropy().unwrap();
+        assert!((e - 0.0).abs() < 1e-9, "expected 0.0, got {}", e);
+    }
+
+    #[test]
+    fn test_zscore_window_local_extrema_count_none_for_two() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2)] { n.update(v); }
+        assert!(n.window_local_extrema_count().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_local_extrema_count_monotone_zero() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        let c = n.window_local_extrema_count().unwrap();
+        assert!((c - 0.0).abs() < 1e-9, "expected 0.0, got {}", c);
+    }
+
+    #[test]
+    fn test_zscore_window_autocorr_lag2_none_for_two() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2)] { n.update(v); }
+        assert!(n.window_autocorr_lag2().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_autocorr_lag2_uniform_none() {
+        let mut n = znorm(3);
+        for v in [dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        assert!(n.window_autocorr_lag2().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_pct_above_median_none_for_empty() {
+        let n = znorm(4);
+        assert!(n.window_pct_above_median().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_pct_above_median_single() {
+        let mut n = znorm(4);
+        n.update(dec!(5));
+        let p = n.window_pct_above_median().unwrap();
+        assert!((p - 0.0).abs() < 1e-9, "expected 0.0, got {}", p);
     }
 }

@@ -9,6 +9,30 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.10.12] - 2026-03-20
+
+### Added
+
+**`tick` module — `NormalizedTick` analytics (round 161)**
+- `NormalizedTick::price_up_down_ratio(ticks)` — ratio of up-move count to down-move count.
+- `NormalizedTick::tick_side_entropy(ticks)` — Shannon entropy of Buy/Sell/None distribution.
+- `NormalizedTick::price_mean_reversion_speed(ticks)` — mean deviation from mean normalized by range.
+- `NormalizedTick::price_direction_reversal_rate(ticks)` — fraction of triplets showing direction change.
+
+**`ohlcv` module — `OhlcvBar` analytics (round 161)**
+- `OhlcvBar::bar_gap_mean(bars)` — mean close-to-close gap between consecutive bars.
+- `OhlcvBar::bar_volume_std(bars)` — standard deviation of bar volumes.
+- `OhlcvBar::bar_bull_wick_mean(bars)` — mean upper wick for bullish bars (high - close).
+- `OhlcvBar::bar_bear_wick_mean(bars)` — mean lower wick for bearish bars (open - low).
+
+**`norm` module — `MinMaxNormalizer` + `ZScoreNormalizer` analytics (round 161)**
+- `window_sign_entropy()` — Shannon entropy of +/-/0 sign distribution in window.
+- `window_local_extrema_count()` — count of local peaks and troughs in window.
+- `window_autocorr_lag2()` — lag-2 autocorrelation of window values.
+- `window_pct_above_median()` — fraction of values strictly above the window median.
+
+---
+
 ## [2.10.11] - 2026-03-20
 
 ### Added

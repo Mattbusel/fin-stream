@@ -7734,6 +7734,70 @@ impl NormalizedTick {
         Some(entropy)
     }
 
+    // ── round-161 ────────────────────────────────────────────────────────────
+
+    /// Ratio of upward to downward price moves count; None if no down moves.
+    pub fn price_up_down_ratio(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 2 { return None; }
+        let prices: Vec<f64> = ticks.iter().filter_map(|t| t.price.to_f64()).collect();
+        if prices.len() < 2 { return None; }
+        let ups = prices.windows(2).filter(|w| w[1] > w[0]).count();
+        let downs = prices.windows(2).filter(|w| w[1] < w[0]).count();
+        if downs == 0 { return None; }
+        Some(ups as f64 / downs as f64)
+    }
+
+    /// Shannon entropy of trade side distribution (Buy/Sell/None); None if < 2 unique sides.
+    pub fn tick_side_entropy(ticks: &[NormalizedTick]) -> Option<f64> {
+        if ticks.is_empty() { return None; }
+        let mut buy = 0usize;
+        let mut sell = 0usize;
+        let mut none = 0usize;
+        for t in ticks {
+            match t.side {
+                Some(TradeSide::Buy) => buy += 1,
+                Some(TradeSide::Sell) => sell += 1,
+                None => none += 1,
+            }
+        }
+        let n = ticks.len() as f64;
+        let entropy: f64 = [buy, sell, none].iter()
+            .filter(|&&c| c > 0)
+            .map(|&c| { let p = c as f64 / n; -p * p.ln() })
+            .sum();
+        Some(entropy)
+    }
+
+    /// Speed at which prices revert toward the mean: mean of |price - mean| normalized by range.
+    pub fn price_mean_reversion_speed(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.is_empty() { return None; }
+        let prices: Vec<f64> = ticks.iter().filter_map(|t| t.price.to_f64()).collect();
+        if prices.is_empty() { return None; }
+        let mean = prices.iter().sum::<f64>() / prices.len() as f64;
+        let min = prices.iter().cloned().fold(f64::INFINITY, f64::min);
+        let max = prices.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        let range = max - min;
+        if range == 0.0 { return Some(0.0); }
+        let mean_dist = prices.iter().map(|&p| (p - mean).abs()).sum::<f64>() / prices.len() as f64;
+        Some(mean_dist / range)
+    }
+
+    /// Fraction of consecutive price triplets showing direction reversal (up-down or down-up).
+    pub fn price_direction_reversal_rate(ticks: &[NormalizedTick]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if ticks.len() < 3 { return None; }
+        let prices: Vec<f64> = ticks.iter().filter_map(|t| t.price.to_f64()).collect();
+        if prices.len() < 3 { return None; }
+        let reversals = prices.windows(3).filter(|w| {
+            let d1 = w[1] - w[0];
+            let d2 = w[2] - w[1];
+            d1 * d2 < 0.0
+        }).count();
+        Some(reversals as f64 / (prices.len() - 2) as f64)
+    }
+
 }
 
 
@@ -17667,5 +17731,79 @@ mod tests {
         ];
         let e = NormalizedTick::tick_qty_entropy(&ticks).unwrap();
         assert!((e - 0.0).abs() < 1e-9, "expected 0.0, got {}", e);
+    }
+
+    // ── round-161 ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_price_up_down_ratio_none_for_single() {
+        use rust_decimal_macros::dec;
+        assert!(NormalizedTick::price_up_down_ratio(&[make_tick_pq(dec!(100), dec!(1))]).is_none());
+    }
+
+    #[test]
+    fn test_price_up_down_ratio_none_when_no_downs() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(105), dec!(1)),
+        ];
+        assert!(NormalizedTick::price_up_down_ratio(&ticks).is_none());
+    }
+
+    #[test]
+    fn test_tick_side_entropy_none_for_empty() {
+        assert!(NormalizedTick::tick_side_entropy(&[]).is_none());
+    }
+
+    #[test]
+    fn test_tick_side_entropy_all_same_zero() {
+        use rust_decimal_macros::dec;
+        // all Buy → single category → entropy=0
+        let mut t1 = make_tick_pq(dec!(100), dec!(1));
+        t1.side = Some(crate::tick::TradeSide::Buy);
+        let mut t2 = make_tick_pq(dec!(101), dec!(1));
+        t2.side = Some(crate::tick::TradeSide::Buy);
+        let e = NormalizedTick::tick_side_entropy(&[t1, t2]).unwrap();
+        assert!((e - 0.0).abs() < 1e-9, "expected 0.0, got {}", e);
+    }
+
+    #[test]
+    fn test_price_mean_reversion_speed_none_for_empty() {
+        assert!(NormalizedTick::price_mean_reversion_speed(&[]).is_none());
+    }
+
+    #[test]
+    fn test_price_mean_reversion_speed_constant_zero() {
+        use rust_decimal_macros::dec;
+        // constant price → all at mean → mean_dist=0
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(100), dec!(1)),
+        ];
+        let s = NormalizedTick::price_mean_reversion_speed(&ticks).unwrap();
+        assert!((s - 0.0).abs() < 1e-9, "expected 0.0, got {}", s);
+    }
+
+    #[test]
+    fn test_price_direction_reversal_rate_none_for_two() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![make_tick_pq(dec!(100), dec!(1)), make_tick_pq(dec!(101), dec!(1))];
+        assert!(NormalizedTick::price_direction_reversal_rate(&ticks).is_none());
+    }
+
+    #[test]
+    fn test_price_direction_reversal_rate_alternating_one() {
+        use rust_decimal_macros::dec;
+        // up-down-up → reversal at each interior point
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(105), dec!(1)),
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(105), dec!(1)),
+        ];
+        let f = NormalizedTick::price_direction_reversal_rate(&ticks).unwrap();
+        assert!((f - 1.0).abs() < 1e-9, "expected 1.0, got {}", f);
     }
 }

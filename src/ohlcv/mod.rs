@@ -7439,6 +7439,61 @@ impl OhlcvBar {
         Some(var.sqrt())
     }
 
+    // ── round-161 ────────────────────────────────────────────────────────────
+
+    /// Mean gap between consecutive bar closes (close[i+1] - close[i]).
+    pub fn bar_gap_mean(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.len() < 2 { return None; }
+        let closes: Vec<f64> = bars.iter().filter_map(|b| b.close.to_f64()).collect();
+        if closes.len() < 2 { return None; }
+        let gaps: Vec<f64> = closes.windows(2).map(|w| w[1] - w[0]).collect();
+        Some(gaps.iter().sum::<f64>() / gaps.len() as f64)
+    }
+
+    /// Std dev of bar volumes.
+    pub fn bar_volume_std(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.len() < 2 { return None; }
+        let vols: Vec<f64> = bars.iter().filter_map(|b| b.volume.to_f64()).collect();
+        if vols.len() < 2 { return None; }
+        let mean = vols.iter().sum::<f64>() / vols.len() as f64;
+        let var = vols.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / vols.len() as f64;
+        Some(var.sqrt())
+    }
+
+    /// Mean upper wick for bullish bars (close >= open): high - close.
+    pub fn bar_bull_wick_mean(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let wicks: Vec<f64> = bars.iter()
+            .filter(|b| b.close >= b.open)
+            .filter_map(|b| {
+                let h = b.high.to_f64()?;
+                let c = b.close.to_f64()?;
+                Some(h - c)
+            })
+            .collect();
+        if wicks.is_empty() { return None; }
+        Some(wicks.iter().sum::<f64>() / wicks.len() as f64)
+    }
+
+    /// Mean lower wick for bearish bars (close < open): open - low.
+    pub fn bar_bear_wick_mean(bars: &[OhlcvBar]) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if bars.is_empty() { return None; }
+        let wicks: Vec<f64> = bars.iter()
+            .filter(|b| b.close < b.open)
+            .filter_map(|b| {
+                let o = b.open.to_f64()?;
+                let l = b.low.to_f64()?;
+                Some(o - l)
+            })
+            .collect();
+        if wicks.is_empty() { return None; }
+        Some(wicks.iter().sum::<f64>() / wicks.len() as f64)
+    }
+
 }
 
 impl std::fmt::Display for OhlcvBar {
@@ -17150,5 +17205,64 @@ mod tests {
         ];
         let s = OhlcvBar::bar_close_std(&bars).unwrap();
         assert!((s - 0.0).abs() < 1e-9, "expected 0.0, got {}", s);
+    }
+
+    // ── round-161 ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_bar_gap_mean_none_for_single() {
+        let bars = vec![make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105))];
+        assert!(OhlcvBar::bar_gap_mean(&bars).is_none());
+    }
+
+    #[test]
+    fn test_bar_gap_mean_constant_zero() {
+        let bars = vec![
+            make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105)),
+            make_ohlcv_bar(dec!(105), dec!(115), dec!(95), dec!(105)),
+        ];
+        let g = OhlcvBar::bar_gap_mean(&bars).unwrap();
+        assert!((g - 0.0).abs() < 1e-9, "expected 0.0, got {}", g);
+    }
+
+    #[test]
+    fn test_bar_volume_std_none_for_single() {
+        let bars = vec![make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105))];
+        assert!(OhlcvBar::bar_volume_std(&bars).is_none());
+    }
+
+    #[test]
+    fn test_bar_volume_std_constant_zero() {
+        let bars = vec![
+            make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105)),
+            make_ohlcv_bar(dec!(98), dec!(112), dec!(88), dec!(103)),
+        ];
+        // volume=dec!(1) in both → std=0
+        let s = OhlcvBar::bar_volume_std(&bars).unwrap();
+        assert!((s - 0.0).abs() < 1e-9, "expected 0.0, got {}", s);
+    }
+
+    #[test]
+    fn test_bar_bull_wick_mean_none_for_empty() {
+        assert!(OhlcvBar::bar_bull_wick_mean(&[]).is_none());
+    }
+
+    #[test]
+    fn test_bar_bull_wick_mean_no_bull_bars_none() {
+        // bearish bar only → no bull bars → None
+        let bars = vec![make_ohlcv_bar(dec!(110), dec!(115), dec!(90), dec!(100))];
+        assert!(OhlcvBar::bar_bull_wick_mean(&bars).is_none());
+    }
+
+    #[test]
+    fn test_bar_bear_wick_mean_none_for_empty() {
+        assert!(OhlcvBar::bar_bear_wick_mean(&[]).is_none());
+    }
+
+    #[test]
+    fn test_bar_bear_wick_mean_no_bear_bars_none() {
+        // bullish bar only → no bear bars → None
+        let bars = vec![make_ohlcv_bar(dec!(100), dec!(115), dec!(90), dec!(110))];
+        assert!(OhlcvBar::bar_bear_wick_mean(&bars).is_none());
     }
 }
