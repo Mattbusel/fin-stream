@@ -6044,6 +6044,49 @@ impl MinMaxNormalizer {
         Some(top.iter().sum::<f64>() / top.len() as f64)
     }
 
+    /// Fraction of window values that are positive (> 0).
+    pub fn window_positive_ratio(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let pos = self.window.iter().filter(|v| v.to_f64().unwrap_or(0.0) > 0.0).count();
+        Some(pos as f64 / self.window.len() as f64)
+    }
+
+    /// Mean of absolute differences between consecutive window values.
+    pub fn window_abs_diff_mean(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let diffs: Vec<f64> = vals.windows(2).map(|w| (w[1] - w[0]).abs()).collect();
+        Some(diffs.iter().sum::<f64>() / diffs.len() as f64)
+    }
+
+    /// (max - min) / mean of window values — coefficient of variation of range.
+    pub fn window_range_over_mean(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let mean = vals.iter().sum::<f64>() / vals.len() as f64;
+        if mean == 0.0 { return None; }
+        let max = vals.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        let min = vals.iter().cloned().fold(f64::INFINITY, f64::min);
+        Some((max - min) / mean)
+    }
+
+    /// Std dev / (max - min) of window values.
+    pub fn window_std_over_range(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let max = vals.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        let min = vals.iter().cloned().fold(f64::INFINITY, f64::min);
+        let range = max - min;
+        if range == 0.0 { return None; }
+        let mean = vals.iter().sum::<f64>() / vals.len() as f64;
+        let std = (vals.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / vals.len() as f64).sqrt();
+        Some(std / range)
+    }
+
 }
 
 #[cfg(test)]
@@ -13094,6 +13137,66 @@ mod tests {
         let r = n.window_top_quartile_mean().unwrap();
         assert!((r - 5.0).abs() < 1e-9, "expected 5.0, got {}", r);
     }
+
+    // ── round-175 tests ──────────────────────────────────────────────────────
+
+    #[test]
+    fn test_minmax_window_positive_ratio_none_for_empty() {
+        let n = norm(4);
+        assert!(n.window_positive_ratio().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_positive_ratio_all_positive_one() {
+        let mut n = norm(3);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        let r = n.window_positive_ratio().unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "expected 1.0, got {}", r);
+    }
+
+    #[test]
+    fn test_minmax_window_abs_diff_mean_none_for_single() {
+        let mut n = norm(4);
+        n.update(dec!(5));
+        assert!(n.window_abs_diff_mean().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_abs_diff_mean_constant_zero() {
+        let mut n = norm(3);
+        for v in [dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        let r = n.window_abs_diff_mean().unwrap();
+        assert!(r.abs() < 1e-9, "expected 0.0, got {}", r);
+    }
+
+    #[test]
+    fn test_minmax_window_range_over_mean_none_for_empty() {
+        let n = norm(4);
+        assert!(n.window_range_over_mean().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_range_over_mean_constant_zero() {
+        let mut n = norm(3);
+        for v in [dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        let r = n.window_range_over_mean().unwrap();
+        assert!(r.abs() < 1e-9, "expected 0.0, got {}", r);
+    }
+
+    #[test]
+    fn test_minmax_window_std_over_range_none_for_single() {
+        let mut n = norm(4);
+        n.update(dec!(5));
+        assert!(n.window_std_over_range().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_std_over_range_constant_none() {
+        // constant values → range=0 → None
+        let mut n = norm(3);
+        for v in [dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        assert!(n.window_std_over_range().is_none());
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -19086,6 +19189,49 @@ impl ZScoreNormalizer {
         let top = &vals[cutoff..];
         if top.is_empty() { return None; }
         Some(top.iter().sum::<f64>() / top.len() as f64)
+    }
+
+    /// Fraction of window values that are positive (> 0).
+    pub fn window_positive_ratio(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let pos = self.window.iter().filter(|v| v.to_f64().unwrap_or(0.0) > 0.0).count();
+        Some(pos as f64 / self.window.len() as f64)
+    }
+
+    /// Mean of absolute differences between consecutive window values.
+    pub fn window_abs_diff_mean(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let diffs: Vec<f64> = vals.windows(2).map(|w| (w[1] - w[0]).abs()).collect();
+        Some(diffs.iter().sum::<f64>() / diffs.len() as f64)
+    }
+
+    /// (max - min) / mean of window values — coefficient of variation of range.
+    pub fn window_range_over_mean(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.is_empty() { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let mean = vals.iter().sum::<f64>() / vals.len() as f64;
+        if mean == 0.0 { return None; }
+        let max = vals.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        let min = vals.iter().cloned().fold(f64::INFINITY, f64::min);
+        Some((max - min) / mean)
+    }
+
+    /// Std dev / (max - min) of window values.
+    pub fn window_std_over_range(&self) -> Option<f64> {
+        use rust_decimal::prelude::ToPrimitive;
+        if self.window.len() < 2 { return None; }
+        let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
+        let max = vals.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        let min = vals.iter().cloned().fold(f64::INFINITY, f64::min);
+        let range = max - min;
+        if range == 0.0 { return None; }
+        let mean = vals.iter().sum::<f64>() / vals.len() as f64;
+        let std = (vals.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / vals.len() as f64).sqrt();
+        Some(std / range)
     }
 
 }
@@ -26105,5 +26251,64 @@ mod zscore_stability_tests {
         for v in [dec!(5), dec!(5), dec!(5), dec!(5)] { n.update(v); }
         let r = n.window_top_quartile_mean().unwrap();
         assert!((r - 5.0).abs() < 1e-9, "expected 5.0, got {}", r);
+    }
+
+    // ── round-175 tests ──────────────────────────────────────────────────────
+
+    #[test]
+    fn test_zscore_window_positive_ratio_none_for_empty() {
+        let n = znorm(4);
+        assert!(n.window_positive_ratio().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_positive_ratio_all_positive_one() {
+        let mut n = znorm(3);
+        for v in [dec!(1), dec!(2), dec!(3)] { n.update(v); }
+        let r = n.window_positive_ratio().unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "expected 1.0, got {}", r);
+    }
+
+    #[test]
+    fn test_zscore_window_abs_diff_mean_none_for_single() {
+        let mut n = znorm(4);
+        n.update(dec!(5));
+        assert!(n.window_abs_diff_mean().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_abs_diff_mean_constant_zero() {
+        let mut n = znorm(3);
+        for v in [dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        let r = n.window_abs_diff_mean().unwrap();
+        assert!(r.abs() < 1e-9, "expected 0.0, got {}", r);
+    }
+
+    #[test]
+    fn test_zscore_window_range_over_mean_none_for_empty() {
+        let n = znorm(4);
+        assert!(n.window_range_over_mean().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_range_over_mean_constant_zero() {
+        let mut n = znorm(3);
+        for v in [dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        let r = n.window_range_over_mean().unwrap();
+        assert!(r.abs() < 1e-9, "expected 0.0, got {}", r);
+    }
+
+    #[test]
+    fn test_zscore_window_std_over_range_none_for_single() {
+        let mut n = znorm(4);
+        n.update(dec!(5));
+        assert!(n.window_std_over_range().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_std_over_range_constant_none() {
+        let mut n = znorm(3);
+        for v in [dec!(5), dec!(5), dec!(5)] { n.update(v); }
+        assert!(n.window_std_over_range().is_none());
     }
 }

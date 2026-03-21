@@ -9,6 +9,30 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.10.26] - 2026-03-20
+
+### Added
+
+**`tick` module — `NormalizedTick` analytics (round 175)**
+- `NormalizedTick::tick_buy_sell_price_gap(ticks)` — buy VWAP minus sell VWAP.
+- `NormalizedTick::price_velocity_std(ticks)` — std dev of tick-to-tick price changes.
+- `NormalizedTick::price_up_down_range_ratio(ticks)` — (max-mean) / (mean-min).
+- `NormalizedTick::tick_side_weighted_price(ticks)` — buy quantity / total quantity.
+
+**`ohlcv` module — `OhlcvBar` analytics (round 175)**
+- `OhlcvBar::bar_upper_shadow_mean(bars)` — mean upper shadow: high - max(open, close).
+- `OhlcvBar::bar_close_minus_open_std(bars)` — std dev of (close - open) across bars.
+- `OhlcvBar::bar_volume_weighted_range(bars)` — mean volume * (high - low) per bar.
+- `OhlcvBar::bar_body_speed(bars)` — mean (high - low) / close per bar.
+
+**`norm` module — `MinMaxNormalizer` + `ZScoreNormalizer` analytics (round 175)**
+- `window_positive_ratio()` — fraction of window values above zero.
+- `window_abs_diff_mean()` — mean of absolute consecutive differences.
+- `window_range_over_mean()` — (max - min) / mean of window values.
+- `window_std_over_range()` — std dev / (max - min) of window values.
+
+---
+
 ## [2.10.25] - 2026-03-20
 
 ### Added
