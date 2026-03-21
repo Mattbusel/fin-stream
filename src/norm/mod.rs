@@ -1864,6 +1864,32 @@ impl MinMaxNormalizer {
         Some(sorted[idx.min(sorted.len() - 1)])
     }
 
+    // ── round-94 ─────────────────────────────────────────────────────────────
+
+    /// Mean absolute deviation of the window values from their mean.
+    /// Returns `None` if the window is empty.
+    pub fn window_mean_deviation(&self) -> Option<Decimal> {
+        if self.window.is_empty() {
+            return None;
+        }
+        let n = Decimal::from(self.window.len());
+        let mean: Decimal = self.window.iter().copied().sum::<Decimal>() / n;
+        let mad = self.window.iter().map(|v| (*v - mean).abs()).sum::<Decimal>() / n;
+        Some(mad)
+    }
+
+    /// Fraction of window values strictly below the latest observation (0.0–1.0).
+    /// Returns `None` if the window is empty.
+    pub fn latest_percentile(&self) -> Option<f64> {
+        if self.window.is_empty() {
+            return None;
+        }
+        use rust_decimal::prelude::ToPrimitive;
+        let latest = *self.window.back()?;
+        let below = self.window.iter().filter(|&&v| v < latest).count();
+        Some(below as f64 / self.window.len() as f64)
+    }
+
 }
 
 #[cfg(test)]
@@ -4158,6 +4184,34 @@ mod tests {
         for _ in 0..4 { n.update(dec!(7)); }
         assert_eq!(n.percentile_75().unwrap(), dec!(7));
     }
+
+    // ── round-94 tests ────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_minmax_window_mean_deviation_none_for_empty() {
+        assert!(norm(4).window_mean_deviation().is_none());
+    }
+
+    #[test]
+    fn test_minmax_window_mean_deviation_constant() {
+        let mut n = norm(4);
+        for _ in 0..4 { n.update(dec!(5)); }
+        assert_eq!(n.window_mean_deviation().unwrap(), dec!(0));
+    }
+
+    #[test]
+    fn test_minmax_latest_percentile_none_for_empty() {
+        assert!(norm(4).latest_percentile().is_none());
+    }
+
+    #[test]
+    fn test_minmax_latest_percentile_top_value() {
+        let mut n = norm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        // latest = 4, below = 3 (1,2,3) → 3/4 = 0.75
+        let p = n.latest_percentile().unwrap();
+        assert!((p - 0.75).abs() < 1e-9, "expected 0.75, got {}", p);
+    }
 }
 
 /// Rolling z-score normalizer over a sliding window of [`Decimal`] observations.
@@ -5982,6 +6036,32 @@ impl ZScoreNormalizer {
         sorted.sort();
         let idx = (sorted.len() * 3) / 4;
         Some(sorted[idx.min(sorted.len() - 1)])
+    }
+
+    // ── round-94 ─────────────────────────────────────────────────────────────
+
+    /// Mean absolute deviation of the window values from their mean.
+    /// Returns `None` if the window is empty.
+    pub fn window_mean_deviation(&self) -> Option<Decimal> {
+        if self.window.is_empty() {
+            return None;
+        }
+        let n = Decimal::from(self.window.len());
+        let mean: Decimal = self.window.iter().copied().sum::<Decimal>() / n;
+        let mad = self.window.iter().map(|v| (*v - mean).abs()).sum::<Decimal>() / n;
+        Some(mad)
+    }
+
+    /// Fraction of window values strictly below the latest observation (0.0–1.0).
+    /// Returns `None` if the window is empty.
+    pub fn latest_percentile(&self) -> Option<f64> {
+        if self.window.is_empty() {
+            return None;
+        }
+        use rust_decimal::prelude::ToPrimitive;
+        let latest = *self.window.back()?;
+        let below = self.window.iter().filter(|&&v| v < latest).count();
+        Some(below as f64 / self.window.len() as f64)
     }
 
 }
@@ -8430,5 +8510,33 @@ mod zscore_stability_tests {
         let mut n = znorm(4);
         for _ in 0..4 { n.update(dec!(7)); }
         assert_eq!(n.percentile_75().unwrap(), dec!(7));
+    }
+
+    // ── round-94 tests ────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_zscore_window_mean_deviation_none_for_empty() {
+        assert!(znorm(4).window_mean_deviation().is_none());
+    }
+
+    #[test]
+    fn test_zscore_window_mean_deviation_constant() {
+        let mut n = znorm(4);
+        for _ in 0..4 { n.update(dec!(5)); }
+        assert_eq!(n.window_mean_deviation().unwrap(), dec!(0));
+    }
+
+    #[test]
+    fn test_zscore_latest_percentile_none_for_empty() {
+        assert!(znorm(4).latest_percentile().is_none());
+    }
+
+    #[test]
+    fn test_zscore_latest_percentile_top_value() {
+        let mut n = znorm(4);
+        for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
+        // latest = 4, below = 3 (1,2,3) → 3/4 = 0.75
+        let p = n.latest_percentile().unwrap();
+        assert!((p - 0.75).abs() < 1e-9, "expected 0.75, got {}", p);
     }
 }

@@ -3776,6 +3776,66 @@ impl OhlcvBar {
         Some(count as f64 / bars.len() as f64)
     }
 
+    // ── round-94 ─────────────────────────────────────────────────────────────
+
+    /// Largest upward gap (`open − prev_close`) as a fraction of `prev_close`.
+    /// Returns `None` for fewer than 2 bars or when no positive gap exists.
+    pub fn max_gap_up(bars: &[OhlcvBar]) -> Option<f64> {
+        if bars.len() < 2 {
+            return None;
+        }
+        use rust_decimal::prelude::ToPrimitive;
+        bars.windows(2)
+            .filter_map(|w| {
+                let gap = w[1].open - w[0].close;
+                if gap > Decimal::ZERO && !w[0].close.is_zero() {
+                    Some((gap / w[0].close).to_f64().unwrap_or(0.0))
+                } else {
+                    None
+                }
+            })
+            .reduce(f64::max)
+    }
+
+    /// Ratio of the last bar's high−low range to the first bar's high−low range.
+    /// Returns `None` for fewer than 2 bars or when the first bar's range is zero.
+    pub fn price_range_expansion(bars: &[OhlcvBar]) -> Option<f64> {
+        if bars.len() < 2 {
+            return None;
+        }
+        use rust_decimal::prelude::ToPrimitive;
+        let first_range = bars.first()?.high - bars.first()?.low;
+        if first_range.is_zero() {
+            return None;
+        }
+        let last_range = bars.last()?.high - bars.last()?.low;
+        Some((last_range / first_range).to_f64().unwrap_or(0.0))
+    }
+
+    /// Average of `volume / (high − low)` per bar; bars with zero range are excluded.
+    /// Returns `None` if the slice is empty or all bars have zero range.
+    pub fn avg_volume_per_range(bars: &[OhlcvBar]) -> Option<f64> {
+        if bars.is_empty() {
+            return None;
+        }
+        use rust_decimal::prelude::ToPrimitive;
+        let values: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let range = b.high - b.low;
+                if range.is_zero() {
+                    None
+                } else {
+                    Some((b.volume / range).to_f64().unwrap_or(0.0))
+                }
+            })
+            .collect();
+        if values.is_empty() {
+            return None;
+        }
+        Some(values.iter().sum::<f64>() / values.len() as f64)
+    }
+
 }
 
 impl std::fmt::Display for OhlcvBar {
@@ -9620,5 +9680,51 @@ mod tests {
         // mean = 150; b2 (200) > 150 → 1/2 = 0.5
         let f = OhlcvBar::volume_above_mean_fraction(&[b1, b2]).unwrap();
         assert!((f - 0.5).abs() < 1e-9, "expected 0.5, got {}", f);
+    }
+
+    // ── round-94 tests ────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_max_gap_up_none_for_single_bar() {
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        assert!(OhlcvBar::max_gap_up(&[b]).is_none());
+    }
+
+    #[test]
+    fn test_max_gap_up_detects_positive_gap() {
+        // bar1 closes at 100, bar2 opens at 110 → gap = 10/100 = 0.10
+        let b1 = make_ohlcv_bar(dec!(90), dec!(105), dec!(85), dec!(100));
+        let b2 = make_ohlcv_bar(dec!(110), dec!(120), dec!(108), dec!(115));
+        let g = OhlcvBar::max_gap_up(&[b1, b2]).unwrap();
+        assert!((g - 0.1).abs() < 1e-9, "expected 0.10 gap, got {}", g);
+    }
+
+    #[test]
+    fn test_price_range_expansion_none_for_single_bar() {
+        let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        assert!(OhlcvBar::price_range_expansion(&[b]).is_none());
+    }
+
+    #[test]
+    fn test_price_range_expansion_ratio() {
+        // first bar: high=110, low=90 → range=20; last bar: high=130, low=90 → range=40
+        let b1 = make_ohlcv_bar(dec!(95), dec!(110), dec!(90), dec!(105));
+        let b2 = make_ohlcv_bar(dec!(100), dec!(130), dec!(90), dec!(120));
+        let r = OhlcvBar::price_range_expansion(&[b1, b2]).unwrap();
+        assert!((r - 2.0).abs() < 1e-9, "range doubled → 2.0, got {}", r);
+    }
+
+    #[test]
+    fn test_avg_volume_per_range_none_for_empty() {
+        assert!(OhlcvBar::avg_volume_per_range(&[]).is_none());
+    }
+
+    #[test]
+    fn test_avg_volume_per_range_basic() {
+        // range = 20, volume = 200 → ratio = 10
+        let mut b = make_ohlcv_bar(dec!(90), dec!(110), dec!(90), dec!(100));
+        b.volume = dec!(200);
+        let avg = OhlcvBar::avg_volume_per_range(&[b]).unwrap();
+        assert!((avg - 10.0).abs() < 1e-9, "expected 10.0, got {}", avg);
     }
 }

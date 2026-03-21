@@ -3840,6 +3840,65 @@ impl NormalizedTick {
         Some(net)
     }
 
+    // ── round-94 ─────────────────────────────────────────────────────────────
+
+    /// Net price displacement divided by total path length (0.0–1.0).
+    /// Returns `None` for fewer than 2 ticks or when the total path is zero.
+    pub fn price_efficiency_ratio(ticks: &[NormalizedTick]) -> Option<f64> {
+        if ticks.len() < 2 {
+            return None;
+        }
+        let net = (ticks.last()?.price - ticks[0].price).abs();
+        let path: Decimal = ticks
+            .windows(2)
+            .map(|w| (w[1].price - w[0].price).abs())
+            .sum();
+        if path.is_zero() {
+            return None;
+        }
+        use rust_decimal::prelude::ToPrimitive;
+        Some((net / path).to_f64().unwrap_or(0.0))
+    }
+
+    /// Minimum gap between consecutive `received_at_ms` timestamps in milliseconds.
+    /// Returns `None` for fewer than 2 ticks.
+    pub fn min_inter_tick_gap_ms(ticks: &[NormalizedTick]) -> Option<u64> {
+        if ticks.len() < 2 {
+            return None;
+        }
+        ticks
+            .windows(2)
+            .map(|w| w[1].received_at_ms.saturating_sub(w[0].received_at_ms))
+            .min()
+    }
+
+    /// Maximum gap between consecutive `received_at_ms` timestamps in milliseconds.
+    /// Returns `None` for fewer than 2 ticks.
+    pub fn max_inter_tick_gap_ms(ticks: &[NormalizedTick]) -> Option<u64> {
+        if ticks.len() < 2 {
+            return None;
+        }
+        ticks
+            .windows(2)
+            .map(|w| w[1].received_at_ms.saturating_sub(w[0].received_at_ms))
+            .max()
+    }
+
+    /// Signed imbalance between buy and sell counts: `(buys − sells) / total`.
+    /// Returns `None` when fewer than 2 ticks carry side information.
+    pub fn trade_count_imbalance(ticks: &[NormalizedTick]) -> Option<f64> {
+        let (buys, sells) = ticks.iter().fold((0i64, 0i64), |(b, s), t| match t.side {
+            Some(TradeSide::Buy) => (b + 1, s),
+            Some(TradeSide::Sell) => (b, s + 1),
+            None => (b, s),
+        });
+        let total = buys + sells;
+        if total < 2 {
+            return None;
+        }
+        Some((buys - sells) as f64 / total as f64)
+    }
+
 }
 
 
@@ -9181,5 +9240,93 @@ mod tests {
         ];
         let c = NormalizedTick::signed_tick_count(&ticks).unwrap();
         assert_eq!(c, 2, "two up-ticks → +2");
+    }
+
+    // ── round-94 tests ────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_price_efficiency_ratio_none_for_single() {
+        use rust_decimal_macros::dec;
+        assert!(NormalizedTick::price_efficiency_ratio(&[make_tick_pq(dec!(100), dec!(1))]).is_none());
+    }
+
+    #[test]
+    fn test_price_efficiency_ratio_one_for_straight_line() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(101), dec!(1)),
+            make_tick_pq(dec!(102), dec!(1)),
+        ];
+        let r = NormalizedTick::price_efficiency_ratio(&ticks).unwrap();
+        assert!((r - 1.0).abs() < 1e-9, "straight line → ratio 1.0, got {}", r);
+    }
+
+    #[test]
+    fn test_min_inter_tick_gap_ms_none_for_single() {
+        let t = make_tick_at(1000);
+        assert!(NormalizedTick::min_inter_tick_gap_ms(&[t]).is_none());
+    }
+
+    #[test]
+    fn test_min_inter_tick_gap_ms_returns_smallest_gap() {
+        let t1 = make_tick_at(0);
+        let t2 = make_tick_at(10);
+        let t3 = make_tick_at(25);
+        let min = NormalizedTick::min_inter_tick_gap_ms(&[t1, t2, t3]).unwrap();
+        assert_eq!(min, 10, "smallest gap is 10ms");
+    }
+
+    #[test]
+    fn test_max_inter_tick_gap_ms_none_for_single() {
+        let t = make_tick_at(1000);
+        assert!(NormalizedTick::max_inter_tick_gap_ms(&[t]).is_none());
+    }
+
+    #[test]
+    fn test_max_inter_tick_gap_ms_returns_largest_gap() {
+        let t1 = make_tick_at(0);
+        let t2 = make_tick_at(10);
+        let t3 = make_tick_at(25);
+        let max = NormalizedTick::max_inter_tick_gap_ms(&[t1, t2, t3]).unwrap();
+        assert_eq!(max, 15, "largest gap is 15ms");
+    }
+
+    #[test]
+    fn test_trade_count_imbalance_none_for_no_sides() {
+        use rust_decimal_macros::dec;
+        let ticks = vec![
+            make_tick_pq(dec!(100), dec!(1)),
+            make_tick_pq(dec!(101), dec!(1)),
+        ];
+        assert!(NormalizedTick::trade_count_imbalance(&ticks).is_none());
+    }
+
+    #[test]
+    fn test_trade_count_imbalance_all_buys() {
+        let ticks = vec![
+            NormalizedTick {
+                exchange: crate::Exchange::Binance,
+                symbol: "BTCUSDT".into(),
+                price: rust_decimal_macros::dec!(100),
+                quantity: rust_decimal_macros::dec!(1),
+                side: Some(TradeSide::Buy),
+                trade_id: None,
+                exchange_ts_ms: None,
+                received_at_ms: 0,
+            },
+            NormalizedTick {
+                exchange: crate::Exchange::Binance,
+                symbol: "BTCUSDT".into(),
+                price: rust_decimal_macros::dec!(101),
+                quantity: rust_decimal_macros::dec!(1),
+                side: Some(TradeSide::Buy),
+                trade_id: None,
+                exchange_ts_ms: None,
+                received_at_ms: 1,
+            },
+        ];
+        let imb = NormalizedTick::trade_count_imbalance(&ticks).unwrap();
+        assert!((imb - 1.0).abs() < 1e-9, "all buys → imbalance 1.0, got {}", imb);
     }
 }

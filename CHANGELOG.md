@@ -9,6 +9,27 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.4.5] - 2026-03-20
+
+### Added
+
+**`tick` module — `NormalizedTick` analytics (round 94)**
+- `NormalizedTick::price_efficiency_ratio(ticks)` — net price displacement divided by total path length (0.0–1.0).
+- `NormalizedTick::min_inter_tick_gap_ms(ticks)` — minimum gap between consecutive `received_at_ms` timestamps.
+- `NormalizedTick::max_inter_tick_gap_ms(ticks)` — maximum gap between consecutive `received_at_ms` timestamps.
+- `NormalizedTick::trade_count_imbalance(ticks)` — signed imbalance `(buys − sells) / total` for ticks with side info.
+
+**`ohlcv` module — `OhlcvBar` analytics (round 94)**
+- `OhlcvBar::max_gap_up(bars)` — largest upward open-to-prev-close gap as a fraction of prior close.
+- `OhlcvBar::price_range_expansion(bars)` — ratio of the last bar's high−low range to the first bar's.
+- `OhlcvBar::avg_volume_per_range(bars)` — mean `volume / (high − low)` per bar, excluding zero-range bars.
+
+**`norm` module — `MinMaxNormalizer` and `ZScoreNormalizer` analytics (round 94)**
+- `window_mean_deviation() -> Option<Decimal>` — mean absolute deviation of window values from their mean.
+- `latest_percentile() -> Option<f64>` — fraction of window values strictly below the latest observation.
+
+---
+
 ## [2.4.4] - 2026-03-20
 
 ### Added
