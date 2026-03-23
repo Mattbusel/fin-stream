@@ -209,3 +209,11 @@ pub mod depth;
 /// Perpetual-futures funding rate tracker and cash-and-carry arbitrage detector.
 /// Concurrent per-symbol rolling history with trend analysis and high-funding filters.
 pub mod funding;
+
+/// Real-time candlestick pattern detection on streaming bars.
+/// PatternDetector (5-bar window), PatternSignal, StreamingPatternMonitor (DashMap, multi-symbol).
+pub mod pattern;
+
+/// News sentiment feed integration: NewsStore, SentimentScore, NewsSource trait, MockNewsSource,
+/// SentimentAlert, and NewsMonitor with recency-decayed aggregation and alert generation.
+pub mod news;
