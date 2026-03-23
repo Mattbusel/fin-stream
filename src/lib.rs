@@ -7,10 +7,15 @@
 //! ## Architecture
 //!
 //! ```text
-//! Tick Source
+//! Tick Source (live WebSocket or TickReplayer)
 //!     |
 //!     v
 //! SPSC Ring Buffer  (lock-free, zero-allocation hot path)
+//!     |
+//!     v
+//! FeedAggregator    (merge N feeds, VWAP / BestBid / BestAsk / Fallback)
+//!     |
+//!     +---> ArbDetector  (cross-feed arbitrage opportunity detection)
 //!     |
 //!     v
 //! OHLCV Aggregator  (streaming bar construction at any timeframe)
@@ -36,35 +41,70 @@
 //!
 //! | Module | Responsibility |
 //! |--------|----------------|
+//! [`agg`] | Cross-feed aggregation, merge strategies, and arb detection |
+//! [`anomaly`] | Tick anomaly detection: price spikes, volume spikes, sequence gaps, timestamp inversions |
 //! [`book`] | Order book delta streaming and crossed-book detection |
+//! [`circuit_breaker`] | WebSocket circuit breaker with degraded-mode synthetic tick emission |
+//! [`correlation`] | Streaming NxN Pearson correlation matrix (Welford, DashMap) |
 //! [`error`] | Typed error hierarchy (`StreamError`) |
+//! [`fix`] | FIX 4.2 session adapter — parse, serialize, logon, market data |
+//! [`grpc`] | gRPC streaming endpoint (`grpc` feature) — expose tick stream via tonic |
 //! [`health`] | Feed staleness detection and circuit-breaker |
 //! [`lorentz`] | Lorentz spacetime transforms for time-series features |
+//! [`mev`] | MEV detection scaffold — sandwich, frontrun, backrun heuristics |
+//! [`multi_exchange`] | NBBO-style multi-exchange aggregation and arbitrage detection |
 //! [`norm`] | Rolling min-max coordinate normalization |
 //! [`ohlcv`] | OHLCV bar aggregation at arbitrary timeframes |
+//! [`portfolio_feed`] | Multi-asset parallel WebSocket feed with merged tick stream |
+//! [`replay`] | Historical NDJSON tick replay with speed control |
 //! [`ring`] | SPSC lock-free ring buffer |
 //! [`session`] | Market session and trading-hours classification |
+//! [`snapshot`] | Snapshot-and-replay: binary tick recording and N-speed replay |
 //! [`tick`] | Raw-to-normalized tick conversion for all exchanges |
 //! [`ws`] | WebSocket connection management and reconnect policy |
 
+pub mod agg;
+pub mod anomaly;
 pub mod book;
+pub mod circuit_breaker;
+pub mod correlation;
 pub mod error;
+pub mod fix;
+pub mod grpc;
 pub mod health;
 pub mod lorentz;
+pub mod mev;
+pub mod multi_exchange;
 pub mod norm;
 pub mod ohlcv;
+pub mod portfolio_feed;
+pub mod replay;
 pub mod ring;
 pub mod session;
+pub mod snapshot;
 pub mod tick;
 pub mod ws;
 
+pub use agg::{AggregatorConfig, ArbDetector, ArbOpportunity, FeedAggregator, FeedHandle, MergeStrategy};
+pub use anomaly::{AnomalyDetectorConfig, AnomalyEvent, AnomalyKind, TickAnomalyDetector};
 pub use book::{BookDelta, BookSide, OrderBook, PriceLevel};
+pub use circuit_breaker::{CircuitBreakerConfig, CircuitState, WsCircuitBreaker};
+pub use correlation::{CorrelationPair, StreamingCorrelationMatrix};
 pub use error::StreamError;
+pub use fix::{FixError, FixMessage, FixParser, FixSession};
 pub use health::{FeedHealth, HealthMonitor, HealthStatus};
 pub use lorentz::{LorentzTransform, SpacetimePoint};
+pub use mev::{MevCandidate, MevDetector, MevPattern};
+pub use multi_exchange::{
+    AggregatorConfig as MultiExchangeAggregatorConfig, ArbitrageOpportunity,
+    ExchangeLatencyStats, MultiExchangeAggregator, Nbbo,
+};
 pub use norm::{MinMaxNormalizer, ZScoreNormalizer};
 pub use ohlcv::{OhlcvAggregator, OhlcvBar, Timeframe};
+pub use portfolio_feed::{AssetFeedConfig, AssetFeedStats, PortfolioFeed};
+pub use replay::{ReplaySession, ReplayStats, TickReplayer, TickSource};
 pub use ring::{SpscConsumer, SpscProducer, SpscRing};
 pub use session::{MarketSession, SessionAwareness, TradingStatus};
+pub use snapshot::{TickRecorder, TickReplayer as SnapshotReplayer};
 pub use tick::{Exchange, NormalizedTick, RawTick, TickNormalizer};
 pub use ws::{ConnectionConfig, ReconnectPolicy, WsManager};

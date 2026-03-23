@@ -1,6 +1,6 @@
 [package]
 name = "fin-stream"
-version = "2.10.75"
+version = "2.11.0"
 edition = "2021"
 rust-version = "1.75"
 license = "MIT"
@@ -32,6 +32,10 @@ expect_used = "deny"
 panic = "deny"
 todo = "deny"
 
+[features]
+## Enable the gRPC streaming endpoint (adds tonic, prost, tokio-stream, tonic-build deps).
+grpc = ["dep:tonic", "dep:prost", "dep:tokio-stream"]
+
 [dependencies]
 # tokio: async runtime, channels, timers
 tokio = { version = "1.40", features = ["full"] }
@@ -58,6 +62,12 @@ uuid = { version = "1.6", features = ["v4", "fast-rng", "serde"] }
 tracing = "0.1"
 # fin-primitives: tick, orderbook, ohlcv, signals integration
 fin-primitives = { path = "../fin-primitives", version = "2.0.0" }
+# tonic: gRPC server/client (optional — grpc feature)
+tonic = { version = "0.12", optional = true }
+# prost: protobuf runtime (optional — grpc feature)
+prost = { version = "0.13", optional = true }
+# tokio-stream: stream utilities for gRPC (optional — grpc feature)
+tokio-stream = { version = "0.1", optional = true }
 
 [dev-dependencies]
 tokio-test = "0.4"
@@ -66,6 +76,12 @@ criterion = { version = "0.5", features = ["async_tokio"] }
 rust_decimal_macros = "1.35"
 # proptest: property-based tests for FIFO ordering, normalization monotonicity
 proptest = "1.4"
+# tempfile: temporary NDJSON files for replay integration tests
+tempfile = { version = "3", default-features = false }
+
+[build-dependencies]
+# tonic-build: gRPC code generation from proto files (optional — grpc feature)
+tonic-build = { version = "0.12", optional = true }
 
 [[bench]]
 name = "tick_hot_path"
