@@ -241,3 +241,11 @@ pub mod hft;
 /// Cross-asset correlation streaming: online Pearson correlation for asset pairs,
 /// NxN correlation matrix, and statistical correlation breakdown detection.
 pub mod cross_asset;
+
+/// Market hours checker: TradingSession, MarketCalendar, MarketHoursChecker with
+/// is_open, next_open, time_until_close, and session_for queries.
+pub mod market_hours;
+
+/// Market event detector: breakout, volume spike, reversal, and gap-open detection
+/// from streaming ticks, with per-symbol state management.
+pub mod event_detector;
