@@ -217,3 +217,11 @@ pub mod pattern;
 /// News sentiment feed integration: NewsStore, SentimentScore, NewsSource trait, MockNewsSource,
 /// SentimentAlert, and NewsMonitor with recency-decayed aggregation and alert generation.
 pub mod news;
+
+/// Trading signal aggregator with confidence weighting and exponential time-decay.
+/// Provides SignalType, Signal, WeightedSignal, SignalAggregator, AggregatedSignal, SignalFilter.
+pub mod signal;
+
+/// Real-time position and P&L tracking: Position, Trade, PositionTracker, PositionRiskMetrics.
+/// Supports open, average-up, partial close, full close, opposite-side reduce/flip.
+pub mod position_tracker;
