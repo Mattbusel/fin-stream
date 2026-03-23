@@ -288,6 +288,14 @@ pub mod order_flow;
 /// mark-to-market P&L, inventory risk, and aggregate statistics.
 pub mod market_maker;
 
+/// Real-time portfolio risk calculation: Greeks aggregation, P&L attribution, VaR,
+/// stress testing, and concurrent DashMap-backed risk engine.
+pub mod risk_engine;
+
+/// Market data normalization and quality: tick normalization, OHLCV bar construction,
+/// data quality flags, quality reporting, and end-to-end DataPipeline.
+pub mod data_pipeline;
+
 /// IC-based alpha signal combination: EqualWeight, ICWeight, ICSquaredWeight,
 /// InformationRatio, KellyCriterion weighting; Gram-Schmidt orthogonalization;
 /// pairwise correlation; diversification ratio; and performance breakdown.
