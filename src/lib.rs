@@ -155,6 +155,12 @@ pub mod statarb;
 /// (price rounding, volume normalization, timestamp alignment).
 pub mod pipeline;
 
+/// Volatility forecasting: GARCH(1,1), EGARCH, and realized volatility with bipower variation.
+pub mod volatility_forecast;
+
+/// Portfolio optimization: mean-variance, risk parity, and Almgren-Chriss execution optimization.
+pub mod portfolio_optimizer;
+
 pub use agg::{AggregatorConfig, ArbDetector, ArbOpportunity, FeedAggregator, FeedHandle, MergeStrategy};
 pub use aggregator::{AggregationMode, BarAggregator, BarBuilder};
 pub use protocol::{
