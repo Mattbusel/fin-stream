@@ -538,3 +538,314 @@ mod tests {
         assert_eq!(symbols, vec!["AAA", "MMM", "ZZZ"]);
     }
 }
+
+// ─── OHLCV Candle Aggregation (tick-stream, time-period based) ────────────────
+
+/// Timeframe for candle aggregation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TimeFrame {
+    /// N-second bars.
+    Seconds(u64),
+    /// N-minute bars.
+    Minutes(u64),
+    /// N-hour bars.
+    Hours(u64),
+}
+
+impl TimeFrame {
+    /// Timeframe duration in milliseconds.
+    pub fn as_millis(&self) -> u64 {
+        match self {
+            TimeFrame::Seconds(n) => n * 1_000,
+            TimeFrame::Minutes(n) => n * 60 * 1_000,
+            TimeFrame::Hours(n) => n * 3_600 * 1_000,
+        }
+    }
+}
+
+/// A completed OHLCV candle with VWAP and metadata.
+#[derive(Debug, Clone)]
+pub struct OhlcvCandle {
+    /// Instrument symbol.
+    pub symbol: String,
+    /// Opening price.
+    pub open: f64,
+    /// Highest price during the period.
+    pub high: f64,
+    /// Lowest price during the period.
+    pub low: f64,
+    /// Closing price.
+    pub close: f64,
+    /// Total traded volume.
+    pub volume: f64,
+    /// Volume-weighted average price: Σ(price × volume) / Σ(volume).
+    pub vwap: f64,
+    /// Number of ticks in this candle.
+    pub tick_count: u32,
+    /// Millisecond timestamp of the candle open (first tick).
+    pub open_time_ms: u64,
+    /// Millisecond timestamp of the candle close (last tick).
+    pub close_time_ms: u64,
+}
+
+/// Accumulates ticks for a single symbol within one time period.
+pub struct CandleBuilder {
+    symbol: String,
+    timeframe_ms: u64,
+    open: Option<f64>,
+    high: f64,
+    low: f64,
+    close: f64,
+    volume: f64,
+    /// Σ(price × volume) for VWAP numerator.
+    pv_sum: f64,
+    tick_count: u32,
+    open_time_ms: u64,
+    close_time_ms: u64,
+    /// Epoch-aligned period bucket of the current open.
+    period_bucket: Option<u64>,
+}
+
+impl CandleBuilder {
+    /// Create a new builder for `symbol` with `timeframe_ms` milliseconds per period.
+    pub fn new(symbol: impl Into<String>, timeframe_ms: u64) -> Self {
+        Self {
+            symbol: symbol.into(),
+            timeframe_ms,
+            open: None,
+            high: f64::NEG_INFINITY,
+            low: f64::INFINITY,
+            close: 0.0,
+            volume: 0.0,
+            pv_sum: 0.0,
+            tick_count: 0,
+            open_time_ms: 0,
+            close_time_ms: 0,
+            period_bucket: None,
+        }
+    }
+
+    /// Returns `true` if no ticks have been accumulated.
+    pub fn is_empty(&self) -> bool {
+        self.open.is_none()
+    }
+
+    /// Process one tick. Returns a completed candle if the period rolled over.
+    ///
+    /// The triggering tick is NOT included in the returned candle — it opens
+    /// the next period instead.
+    pub fn push(&mut self, price: f64, volume: f64, timestamp_ms: u64) -> Option<OhlcvCandle> {
+        let bucket = if self.timeframe_ms > 0 {
+            timestamp_ms / self.timeframe_ms
+        } else {
+            0
+        };
+
+        let mut completed: Option<OhlcvCandle> = None;
+
+        // Detect period rollover
+        if let Some(open_bucket) = self.period_bucket {
+            if bucket > open_bucket && self.open.is_some() {
+                completed = Some(self.build());
+                self.reset();
+            }
+        }
+
+        // Accumulate
+        if self.open.is_none() {
+            self.open = Some(price);
+            self.high = price;
+            self.low = price;
+            self.open_time_ms = timestamp_ms;
+            self.period_bucket = Some(bucket);
+        } else {
+            if price > self.high { self.high = price; }
+            if price < self.low { self.low = price; }
+        }
+        self.close = price;
+        self.close_time_ms = timestamp_ms;
+        self.volume += volume;
+        self.pv_sum += price * volume;
+        self.tick_count += 1;
+
+        completed
+    }
+
+    /// Force-flush any in-progress candle. Returns `None` if empty.
+    pub fn flush(&mut self) -> Option<OhlcvCandle> {
+        if self.open.is_none() {
+            return None;
+        }
+        let candle = self.build();
+        self.reset();
+        Some(candle)
+    }
+
+    fn build(&self) -> OhlcvCandle {
+        let vwap = if self.volume > 0.0 {
+            self.pv_sum / self.volume
+        } else {
+            self.open.unwrap_or(self.close)
+        };
+        OhlcvCandle {
+            symbol: self.symbol.clone(),
+            open: self.open.unwrap_or(self.close),
+            high: self.high,
+            low: self.low,
+            close: self.close,
+            volume: self.volume,
+            vwap,
+            tick_count: self.tick_count,
+            open_time_ms: self.open_time_ms,
+            close_time_ms: self.close_time_ms,
+        }
+    }
+
+    fn reset(&mut self) {
+        self.open = None;
+        self.high = f64::NEG_INFINITY;
+        self.low = f64::INFINITY;
+        self.close = 0.0;
+        self.volume = 0.0;
+        self.pv_sum = 0.0;
+        self.tick_count = 0;
+        self.open_time_ms = 0;
+        self.close_time_ms = 0;
+        self.period_bucket = None;
+    }
+}
+
+/// Multi-symbol OHLCV candle aggregator driven by raw (price, volume, ts) ticks.
+pub struct TickAggregator {
+    timeframe: TimeFrame,
+    builders: HashMap<String, CandleBuilder>,
+    completed: Vec<OhlcvCandle>,
+}
+
+impl TickAggregator {
+    /// Create a new aggregator with the given timeframe.
+    pub fn new(timeframe: TimeFrame) -> Self {
+        Self {
+            timeframe,
+            builders: HashMap::new(),
+            completed: Vec::new(),
+        }
+    }
+
+    /// Process a single tick.
+    ///
+    /// Returns `Some(OhlcvCandle)` when the tick causes the previous period's
+    /// candle to close.
+    pub fn process_tick(
+        &mut self,
+        symbol: &str,
+        price: f64,
+        volume: f64,
+        timestamp_ms: u64,
+    ) -> Option<OhlcvCandle> {
+        let tf_ms = self.timeframe.as_millis();
+        let builder = self
+            .builders
+            .entry(symbol.to_owned())
+            .or_insert_with(|| CandleBuilder::new(symbol, tf_ms));
+        let completed = builder.push(price, volume, timestamp_ms);
+        if let Some(ref c) = completed {
+            self.completed.push(c.clone());
+        }
+        completed
+    }
+
+    /// Force-close all in-progress candles and return them.
+    pub fn flush_all(&mut self) -> Vec<OhlcvCandle> {
+        let mut result = Vec::new();
+        for builder in self.builders.values_mut() {
+            if let Some(candle) = builder.flush() {
+                result.push(candle);
+            }
+        }
+        result
+    }
+
+    /// List symbols that currently have an open candle.
+    pub fn active_symbols(&self) -> Vec<String> {
+        self.builders
+            .iter()
+            .filter(|(_, b)| !b.is_empty())
+            .map(|(s, _)| s.clone())
+            .collect()
+    }
+}
+
+// ─── TickAggregator tests ─────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tick_aggregator_tests {
+    use super::*;
+
+    #[test]
+    fn single_symbol_ohlcv_within_period() {
+        // Three ticks within the first 1-minute period
+        let mut agg = TickAggregator::new(TimeFrame::Minutes(1));
+        // ts_ms: 0, 10_000, 59_000 — all in bucket 0 (0..60_000)
+        assert!(agg.process_tick("BTC", 100.0, 1.0, 0).is_none());
+        assert!(agg.process_tick("BTC", 110.0, 2.0, 10_000).is_none());
+        assert!(agg.process_tick("BTC", 95.0, 3.0, 59_000).is_none());
+
+        // Flush to get partial candle
+        let candles = agg.flush_all();
+        assert_eq!(candles.len(), 1);
+        let c = &candles[0];
+        assert_eq!(c.symbol, "BTC");
+        assert!((c.open - 100.0).abs() < 1e-9, "open={}", c.open);
+        assert!((c.high - 110.0).abs() < 1e-9, "high={}", c.high);
+        assert!((c.low - 95.0).abs() < 1e-9, "low={}", c.low);
+        assert!((c.close - 95.0).abs() < 1e-9, "close={}", c.close);
+        assert!((c.volume - 6.0).abs() < 1e-9, "volume={}", c.volume);
+        assert_eq!(c.tick_count, 3);
+    }
+
+    #[test]
+    fn vwap_calculation() {
+        // VWAP = (100*1 + 200*3) / 4 = 700/4 = 175
+        let mut agg = TickAggregator::new(TimeFrame::Minutes(1));
+        agg.process_tick("X", 100.0, 1.0, 0);
+        agg.process_tick("X", 200.0, 3.0, 1_000);
+        let candles = agg.flush_all();
+        let vwap = candles[0].vwap;
+        assert!((vwap - 175.0).abs() < 1e-9, "VWAP should be 175, got {vwap}");
+    }
+
+    #[test]
+    fn period_rollover_produces_candle() {
+        let mut agg = TickAggregator::new(TimeFrame::Seconds(60));
+        // Period 0: [0, 60_000)
+        agg.process_tick("ETH", 1000.0, 1.0, 0);
+        agg.process_tick("ETH", 1010.0, 1.0, 30_000);
+        // Period 1: tick at 60_000 rolls over
+        let completed = agg.process_tick("ETH", 1020.0, 1.0, 60_000);
+        assert!(completed.is_some(), "period rollover should produce a candle");
+        let c = completed.unwrap();
+        assert!((c.open - 1000.0).abs() < 1e-9);
+        assert!((c.close - 1010.0).abs() < 1e-9);
+        assert_eq!(c.tick_count, 2);
+    }
+
+    #[test]
+    fn high_low_tracking() {
+        let mut agg = TickAggregator::new(TimeFrame::Hours(1));
+        let prices = [100.0, 150.0, 80.0, 120.0, 90.0];
+        for (i, &p) in prices.iter().enumerate() {
+            agg.process_tick("AAPL", p, 1.0, i as u64 * 1_000);
+        }
+        let candles = agg.flush_all();
+        assert!((candles[0].high - 150.0).abs() < 1e-9);
+        assert!((candles[0].low - 80.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn timeframe_as_millis() {
+        assert_eq!(TimeFrame::Seconds(30).as_millis(), 30_000);
+        assert_eq!(TimeFrame::Minutes(5).as_millis(), 300_000);
+        assert_eq!(TimeFrame::Hours(1).as_millis(), 3_600_000);
+    }
+}

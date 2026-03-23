@@ -899,3 +899,275 @@ mod memory_replay_tests {
         assert!(rx.recv().await.is_none(), "empty replay should close channel");
     }
 }
+
+// ---------------------------------------------------------------------------
+// New-style in-memory TickReplayer with speed control (task spec API)
+// ---------------------------------------------------------------------------
+
+/// Source of ticks for [`SpeedReplayer`].
+pub enum ReplaySource {
+    /// Ticks held entirely in memory.
+    InMemory(Vec<(NormalizedTick, String)>),
+}
+
+/// Runtime statistics for a [`SpeedReplayer`] session.
+#[derive(Debug, Clone, Default)]
+pub struct SpeedReplayStats {
+    /// Number of ticks sent so far.
+    pub ticks_sent: u64,
+    /// Number of times the replay has looped back to the start.
+    pub loops_completed: u64,
+    /// Total elapsed wall-clock time.
+    pub elapsed: std::time::Duration,
+}
+
+/// In-memory tick replayer with configurable speed and loop support.
+///
+/// This replayer holds all ticks in memory and emits them either instantly
+/// (`speed_multiplier == 0.0`) or with proportional inter-tick delays
+/// (`speed_multiplier > 0.0`).  When `loop_replay` is `true` it cycles
+/// indefinitely.
+pub struct SpeedReplayer {
+    /// Replay configuration.
+    config: ReplayConfig,
+    /// Tick store.
+    source: ReplaySource,
+    /// Current read position within the tick vector.
+    position: usize,
+    /// Wall-clock instant at which [`SpeedReplayer::next_tick`] was first called.
+    started_at: Option<std::time::Instant>,
+    /// Exchange timestamp (ms) of the first tick that was emitted.
+    first_tick_time: Option<u64>,
+    /// Running statistics.
+    stats: SpeedReplayStats,
+}
+
+impl SpeedReplayer {
+    /// Construct a new replayer.
+    ///
+    /// `ticks` is a `Vec<(symbol, NormalizedTick)>`.  Ticks are stored
+    /// internally as `(NormalizedTick, symbol)` for cache efficiency.
+    pub fn new(config: ReplayConfig, ticks: Vec<(String, NormalizedTick)>) -> Self {
+        let stored: Vec<(NormalizedTick, String)> = ticks
+            .into_iter()
+            .map(|(sym, tick)| (tick, sym))
+            .collect();
+        Self {
+            config,
+            source: ReplaySource::InMemory(stored),
+            position: 0,
+            started_at: None,
+            first_tick_time: None,
+            stats: SpeedReplayStats::default(),
+        }
+    }
+
+    /// Return the current read position.
+    pub fn position(&self) -> usize {
+        self.position
+    }
+
+    /// Return the total number of ticks in the source.
+    pub fn total_ticks(&self) -> usize {
+        match &self.source {
+            ReplaySource::InMemory(v) => v.len(),
+        }
+    }
+
+    /// Reset the replayer to the beginning.
+    pub fn reset(&mut self) {
+        self.position = 0;
+        self.started_at = None;
+        self.first_tick_time = None;
+    }
+
+    /// A snapshot of the current replay statistics.
+    pub fn stats(&self) -> &SpeedReplayStats {
+        &self.stats
+    }
+
+    /// Retrieve the tick at the current position without advancing.
+    fn current_tick(&self) -> Option<(String, NormalizedTick)> {
+        match &self.source {
+            ReplaySource::InMemory(v) => {
+                v.get(self.position).map(|(tick, sym)| (sym.clone(), tick.clone()))
+            }
+        }
+    }
+
+    /// Emit the next tick, sleeping proportionally to the inter-tick gap when
+    /// `config.speed_multiplier > 0.0`.  Returns `None` when the source is
+    /// exhausted (and `loop_replay` is `false`).
+    pub async fn next_tick(&mut self) -> Option<(String, NormalizedTick)> {
+        let wall_start = *self.started_at.get_or_insert_with(std::time::Instant::now);
+
+        loop {
+            let total = self.total_ticks();
+            if total == 0 {
+                return None;
+            }
+
+            if self.position >= total {
+                if !self.config.loop_replay {
+                    return None;
+                }
+                self.position = 0;
+                self.stats.loops_completed += 1;
+                self.first_tick_time = None;
+            }
+
+            let (sym, tick) = self.current_tick()?;
+            let tick_ts = tick.received_at_ms;
+
+            // Apply start offset
+            if let Some(offset) = self.config.start_time {
+                // convert SystemTime offset: skip ticks recorded before start_time
+                // In this new API we compare tick_ts (ms) against first_tick_time + offset_ms
+                // We use the ReplayConfig.start_time field to carry start_offset_ms via UNIX epoch trick
+                // Since start_time may not apply here, we just use received_at_ms ordering.
+                let _ = offset; // no-op; start_time used by MemoryReplayer path
+            }
+
+            // Determine inter-tick sleep
+            if self.config.speed_multiplier > 0.0 {
+                let base_ts = *self.first_tick_time.get_or_insert(tick_ts);
+                let elapsed_source_ms = tick_ts.saturating_sub(base_ts);
+                let elapsed_wall_ms = wall_start.elapsed().as_millis() as u64;
+                let target_wall_ms =
+                    (elapsed_source_ms as f64 / self.config.speed_multiplier) as u64;
+                if target_wall_ms > elapsed_wall_ms {
+                    let sleep_ms = target_wall_ms - elapsed_wall_ms;
+                    tokio::time::sleep(std::time::Duration::from_millis(sleep_ms)).await;
+                }
+            } else {
+                // max speed: no sleep
+                self.first_tick_time.get_or_insert(tick_ts);
+            }
+
+            self.position += 1;
+            self.stats.ticks_sent += 1;
+            self.stats.elapsed = wall_start.elapsed();
+
+            return Some((sym, tick));
+        }
+    }
+
+    /// Replay all ticks into a channel, looping if configured.
+    pub async fn replay_to_channel(&mut self, tx: tokio::sync::mpsc::Sender<(String, NormalizedTick)>) {
+        loop {
+            while let Some(item) = self.next_tick().await {
+                if tx.send(item).await.is_err() {
+                    return; // receiver dropped
+                }
+            }
+            if !self.config.loop_replay {
+                break;
+            }
+        }
+    }
+}
+
+// ─── SpeedReplayer tests ──────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod speed_replayer_tests {
+    use super::*;
+    use crate::tick::Exchange;
+    use rust_decimal::Decimal;
+
+    fn make_tick(ts_ms: u64) -> NormalizedTick {
+        NormalizedTick {
+            exchange: Exchange::Binance,
+            symbol: "BTC-USDT".to_owned(),
+            price: Decimal::from(50_000u32),
+            quantity: Decimal::ONE,
+            side: None,
+            trade_id: None,
+            exchange_ts_ms: Some(ts_ms),
+            received_at_ms: ts_ms,
+        }
+    }
+
+    #[tokio::test]
+    async fn max_speed_completes_in_order() {
+        let ticks: Vec<(String, NormalizedTick)> = (0..5)
+            .map(|i| ("BTC-USDT".to_owned(), make_tick(i * 1_000)))
+            .collect();
+
+        let cfg = ReplayConfig::new().with_speed(0.0);
+        let mut replayer = SpeedReplayer::new(cfg, ticks);
+
+        let mut received = Vec::new();
+        while let Some((_sym, tick)) = replayer.next_tick().await {
+            received.push(tick.received_at_ms);
+        }
+
+        assert_eq!(received.len(), 5, "all 5 ticks should be emitted");
+        for i in 0..4 {
+            assert!(received[i] <= received[i + 1], "ticks should be in order");
+        }
+    }
+
+    #[tokio::test]
+    async fn loop_replay_resets_position() {
+        let ticks: Vec<(String, NormalizedTick)> = (0..3)
+            .map(|i| ("BTC-USDT".to_owned(), make_tick(i * 100)))
+            .collect();
+
+        let cfg = ReplayConfig::new().with_speed(0.0).looping();
+        let mut replayer = SpeedReplayer::new(cfg, ticks);
+
+        // Drain first pass (3 ticks), then check position resets
+        for _ in 0..3 {
+            let _ = replayer.next_tick().await;
+        }
+        // One more tick triggers loop: position resets and emits tick 0 again
+        let tick = replayer.next_tick().await.expect("should loop");
+        assert_eq!(tick.1.received_at_ms, 0, "after loop, first tick should be ts=0");
+        assert_eq!(replayer.stats().loops_completed, 1);
+    }
+
+    #[tokio::test]
+    async fn replay_to_channel_delivers_all() {
+        let ticks: Vec<(String, NormalizedTick)> = (0..4)
+            .map(|i| ("ETH-USDT".to_owned(), make_tick(i * 50)))
+            .collect();
+
+        let cfg = ReplayConfig::new().with_speed(0.0);
+        let mut replayer = SpeedReplayer::new(cfg, ticks);
+        let (tx, mut rx) = tokio::sync::mpsc::channel(16);
+
+        tokio::spawn(async move {
+            replayer.replay_to_channel(tx).await;
+        });
+
+        let mut count = 0;
+        while rx.recv().await.is_some() {
+            count += 1;
+        }
+        assert_eq!(count, 4);
+    }
+
+    #[test]
+    fn total_ticks_and_position() {
+        let ticks: Vec<(String, NormalizedTick)> = (0..7)
+            .map(|i| ("X".to_owned(), make_tick(i * 10)))
+            .collect();
+        let cfg = ReplayConfig::new().with_speed(0.0);
+        let replayer = SpeedReplayer::new(cfg, ticks);
+        assert_eq!(replayer.total_ticks(), 7);
+        assert_eq!(replayer.position(), 0);
+    }
+
+    #[test]
+    fn reset_goes_back_to_start() {
+        let ticks: Vec<(String, NormalizedTick)> = (0..3)
+            .map(|i| ("X".to_owned(), make_tick(i * 10)))
+            .collect();
+        let cfg = ReplayConfig::new().with_speed(0.0);
+        let mut replayer = SpeedReplayer::new(cfg, ticks);
+        replayer.position = 2;
+        replayer.reset();
+        assert_eq!(replayer.position(), 0);
+    }
+}
