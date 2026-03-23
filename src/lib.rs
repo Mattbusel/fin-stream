@@ -188,3 +188,11 @@ pub use microstructure::{
     AmihudIlliquidity, BidAskBounce, KyleImpact, MicroTick, MicrostructureMonitor,
     MicrostructureReport, RollSpread,
 };
+
+/// Real-time risk metrics: rolling volatility, historical VaR, max drawdown,
+/// Sharpe ratio, and concurrent multi-symbol risk monitoring with portfolio VaR.
+pub mod risk;
+
+/// Trade classifier: Lee-Ready algorithm for buyer/seller-initiated classification,
+/// tick-test fallback, and rolling trade flow metrics accumulation.
+pub mod classifier;

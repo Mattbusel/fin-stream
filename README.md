@@ -1,3 +1,62 @@
+## Real-Time Risk Metrics
+
+The `risk` module computes rolling risk metrics from a price tick window.
+
+### Key Types
+
+| Type | Description |
+|------|-------------|
+| `RollingRisk` | Per-symbol rolling window of prices (`VecDeque<f64>`); all metrics computed on demand |
+| `RiskSnapshot` | Point-in-time snapshot: `volatility`, `var_95`, `max_drawdown`, `sharpe`, `last_price` |
+| `RiskMonitor` | `DashMap`-backed concurrent monitor; `update(symbol, price)` + `risk_snapshot(symbol)` |
+
+### Metrics
+
+| Method | Formula |
+|--------|---------|
+| `volatility_annualized()` | `std_dev(log_returns) × √(252 × ticks_per_day)` |
+| `var_historical(confidence)` | Historical simulation: `(1−confidence)` percentile of sorted log returns |
+| `max_drawdown()` | `max((peak − trough) / peak)` over rolling window |
+| `sharpe(rf_daily)` | `(mean_return − rf) / std_dev × √252` (annualized) |
+| `portfolio_var(weights)` | Weighted sum: `Σ weight_i × VaR_i` |
+
+---
+
+## Trade Classifier
+
+The `classifier` module implements the Lee-Ready (1991) algorithm for buyer/seller-initiated
+trade classification from tick data.
+
+### Key Types
+
+| Type | Description |
+|------|-------------|
+| `Quote` | `bid`, `ask`, `mid = (bid+ask)/2` — prevailing quote at trade time |
+| `TradeClass` | `BuyInitiated`, `SellInitiated`, `Unknown` |
+| `ClassifiedTick` | Enriches `NormalizedTick` with `class` and `quote_at_trade` |
+| `LeeReadyClassifier` | Stateful classifier; maintains previous trade price for tick-test fallback |
+| `TradeFlowAccumulator` | Rolling window of `ClassifiedTick`s; emits `TradeFlowMetrics` |
+| `TradeFlowMetrics` | `buy_volume`, `sell_volume`, `buy_count`, `sell_count`, `order_imbalance` |
+
+### Lee-Ready Algorithm
+
+```
+price > quote_mid  →  BuyInitiated
+price < quote_mid  →  SellInitiated
+price == quote_mid →  tick test:
+    price > prev_price  →  BuyInitiated
+    price < prev_price  →  SellInitiated
+    otherwise           →  Unknown
+```
+
+### Order Imbalance
+
+```
+OI = (buy_volume − sell_volume) / (buy_volume + sell_volume)   ∈ [−1, +1]
+```
+
+---
+
 [![CI](https://github.com/Mattbusel/fin-stream/actions/workflows/ci.yml/badge.svg)](https://github.com/Mattbusel/fin-stream/actions/workflows/ci.yml)
 [![Crates.io](https://img.shields.io/crates/v/fin-stream.svg)](https://crates.io/crates/fin-stream)
 [![docs.rs](https://img.shields.io/docsrs/fin-stream)](https://docs.rs/fin-stream)
