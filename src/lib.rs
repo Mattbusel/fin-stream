@@ -316,3 +316,11 @@ pub mod vwap_tracker;
 /// Bid-ask spread analytics and decomposition: SpreadMonitor, SpreadDecomposition,
 /// effective/realized spread, SpreadAlerts, and SpreadStats.
 pub mod spread_monitor;
+
+/// Alpha signal generation: momentum, mean-reversion, and volatility alphas
+/// with a concurrent DashMap-backed AlphaEngine for multi-symbol signal management.
+pub mod alpha_engine;
+
+/// Position sizing and risk management: Kelly-like sizing, stop-loss/take-profit controls,
+/// daily P&L limits, portfolio VaR, and concurrent DashMap-backed PositionManager.
+pub mod position_manager;
