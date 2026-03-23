@@ -143,6 +143,15 @@ pub mod marketmaker;
 /// and per-operation `LatencyTracker` with named histograms.
 pub mod latency;
 
+/// Statistical arbitrage detector: cointegration testing (simplified ADF), spread z-score
+/// monitoring, and real-time Long/Short/Exit/Neutral signal generation for symbol pairs.
+pub mod statarb;
+
+/// Composable tick normalization pipeline: `TickFilter` and `TickTransform` traits,
+/// built-in filters (price range, volume, symbol, staleness) and transforms
+/// (price rounding, volume normalization, timestamp alignment).
+pub mod pipeline;
+
 pub use agg::{AggregatorConfig, ArbDetector, ArbOpportunity, FeedAggregator, FeedHandle, MergeStrategy};
 pub use aggregator::{AggregationMode, BarAggregator, BarBuilder};
 pub use protocol::{

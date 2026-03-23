@@ -16,6 +16,85 @@ features ready for downstream models or trade execution. Built on Tokio. Targets
 suite: 200+ static analytics on `NormalizedTick`, 200+ on `OhlcvBar`, and 80+
 rolling-window analytics on `MinMaxNormalizer` and `ZScoreNormalizer` (rounds 1–88).
 
+## Statistical Arbitrage
+
+The `statarb` module detects cointegrated price pairs and emits spread-based trading signals.
+
+### Key Types
+
+| Type | Description |
+|------|-------------|
+| `PairCointegration` | Stateless cointegration tester |
+| `CointegrationResult` | `spread_mean`, `spread_std`, `half_life`, `is_cointegrated`, `adf_statistic` |
+| `StatArbDetector` | Tracks multiple pairs in real-time with rolling price history |
+| `SpreadMonitor` | `symbol_a`, `symbol_b`, `hedge_ratio`, `z_score`, `signal: StatArbSignal` |
+| `StatArbSignal` | `Long` (z < -2), `Short` (z > 2), `Exit` (|z| < 0.5), `Neutral` |
+
+### Algorithm
+
+1. Hedge ratio estimated via OLS: `a = alpha + beta * b`
+2. Spread: `s = a - hedge_ratio * b`
+3. Simplified ADF: regress `Δs` on `s_{t-1}`; cointegrated if t-stat < -2.86
+4. Half-life: `hl = -ln(2) / beta` from mean-reversion OLS
+5. Z-score: `(current_spread - spread_mean) / spread_std`
+
+### Usage
+
+```rust
+let mut det = StatArbDetector::new(50, 200);
+det.add_pair("AAPL", "MSFT");
+det.update("AAPL", 150.0);
+det.update("MSFT", 300.0);
+let signals = det.signals(); // Vec<SpreadMonitor>
+```
+
+---
+
+## Tick Pipeline
+
+The `pipeline` module provides a composable normalization pipeline for `NormalizedTick` streams.
+
+### Key Types
+
+| Type | Description |
+|------|-------------|
+| `TickPipeline` | Chains filters and transforms; `process(tick) -> Option<NormalizedTick>` |
+| `TickFilter` | Trait: `filter(&tick) -> bool` |
+| `TickTransform` | Trait: `transform(tick) -> NormalizedTick` |
+
+### Built-in Filters
+
+| Filter | Description |
+|--------|-------------|
+| `PriceRangeFilter { min, max }` | Drop ticks with price outside `[min, max]` |
+| `VolumeFilter { min }` | Drop ticks with quantity < min |
+| `SymbolFilter { symbols }` | Drop ticks not in the allowed symbol set |
+| `StaleFilter { max_age_ms }` | Drop ticks older than `max_age_ms` milliseconds |
+
+### Built-in Transforms
+
+| Transform | Description |
+|-----------|-------------|
+| `PriceRounder { decimals }` | Round price to N decimal places |
+| `VolumeNormalizer { scale_factor }` | Multiply quantity by scale factor |
+| `TimestampAligner { granularity_ms }` | Round timestamps to nearest granularity boundary |
+
+### Usage
+
+```rust
+let mut pipeline = TickPipeline::new();
+pipeline.add_filter(PriceRangeFilter { min: dec!(100), max: dec!(100_000) });
+pipeline.add_filter(VolumeFilter { min: dec!(0.01) });
+pipeline.add_transform(PriceRounder { decimals: 2 });
+pipeline.add_transform(TimestampAligner { granularity_ms: 1000 });
+
+if let Some(tick) = pipeline.process(raw_tick) {
+    // tick is filtered and transformed
+}
+```
+
+---
+
 ## Order Book Reconstruction
 
 The `orderbook` module provides a high-performance L2 order book backed by `BTreeMap<OrdF64, f64>`.
