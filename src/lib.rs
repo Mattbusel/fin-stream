@@ -280,3 +280,12 @@ pub mod technical;
 /// Order flow analytics and VPIN: trade classification into volume buckets,
 /// rolling VPIN toxicity score, net order flow, price impact regression, and cumulative delta.
 pub mod order_flow;
+
+/// Market making quote engine: inventory-aware spread computation, fill processing,
+/// mark-to-market P&L, inventory risk, and aggregate statistics.
+pub mod market_maker;
+
+/// IC-based alpha signal combination: EqualWeight, ICWeight, ICSquaredWeight,
+/// InformationRatio, KellyCriterion weighting; Gram-Schmidt orthogonalization;
+/// pairwise correlation; diversification ratio; and performance breakdown.
+pub mod signal_combiner;
