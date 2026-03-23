@@ -225,3 +225,11 @@ pub mod signal;
 /// Real-time position and P&L tracking: Position, Trade, PositionTracker, PositionRiskMetrics.
 /// Supports open, average-up, partial close, full close, opposite-side reduce/flip.
 pub mod position_tracker;
+
+/// Smart order routing venue selector: composite venue scoring (fill rate, fees, latency),
+/// best-venue selection, large-order splitting, and exponential-decay performance tracking.
+pub mod venue_selector;
+
+/// Multi-stage tick data quality filter: size, staleness, duplicate, and outlier filters
+/// with per-stage rejection statistics and a composable TickFilter pipeline.
+pub mod tick_filter;
