@@ -332,3 +332,11 @@ pub mod alpha_engine;
 /// Position sizing and risk management: Kelly-like sizing, stop-loss/take-profit controls,
 /// daily P&L limits, portfolio VaR, and concurrent DashMap-backed PositionManager.
 pub mod position_manager;
+
+/// Agent-based market simulator with heterogeneous agents (MarketMaker, TrendFollower,
+/// MeanReverter, NoiseTrader, Informed), continuous double auction, and price formation.
+pub mod market_simulator;
+
+/// High-throughput tick processing pipeline: composable TickFilter, per-symbol TickStats,
+/// VWAP, TickRouter with DashMap routing, and concurrent TickProcessor with atomics.
+pub mod tick_processor;
