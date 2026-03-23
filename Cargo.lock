@@ -561,7 +561,6 @@ dependencies = [
  "rust_decimal_macros",
  "serde",
  "serde_json",
- "tempfile",
  "thiserror",
  "tokio",
  "tokio-stream",

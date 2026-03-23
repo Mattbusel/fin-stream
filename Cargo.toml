@@ -76,8 +76,6 @@ criterion = { version = "0.5", features = ["async_tokio"] }
 rust_decimal_macros = "1.35"
 # proptest: property-based tests for FIFO ordering, normalization monotonicity
 proptest = "1.4"
-# tempfile: temporary NDJSON files for replay integration tests
-tempfile = { version = "3", default-features = false }
 
 [build-dependencies]
 # tonic-build: gRPC code generation from proto files (optional — grpc feature)

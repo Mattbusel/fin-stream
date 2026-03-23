@@ -1,0 +1,46 @@
+syntax = "proto3";
+
+package fin_stream;
+
+// A normalized tick from any exchange.
+message Tick {
+  // Source exchange name (e.g. "Binance", "Coinbase").
+  string exchange = 1;
+  // Instrument symbol in canonical form (e.g. "BTC-USD").
+  string symbol = 2;
+  // Trade price as a decimal string (exact, never float).
+  string price = 3;
+  // Trade quantity as a decimal string.
+  string quantity = 4;
+  // Trade side: "buy", "sell", or empty if unknown.
+  string side = 5;
+  // Exchange-assigned trade identifier, if available.
+  string trade_id = 6;
+  // Exchange-side timestamp (ms since Unix epoch), 0 if unavailable.
+  uint64 exchange_ts_ms = 7;
+  // Local system-clock timestamp when the tick was received (ms since epoch).
+  uint64 received_at_ms = 8;
+}
+
+// Filter for the SubscribeTicks RPC.
+message TickFilter {
+  // Only emit ticks for this symbol. Empty string means all symbols.
+  string symbol = 1;
+  // Only emit ticks from this exchange. Empty string means all exchanges.
+  string exchange = 2;
+}
+
+// Request message for the streaming SubscribeTicks RPC.
+message SubscribeTicksRequest {
+  // Filter to apply to the tick stream.
+  TickFilter filter = 1;
+}
+
+// Service exposing a tick stream over gRPC.
+service TickStreamService {
+  // Subscribe to a real-time stream of normalized ticks.
+  //
+  // The server streams Tick messages matching the supplied TickFilter.
+  // The stream remains open until the client cancels or the server shuts down.
+  rpc SubscribeTicks(SubscribeTicksRequest) returns (stream Tick);
+}
