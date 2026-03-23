@@ -201,3 +201,11 @@ pub mod classifier;
 /// Roll (1984) serial-covariance model, Corwin-Schultz (2012) high-low estimator,
 /// and a rolling `SpreadAnalyzer` with effective and realized spread computations.
 pub mod spread;
+
+/// Order book depth imbalance signals: raw and weighted imbalance, market-impact
+/// (slippage) estimation, bid-ask spread, and a DashMap-backed per-symbol tracker.
+pub mod depth;
+
+/// Perpetual-futures funding rate tracker and cash-and-carry arbitrage detector.
+/// Concurrent per-symbol rolling history with trend analysis and high-funding filters.
+pub mod funding;
