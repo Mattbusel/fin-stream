@@ -36,6 +36,12 @@
 //! - `RollSpread` returns `0.0` when serial covariance is non-negative (model condition unmet).
 //! - `KyleImpact` requires at least 2 observations for a valid OLS estimate.
 
+/// Advanced microstructure measures: InformationShare (Hasbrouck 1995),
+/// AmihudIlliquidityCalc (standalone + rolling), KyleLambda (OLS),
+/// EffectiveBidAskSpread (effective, realized, price impact),
+/// and MicrostructureAnalyzer (rolling-window aggregator).
+pub mod analytics;
+
 use crate::error::StreamError;
 use rust_decimal::Decimal;
 use std::collections::VecDeque;

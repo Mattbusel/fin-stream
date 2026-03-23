@@ -15,6 +15,10 @@
 //! - Transaction cost modelling (callers should subtract fees from expected_profit_bps)
 //! - Multiple-leg statistical arb (pairs only)
 
+/// Triangular arbitrage detector: Symbol, ExchangeRate, TriangularPath, TradeDirection,
+/// ArbOpportunity, TriangularArbDetector (DashMap-backed), ArbMonitor, ArbStats.
+pub mod triangular;
+
 use crate::error::StreamError;
 
 // ─── opportunity ─────────────────────────────────────────────────────────────
