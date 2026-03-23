@@ -305,3 +305,11 @@ pub mod order_book_sim;
 /// Extended market microstructure: tick rule, Lee-Ready classification, PIN estimation,
 /// LOB imbalance, price impact model, Hasbrouck information share, and VPIN flow toxicity.
 pub mod microstructure_v2;
+
+/// Real-time VWAP and TWAP computation with period resets and execution scheduling.
+/// Provides VwapTracker, TwapTracker, ExecutionScheduler, and ExecutionAlgo.
+pub mod vwap_tracker;
+
+/// Bid-ask spread analytics and decomposition: SpreadMonitor, SpreadDecomposition,
+/// effective/realized spread, SpreadAlerts, and SpreadStats.
+pub mod spread_monitor;
