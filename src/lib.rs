@@ -297,3 +297,11 @@ pub mod backtest;
 /// Order book depth analytics: PriceLevel, OrderBook, VWAP, imbalance, slippage estimation,
 /// depth chart data, and DepthMetrics.
 pub mod liquidity;
+
+/// Limit order book simulation with price-time priority matching: LimitOrder, Trade,
+/// OrderBookSim, price_to_key, best_bid, best_ask, spread, and order book snapshots.
+pub mod order_book_sim;
+
+/// Extended market microstructure: tick rule, Lee-Ready classification, PIN estimation,
+/// LOB imbalance, price impact model, Hasbrouck information share, and VPIN flow toxicity.
+pub mod microstructure_v2;
