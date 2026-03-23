@@ -249,3 +249,12 @@ pub mod market_hours;
 /// Market event detector: breakout, volume spike, reversal, and gap-open detection
 /// from streaming ticks, with per-symbol state management.
 pub mod event_detector;
+
+/// Trading session analysis: intraday volume/return bucket profiles, day-of-week
+/// seasonality effects, session pattern classification (U/L/J/Uniform), and
+/// best-trading-hours detection by relative volume threshold.
+pub mod session_analysis;
+
+/// Execution quality analytics: slippage, implementation shortfall, VWAP deviation,
+/// price improvement, fill rate, venue comparison, and formatted TCA reports.
+pub mod trade_analytics;
