@@ -131,6 +131,14 @@ pub mod compression;
 /// Price correlation graph, centrality measures, regime change detection, and contagion detection.
 pub mod network;
 
+/// Inventory-aware market maker simulator: symmetric spread quoting, skew by inventory,
+/// fill processing, realised P&L accounting, and aggregate statistics.
+pub mod marketmaker;
+
+/// HDR-style latency histogram: powers-of-2 buckets with 4 sub-buckets, percentile queries,
+/// and per-operation `LatencyTracker` with named histograms.
+pub mod latency;
+
 pub use agg::{AggregatorConfig, ArbDetector, ArbOpportunity, FeedAggregator, FeedHandle, MergeStrategy};
 pub use aggregator::{AggregationMode, BarAggregator, BarBuilder};
 pub use protocol::{
