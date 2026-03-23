@@ -43,7 +43,6 @@ use crate::error::StreamError;
 use crate::ohlcv::{OhlcvBar, Timeframe};
 use crate::tick::{Exchange, NormalizedTick, TradeSide};
 use rust_decimal::Decimal;
-use rust_decimal::prelude::ToPrimitive;
 use std::str::FromStr;
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -734,6 +733,7 @@ fn f64_to_decimal(v: f64) -> Decimal {
 mod tests {
     use super::*;
     use crate::ohlcv::Timeframe;
+    use rust_decimal::prelude::ToPrimitive;
 
     // ── Legacy SyntheticGenerator ────────────────────────────────────────
 

@@ -33,6 +33,9 @@ rolling-window analytics on `MinMaxNormalizer` and `ZScoreNormalizer` (rounds 1�
 | `fix` | FIX 4.2 session adapter: parse/serialize frames, validate checksum (tag 10), Logon, MarketDataRequest, Snapshot/Refresh → NormalizedTick | `FixSession`, `FixParser`, `FixMessage`, `FixError` |
 | `portfolio_feed` | Multi-asset parallel WebSocket feed; JoinSet-managed per-asset WsManager tasks; exponential-backoff restart; merged tick channel | `PortfolioFeed`, `AssetFeedConfig`, `AssetFeedStats` |
 | `mev` | MEV detection scaffold: sandwich, frontrun, and backrun heuristics on tick slices; no Flashbots API required | `MevDetector`, `MevCandidate`, `MevPattern` |
+| `toxicity` | Order flow toxicity: PIN, VPIN, Kyle λ, Amihud illiquidity — four-metric smart-money detection | `OrderFlowToxicityAnalyzer`, `ToxicityMetrics`, `VpinCalculator` |
+| `regime` | Real-time market regime classification: Trending / MeanReverting / HighVol / LowVol via Hurst + ADX + realised vol | `RegimeDetector`, `MarketRegime` |
+| `synthetic` | Stochastic market data generator: GBM, jump-diffusion, OU, Heston — deterministic seeded output | `SyntheticMarketGenerator`, `GeometricBrownianMotion`, `HestonModel` |
 | `error` | Unified typed error hierarchy covering every pipeline failure mode | `StreamError` |
 
 ## Streaming Correlation Matrix
@@ -151,6 +154,123 @@ for c in &candidates {
 
 `estimated_profit_usd` is a coarse order-of-magnitude estimate (price impact × quantity);
 `confidence` is in [0, 1] and saturates at 1.0 when the impact is 10× the threshold.
+
+## Order Flow Toxicity
+
+`OrderFlowToxicityAnalyzer` computes four complementary toxicity metrics in a single
+rolling-window pass over `NormalizedTick`s, identifying when smart-money (informed)
+traders are active.
+
+| Metric | Formula | Interpretation |
+|---|---|---|
+| **PIN** | `α·μ / (α·μ + 2·ε)` | Fraction of order flow from informed traders (0–1) |
+| **VPIN** | `mean(|V_B − V_S| / V_bucket)` over last N buckets | High-frequency toxicity proxy (0–1) |
+| **Kyle λ** | `cov(ΔP, x) / var(x)` via OLS | Price impact per unit of signed flow |
+| **Amihud** | `mean(|r_t| / vol_t)` | Illiquidity: price sensitivity to volume |
+
+```rust
+use fin_stream::toxicity::OrderFlowToxicityAnalyzer;
+
+let mut analyzer = OrderFlowToxicityAnalyzer::new(
+    200,  // tick window for PIN / Kyle λ / Amihud
+    50,   // VPIN bucket size (volume units)
+    50,   // VPIN rolling window (number of buckets)
+);
+
+// … feed NormalizedTicks …
+let m = analyzer.metrics();
+println!("PIN={:.3}  VPIN={:.3}  Kyle λ={:.6}  Amihud={:.8}",
+         m.pin, m.vpin, m.kyle_lambda, m.amihud_illiquidity);
+println!("All metrics valid: {}", m.is_valid());
+```
+
+The legacy `VpinCalculator` (single VPIN metric, tick-test classification) is
+retained for backward compatibility; new code should use `OrderFlowToxicityAnalyzer`.
+
+## Real-Time Regime Detection
+
+`RegimeDetector` classifies an incoming stream of OHLCV bars into one of five
+market regimes using a rolling 100-bar window and three fused indicators.
+
+| Regime | Condition |
+|---|---|
+| `Trending { direction: 1 }` | ADX > 25 and/or Hurst > 0.58, +DI > -DI |
+| `Trending { direction: -1 }` | ADX > 25 and/or Hurst > 0.58, -DI > +DI |
+| `MeanReverting` | ADX < 20 and/or Hurst < 0.42 |
+| `HighVolatility` | Realised vol > `HIGH_VOL_THRESHOLD` |
+| `LowVolatility` | Realised vol < `LOW_VOL_THRESHOLD` |
+| `Microstructure` | Fewer than 30 warm-up bars seen |
+
+```rust
+use fin_stream::regime::RegimeDetector;
+
+let mut detector = RegimeDetector::new(100); // 100-bar rolling window
+
+// … feed OhlcvBars …
+println!("Regime:     {}", detector.current_regime());
+println!("Confidence: {:.1}%", detector.regime_confidence() * 100.0);
+
+// Static helpers (operate on slices):
+let hurst = RegimeDetector::hurst_exponent(&closes);  // R/S analysis
+let adx   = RegimeDetector::adx(&bars);               // Wilder ADX
+```
+
+### Hurst Exponent (R/S Analysis)
+
+```text
+H = log(R/S) / log(n)
+
+R  = max(Y) − min(Y)           (range of cumulative deviations)
+S  = std(log-returns)           (standard deviation)
+Y_t = Σ(r_i − mean_r)         (cumulative deviation series)
+
+H > 0.5 → trending / persistent (long memory)
+H ≈ 0.5 → random walk
+H < 0.5 → mean-reverting / anti-persistent
+```
+
+## Synthetic Market Data Generator
+
+`SyntheticMarketGenerator` drives four stochastic price models to produce
+`NormalizedTick` and `OhlcvBar` sequences for testing and simulation.
+
+| Model | Dynamics | Use case |
+|---|---|---|
+| `GeometricBrownianMotion` | `dS = μS dt + σS dW` | Baseline equity / crypto prices |
+| `JumpDiffusion` | GBM + Poisson(λ) jumps (Merton 1976) | Flash crashes, earnings surprises |
+| `OrnsteinUhlenbeck` | `dX = θ(μ−X)dt + σ dW` | Mean-reverting spread / basis |
+| `HestonModel` | GBM + CIR variance process, corr ρ | Stochastic-vol smile dynamics |
+
+```rust
+use fin_stream::synthetic::{
+    GeometricBrownianMotion, HestonModel, JumpDiffusion,
+    OrnsteinUhlenbeck, SyntheticMarketGenerator,
+};
+use fin_stream::ohlcv::Timeframe;
+
+// GBM: 5% drift, 20% vol, starting at 100
+let mut gbm = GeometricBrownianMotion::new(0.05, 0.20, 100.0);
+let mut gen = SyntheticMarketGenerator::new(42); // seed for reproducibility
+
+let ticks = gen.generate_ticks(1_000, &mut gbm);
+let bars  = gen.generate_ohlcv(50, &mut gbm, Timeframe::Minutes(1));
+
+// Heston: stochastic vol with mean-reverting variance and correlation
+let mut heston = HestonModel::new(
+    0.05,   // drift
+    100.0,  // initial price
+    2.0,    // kappa (mean-reversion speed of variance)
+    0.04,   // theta (long-run variance = 20% vol)
+    0.3,    // xi (vol of vol)
+    -0.7,   // rho (price-vol correlation, typically negative)
+    0.04,   // initial variance
+);
+let heston_ticks = gen.generate_ticks(500, &mut heston);
+```
+
+Both `generate_ticks` and `generate_ohlcv` are deterministic given the same seed.
+The generator uses a pure-Rust xorshift64 PRNG — no `unsafe` code, no external
+random-number dependencies.
 
 ## Multi-Feed Aggregator
 
