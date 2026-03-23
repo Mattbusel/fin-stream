@@ -289,3 +289,11 @@ pub mod market_maker;
 /// InformationRatio, KellyCriterion weighting; Gram-Schmidt orthogonalization;
 /// pairwise correlation; diversification ratio; and performance breakdown.
 pub mod signal_combiner;
+
+/// Tick-level backtesting engine: order submission, Market/Limit/StopLoss matching,
+/// fill processing, mark-to-market equity curve, and performance metrics (Sharpe, drawdown, win rate).
+pub mod backtest;
+
+/// Order book depth analytics: PriceLevel, OrderBook, VWAP, imbalance, slippage estimation,
+/// depth chart data, and DepthMetrics.
+pub mod liquidity;
