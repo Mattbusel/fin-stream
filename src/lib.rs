@@ -348,3 +348,11 @@ pub mod performance_attribution;
 /// Smart order routing: venue registry, BestPrice/BestFillRate/LowestFee/SplitBestN/TWAP/VWAP
 /// strategies, and a concurrent DashMap-backed SmartOrderRouter.
 pub mod order_router;
+
+/// Statistical pairs trading: cointegration testing (OLS + ADF), spread z-score,
+/// half-life estimation, and real-time Long/Short/Exit/Neutral signal generation.
+pub mod pairs_trader;
+
+/// Composable signal processing pipeline: normalization (MinMax, ZScore, Robust),
+/// IIR filtering, smoothing, clipping, lag, diff, log, rank, and signal combination.
+pub mod signal_processor;
