@@ -272,3 +272,11 @@ pub mod alert;
 /// Tick data persistence: binary serialization (8-byte magic, length-prefixed fields),
 /// TickRecord, TickIndex, TickWriter (in-memory), TickReader with range queries.
 pub mod persistence;
+
+/// Technical analysis indicators: RSI (Wilder smoothing), MACD, Bollinger Bands,
+/// ATR, Stochastic oscillator, EMA, and SMA.
+pub mod technical;
+
+/// Order flow analytics and VPIN: trade classification into volume buckets,
+/// rolling VPIN toxicity score, net order flow, price impact regression, and cumulative delta.
+pub mod order_flow;
