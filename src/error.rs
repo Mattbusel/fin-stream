@@ -198,6 +198,14 @@ pub enum StreamError {
     /// pipelines without an explicit `.map_err()`.
     #[error("fin-primitives error: {0}")]
     FinPrimitives(String),
+
+    /// A caller-supplied input value is invalid.
+    ///
+    /// Used by modules such as [`crate::execution`], [`crate::synthetic`], and
+    /// [`crate::toxicity`] when an argument violates a documented precondition
+    /// (e.g. unknown order ID, negative quantity, OHLCV `high < low`).
+    #[error("Invalid input: {0}")]
+    InvalidInput(String),
 }
 
 impl From<fin_primitives::error::FinError> for StreamError {
