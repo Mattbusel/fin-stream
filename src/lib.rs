@@ -104,6 +104,9 @@ pub mod tick;
 pub mod ws;
 pub mod predictive_book;
 pub mod execution;
+
+/// Real-time portfolio risk tracking: positions, P&L, VaR, drawdown, Sharpe, and volatility.
+pub mod portfolio_risk;
 pub mod regime;
 pub mod synthetic;
 pub mod toxicity;

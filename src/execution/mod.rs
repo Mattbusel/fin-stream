@@ -63,6 +63,9 @@
 //! println!("{report:?}");
 //! ```
 
+/// Market impact and slippage estimation: Linear, SquareRoot, KyleObizhaeva, AlmgrenChriss models.
+pub mod slippage_model;
+
 use crate::error::StreamError;
 use std::collections::HashMap;
 
