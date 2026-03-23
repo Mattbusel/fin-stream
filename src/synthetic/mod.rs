@@ -39,6 +39,11 @@
 //! time.  No `unsafe` code is required.  The PRNG is not cryptographically
 //! secure — it is used only for statistical simulation.
 
+/// Synthetic instrument construction, pricing, delta/beta, replication error, pair spreads.
+pub mod instrument;
+
+pub use instrument::{PairSpread, SyntheticComponent, SyntheticInstrument, SyntheticPricer};
+
 use crate::error::StreamError;
 use crate::ohlcv::{OhlcvBar, Timeframe};
 use crate::tick::{Exchange, NormalizedTick, TradeSide};

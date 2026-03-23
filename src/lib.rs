@@ -268,3 +268,7 @@ pub mod candle;
 /// VolumeSpike, BollingerBreakout, CrossOver), `AlertSeverity`, `Alert`, and
 /// `AlertManager` with per-symbol tick state evaluation.
 pub mod alert;
+
+/// Tick data persistence: binary serialization (8-byte magic, length-prefixed fields),
+/// TickRecord, TickIndex, TickWriter (in-memory), TickReader with range queries.
+pub mod persistence;
