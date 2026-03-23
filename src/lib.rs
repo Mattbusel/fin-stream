@@ -72,6 +72,8 @@
 //! [`regime`] | Real-time market regime detection: Trending, MeanReverting, High/LowVolatility (Hurst, ADX, realised vol) |
 //! [`ofi`] | Order flow imbalance: `OrderFlowImbalance`, `OfiAccumulator`, `OfiMetricsComputer`, `ToxicityEstimator` (VPIN) |
 //! [`microstructure`] | Market microstructure analytics: Amihud illiquidity, Kyle lambda, Roll spread, bid-ask bounce |
+//! [`quality`] | Feed quality scoring: latency percentiles, gap rate, duplicate rate, composite score 0–100 |
+//! [`circuit`] | Per-symbol circuit breakers: price-spike/volume-surge detection, Normal/Halted/Recovering FSM |
 
 pub mod agg;
 pub mod aggregator;
@@ -108,6 +110,14 @@ pub mod ofi;
 
 /// Market microstructure analytics: Amihud illiquidity, Kyle's lambda, Roll spread, bid-ask bounce.
 pub mod microstructure;
+
+/// Feed quality scoring, gap detection, and tick deduplication.
+/// Score = 100 * (1 - gap_rate) * (1 - dup_rate) * exp(-latency_p99 / 1000).
+pub mod quality;
+
+/// Per-symbol circuit breakers: halt on price spikes, volume surges, or both.
+/// Manages one breaker per symbol with Normal/Halted/Recovering state machine.
+pub mod circuit;
 
 /// Full L3 limit order book simulator with price-time priority matching engine.
 pub mod lob_sim;
