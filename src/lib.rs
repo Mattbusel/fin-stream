@@ -69,6 +69,8 @@
 //! [`synthetic`] | Synthetic tick data generation from OHLCV bars via volume-weighted Brownian bridge |
 //! [`toxicity`] | VPIN flow-toxicity estimator — volume-synchronised probability of informed trading |
 //! [`noise`] | Microstructure noise filter: Roll spread estimator, realised kernel, de-noised efficient price |
+//! [`ofi`] | Order flow imbalance: `OrderFlowImbalance`, `OfiAccumulator`, `OfiMetricsComputer`, `ToxicityEstimator` (VPIN) |
+//! [`microstructure`] | Market microstructure analytics: Amihud illiquidity, Kyle lambda, Roll spread, bid-ask bounce |
 
 pub mod agg;
 pub mod aggregator;
@@ -99,6 +101,12 @@ pub mod synthetic;
 pub mod toxicity;
 pub mod noise;
 
+/// Order flow imbalance: OFI per tick, rolling accumulator, standardized metrics, and VPIN toxicity.
+pub mod ofi;
+
+/// Market microstructure analytics: Amihud illiquidity, Kyle's lambda, Roll spread, bid-ask bounce.
+pub mod microstructure;
+
 pub use agg::{AggregatorConfig, ArbDetector, ArbOpportunity, FeedAggregator, FeedHandle, MergeStrategy};
 pub use aggregator::{AggregationMode, BarAggregator, BarBuilder};
 pub use protocol::{
@@ -127,3 +135,11 @@ pub use session::{MarketSession, SessionAwareness, TradingStatus};
 pub use snapshot::{TickRecorder, TickReplayer as SnapshotReplayer};
 pub use tick::{Exchange, NormalizedTick, RawTick, TickNormalizer};
 pub use ws::{ConnectionConfig, ReconnectPolicy, WsManager};
+pub use ofi::{
+    NanoTimestamp as OfiNanoTimestamp, OfiAccumulator, OfiMetrics, OfiMetricsComputer,
+    OfiSignal, OrderFlowImbalance, Side as OfiSide, TopOfBook, ToxicityEstimator, VpinResult,
+};
+pub use microstructure::{
+    AmihudIlliquidity, BidAskBounce, KyleImpact, MicroTick, MicrostructureMonitor,
+    MicrostructureReport, RollSpread,
+};

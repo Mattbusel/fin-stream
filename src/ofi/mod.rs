@@ -323,12 +323,12 @@ impl OfiAccumulator {
     /// Constructs a new `OfiAccumulator`.
     ///
     /// # Errors
-    /// Returns [`StreamError::InvalidConfig`] if `window_size == 0`.
+    /// Returns [`StreamError::ConfigError`] if `window_size == 0`.
     pub fn new(window_size: usize) -> Result<Self, StreamError> {
         if window_size == 0 {
-            return Err(StreamError::InvalidConfig(
-                "OfiAccumulator window_size must be > 0".to_owned(),
-            ));
+            return Err(StreamError::ConfigError {
+                reason: "OfiAccumulator window_size must be > 0".to_owned(),
+            });
         }
         Ok(Self {
             ofi: OrderFlowImbalance::new(),
@@ -431,12 +431,12 @@ impl OfiMetricsComputer {
     /// Constructs a new metrics computer.
     ///
     /// # Errors
-    /// Returns [`StreamError::InvalidConfig`] if `lookback == 0`.
+    /// Returns [`StreamError::ConfigError`] if `lookback == 0`.
     pub fn new(lookback: usize) -> Result<Self, StreamError> {
         if lookback == 0 {
-            return Err(StreamError::InvalidConfig(
-                "OfiMetricsComputer lookback must be > 0".to_owned(),
-            ));
+            return Err(StreamError::ConfigError {
+                reason: "OfiMetricsComputer lookback must be > 0".to_owned(),
+            });
         }
         Ok(Self {
             history: VecDeque::with_capacity(lookback + 1),
@@ -586,17 +586,17 @@ impl ToxicityEstimator {
     /// - `n_buckets`: number of completed buckets in the rolling VPIN average.
     ///
     /// # Errors
-    /// Returns [`StreamError::InvalidConfig`] if parameters are invalid.
+    /// Returns [`StreamError::ConfigError`] if parameters are invalid.
     pub fn new(bucket_size: f64, n_buckets: usize) -> Result<Self, StreamError> {
         if bucket_size <= 0.0 {
-            return Err(StreamError::InvalidConfig(
-                "VPIN bucket_size must be positive".to_owned(),
-            ));
+            return Err(StreamError::ConfigError {
+                reason: "VPIN bucket_size must be positive".to_owned(),
+            });
         }
         if n_buckets == 0 {
-            return Err(StreamError::InvalidConfig(
-                "VPIN n_buckets must be > 0".to_owned(),
-            ));
+            return Err(StreamError::ConfigError {
+                reason: "VPIN n_buckets must be > 0".to_owned(),
+            });
         }
         Ok(Self {
             bucket_size,
@@ -687,6 +687,182 @@ impl ToxicityEstimator {
 fn to_f64(d: Decimal) -> f64 {
     use rust_decimal::prelude::ToPrimitive;
     d.to_f64().unwrap_or(0.0)
+}
+
+// ─── Cumulative Volume Delta ──────────────────────────────────────────────────
+
+/// Side of a trade for CVD and flow classification purposes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum TradeSide {
+    /// Aggressor is a buyer (lifted the ask).
+    Buy,
+    /// Aggressor is a seller (hit the bid).
+    Sell,
+}
+
+/// Cumulative Volume Delta (CVD) — running sum of buy volume − sell volume.
+///
+/// Rising CVD → sustained buying pressure.
+/// Falling CVD → sustained selling pressure.
+/// CVD divergence from price → potential reversal signal.
+#[derive(Debug, Default)]
+pub struct CumulativeVolumeDelta {
+    /// Current cumulative delta value.
+    pub cvd: f64,
+    /// Total buy volume seen since last reset.
+    pub total_buy: f64,
+    /// Total sell volume seen since last reset.
+    pub total_sell: f64,
+}
+
+impl CumulativeVolumeDelta {
+    /// Create a new CVD tracker starting at zero.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Update with a new trade. Returns the updated CVD.
+    pub fn update_trade(&mut self, side: TradeSide, volume: f64) -> f64 {
+        match side {
+            TradeSide::Buy => {
+                self.cvd += volume;
+                self.total_buy += volume;
+            }
+            TradeSide::Sell => {
+                self.cvd -= volume;
+                self.total_sell += volume;
+            }
+        }
+        self.cvd
+    }
+
+    /// Reset CVD to zero (e.g., at session open).
+    pub fn reset(&mut self) {
+        *self = Self::default();
+    }
+
+    /// Buy/sell volume ratio for the session. Returns `None` if no sell volume.
+    pub fn buy_sell_ratio(&self) -> Option<f64> {
+        if self.total_sell < f64::EPSILON {
+            return None;
+        }
+        Some(self.total_buy / self.total_sell)
+    }
+}
+
+// ─── Trade Intensity ──────────────────────────────────────────────────────────
+
+/// Rolling trade intensity: trades per second over a millisecond time window.
+///
+/// High intensity signals a fast market with elevated microstructure risk.
+pub struct TradeIntensity {
+    window_ms: i64,
+    timestamps: std::collections::VecDeque<i64>,
+}
+
+impl TradeIntensity {
+    /// Create a new trade intensity estimator.
+    ///
+    /// - `window_ms`: rolling window in milliseconds.
+    ///
+    /// # Errors
+    /// `StreamError::InvalidInput` if `window_ms == 0`.
+    pub fn new(window_ms: i64) -> Result<Self, crate::error::StreamError> {
+        if window_ms <= 0 {
+            return Err(crate::error::StreamError::InvalidInput(
+                "window_ms must be positive".to_owned(),
+            ));
+        }
+        Ok(Self { window_ms, timestamps: std::collections::VecDeque::new() })
+    }
+
+    /// Record a trade at `timestamp_ms`. Returns current trades-per-second.
+    pub fn record(&mut self, timestamp_ms: i64) -> f64 {
+        self.timestamps.push_back(timestamp_ms);
+        let cutoff = timestamp_ms - self.window_ms;
+        while self.timestamps.front().map_or(false, |&t| t < cutoff) {
+            self.timestamps.pop_front();
+        }
+        self.trades_per_second()
+    }
+
+    /// Current trades-per-second based on ticks in the window.
+    pub fn trades_per_second(&self) -> f64 {
+        let count = self.timestamps.len() as f64;
+        let window_sec = self.window_ms as f64 / 1000.0;
+        if window_sec < f64::EPSILON { 0.0 } else { count / window_sec }
+    }
+
+    /// Number of trades currently in the rolling window.
+    pub fn count_in_window(&self) -> usize {
+        self.timestamps.len()
+    }
+}
+
+// ─── Flow Classifier ──────────────────────────────────────────────────────────
+
+/// Classification of a trade as institutional or retail.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum FlowKind {
+    /// Trade size exceeds the institutional threshold — likely informed flow.
+    Institutional,
+    /// Trade size is below the threshold — likely retail/noise flow.
+    Retail,
+}
+
+/// Size-heuristic trade flow classifier.
+///
+/// Orders above `institutional_threshold` volume are classified as institutional.
+/// A rolling ratio tracks the fraction of volume attributed to institutional flow.
+pub struct FlowClassifier {
+    threshold: f64,
+    window_ms: i64,
+    /// (timestamp_ms, kind, volume)
+    events: std::collections::VecDeque<(i64, FlowKind, f64)>,
+}
+
+impl FlowClassifier {
+    /// Create a new flow classifier.
+    ///
+    /// # Errors
+    /// `StreamError::InvalidInput` if threshold or window_ms is non-positive.
+    pub fn new(
+        institutional_threshold: f64,
+        window_ms: i64,
+    ) -> Result<Self, crate::error::StreamError> {
+        if institutional_threshold <= 0.0 || window_ms <= 0 {
+            return Err(crate::error::StreamError::InvalidInput(
+                "threshold and window_ms must be positive".to_owned(),
+            ));
+        }
+        Ok(Self {
+            threshold: institutional_threshold,
+            window_ms,
+            events: std::collections::VecDeque::new(),
+        })
+    }
+
+    /// Classify a trade. Returns `(FlowKind, institutional_volume_fraction_in_window)`.
+    pub fn classify_trade(
+        &mut self,
+        timestamp_ms: i64,
+        _side: TradeSide,
+        volume: f64,
+    ) -> (FlowKind, f64) {
+        let kind = if volume >= self.threshold { FlowKind::Institutional } else { FlowKind::Retail };
+        self.events.push_back((timestamp_ms, kind, volume));
+        let cutoff = timestamp_ms - self.window_ms;
+        while self.events.front().map_or(false, |e| e.0 < cutoff) {
+            self.events.pop_front();
+        }
+        let (inst_vol, total_vol) =
+            self.events.iter().fold((0.0_f64, 0.0_f64), |(iv, tv), e| {
+                let inst = if e.1 == FlowKind::Institutional { e.2 } else { 0.0 };
+                (iv + inst, tv + e.2)
+            });
+        let fraction = if total_vol > f64::EPSILON { inst_vol / total_vol } else { 0.0 };
+        (kind, fraction)
+    }
 }
 
 // ─── Tests ────────────────────────────────────────────────────────────────────
@@ -937,5 +1113,61 @@ mod tests {
         if let Some(r) = est.update(5.0, 2.0) {
             assert!(r.toxicity > 0.5, "one-sided flow should produce high VPIN, got {}", r.toxicity);
         }
+    }
+
+    // ── CVD tests ──────────────────────────────────────────────────────────────
+    #[test]
+    fn test_cvd_accumulates_buy_minus_sell() {
+        let mut cvd = CumulativeVolumeDelta::new();
+        cvd.update_trade(TradeSide::Buy, 100.0);
+        cvd.update_trade(TradeSide::Sell, 40.0);
+        assert!((cvd.cvd - 60.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_cvd_reset() {
+        let mut cvd = CumulativeVolumeDelta::new();
+        cvd.update_trade(TradeSide::Buy, 100.0);
+        cvd.reset();
+        assert_eq!(cvd.cvd, 0.0);
+    }
+
+    // ── TradeIntensity tests ───────────────────────────────────────────────────
+    #[test]
+    fn test_trade_intensity_increases_with_trades() {
+        let mut ti = TradeIntensity::new(1_000).unwrap();
+        for i in 0..10i64 {
+            ti.record(i * 50);
+        }
+        assert!(ti.trades_per_second() > 0.0);
+    }
+
+    #[test]
+    fn test_trade_intensity_invalid_window() {
+        assert!(TradeIntensity::new(0).is_err());
+    }
+
+    // ── FlowClassifier tests ───────────────────────────────────────────────────
+    #[test]
+    fn test_flow_classifier_institutional_large_trade() {
+        let mut fc = FlowClassifier::new(100.0, 5_000).unwrap();
+        let (kind, _) = fc.classify_trade(0, TradeSide::Buy, 500.0);
+        assert_eq!(kind, FlowKind::Institutional);
+    }
+
+    #[test]
+    fn test_flow_classifier_retail_small_trade() {
+        let mut fc = FlowClassifier::new(100.0, 5_000).unwrap();
+        let (kind, _) = fc.classify_trade(0, TradeSide::Buy, 10.0);
+        assert_eq!(kind, FlowKind::Retail);
+    }
+
+    #[test]
+    fn test_flow_classifier_fraction() {
+        let mut fc = FlowClassifier::new(100.0, 10_000).unwrap();
+        fc.classify_trade(0, TradeSide::Buy, 200.0);   // institutional
+        fc.classify_trade(100, TradeSide::Sell, 50.0); // retail
+        let (_, frac) = fc.classify_trade(200, TradeSide::Buy, 50.0); // retail
+        assert!((frac - 200.0 / 300.0).abs() < 1e-9);
     }
 }
