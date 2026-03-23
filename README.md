@@ -194,6 +194,217 @@ println!("All metrics valid: {}", m.is_valid());
 The legacy `VpinCalculator` (single VPIN metric, tick-test classification) is
 retained for backward compatibility; new code should use `OrderFlowToxicityAnalyzer`.
 
+## Order Flow Imbalance (OFI)
+
+`OrderFlowImbalance` computes a signed measure of buying vs. selling pressure from
+top-of-book quotes. Unlike tick-test heuristics, OFI uses the full bid and ask queue
+to determine who is the aggressor at each update.
+
+### Formula
+
+```text
+OFI_t = ΔBid_Volume − ΔAsk_Volume
+
+ΔBid_Volume:
+  if bid_price improved or unchanged → Δ = bid_qty_t − bid_qty_{t-1}
+  if bid_price worsened              → Δ = −bid_qty_{t-1}  (full queue disappeared)
+
+ΔAsk_Volume:
+  if ask_price improved or unchanged → Δ = ask_qty_t − ask_qty_{t-1}
+  if ask_price worsened              → Δ = +ask_qty_{t-1}  (full queue disappeared)
+
+OFI > 0  → net buying pressure (bid queue growing faster than ask queue)
+OFI < 0  → net selling pressure
+```
+
+### Components
+
+| Type | Description |
+|---|---|
+| `OrderFlowImbalance` | Stateful per-tick OFI calculator; tracks previous top-of-book snapshot |
+| `OfiAccumulator` | Rolling window of raw OFI values; normalises via `tanh` and returns `OfiSignal` |
+| `OfiMetricsComputer` | Welford online mean/variance + percentile rank for z-score standardisation |
+| `ToxicityEstimator` | Volume-bucket VPIN: `|V_buy − V_sell| / V_total` per bucket |
+| `TopOfBook` | Snapshot of best bid/ask (`price`, `qty`, `timestamp`); `mid_price()`, `spread()` |
+| `OfiSignal` | Processed signal: `value`, `direction` (Buy/Sell/Neutral), `strength` in [0,1] |
+| `VpinResult` | Bucket result: `toxicity`, `buy_vol`, `sell_vol`, `imbalance`, `is_toxic(thr)` |
+
+```rust
+use fin_stream::{OfiAccumulator, OfiMetricsComputer, OrderFlowImbalance, TopOfBook};
+use rust_decimal_macros::dec;
+
+fn main() -> Result<(), fin_stream::StreamError> {
+    let mut raw   = OrderFlowImbalance::new();
+    let mut accum = OfiAccumulator::new(50)?;   // 50-tick rolling window
+    let mut stats = OfiMetricsComputer::new(200); // 200-tick stats window
+
+    // Simulate top-of-book updates arriving from a WebSocket feed:
+    let snap1 = TopOfBook { bid_price: dec!(50000), bid_qty: dec!(1.5),
+                            ask_price: dec!(50001), ask_qty: dec!(2.0),
+                            timestamp: 0 };
+    let snap2 = TopOfBook { bid_price: dec!(50000), bid_qty: dec!(2.0), // bid grew
+                            ask_price: dec!(50001), ask_qty: dec!(1.8),
+                            timestamp: 1 };
+
+    let ofi_raw  = raw.update(snap1);
+    let ofi_raw2 = raw.update(snap2);           // = +0.5 − (−0.2) = +0.7 (net buy)
+
+    let signal   = accum.update(ofi_raw2);      // OfiSignal { direction: Buy, strength: … }
+    let metrics  = stats.update(ofi_raw2);      // OfiMetrics { zscore, percentile_rank, … }
+
+    println!("Direction: {:?}", signal.direction);
+    println!("Strength:  {:.3}", signal.strength);
+    println!("Z-score:   {:.3}", metrics.zscore);
+    println!("Significant (|z| > 2): {}", metrics.is_significant(2.0));
+    Ok(())
+}
+```
+
+### VPIN (Volume-Synchronized Probability of Informed Trading)
+
+`ToxicityEstimator` accumulates volume into fixed-size buckets and computes VPIN
+per bucket. A bucket is closed when total volume reaches `bucket_size`; VPIN is the
+rolling mean of `|V_buy − V_sell| / V_total` over the last `n_buckets`.
+
+```text
+VPIN = (1/N) · Σ_b [ |V_buy_b − V_sell_b| / (V_buy_b + V_sell_b) ]
+
+V_buy  = volume attributed to buyer-initiated trades in bucket b
+V_sell = volume attributed to seller-initiated trades
+N      = number of complete buckets in the rolling window
+
+VPIN ∈ [0, 1];  VPIN > 0.5 → elevated toxicity (informed trading)
+```
+
+```rust
+use fin_stream::ToxicityEstimator;
+
+let mut vpin = ToxicityEstimator::new(1_000.0, 50); // 1 000 vol/bucket, 50-bucket window
+
+// Feed (ofi_value, volume) pairs from your tick pipeline:
+// if let Some(result) = vpin.update(0.7, 200.0) {
+//     if result.is_toxic(0.5) {
+//         println!("Elevated toxicity: VPIN={:.3}", result.toxicity);
+//     }
+// }
+```
+
+### API reference — `ofi` module
+
+```rust
+OrderFlowImbalance::new() -> OrderFlowImbalance
+OrderFlowImbalance::update(&mut self, snap: TopOfBook) -> f64
+OrderFlowImbalance::reset(&mut self)
+OrderFlowImbalance::tick_count(&self) -> u64
+
+OfiAccumulator::new(window_size: usize) -> Result<Self, StreamError>
+OfiAccumulator::update(&mut self, raw_ofi: f64) -> OfiSignal
+
+OfiMetricsComputer::new(lookback: usize) -> OfiMetricsComputer
+OfiMetricsComputer::update(&mut self, raw_ofi: f64) -> OfiMetrics
+OfiMetrics::is_significant(&self, z_threshold: f64) -> bool
+
+ToxicityEstimator::new(bucket_size: f64, n_buckets: usize) -> ToxicityEstimator
+ToxicityEstimator::update(&mut self, ofi: f64, volume: f64) -> Option<VpinResult>
+VpinResult::is_toxic(&self, threshold: f64) -> bool
+
+TopOfBook::mid_price(&self) -> Decimal
+TopOfBook::spread(&self) -> Decimal
+```
+
+---
+
+## Market Microstructure Analytics
+
+`MicrostructureMonitor` runs four complementary illiquidity and spread estimators
+on a single stream of `MicroTick`s — no separate data feeds required.
+
+### Estimators
+
+| Estimator | Formula | Interpretation |
+|---|---|---|
+| **Amihud (2002)** | `mean(|ln(P_t/P_{t-1})| / V_t)` | Price sensitivity per unit of volume; higher = more illiquid |
+| **Kyle's lambda** | OLS slope of `ΔP ~ Q` (signed volume) | Price impact coefficient; higher = thinner book |
+| **Roll (1984) spread** | `2·√(−Cov(r_t, r_{t-1}))` | Bid-ask spread proxy from serial covariance of returns |
+| **Bid-Ask Bounce** | `−Cov(r_t, r_{t-1}) / Var(r_t)` clamped to [0,1] | Fraction of return variance explained by microstructure noise |
+
+```text
+Amihud illiquidity:
+  ILL_t = |r_t| / V_t          where r_t = ln(P_t / P_{t-1})
+  ILL   = (1/T) Σ ILL_t        rolling mean over window
+
+Kyle's lambda (OLS):
+  ΔP_i = λ · Q_i + ε_i
+  λ     = Cov(ΔP, Q) / Var(Q)  computed over a rolling window of ticks
+
+Roll spread:
+  γ = Cov(r_t, r_{t-1})
+  s = 2·√(−γ)    if γ < 0,  else 0
+
+Bid-Ask Bounce:
+  B = −Cov(r_t, r_{t-1}) / Var(r_t),  clamped to [0, 1]
+```
+
+```rust
+use fin_stream::{MicrostructureMonitor, MicroTick};
+
+fn main() -> Result<(), fin_stream::StreamError> {
+    let mut monitor = MicrostructureMonitor::new(100)?; // 100-tick window
+
+    // Construct ticks from your normalised feed:
+    let tick = MicroTick::new(
+        50_000.0,   // price
+        1.5,        // volume
+        1.5,        // signed volume (+buy / -sell)
+        1_700_000_000_000_000_000_i64, // nanosecond timestamp
+    )?;
+
+    let report = monitor.update(&tick)?;
+
+    if report.is_complete() {
+        println!("Amihud:      {:.8}", report.amihud.unwrap());
+        println!("Kyle lambda: {:.8}", report.kyle_lambda.unwrap());
+        println!("Roll spread: {:.6}", report.roll_spread.unwrap());
+        println!("Bounce frac: {:.4}", report.bounce.unwrap_or(0.0));
+    } else {
+        println!("{} / 4 estimators ready", report.available_count());
+    }
+    Ok(())
+}
+```
+
+### API reference — `microstructure` module
+
+```rust
+MicroTick::new(price: f64, volume: f64, signed_volume: f64, timestamp_ns: i64)
+    -> Result<MicroTick, StreamError>   // validates price > 0 and volume > 0
+
+MicrostructureMonitor::new(window_size: usize) -> Result<Self, StreamError>
+MicrostructureMonitor::update(&mut self, tick: &MicroTick) -> Result<MicrostructureReport, StreamError>
+MicrostructureMonitor::reset(&mut self)
+MicrostructureMonitor::amihud(&self)   -> &AmihudIlliquidity
+MicrostructureMonitor::kyle(&self)     -> &KyleImpact
+MicrostructureMonitor::roll(&self)     -> &RollSpread
+MicrostructureMonitor::bounce(&self)   -> &BidAskBounce
+
+AmihudIlliquidity::new(window_size: usize) -> AmihudIlliquidity
+AmihudIlliquidity::update(&mut self, tick: &MicroTick) -> Option<f64>
+
+KyleImpact::new(window_size: usize) -> KyleImpact
+KyleImpact::update(&mut self, tick: &MicroTick) -> Option<f64>
+
+RollSpread::new(window_size: usize) -> RollSpread
+RollSpread::update(&mut self, tick: &MicroTick) -> Option<f64>
+
+BidAskBounce::new(window_size: usize) -> BidAskBounce
+BidAskBounce::update(&mut self, tick: &MicroTick) -> Option<f64>
+
+MicrostructureReport::is_complete(&self) -> bool      // all four estimators have values
+MicrostructureReport::available_count(&self) -> usize // 0–4
+```
+
+---
+
 ## Real-Time Regime Detection
 
 `RegimeDetector` classifies an incoming stream of OHLCV bars into one of five
@@ -915,6 +1126,10 @@ at construction time.
 | Normalization update | O(1) amortized; O(W) after window eviction |
 | Lorentz transform | O(1), two multiplications per coordinate |
 | Ring buffer memory | N * sizeof(T) bytes (N is const generic) |
+| OFI raw update | O(1) per top-of-book snapshot |
+| OFI accumulator | O(1) amortized; rolling VecDeque eviction |
+| Microstructure update | O(1) amortized per `MicroTick`; O(W) on window eviction |
+| VPIN bucket | O(1) per tick; O(n_buckets) on bucket close |
 
 ## Quickstart
 
@@ -1471,6 +1686,7 @@ All fallible operations return `Result<_, StreamError>`. `StreamError` variants:
 | `RingBufferFull` | ring | SPSC ring buffer has no free slots |
 | `RingBufferEmpty` | ring | SPSC ring buffer has no pending items |
 | `LorentzConfigError` | lorentz | `beta >= 1` or `beta < 0` or `beta = NaN` |
+| `ConfigError { reason }` | ofi / microstructure | Invalid constructor argument (e.g. zero window size) |
 | `Io` | all | Underlying I/O error |
 | `WebSocket` | ws | WebSocket protocol-level error |
 
