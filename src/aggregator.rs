@@ -29,6 +29,11 @@
 //! drop(bar);
 //! ```
 
+/// Tick-to-Bar aggregator: time, tick, volume, and dollar bars from [`NormalizedTick`] streams.
+///
+/// [`NormalizedTick`]: crate::tick::NormalizedTick
+pub mod bars;
+
 use std::collections::HashMap;
 
 use crate::protocol::{BarEvent, TradeEvent};

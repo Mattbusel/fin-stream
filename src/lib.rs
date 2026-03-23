@@ -77,6 +77,10 @@
 
 pub mod agg;
 pub mod aggregator;
+
+/// L2 Order Book Reconstruction: OrdF64-keyed BTreeMap books, delta application,
+/// sequence validation, crossed-book detection, imbalance, and DashMap-backed manager.
+pub mod orderbook;
 pub mod anomaly;
 pub mod book;
 pub mod circuit_breaker;

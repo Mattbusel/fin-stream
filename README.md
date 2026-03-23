@@ -16,6 +16,96 @@ features ready for downstream models or trade execution. Built on Tokio. Targets
 suite: 200+ static analytics on `NormalizedTick`, 200+ on `OhlcvBar`, and 80+
 rolling-window analytics on `MinMaxNormalizer` and `ZScoreNormalizer` (rounds 1–88).
 
+## Order Book Reconstruction
+
+The `orderbook` module provides a high-performance L2 order book backed by `BTreeMap<OrdF64, f64>`.
+
+### Key Types
+
+| Type | Description |
+|------|-------------|
+| `OrdF64` | `f64` wrapper with `Ord` via `f64::total_cmp` — safe BTreeMap key |
+| `PriceLevel { price: f64, quantity: f64 }` | A single resting price level |
+| `OrderBook { symbol, bids, asks, sequence, last_updated_ms }` | Live L2 book for one symbol |
+| `BookUpdate { symbol, sequence, bids, asks }` | Incremental delta; `qty=0` removes the level |
+| `BookError::SequenceGap / StaleUpdate / CrossedBook` | Typed error variants |
+| `OrderBookManager` | `DashMap`-backed concurrent multi-symbol book manager |
+
+### Key Methods
+
+| Method | Description |
+|--------|-------------|
+| `best_bid() -> Option<PriceLevel>` | Highest bid |
+| `best_ask() -> Option<PriceLevel>` | Lowest ask |
+| `spread() -> Option<f64>` | `best_ask - best_bid` |
+| `mid_price() -> Option<f64>` | `(best_bid + best_ask) / 2` |
+| `depth(n) -> (Vec<PriceLevel>, Vec<PriceLevel>)` | Top N bid/ask levels |
+| `imbalance() -> f64` | `(bid_qty_top5 - ask_qty_top5) / (bid_qty_top5 + ask_qty_top5)` |
+| `apply_update(&BookUpdate) -> Result<(), BookError>` | Validates sequence, applies delta, checks crossed book |
+
+### Quick Example
+
+```rust
+use fin_stream::orderbook::{OrderBook, BookUpdate};
+
+let mut book = OrderBook::new("BTCUSDT");
+book.apply_update(&BookUpdate {
+    symbol: "BTCUSDT".into(),
+    sequence: 1,
+    bids: vec![(29_999.0, 5.0), (29_998.0, 10.0)],
+    asks: vec![(30_001.0, 3.0), (30_002.0, 8.0)],
+}).unwrap();
+
+println!("Spread: {:.2}", book.spread().unwrap());
+println!("Imbalance: {:.3}", book.imbalance());
+```
+
+---
+
+## Tick-to-Bar Aggregation
+
+The `aggregator::bars` module aggregates `NormalizedTick` streams into OHLCV bars.
+
+### Bar Types (`BarSpec`)
+
+| Variant | Close condition |
+|---------|----------------|
+| `Time(Duration)` | Elapsed time since first tick ≥ duration |
+| `Tick(usize)` | N ticks accumulated |
+| `Volume(f64)` | Cumulative quantity ≥ threshold |
+| `Dollar(f64)` | Cumulative price × qty ≥ threshold |
+
+### VWAP Update (Online)
+
+```
+vwap = (vwap * cum_vol + price * qty) / (cum_vol + qty)
+```
+
+### Key Types
+
+| Type | Description |
+|------|-------------|
+| `Bar { symbol, open, high, low, close, volume, vwap, tick_count, start_ms, end_ms }` | Completed bar |
+| `BarBuilder` | Single-symbol accumulator; `push(tick) -> Option<Bar>` |
+| `BarStream` | Multi-symbol router; routes ticks to per-symbol builders |
+| `BarStreamConfig { specs: Vec<(String, BarSpec)> }` | Symbol-to-spec mapping |
+
+### Quick Example
+
+```rust
+use std::time::Duration;
+use fin_stream::aggregator::bars::{BarSpec, BarStreamConfig, BarStream};
+
+let config = BarStreamConfig::new()
+    .add("BTCUSDT", BarSpec::Tick(100))
+    .add("ETHUSDT", BarSpec::Volume(10.0));
+
+let mut stream = BarStream::new(&config);
+// stream.push_tick(&tick) → Some(Bar) when boundary crossed
+```
+
+---
+
 ## What Is Included
 
 | Module | Purpose | Key types |
