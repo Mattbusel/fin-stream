@@ -340,3 +340,11 @@ pub mod market_simulator;
 /// High-throughput tick processing pipeline: composable TickFilter, per-symbol TickStats,
 /// VWAP, TickRouter with DashMap routing, and concurrent TickProcessor with atomics.
 pub mod tick_processor;
+
+/// Performance attribution analysis: Brinson-Fachler allocation/selection/interaction,
+/// rolling attribution reports, and OLS-based factor attribution.
+pub mod performance_attribution;
+
+/// Smart order routing: venue registry, BestPrice/BestFillRate/LowestFee/SplitBestN/TWAP/VWAP
+/// strategies, and a concurrent DashMap-backed SmartOrderRouter.
+pub mod order_router;
