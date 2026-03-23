@@ -66,9 +66,10 @@
 //! [`ws`] | WebSocket connection management and reconnect policy |
 //! [`predictive_book`] | Online logistic regression predicting next-tick direction from L2 imbalance, spread, depth |
 //! [`execution`] | Execution quality monitor: implementation shortfall, market impact, slippage decomposition |
-//! [`synthetic`] | Synthetic tick data generation from OHLCV bars via volume-weighted Brownian bridge |
-//! [`toxicity`] | VPIN flow-toxicity estimator — volume-synchronised probability of informed trading |
+//! [`synthetic`] | Synthetic market data generator: GBM, jump-diffusion, Ornstein–Uhlenbeck, Heston stochastic-vol |
+//! [`toxicity`] | Order flow toxicity: PIN, VPIN, Kyle λ, Amihud illiquidity — identifies informed (smart-money) trading |
 //! [`noise`] | Microstructure noise filter: Roll spread estimator, realised kernel, de-noised efficient price |
+//! [`regime`] | Real-time market regime detection: Trending, MeanReverting, High/LowVolatility (Hurst, ADX, realised vol) |
 //! [`ofi`] | Order flow imbalance: `OrderFlowImbalance`, `OfiAccumulator`, `OfiMetricsComputer`, `ToxicityEstimator` (VPIN) |
 //! [`microstructure`] | Market microstructure analytics: Amihud illiquidity, Kyle lambda, Roll spread, bid-ask bounce |
 
@@ -97,6 +98,7 @@ pub mod tick;
 pub mod ws;
 pub mod predictive_book;
 pub mod execution;
+pub mod regime;
 pub mod synthetic;
 pub mod toxicity;
 pub mod noise;
@@ -106,6 +108,18 @@ pub mod ofi;
 
 /// Market microstructure analytics: Amihud illiquidity, Kyle's lambda, Roll spread, bid-ask bounce.
 pub mod microstructure;
+
+/// Full L3 limit order book simulator with price-time priority matching engine.
+pub mod lob_sim;
+
+/// Triangular and statistical arbitrage detectors with Kalman-filter spread estimation.
+pub mod arbitrage;
+
+/// Tick data compression: delta encoding, run-length encoding, ~8 bytes/tick binary format.
+pub mod compression;
+
+/// Price correlation graph, centrality measures, regime change detection, and contagion detection.
+pub mod network;
 
 pub use agg::{AggregatorConfig, ArbDetector, ArbOpportunity, FeedAggregator, FeedHandle, MergeStrategy};
 pub use aggregator::{AggregationMode, BarAggregator, BarBuilder};

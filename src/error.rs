@@ -206,6 +206,13 @@ pub enum StreamError {
     /// (e.g. unknown order ID, negative quantity, OHLCV `high < low`).
     #[error("Invalid input: {0}")]
     InvalidInput(String),
+
+    /// Insufficient liquidity in the order book to fill the requested quantity.
+    ///
+    /// Returned by [`crate::lob_sim`] when a market order exhausts all resting
+    /// liquidity without being fully filled.
+    #[error("Insufficient liquidity to fill the requested quantity")]
+    InsufficientLiquidity,
 }
 
 impl From<fin_primitives::error::FinError> for StreamError {

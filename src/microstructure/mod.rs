@@ -63,7 +63,7 @@ impl MicroTick {
     /// Constructs a new tick.
     ///
     /// # Errors
-    /// Returns [`StreamError::InvalidConfig`] if `price <= 0.0` or `volume < 0.0`.
+    /// Returns [`StreamError::ConfigError`] if `price <= 0.0` or `volume < 0.0`.
     pub fn new(
         price: f64,
         volume: f64,
@@ -71,14 +71,14 @@ impl MicroTick {
         timestamp_ns: i64,
     ) -> Result<Self, StreamError> {
         if price <= 0.0 {
-            return Err(StreamError::InvalidConfig(format!(
-                "MicroTick price must be positive, got {price}"
-            )));
+            return Err(StreamError::ConfigError {
+                reason: format!("MicroTick price must be positive, got {price}"),
+            });
         }
         if volume < 0.0 {
-            return Err(StreamError::InvalidConfig(format!(
-                "MicroTick volume must be non-negative, got {volume}"
-            )));
+            return Err(StreamError::ConfigError {
+                reason: format!("MicroTick volume must be non-negative, got {volume}"),
+            });
         }
         Ok(Self { price, volume, signed_volume, timestamp_ns })
     }
@@ -119,12 +119,12 @@ impl AmihudIlliquidity {
     /// Constructs a new Amihud estimator.
     ///
     /// # Errors
-    /// Returns [`StreamError::InvalidConfig`] if `window_size == 0`.
+    /// Returns [`StreamError::ConfigError`] if `window_size == 0`.
     pub fn new(window_size: usize) -> Result<Self, StreamError> {
         if window_size == 0 {
-            return Err(StreamError::InvalidConfig(
-                "AmihudIlliquidity window_size must be > 0".to_owned(),
-            ));
+            return Err(StreamError::ConfigError {
+                reason: "AmihudIlliquidity window_size must be > 0".to_owned(),
+            });
         }
         Ok(Self { window: VecDeque::with_capacity(window_size + 1), window_size, prev_price: None })
     }
@@ -217,12 +217,12 @@ impl KyleImpact {
     /// Constructs a new Kyle impact estimator.
     ///
     /// # Errors
-    /// Returns [`StreamError::InvalidConfig`] if `window_size < 2`.
+    /// Returns [`StreamError::ConfigError`] if `window_size < 2`.
     pub fn new(window_size: usize) -> Result<Self, StreamError> {
         if window_size < 2 {
-            return Err(StreamError::InvalidConfig(
-                "KyleImpact window_size must be >= 2".to_owned(),
-            ));
+            return Err(StreamError::ConfigError {
+                reason: "KyleImpact window_size must be >= 2".to_owned(),
+            });
         }
         Ok(Self {
             dp_window: VecDeque::with_capacity(window_size + 1),
@@ -342,12 +342,12 @@ impl RollSpread {
     /// Constructs a new Roll spread estimator.
     ///
     /// # Errors
-    /// Returns [`StreamError::InvalidConfig`] if `window_size < 2`.
+    /// Returns [`StreamError::ConfigError`] if `window_size < 2`.
     pub fn new(window_size: usize) -> Result<Self, StreamError> {
         if window_size < 2 {
-            return Err(StreamError::InvalidConfig(
-                "RollSpread window_size must be >= 2".to_owned(),
-            ));
+            return Err(StreamError::ConfigError {
+                reason: "RollSpread window_size must be >= 2".to_owned(),
+            });
         }
         Ok(Self {
             returns: VecDeque::with_capacity(window_size + 1),
@@ -462,12 +462,12 @@ impl BidAskBounce {
     /// Constructs a new bounce estimator.
     ///
     /// # Errors
-    /// Returns [`StreamError::InvalidConfig`] if `window_size < 3`.
+    /// Returns [`StreamError::ConfigError`] if `window_size < 3`.
     pub fn new(window_size: usize) -> Result<Self, StreamError> {
         if window_size < 3 {
-            return Err(StreamError::InvalidConfig(
-                "BidAskBounce window_size must be >= 3".to_owned(),
-            ));
+            return Err(StreamError::ConfigError {
+                reason: "BidAskBounce window_size must be >= 3".to_owned(),
+            });
         }
         Ok(Self {
             returns: VecDeque::with_capacity(window_size + 1),
@@ -618,12 +618,12 @@ impl MicrostructureMonitor {
     /// All four estimators share the same `window_size`.
     ///
     /// # Errors
-    /// Returns [`StreamError::InvalidConfig`] if `window_size < 3`.
+    /// Returns [`StreamError::ConfigError`] if `window_size < 3`.
     pub fn new(window_size: usize) -> Result<Self, StreamError> {
         if window_size < 3 {
-            return Err(StreamError::InvalidConfig(
-                "MicrostructureMonitor window_size must be >= 3".to_owned(),
-            ));
+            return Err(StreamError::ConfigError {
+                reason: "MicrostructureMonitor window_size must be >= 3".to_owned(),
+            });
         }
         Ok(Self {
             amihud: AmihudIlliquidity::new(window_size)?,
