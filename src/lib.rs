@@ -196,3 +196,8 @@ pub mod risk;
 /// Trade classifier: Lee-Ready algorithm for buyer/seller-initiated classification,
 /// tick-test fallback, and rolling trade flow metrics accumulation.
 pub mod classifier;
+
+/// Bid-ask spread estimation from trade data:
+/// Roll (1984) serial-covariance model, Corwin-Schultz (2012) high-low estimator,
+/// and a rolling `SpreadAnalyzer` with effective and realized spread computations.
+pub mod spread;

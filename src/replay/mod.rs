@@ -566,3 +566,336 @@ mod tests {
         assert!(zero.ticks_per_second().is_none());
     }
 }
+
+// ---------------------------------------------------------------------------
+// In-memory recorder / replayer
+// ---------------------------------------------------------------------------
+
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
+
+/// Configuration for an in-memory tick replay session.
+#[derive(Debug, Clone)]
+pub struct ReplayConfig {
+    /// Playback speed multiplier.
+    ///
+    /// - `1.0` = real-time (honours recorded inter-tick gaps)
+    /// - `10.0` = 10× faster than real-time
+    /// - `0.0` = emit all ticks instantly with no delay
+    pub speed_multiplier: f64,
+    /// Optional start time filter: ticks recorded before this instant are skipped.
+    pub start_time: Option<std::time::SystemTime>,
+    /// When `true`, replay restarts from the beginning after all ticks are sent.
+    pub loop_replay: bool,
+}
+
+impl Default for ReplayConfig {
+    fn default() -> Self {
+        Self {
+            speed_multiplier: 1.0,
+            start_time: None,
+            loop_replay: false,
+        }
+    }
+}
+
+impl ReplayConfig {
+    /// Create a default real-time config.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Set speed multiplier; returns `self` for chaining.
+    #[must_use]
+    pub fn with_speed(mut self, multiplier: f64) -> Self {
+        self.speed_multiplier = multiplier;
+        self
+    }
+
+    /// Enable looping; returns `self` for chaining.
+    #[must_use]
+    pub fn looping(mut self) -> Self {
+        self.loop_replay = true;
+        self
+    }
+
+    /// Set start time filter; returns `self` for chaining.
+    #[must_use]
+    pub fn with_start_time(mut self, t: std::time::SystemTime) -> Self {
+        self.start_time = Some(t);
+        self
+    }
+}
+
+/// A single recorded tick with its symbol and wall-clock capture time.
+#[derive(Debug, Clone)]
+pub struct TickRecord {
+    /// Instrument symbol.
+    pub symbol: String,
+    /// The normalized tick that was captured.
+    pub tick: NormalizedTick,
+    /// Wall-clock instant at which this tick was recorded.
+    pub recorded_at: std::time::SystemTime,
+}
+
+/// Records ticks to an in-memory buffer for later replay.
+///
+/// Feed ticks into this recorder during live operation; then hand
+/// `into_records()` to a [`MemoryReplayer`] for deterministic backtesting.
+#[derive(Debug, Default)]
+pub struct TickRecorder {
+    records: Vec<TickRecord>,
+}
+
+impl TickRecorder {
+    /// Create a new empty recorder.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Record a tick for the given symbol, stamped with the current wall-clock time.
+    pub fn record(&mut self, symbol: &str, tick: NormalizedTick) {
+        self.records.push(TickRecord {
+            symbol: symbol.to_owned(),
+            tick,
+            recorded_at: std::time::SystemTime::now(),
+        });
+    }
+
+    /// Return the number of ticks recorded so far.
+    pub fn len(&self) -> usize {
+        self.records.len()
+    }
+
+    /// Returns `true` if no ticks have been recorded.
+    pub fn is_empty(&self) -> bool {
+        self.records.is_empty()
+    }
+
+    /// Consume the recorder and return the recorded ticks.
+    pub fn into_records(self) -> Vec<TickRecord> {
+        self.records
+    }
+
+    /// Borrow the recorded ticks without consuming the recorder.
+    pub fn records(&self) -> &[TickRecord] {
+        &self.records
+    }
+}
+
+/// Replays an in-memory `Vec<TickRecord>` through a Tokio MPSC channel.
+///
+/// Use [`MemoryReplayer::replay`] for wall-clock-accurate replay (ticks are
+/// delivered with delays proportional to their original inter-tick gaps,
+/// scaled by `config.speed_multiplier`).
+///
+/// Use [`MemoryReplayer::replay_instant`] to deliver all ticks immediately —
+/// ideal for backtesting loops where wall-clock timing is irrelevant.
+pub struct MemoryReplayer {
+    records: Vec<TickRecord>,
+    config: ReplayConfig,
+    sent: Arc<AtomicUsize>,
+    total: usize,
+}
+
+impl MemoryReplayer {
+    /// Create a new replayer from a list of records and a config.
+    pub fn new(records: Vec<TickRecord>, config: ReplayConfig) -> Self {
+        let total = records.len();
+        Self {
+            records,
+            config,
+            sent: Arc::new(AtomicUsize::new(0)),
+            total,
+        }
+    }
+
+    /// Return `(ticks_sent, total_ticks)` progress counters.
+    ///
+    /// The first value is updated atomically as ticks are emitted by the
+    /// background task spawned in [`Self::replay`].
+    pub fn progress(&self) -> (usize, usize) {
+        (self.sent.load(Ordering::Relaxed), self.total)
+    }
+
+    /// Spawn a background Tokio task that delivers ticks at speeds proportional
+    /// to the original recording inter-tick intervals, scaled by
+    /// `config.speed_multiplier`.
+    ///
+    /// Returns a receiver through which ticks arrive as `(symbol, NormalizedTick)`.
+    ///
+    /// If `speed_multiplier` is `0.0`, ticks are emitted with no delay
+    /// (equivalent to `replay_instant`).
+    pub fn replay(&self) -> tokio::sync::mpsc::Receiver<(String, NormalizedTick)> {
+        let (tx, rx) = tokio::sync::mpsc::channel(4096);
+        let records = self.records.clone();
+        let config = self.config.clone();
+        let sent = Arc::clone(&self.sent);
+
+        tokio::spawn(async move {
+            let filtered: Vec<&TickRecord> = if let Some(start) = config.start_time {
+                records.iter().filter(|r| r.recorded_at >= start).collect()
+            } else {
+                records.iter().collect()
+            };
+
+            loop {
+                let mut prev_time: Option<std::time::SystemTime> = None;
+
+                for record in &filtered {
+                    // Compute inter-tick delay.
+                    if config.speed_multiplier > f64::EPSILON {
+                        if let Some(prev) = prev_time {
+                            if let Ok(gap) = record.recorded_at.duration_since(prev) {
+                                let scaled_nanos = (gap.as_nanos() as f64
+                                    / config.speed_multiplier)
+                                    as u64;
+                                if scaled_nanos > 0 {
+                                    tokio::time::sleep(std::time::Duration::from_nanos(
+                                        scaled_nanos,
+                                    ))
+                                    .await;
+                                }
+                            }
+                        }
+                    }
+                    prev_time = Some(record.recorded_at);
+
+                    if tx.send((record.symbol.clone(), record.tick.clone())).await.is_err() {
+                        return; // receiver dropped
+                    }
+                    sent.fetch_add(1, Ordering::Relaxed);
+                }
+
+                if !config.loop_replay {
+                    break;
+                }
+            }
+        });
+
+        rx
+    }
+
+    /// Deliver all ticks immediately without any wall-clock delays.
+    ///
+    /// This is the fastest mode and the recommended approach for backtesting
+    /// pipelines where timing fidelity is not required.
+    pub fn replay_instant(&self) -> tokio::sync::mpsc::Receiver<(String, NormalizedTick)> {
+        let (tx, rx) = tokio::sync::mpsc::channel(4096);
+        let records = self.records.clone();
+        let config = self.config.clone();
+        let sent = Arc::clone(&self.sent);
+
+        tokio::spawn(async move {
+            let filtered: Vec<&TickRecord> = if let Some(start) = config.start_time {
+                records.iter().filter(|r| r.recorded_at >= start).collect()
+            } else {
+                records.iter().collect()
+            };
+
+            loop {
+                for record in &filtered {
+                    if tx.send((record.symbol.clone(), record.tick.clone())).await.is_err() {
+                        return;
+                    }
+                    sent.fetch_add(1, Ordering::Relaxed);
+                }
+                if !config.loop_replay {
+                    break;
+                }
+            }
+        });
+
+        rx
+    }
+}
+
+#[cfg(test)]
+mod memory_replay_tests {
+    use super::*;
+    use crate::tick::{Exchange, NormalizedTick};
+    use rust_decimal::Decimal;
+
+    fn make_tick(price: &str) -> NormalizedTick {
+        NormalizedTick {
+            exchange: Exchange::Binance,
+            symbol: "BTC-USDT".to_owned(),
+            price: price.parse::<Decimal>().unwrap_or_default(),
+            quantity: Decimal::ONE,
+            side: None,
+            trade_id: None,
+            exchange_ts_ms: 0,
+            received_at_ms: 0,
+        }
+    }
+
+    #[tokio::test]
+    async fn instant_replay_ordering() {
+        let mut recorder = TickRecorder::new();
+        for i in 0u32..5 {
+            recorder.record("BTC-USDT", make_tick(&format!("{}", 10_000 + i)));
+        }
+        assert_eq!(recorder.len(), 5);
+
+        let records = recorder.into_records();
+        let replayer = MemoryReplayer::new(records, ReplayConfig::new().with_speed(0.0));
+        let mut rx = replayer.replay_instant();
+
+        let mut received = Vec::new();
+        while let Ok(item) = rx.try_recv().or_else(|_| rx.try_recv()) {
+            received.push(item);
+            if received.len() == 5 {
+                break;
+            }
+        }
+        // Give the task a tick to complete.
+        tokio::task::yield_now().await;
+        // Drain any remaining items.
+        while let Ok(item) = rx.try_recv() {
+            received.push(item);
+        }
+
+        assert_eq!(received.len(), 5, "should receive all 5 ticks");
+        // Verify ordering by price.
+        let prices: Vec<_> = received.iter().map(|(_, t)| t.price).collect();
+        for i in 0..4 {
+            assert!(prices[i] <= prices[i + 1], "ticks should be in insertion order");
+        }
+    }
+
+    #[tokio::test]
+    async fn progress_tracking() {
+        let mut recorder = TickRecorder::new();
+        for _ in 0..10 {
+            recorder.record("ETH-USDT", make_tick("2000"));
+        }
+        let records = recorder.into_records();
+        let replayer = MemoryReplayer::new(records, ReplayConfig::new().with_speed(0.0));
+
+        let (_, total) = replayer.progress();
+        assert_eq!(total, 10);
+
+        let mut rx = replayer.replay_instant();
+        // Drain all.
+        for _ in 0..10 {
+            let _ = rx.recv().await;
+        }
+        // Allow background task to finish updating counter.
+        tokio::task::yield_now().await;
+
+        let (sent, _) = replayer.progress();
+        assert_eq!(sent, 10, "all ticks should be counted as sent");
+    }
+
+    #[tokio::test]
+    async fn empty_replay() {
+        let replayer = MemoryReplayer::new(vec![], ReplayConfig::new());
+        let (_, total) = replayer.progress();
+        assert_eq!(total, 0);
+
+        let mut rx = replayer.replay_instant();
+        tokio::task::yield_now().await;
+        // Channel should be closed immediately.
+        assert!(rx.recv().await.is_none(), "empty replay should close channel");
+    }
+}
