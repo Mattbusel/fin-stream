@@ -64,6 +64,7 @@
 //! [`ws`] | WebSocket connection management and reconnect policy |
 
 pub mod agg;
+pub mod aggregator;
 pub mod anomaly;
 pub mod book;
 pub mod circuit_breaker;
@@ -78,6 +79,7 @@ pub mod multi_exchange;
 pub mod norm;
 pub mod ohlcv;
 pub mod portfolio_feed;
+pub mod protocol;
 pub mod replay;
 pub mod ring;
 pub mod session;
