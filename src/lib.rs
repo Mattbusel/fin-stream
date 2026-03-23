@@ -64,6 +64,11 @@
 //! [`snapshot`] | Snapshot-and-replay: binary tick recording and N-speed replay |
 //! [`tick`] | Raw-to-normalized tick conversion for all exchanges |
 //! [`ws`] | WebSocket connection management and reconnect policy |
+//! [`predictive_book`] | Online logistic regression predicting next-tick direction from L2 imbalance, spread, depth |
+//! [`execution`] | Execution quality monitor: implementation shortfall, market impact, slippage decomposition |
+//! [`synthetic`] | Synthetic tick data generation from OHLCV bars via volume-weighted Brownian bridge |
+//! [`toxicity`] | VPIN flow-toxicity estimator — volume-synchronised probability of informed trading |
+//! [`noise`] | Microstructure noise filter: Roll spread estimator, realised kernel, de-noised efficient price |
 
 pub mod agg;
 pub mod aggregator;
@@ -88,6 +93,11 @@ pub mod session;
 pub mod snapshot;
 pub mod tick;
 pub mod ws;
+pub mod predictive_book;
+pub mod execution;
+pub mod synthetic;
+pub mod toxicity;
+pub mod noise;
 
 pub use agg::{AggregatorConfig, ArbDetector, ArbOpportunity, FeedAggregator, FeedHandle, MergeStrategy};
 pub use aggregator::{AggregationMode, BarAggregator, BarBuilder};
