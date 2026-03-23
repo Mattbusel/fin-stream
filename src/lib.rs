@@ -42,6 +42,7 @@
 //! | Module | Responsibility |
 //! |--------|----------------|
 //! [`agg`] | Cross-feed aggregation, merge strategies, and arb detection |
+//! [`aggregator`] | Bar aggregator: time/tick/volume-based OHLCV aggregation from trades |
 //! [`anomaly`] | Tick anomaly detection: price spikes, volume spikes, sequence gaps, timestamp inversions |
 //! [`book`] | Order book delta streaming and crossed-book detection |
 //! [`circuit_breaker`] | WebSocket circuit breaker with degraded-mode synthetic tick emission |
@@ -56,6 +57,7 @@
 //! [`norm`] | Rolling min-max coordinate normalization |
 //! [`ohlcv`] | OHLCV bar aggregation at arbitrary timeframes |
 //! [`portfolio_feed`] | Multi-asset parallel WebSocket feed with merged tick stream |
+//! [`protocol`] | Unified streaming protocol: `MarketEvent` enum, `JsonStreamAdapter`, `EventStream` |
 //! [`replay`] | Historical NDJSON tick replay with speed control |
 //! [`ring`] | SPSC lock-free ring buffer |
 //! [`session`] | Market session and trading-hours classification |
@@ -88,6 +90,11 @@ pub mod tick;
 pub mod ws;
 
 pub use agg::{AggregatorConfig, ArbDetector, ArbOpportunity, FeedAggregator, FeedHandle, MergeStrategy};
+pub use aggregator::{AggregationMode, BarAggregator, BarBuilder};
+pub use protocol::{
+    BarEvent as ProtocolBarEvent, EventStream, FeedStatus, JsonStreamAdapter, MarketEvent,
+    OrderBookEvent, QuoteEvent, StatusEvent, TradeSide, TradeEvent as ProtocolTradeEvent,
+};
 pub use anomaly::{AnomalyDetectorConfig, AnomalyEvent, AnomalyKind, TickAnomalyDetector};
 pub use book::{BookDelta, BookSide, OrderBook, PriceLevel};
 pub use circuit_breaker::{CircuitBreakerConfig, CircuitState, WsCircuitBreaker};
