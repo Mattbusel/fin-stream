@@ -258,3 +258,13 @@ pub mod session_analysis;
 /// Execution quality analytics: slippage, implementation shortfall, VWAP deviation,
 /// price improvement, fill rate, venue comparison, and formatted TCA reports.
 pub mod trade_analytics;
+
+/// OHLCV candle builder for multiple timeframes: `Candle`, `Timeframe`, `CandleBuilder`,
+/// `MultiTimeframeCandler`, and stateless `CandleIndicators` (typical price, true range,
+/// body pct, doji, engulfing pattern).
+pub mod candle;
+
+/// Price and volume alert system: `AlertCondition` (PriceAbove/Below, PriceChangePct,
+/// VolumeSpike, BollingerBreakout, CrossOver), `AlertSeverity`, `Alert`, and
+/// `AlertManager` with per-symbol tick state evaluation.
+pub mod alert;
