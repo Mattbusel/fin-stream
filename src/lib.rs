@@ -356,3 +356,11 @@ pub mod pairs_trader;
 /// Composable signal processing pipeline: normalization (MinMax, ZScore, Robust),
 /// IIR filtering, smoothing, clipping, lag, diff, log, rank, and signal combination.
 pub mod signal_processor;
+
+/// Hidden Markov model regime detector: 5-state (LowVolBull/HighVolBull/LowVolBear/HighVolBear/Crisis)
+/// with EWMA feature extraction, Bayesian state-prob updates, and confidence tracking.
+pub mod regime_detector;
+
+/// Real-time bid-ask spread, order book depth, and liquidity impact cost monitoring.
+/// Provides EWMA spread tracking, depth imbalance, Kyle-lambda impact estimation, and liquidity scoring.
+pub mod liquidity_monitor;
