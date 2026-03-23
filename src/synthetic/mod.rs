@@ -96,6 +96,7 @@ impl Default for SyntheticConfig {
 }
 
 /// Simple LCG for the legacy generator (kept for ABI stability).
+#[derive(Debug)]
 struct Lcg {
     state: u64,
 }

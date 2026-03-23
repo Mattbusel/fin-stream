@@ -210,10 +210,11 @@ impl BarAggregator {
         let should_close = self.should_close_bar(symbol, price, size, ts);
 
         if should_close {
+            // Compute period_secs before taking the mutable borrow on builders.
+            let period_secs = self.period_secs_for_mode();
             // Close the current bar if it has any data.
             let completed = if let Some(builder) = self.builders.get_mut(symbol) {
                 if !builder.is_empty() {
-                    let period_secs = self.period_secs_for_mode();
                     let bar = builder.build(ts, period_secs, &trade.exchange);
                     builder.reset();
                     Some(bar)

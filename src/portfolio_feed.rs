@@ -287,23 +287,50 @@ async fn run_ws_feed_once(
     latest: &Arc<DashMap<String, NormalizedTick>>,
     stats: &Arc<DashMap<String, AssetFeedStats>>,
 ) -> Result<(), StreamError> {
-    let manager = WsManager::new(cfg.connection_config.clone(), cfg.reconnect_policy.clone())?;
-    let mut tick_rx = manager.run().await?;
+    use crate::tick::{RawTick, TickNormalizer};
 
-    while let Some(tick) = tick_rx.recv().await {
-        // Update snapshot.
-        latest.insert(cfg.symbol.clone(), tick.clone());
-        // Update stats.
-        {
-            let mut entry = stats.entry(cfg.symbol.clone()).or_default();
-            entry.ticks_received = entry.ticks_received.saturating_add(1);
-        }
-        // Forward to merged channel; drop tick if the channel is full.
-        if tx.try_send((cfg.symbol.clone(), tick)).is_err() {
-            debug!(symbol = cfg.symbol, "tick dropped: merged channel full");
+    let conn_config = cfg.connection_config.clone().with_reconnect(cfg.reconnect_policy.clone());
+    let mut manager = WsManager::new(conn_config);
+
+    // Create channels for the WsManager message pump.
+    let (msg_tx, mut msg_rx) = mpsc::channel::<String>(256);
+    let normalizer = TickNormalizer::new();
+
+    // Drive the WsManager run loop in a background task.
+    let run_handle = tokio::spawn(async move {
+        manager.run(msg_tx, None).await
+    });
+
+    // Process incoming raw messages, normalizing each to a tick.
+    while let Some(raw_json) = msg_rx.recv().await {
+        let Ok(payload) = serde_json::from_str(&raw_json) else {
+            debug!(symbol = cfg.symbol, "tick dropped: JSON parse failed");
+            continue;
+        };
+        let raw = RawTick::new(cfg.exchange, &cfg.symbol, payload);
+        match normalizer.normalize(raw) {
+            Ok(tick) => {
+                latest.insert(cfg.symbol.clone(), tick.clone());
+                {
+                    let mut entry = stats.entry(cfg.symbol.clone()).or_default();
+                    entry.ticks_received = entry.ticks_received.saturating_add(1);
+                }
+                if tx.try_send((cfg.symbol.clone(), tick)).is_err() {
+                    debug!(symbol = cfg.symbol, "tick dropped: merged channel full");
+                }
+            }
+            Err(e) => {
+                debug!(symbol = cfg.symbol, error = %e, "tick normalization failed");
+            }
         }
     }
-    Ok(())
+
+    // Propagate any error from the run loop.
+    match run_handle.await {
+        Ok(Ok(())) => Ok(()),
+        Ok(Err(e)) => Err(e),
+        Err(_join_err) => Err(StreamError::Disconnected { url: cfg.connection_config.url.clone() }),
+    }
 }
 
 #[cfg(test)]

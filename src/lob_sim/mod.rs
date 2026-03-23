@@ -97,11 +97,22 @@ pub struct Fill {
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub enum LobResult {
     /// Limit order was accepted and rests in the book.
-    Accepted { id: u64 },
+    Accepted {
+        /// The order identifier assigned by the simulator.
+        id: u64,
+    },
     /// Order was cancelled successfully.
-    Cancelled { id: u64 },
+    Cancelled {
+        /// The identifier of the cancelled order.
+        id: u64,
+    },
     /// Market order was fully or partially filled.
-    Filled { fills: Vec<Fill>, remaining: u64 },
+    Filled {
+        /// Individual fill records for each matched resting order.
+        fills: Vec<Fill>,
+        /// Quantity still remaining unfilled after matching (0 = complete fill).
+        remaining: u64,
+    },
 }
 
 // ─── price level ─────────────────────────────────────────────────────────────

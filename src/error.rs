@@ -328,6 +328,8 @@ impl StreamError {
             StreamError::InvalidTick { .. } => "InvalidTick",
             StreamError::LorentzConfigError { .. } => "LorentzConfigError",
             StreamError::FinPrimitives(_) => "FinPrimitives",
+            StreamError::InvalidInput(_) => "InvalidInput",
+            StreamError::InsufficientLiquidity => "InsufficientLiquidity",
         }
     }
 
@@ -553,6 +555,8 @@ impl StreamError {
             StreamError::InvalidTick { .. } => 6003,
             StreamError::FinPrimitives(_) => 6004,
             StreamError::LorentzConfigError { .. } => 7001,
+            StreamError::InvalidInput(_) => 6005,
+            StreamError::InsufficientLiquidity => 6006,
         }
     }
 

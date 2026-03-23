@@ -397,6 +397,17 @@ pub struct ConnectionConfig {
     pub ping_interval: Duration,
 }
 
+impl Default for ConnectionConfig {
+    fn default() -> Self {
+        Self {
+            url: String::new(),
+            channel_capacity: 256,
+            reconnect: ReconnectPolicy::default(),
+            ping_interval: Duration::from_secs(20),
+        }
+    }
+}
+
 impl ConnectionConfig {
     /// Build a connection configuration for `url` with the given downstream
     /// channel capacity.
