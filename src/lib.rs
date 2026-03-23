@@ -233,3 +233,11 @@ pub mod venue_selector;
 /// Multi-stage tick data quality filter: size, staleness, duplicate, and outlier filters
 /// with per-stage rejection statistics and a composable TickFilter pipeline.
 pub mod tick_filter;
+
+/// High-frequency trading signals: order flow imbalance, micro-price estimation,
+/// toxic flow detection, trade sign aggregation, and quote/trade speed ratios.
+pub mod hft;
+
+/// Cross-asset correlation streaming: online Pearson correlation for asset pairs,
+/// NxN correlation matrix, and statistical correlation breakdown detection.
+pub mod cross_asset;
