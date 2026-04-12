@@ -1,0 +1,56 @@
+# Clippy configuration for fin-stream
+# https://doc.rust-lang.org/clippy/
+
+# Lint level for too many arguments
+too-many-arguments-threshold = 8
+
+# Additional doc identifiers (don't warn about unknown identifiers)
+doc-valid-idents = [
+    "NBBO",
+    "OFI",
+    "VPIN",
+    "LEE-READY",
+    "HALF-LIFE",
+    "ADF",
+    "PIN",
+    "SPSC",
+    "SRP",
+    "OCP",
+    "LSP",
+    "ISP",
+    "DIP",
+    "DRY",
+    "KISS",
+    "YAGNI",
+    "OHLCV",
+    "BTC",
+    "USDT",
+    "ETH",
+    "USD",
+    "Greeks",
+    "RollingWindow",
+    "OrderBook",
+    "NormalizedTick",
+    "HealthMonitor",
+    "FeedAggregator",
+    "MergeStrategy",
+    "Analyzer",
+    "StorageBackend",
+    "WebSocket",
+    "JSON",
+]
+
+# Complexity threshold for cyclomatic complexity
+cyclomatic-complexity-threshold = 18
+
+# Minimum documentation to avoid "missing documentation" warnings (only public items)
+missing-docs-in-crate-items = true
+
+# Warn on trivial numeric constants
+trivial-numeric-casts = true
+
+# Warn on unsafe code in public API
+unsafe-to-derive-derive = true
+
+# Performance: Warn on suboptimal practices
+# All enabled by default

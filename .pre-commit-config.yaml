@@ -1,0 +1,107 @@
+# Pre-commit framework configuration for fin-stream
+# https://pre-commit.com
+#
+# Installation:
+#   pip install pre-commit
+#   pre-commit install
+#   pre-commit install --hook-type pre-push
+#
+# Usage:
+#   git commit ...               # prek stage 1 runs automatically (Rustfmt, Clippy)
+#   git push ...                 # prek stage 2 runs automatically (Audit, Deny)
+#   pre-commit run --all-files   # Verify all checks manually
+
+repos:
+  # File integrity checks (pre-commit built-in)
+  - repo: meta
+    hooks:
+      - id: check-hooks-apply
+      - id: check-useless-excludes
+
+  # Trailing whitespace, end-of-file fixers (fast, < 100ms)
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.5.0
+    hooks:
+      - id: trailing-whitespace
+        stages: [pre-commit]
+      - id: end-of-file-fixer
+        stages: [pre-commit]
+      - id: check-yaml
+        stages: [pre-commit]
+      - id: check-toml
+        stages: [pre-commit]
+        args: [--unsafe]
+      - id: check-merge-conflict
+        stages: [pre-commit]
+
+  # TOML formatting (Taplo) - stage 1
+  - repo: https://github.com/ComPDFKit/taplo-pre-commit
+    rev: v0.9.3
+    hooks:
+      - id: taplo
+        stages: [pre-commit]
+        additional_dependencies: ['taplo[linting]']
+
+  # Rust formatting (Rustfmt) - stage 1, MUST RUN FIRST
+  - repo: https://github.com/doublify/python-poetry-pre-commit
+    rev: 0.1.5
+    hooks:
+      - id: poetry-check
+        additional_dependencies: []
+    # Note: Rustfmt integrated via local hook below
+
+  - repo: local
+    hooks:
+      # Rustfmt: Code formatting (runs FIRST - before Clippy)
+      - id: rustfmt
+        name: Rustfmt
+        description: "Format Rust code with rustfmt"
+        entry: cargo fmt --all --
+        language: system
+        types: [rust]
+        stages: [pre-commit]
+        pass_filenames: false
+
+      # Clippy: Rust linting (runs AFTER formatting)
+      - id: clippy
+        name: Clippy
+        description: "Lint Rust code with Clippy (800+ checks)"
+        entry: cargo clippy --all-targets --all-features -- -D warnings
+        language: system
+        types: [rust]
+        stages: [pre-commit]
+        pass_filenames: false
+
+      # Cargo Audit: Security vulnerability scanning (stage 2)
+      - id: cargo-audit
+        name: Cargo Audit
+        description: "Check for known security vulnerabilities"
+        entry: cargo audit
+        language: system
+        stages: [pre-push]
+        pass_filenames: false
+
+      # Cargo Deny: Dependency policy enforcement (stage 2)
+      - id: cargo-deny
+        name: Cargo Deny
+        description: "Enforce dependency policy (licenses, ban list)"
+        entry: cargo deny check
+        language: system
+        stages: [pre-push]
+        pass_filenames: false
+
+      # Typos: Spell checking (stage 2, optional)
+      - id: typos
+        name: Typos
+        description: "Spell check source code"
+        entry: typos
+        language: system
+        types: [text, rust, markdown]
+        stages: [pre-push]
+
+# Global settings
+default_language_version:
+  rust: "stable"
+
+# Minimum pre-commit version
+minimum_pre_commit_version: "2.15.0"

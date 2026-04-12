@@ -1,0 +1,70 @@
+# Rustfmt configuration for fin-stream
+# https://rust-lang.github.io/rustfmt/
+
+# Edition to use for formatting
+edition = "2021"
+
+# Maximum line width
+max_width = 100
+
+# Indentation style and size
+hard_tabs = false
+tab_spaces = 4
+
+# Use field init shorthand
+use_field_init_shorthand = true
+
+# Use try shorthand (? operator)
+use_try_sh = true
+
+# Force single line blocks
+fn_single_line = false
+
+# Reorder imports
+reorder_imports = true
+
+# Reorder modules
+reorder_modules = true
+
+# Remove nested parentheses
+remove_nested_parens = true
+
+# Merge derives
+merge_derives = true
+
+# Format strings
+format_strings = true
+
+# Normalize comments
+normalize_comments = true
+
+# Normalize doc attributes
+normalize_doc_attributes = true
+
+# Comment width
+comment_width = 80
+
+# Wrap long imports
+imports_indent = "Block"
+imports_layout = "Mixed"
+
+# Group imports
+group_imports = "StdExternalCrate"
+
+# Remove non-standard modules
+remove_unused_imports = true
+
+# Set correct chain formatting
+chain_width = 100
+
+# Collapse block items
+collapse_derives = true
+
+# Formatting rules for specific items
+where_single_line = false
+
+# Line ending style
+newline_style = "Unix"
+
+# Disallow unknown options
+disallow_unknown_fields = true
