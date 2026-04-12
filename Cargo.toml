@@ -1,85 +1,79 @@
-[package]
-name = "fin-stream"
+[workspace]
+members = [
+    "crates/core",
+    "crates/net",
+    "crates/analytics",
+    "crates/trading",
+    "crates/experimental",
+    "crates/simulation",
+]
+resolver = "2"
+
+[workspace.package]
 version = "2.11.0"
 edition = "2021"
 rust-version = "1.75"
 license = "MIT"
 repository = "https://github.com/Mattbusel/fin-stream"
-documentation = "https://docs.rs/fin-stream"
-homepage = "https://github.com/Mattbusel/fin-stream"
-readme = "README.md"
 authors = ["Matt Busel <matt@busel.dev>"]
-keywords = ["finance", "streaming", "market-data", "high-performance", "trading"]
-categories = ["finance", "asynchronous", "data-structures"]
-description = "Real-time market data streaming primitives — 100K+ ticks/second ingestion pipeline"
-include = ["src/**/*", "benches/**/*", "tests/**/*", "Cargo.toml", "README.md", "LICENSE", "CHANGELOG.md"]
-
-[profile.release]
-opt-level = 3
-lto = "thin"
-codegen-units = 1
-strip = "debuginfo"
-panic = "abort"
-
-[profile.bench]
-opt-level = 3
-lto = "thin"
-codegen-units = 1
-
-[lints.clippy]
-unwrap_used = "deny"
-expect_used = "deny"
-panic = "deny"
-todo = "deny"
 
 [features]
-## Enable the gRPC streaming endpoint (adds tonic, prost, tokio-stream, tonic-build deps).
-grpc = ["dep:tonic", "dep:prost", "dep:tokio-stream"]
+dhat-heap = ["dhat"]
 
-[dependencies]
-# tokio: async runtime, channels, timers
-tokio = { version = "1.40", features = ["full"] }
-# serde: tick normalization, order book serialization
+[workspace.dependencies]
+fin-stream-core = { path = "crates/core" }
+fin-stream-net = { path = "crates/net" }
+fin-stream-analytics = { path = "crates/analytics" }
+fin-stream-trading = { path = "crates/trading" }
+fin-stream-experimental = { path = "crates/experimental" }
+fin-stream-simulation = { path = "crates/simulation" }
+
+# Inherited dependencies
+rust_decimal = { version = "1.35", features = ["serde-with-str"] }
+rust_decimal_macros = "1.35"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-# thiserror: typed streaming errors
-thiserror = "1.0"
-# async-trait: trait objects for feed adapters
-async-trait = "0.1"
-# tokio-tungstenite: async WebSocket
-tokio-tungstenite = { version = "0.24", features = ["native-tls"] }
-# futures: stream combinators
-futures-util = "0.3"
-# rust_decimal: exact price arithmetic — never use f64 for prices
-rust_decimal = { version = "1.35", features = ["serde-with-str"] }
-# chrono: timestamp handling
 chrono = { version = "0.4", features = ["serde"] }
-# dashmap: concurrent order book / health state
+tokio = { version = "1.40", features = ["full"] }
+thiserror = "1.0"
+async-trait = "0.1"
+futures-util = "0.3"
 dashmap = "5.5"
-# uuid: feed/subscription identifiers
 uuid = { version = "1.6", features = ["v4", "fast-rng", "serde"] }
-# tracing: pipeline observability
 tracing = "0.1"
-# fin-primitives: tick, orderbook, ohlcv, signals integration
 fin-primitives = { path = "../fin-primitives", version = "2.0.0" }
-# tonic: gRPC server/client (optional — grpc feature)
-tonic = { version = "0.12", optional = true }
-# prost: protobuf runtime (optional — grpc feature)
-prost = { version = "0.13", optional = true }
-# tokio-stream: stream utilities for gRPC (optional — grpc feature)
-tokio-stream = { version = "0.1", optional = true }
+tonic = "0.12"
+prost = "0.13"
+tokio-stream = "0.1"
+tokio-tungstenite = { version = "0.24", features = ["native-tls"] }
+rand = "0.8"
+itertools = "0.10"
+petgraph = "0.6"
+dhat = "0.3"
+criterion = { version = "0.5", features = ["async_tokio"] }
+
+[package]
+name = "fin-stream"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Real-time market data streaming primitives — high-throughput workspace facade"
+
+[dependencies]
+fin-stream-core = { workspace = true }
+fin-stream-net = { workspace = true }
+fin-stream-analytics = { workspace = true }
+fin-stream-trading = { workspace = true }
+fin-stream-experimental = { workspace = true }
+fin-stream-simulation = { workspace = true }
 
 [dev-dependencies]
-tokio-test = "0.4"
-criterion = { version = "0.5", features = ["async_tokio"] }
-# rust_decimal_macros: dec!() macro for test literals
-rust_decimal_macros = "1.35"
-# proptest: property-based tests for FIFO ordering, normalization monotonicity
-proptest = "1.4"
-
-[build-dependencies]
-# tonic-build: gRPC code generation from proto files (optional — grpc feature)
-tonic-build = { version = "0.12", optional = true }
+criterion = { workspace = true }
+tokio = { workspace = true }
+dhat = { workspace = true }
+rust_decimal_macros = { workspace = true }
 
 [[bench]]
 name = "tick_hot_path"
