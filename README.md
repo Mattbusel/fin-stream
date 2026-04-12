@@ -66,6 +66,8 @@ OI = (buy_volume − sell_volume) / (buy_volume + sell_volume)   ∈ [−1, +1]
 
 # fin-stream
 
+**📚 Documentation**: [Requirements](docs/requirements.md) | [Technical Specs](docs/technical-specs.md) | [Design Decisions](docs/design-decisions.md) | [Contributing](docs/project-metadata/CONTRIBUTING.md) | [Changelog](docs/project-metadata/CHANGELOG.md)
+
 Lock-free streaming primitives for real-time financial market data. Provides a
 composable ingestion pipeline from raw exchange ticks to normalized, transformed
 features ready for downstream models or trade execution. Built on Tokio. Targets
