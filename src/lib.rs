@@ -6,11 +6,22 @@
 )]
 //! # fin-stream
 //!
-//! Streaming primitives for real-time market data: exchange tick normalization,
-//! a lock-free SPSC ring buffer, OHLCV bar aggregation, incremental order books,
-//! feed health checks, replay, and a set of microstructure analytics. Prices are
-//! exact [`rust_decimal::Decimal`]s and every fallible call returns a
-//! [`StreamError`].
+//! Turn raw trade messages from crypto and stock exchanges into one clean,
+//! exact tick format, move them between threads fast, and roll them into
+//! price bars.
+//!
+//! ![cargo run --example tape: 40 BTC-USD trades from four venues streaming live, with 2-second bars and a summary](https://raw.githubusercontent.com/Mattbusel/fin-stream/main/assets/demo.gif)
+//!
+//! ```text
+//! cargo add fin-stream serde_json
+//! ```
+//!
+//! The main types: [`TickNormalizer`] and [`NormalizedTick`] (four wire
+//! formats in, one tick out), [`SpscRing`] (lock-free hand-off between
+//! threads), [`OhlcvAggregator`] (ticks to bars), [`OrderBook`](book::OrderBook),
+//! [`HealthMonitor`] (stale-feed detection), [`WsManager`](ws::WsManager)
+//! (WebSocket with reconnect), and one error type, [`StreamError`]. Prices are
+//! exact [`rust_decimal::Decimal`]s.
 //!
 //! ## Four wire formats in, one tick out
 //!

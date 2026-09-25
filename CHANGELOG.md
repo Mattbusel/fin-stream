@@ -7,6 +7,18 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [2.11.1] - 2026-09-25
+
+### Changed
+- Depends on `fin-primitives = "2.14"` from crates.io instead of a sibling path, so a
+  plain `git clone` of this repository builds and runs the examples on its own.
+- README and docs.rs front page lead with a one-sentence summary, a real recording of
+  `cargo run --example tape`, an install table and a 3-step first program with its output.
+- Package metadata: clearer description, keywords and categories.
+
+## [2.11.0] - 2026-09-25
+
+
 ### Added
 - Four runnable examples that need no network or keys: `tape`, `normalize`,
   `feed_health` and `replay` (with a recorded NDJSON file in `examples/data/`).
