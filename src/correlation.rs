@@ -140,6 +140,7 @@ pub struct StreamingCorrelationMatrix {
     /// Pairwise cross-covariance state. Key is the canonical `(min, max)` pair.
     pairs: Arc<DashMap<(String, String), PairState>>,
     /// Latest price per asset (for cross-covariance recalculation).
+    #[allow(dead_code)]
     latest_prices: Arc<DashMap<String, Vec<f64>>>,
 }
 

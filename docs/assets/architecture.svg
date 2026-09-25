@@ -1,0 +1,107 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="470" viewBox="0 0 1200 470" role="img" aria-label="fin-stream architecture: sources feed TickNormalizer, FeedAggregator and an SPSC ring into bars, books, normalizers and analytics, with HealthMonitor watching every feed">
+<rect x="0.5" y="0.5" width="1199" height="469" rx="14" fill="#F4F1E8" stroke="#DDD6C6"/>
+<line x1="1" x2="1199" y1="28" y2="28" stroke="#ECE6D8" stroke-width="1"/>
+<line x1="1" x2="1199" y1="56" y2="56" stroke="#ECE6D8" stroke-width="1"/>
+<line x1="1" x2="1199" y1="84" y2="84" stroke="#ECE6D8" stroke-width="1"/>
+<line x1="1" x2="1199" y1="112" y2="112" stroke="#ECE6D8" stroke-width="1"/>
+<line x1="1" x2="1199" y1="140" y2="140" stroke="#ECE6D8" stroke-width="1"/>
+<line x1="1" x2="1199" y1="168" y2="168" stroke="#ECE6D8" stroke-width="1"/>
+<line x1="1" x2="1199" y1="196" y2="196" stroke="#ECE6D8" stroke-width="1"/>
+<line x1="1" x2="1199" y1="224" y2="224" stroke="#ECE6D8" stroke-width="1"/>
+<line x1="1" x2="1199" y1="252" y2="252" stroke="#ECE6D8" stroke-width="1"/>
+<line x1="1" x2="1199" y1="280" y2="280" stroke="#ECE6D8" stroke-width="1"/>
+<line x1="1" x2="1199" y1="308" y2="308" stroke="#ECE6D8" stroke-width="1"/>
+<line x1="1" x2="1199" y1="336" y2="336" stroke="#ECE6D8" stroke-width="1"/>
+<line x1="1" x2="1199" y1="364" y2="364" stroke="#ECE6D8" stroke-width="1"/>
+<line x1="1" x2="1199" y1="392" y2="392" stroke="#ECE6D8" stroke-width="1"/>
+<line x1="1" x2="1199" y1="420" y2="420" stroke="#ECE6D8" stroke-width="1"/>
+<line x1="1" x2="1199" y1="448" y2="448" stroke="#ECE6D8" stroke-width="1"/>
+<text x="30" y="36" font-family="'Cascadia Mono','SF Mono',ui-monospace,Menlo,Consolas,monospace" font-size="11" letter-spacing="1.6" fill="#6F6A5E">SOURCES</text>
+<text x="300" y="36" font-family="'Cascadia Mono','SF Mono',ui-monospace,Menlo,Consolas,monospace" font-size="11" letter-spacing="1.6" fill="#6F6A5E">NORMALIZE</text>
+<text x="560" y="36" font-family="'Cascadia Mono','SF Mono',ui-monospace,Menlo,Consolas,monospace" font-size="11" letter-spacing="1.6" fill="#6F6A5E">MERGE</text>
+<text x="776" y="36" font-family="'Cascadia Mono','SF Mono',ui-monospace,Menlo,Consolas,monospace" font-size="11" letter-spacing="1.6" fill="#6F6A5E">HAND OFF</text>
+<text x="996" y="36" font-family="'Cascadia Mono','SF Mono',ui-monospace,Menlo,Consolas,monospace" font-size="11" letter-spacing="1.6" fill="#6F6A5E">CONSUME</text>
+<rect x="30" y="56" width="220" height="92" rx="9" fill="#FBF9F3" stroke="#DDD6C6"/>
+<rect x="30" y="66" width="3" height="72" rx="1.5" fill="#1E7F57"/>
+<text x="46" y="81" font-family="'Cascadia Mono','SF Mono',ui-monospace,Menlo,Consolas,monospace" font-size="14" font-weight="600" fill="#16181D">WsManager</text>
+<text x="46" y="101" font-family="'Cascadia Mono','SF Mono',ui-monospace,Menlo,Consolas,monospace" font-size="11.5" fill="#6F6A5E">live WebSocket text frames</text>
+<text x="46" y="118" font-family="'Cascadia Mono','SF Mono',ui-monospace,Menlo,Consolas,monospace" font-size="11.5" fill="#6F6A5E">reconnect with backoff</text>
+<text x="46" y="135" font-family="'Cascadia Mono','SF Mono',ui-monospace,Menlo,Consolas,monospace" font-size="11.5" fill="#6F6A5E">one per venue</text>
+<rect x="30" y="166" width="220" height="76" rx="9" fill="#FBF9F3" stroke="#DDD6C6"/>
+<rect x="30" y="176" width="3" height="56" rx="1.5" fill="#9C7A22"/>
+<text x="46" y="191" font-family="'Cascadia Mono','SF Mono',ui-monospace,Menlo,Consolas,monospace" font-size="14" font-weight="600" fill="#16181D">TickReplayer</text>
+<text x="46" y="211" font-family="'Cascadia Mono','SF Mono',ui-monospace,Menlo,Consolas,monospace" font-size="11.5" fill="#6F6A5E">NDJSON file, speed x</text>
+<text x="46" y="228" font-family="'Cascadia Mono','SF Mono',ui-monospace,Menlo,Consolas,monospace" font-size="11.5" fill="#6F6A5E">implements TickSource</text>
+<rect x="30" y="260" width="220" height="76" rx="9" fill="#FBF9F3" stroke="#DDD6C6"/>
+<rect x="30" y="270" width="3" height="56" rx="1.5" fill="#9C7A22"/>
+<text x="46" y="285" font-family="'Cascadia Mono','SF Mono',ui-monospace,Menlo,Consolas,monospace" font-size="14" font-weight="600" fill="#16181D">SyntheticMarket</text>
+<text x="46" y="305" font-family="'Cascadia Mono','SF Mono',ui-monospace,Menlo,Consolas,monospace" font-size="11.5" fill="#6F6A5E">Generator: GBM, jumps,</text>
+<text x="46" y="322" font-family="'Cascadia Mono','SF Mono',ui-monospace,Menlo,Consolas,monospace" font-size="11.5" fill="#6F6A5E">OU, Heston; seeded</text>
+<rect x="300" y="56" width="210" height="110" rx="9" fill="#FBF9F3" stroke="#DDD6C6"/>
+<rect x="300" y="66" width="3" height="90" rx="1.5" fill="#1E7F57"/>
+<text x="316" y="81" font-family="'Cascadia Mono','SF Mono',ui-monospace,Menlo,Consolas,monospace" font-size="14" font-weight="600" fill="#16181D">TickNormalizer</text>
+<text x="316" y="101" font-family="'Cascadia Mono','SF Mono',ui-monospace,Menlo,Consolas,monospace" font-size="11.5" fill="#6F6A5E">Binance  Coinbase</text>
+<text x="316" y="118" font-family="'Cascadia Mono','SF Mono',ui-monospace,Menlo,Consolas,monospace" font-size="11.5" fill="#6F6A5E">Alpaca   Polygon</text>
+<text x="316" y="135" font-family="'Cascadia Mono','SF Mono',ui-monospace,Menlo,Consolas,monospace" font-size="11.5" fill="#6F6A5E">JSON &#8594; NormalizedTick</text>
+<text x="316" y="152" font-family="'Cascadia Mono','SF Mono',ui-monospace,Menlo,Consolas,monospace" font-size="11.5" fill="#6F6A5E">exact Decimal prices</text>
+<rect x="560" y="56" width="190" height="110" rx="9" fill="#FBF9F3" stroke="#DDD6C6"/>
+<rect x="560" y="66" width="3" height="90" rx="1.5" fill="#16181D"/>
+<text x="576" y="81" font-family="'Cascadia Mono','SF Mono',ui-monospace,Menlo,Consolas,monospace" font-size="14" font-weight="600" fill="#16181D">FeedAggregator</text>
+<text x="576" y="101" font-family="'Cascadia Mono','SF Mono',ui-monospace,Menlo,Consolas,monospace" font-size="11.5" fill="#6F6A5E">merge N feeds:</text>
+<text x="576" y="118" font-family="'Cascadia Mono','SF Mono',ui-monospace,Menlo,Consolas,monospace" font-size="11.5" fill="#6F6A5E">best bid / best ask,</text>
+<text x="576" y="135" font-family="'Cascadia Mono','SF Mono',ui-monospace,Menlo,Consolas,monospace" font-size="11.5" fill="#6F6A5E">VWAP, primary+fallback</text>
+<text x="576" y="152" font-family="'Cascadia Mono','SF Mono',ui-monospace,Menlo,Consolas,monospace" font-size="11.5" fill="#6F6A5E">+ ArbDetector</text>
+<rect x="776" y="56" width="188" height="110" rx="9" fill="#FBF9F3" stroke="#DDD6C6"/>
+<rect x="776" y="66" width="3" height="90" rx="1.5" fill="#16181D"/>
+<text x="792" y="81" font-family="'Cascadia Mono','SF Mono',ui-monospace,Menlo,Consolas,monospace" font-size="14" font-weight="600" fill="#16181D">SpscRing&lt;T, N&gt;</text>
+<text x="792" y="101" font-family="'Cascadia Mono','SF Mono',ui-monospace,Menlo,Consolas,monospace" font-size="11.5" fill="#6F6A5E">lock-free handoff:</text>
+<text x="792" y="118" font-family="'Cascadia Mono','SF Mono',ui-monospace,Menlo,Consolas,monospace" font-size="11.5" fill="#6F6A5E">one producer thread,</text>
+<text x="792" y="135" font-family="'Cascadia Mono','SF Mono',ui-monospace,Menlo,Consolas,monospace" font-size="11.5" fill="#6F6A5E">one consumer thread;</text>
+<text x="792" y="152" font-family="'Cascadia Mono','SF Mono',ui-monospace,Menlo,Consolas,monospace" font-size="11.5" fill="#6F6A5E">full ring = Err</text>
+<rect x="996" y="56" width="176" height="58" rx="9" fill="#FBF9F3" stroke="#DDD6C6"/>
+<text x="1008" y="80" font-family="'Cascadia Mono','SF Mono',ui-monospace,Menlo,Consolas,monospace" font-size="13" font-weight="600" fill="#16181D">OhlcvAggregator</text>
+<text x="1008" y="99" font-family="'Cascadia Mono','SF Mono',ui-monospace,Menlo,Consolas,monospace" font-size="11" fill="#6F6A5E">bars at any timeframe</text>
+<rect x="996" y="126" width="176" height="58" rx="9" fill="#FBF9F3" stroke="#DDD6C6"/>
+<text x="1008" y="150" font-family="'Cascadia Mono','SF Mono',ui-monospace,Menlo,Consolas,monospace" font-size="13" font-weight="600" fill="#16181D">OrderBook</text>
+<text x="1008" y="169" font-family="'Cascadia Mono','SF Mono',ui-monospace,Menlo,Consolas,monospace" font-size="11" fill="#6F6A5E">L2 delta streaming</text>
+<rect x="996" y="196" width="176" height="58" rx="9" fill="#FBF9F3" stroke="#DDD6C6"/>
+<text x="1008" y="220" font-family="'Cascadia Mono','SF Mono',ui-monospace,Menlo,Consolas,monospace" font-size="13" font-weight="600" fill="#16181D">MinMax / ZScore</text>
+<text x="1008" y="239" font-family="'Cascadia Mono','SF Mono',ui-monospace,Menlo,Consolas,monospace" font-size="11" fill="#6F6A5E">rolling normalizers</text>
+<rect x="996" y="266" width="176" height="58" rx="9" fill="#FBF9F3" stroke="#DDD6C6"/>
+<text x="1008" y="290" font-family="'Cascadia Mono','SF Mono',ui-monospace,Menlo,Consolas,monospace" font-size="13" font-weight="600" fill="#16181D">OFI / VPIN / regime</text>
+<text x="1008" y="309" font-family="'Cascadia Mono','SF Mono',ui-monospace,Menlo,Consolas,monospace" font-size="11" fill="#6F6A5E">microstructure analytics</text>
+<path d="M250 100 L296 100" fill="none" stroke="#6F6A5E" stroke-width="1.4"/>
+<path d="M296 100 l-7 -4 v8 z" fill="#6F6A5E"/>
+<circle cx="261.5" cy="100.0" r="3.2" fill="#1E7F57"/>
+<circle cx="271.6" cy="100.0" r="3.2" fill="#C4432B"/>
+<circle cx="281.7" cy="100.0" r="3.2" fill="#1E7F57"/>
+<path d="M510 110 L556 110" fill="none" stroke="#6F6A5E" stroke-width="1.4"/>
+<path d="M556 110 l-7 -4 v8 z" fill="#6F6A5E"/>
+<circle cx="521.5" cy="110.0" r="3.2" fill="#1E7F57"/>
+<circle cx="531.6" cy="110.0" r="3.2" fill="#C4432B"/>
+<circle cx="541.7" cy="110.0" r="3.2" fill="#1E7F57"/>
+<path d="M750 110 L772 110" fill="none" stroke="#6F6A5E" stroke-width="1.4"/>
+<path d="M772 110 l-7 -4 v8 z" fill="#6F6A5E"/>
+<path d="M964 110 L978 110 L978 85 L992 85" fill="none" stroke="#6F6A5E" stroke-width="1.4"/>
+<path d="M992 85 l-7 -4 v8 z" fill="#6F6A5E"/>
+<path d="M964 110 L978 110 L978 155 L992 155" fill="none" stroke="#6F6A5E" stroke-width="1.4"/>
+<path d="M992 155 l-7 -4 v8 z" fill="#6F6A5E"/>
+<path d="M964 110 L978 110 L978 225 L992 225" fill="none" stroke="#6F6A5E" stroke-width="1.4"/>
+<path d="M992 225 l-7 -4 v8 z" fill="#6F6A5E"/>
+<path d="M964 110 L978 110 L978 295 L992 295" fill="none" stroke="#6F6A5E" stroke-width="1.4"/>
+<path d="M992 295 l-7 -4 v8 z" fill="#6F6A5E"/>
+<path d="M250 204 L530 204 L530 150 L556 150" fill="none" stroke="#9C7A22" stroke-width="1.4" stroke-dasharray="4 4"/>
+<path d="M556 150 l-7 -4 v8 z" fill="#9C7A22"/>
+<path d="M250 298 L530 298 L530 204" fill="none" stroke="#9C7A22" stroke-width="1.4" stroke-dasharray="4 4"/>
+<path d="M530 204 l-4 7 h8 z" fill="#9C7A22"/>
+<text x="290" y="196" font-family="'Cascadia Mono','SF Mono',ui-monospace,Menlo,Consolas,monospace" font-size="11" fill="#9C7A22">already NormalizedTick</text>
+<rect x="30" y="366" width="930" height="74" rx="9" fill="#FBF9F3" stroke="#DDD6C6"/>
+<rect x="30" y="376" width="3" height="54" rx="1.5" fill="#C4432B"/>
+<text x="46" y="392" font-family="'Cascadia Mono','SF Mono',ui-monospace,Menlo,Consolas,monospace" font-size="14" font-weight="600" fill="#16181D">HealthMonitor</text>
+<text x="46" y="412" font-family="'Cascadia Mono','SF Mono',ui-monospace,Menlo,Consolas,monospace" font-size="11.5" fill="#6F6A5E">heartbeat(feed, ts) on every tick; check_all(now) marks feeds stale past a threshold</text>
+<text x="46" y="429" font-family="'Cascadia Mono','SF Mono',ui-monospace,Menlo,Consolas,monospace" font-size="11.5" fill="#6F6A5E">and opens a per-feed circuit after N stale checks. SessionAwareness: open / extended / closed.</text>
+<line x1="140" x2="140" y1="366" y2="342" stroke="#C4432B" stroke-width="1.2" stroke-dasharray="2 4"/>
+<line x1="405" x2="405" y1="366" y2="170" stroke="#C4432B" stroke-width="1.2" stroke-dasharray="2 4"/>
+<line x1="655" x2="655" y1="366" y2="170" stroke="#C4432B" stroke-width="1.2" stroke-dasharray="2 4"/>
+<text x="1170" y="446" text-anchor="end" font-family="Georgia,'Iowan Old Style',ui-serif,serif" font-size="15" font-style="italic" fill="#6F6A5E">every error is a StreamError</text>
+</svg>

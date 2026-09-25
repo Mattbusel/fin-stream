@@ -4000,7 +4000,6 @@ impl NormalizedTick {
     /// Fraction of ticks whose quantity exceeds the mean quantity.
     /// Returns `None` for an empty slice.
     pub fn large_tick_fraction(ticks: &[NormalizedTick]) -> Option<f64> {
-        use rust_decimal::prelude::ToPrimitive;
         if ticks.is_empty() {
             return None;
         }
@@ -4588,7 +4587,6 @@ impl NormalizedTick {
     /// Fraction of ticks whose price exceeds the VWAP of the slice.
     /// Returns `None` for an empty slice or zero total quantity.
     pub fn above_vwap_fraction(ticks: &[NormalizedTick]) -> Option<f64> {
-        use rust_decimal::prelude::ToPrimitive;
         if ticks.is_empty() {
             return None;
         }
@@ -9016,7 +9014,6 @@ impl NormalizedTick {
 
     /// Tick interval regularity: 1 - (std(intervals) / mean(intervals)) where interval = tick index.
     pub fn tick_arrival_interval_cv(ticks: &[NormalizedTick]) -> Option<f64> {
-        use rust_decimal::prelude::ToPrimitive;
         if ticks.len() < 3 { return None; }
         // Use received_at_ms intervals
         let intervals: Vec<f64> = ticks.windows(2).map(|w| {
@@ -11611,6 +11608,8 @@ fn now_ms() -> u64 {
 mod tests {
     use super::*;
     use serde_json::json;
+    #[allow(unused_imports)]
+    use rust_decimal_macros::dec;
 
     fn normalizer() -> TickNormalizer {
         TickNormalizer::new()

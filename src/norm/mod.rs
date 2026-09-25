@@ -1884,7 +1884,6 @@ impl MinMaxNormalizer {
         if self.window.is_empty() {
             return None;
         }
-        use rust_decimal::prelude::ToPrimitive;
         let latest = *self.window.back()?;
         let below = self.window.iter().filter(|&&v| v < latest).count();
         Some(below as f64 / self.window.len() as f64)
@@ -2740,7 +2739,6 @@ impl MinMaxNormalizer {
     /// Count of window values that exceed the window mean.
     /// Returns `None` for an empty window.
     pub fn above_mean_count(&self) -> Option<usize> {
-        use rust_decimal::prelude::ToPrimitive;
         if self.window.is_empty() { return None; }
         let total: Decimal = self.window.iter().copied().sum();
         let mean = total / Decimal::from(self.window.len());
@@ -3298,7 +3296,6 @@ impl MinMaxNormalizer {
     /// Fraction of window values that are strictly negative.
     /// Returns `None` for empty window.
     pub fn window_negative_fraction(&self) -> Option<f64> {
-        use rust_decimal::prelude::ToPrimitive;
         if self.window.is_empty() { return None; }
         let neg = self.window.iter().filter(|&&v| v < rust_decimal::Decimal::ZERO).count();
         Some(neg as f64 / self.window.len() as f64)
@@ -3307,7 +3304,6 @@ impl MinMaxNormalizer {
     /// Fraction of window values that are strictly positive.
     /// Returns `None` for empty window.
     pub fn window_positive_fraction(&self) -> Option<f64> {
-        use rust_decimal::prelude::ToPrimitive;
         if self.window.is_empty() { return None; }
         let pos = self.window.iter().filter(|&&v| v > rust_decimal::Decimal::ZERO).count();
         Some(pos as f64 / self.window.len() as f64)
@@ -19813,7 +19809,6 @@ impl ZScoreNormalizer {
     ///
     /// Returns `None` for an empty window.
     pub fn above_mean_fraction(&self) -> Option<f64> {
-        use rust_decimal::prelude::ToPrimitive;
         if self.window.is_empty() {
             return None;
         }
@@ -19943,7 +19938,6 @@ impl ZScoreNormalizer {
         if self.window.is_empty() {
             return None;
         }
-        use rust_decimal::prelude::ToPrimitive;
         let latest = *self.window.back()?;
         let below = self.window.iter().filter(|&&v| v < latest).count();
         Some(below as f64 / self.window.len() as f64)
@@ -20786,7 +20780,6 @@ impl ZScoreNormalizer {
     /// Count of window values that exceed the window mean.
     /// Returns `None` for an empty window.
     pub fn above_mean_count(&self) -> Option<usize> {
-        use rust_decimal::prelude::ToPrimitive;
         if self.window.is_empty() { return None; }
         let total: Decimal = self.window.iter().copied().sum();
         let mean = total / Decimal::from(self.window.len());
@@ -21342,7 +21335,6 @@ impl ZScoreNormalizer {
     /// Fraction of window values that are strictly negative.
     /// Returns `None` for empty window.
     pub fn window_negative_fraction(&self) -> Option<f64> {
-        use rust_decimal::prelude::ToPrimitive;
         if self.window.is_empty() { return None; }
         let neg = self.window.iter().filter(|&&v| v < rust_decimal::Decimal::ZERO).count();
         Some(neg as f64 / self.window.len() as f64)
@@ -21351,7 +21343,6 @@ impl ZScoreNormalizer {
     /// Fraction of window values that are strictly positive.
     /// Returns `None` for empty window.
     pub fn window_positive_fraction(&self) -> Option<f64> {
-        use rust_decimal::prelude::ToPrimitive;
         if self.window.is_empty() { return None; }
         let pos = self.window.iter().filter(|&&v| v > rust_decimal::Decimal::ZERO).count();
         Some(pos as f64 / self.window.len() as f64)

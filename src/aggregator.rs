@@ -183,6 +183,7 @@ pub struct BarAggregator {
     /// [`flush`] drains all remaining open bars into this vec.
     ///
     /// [`flush`]: BarAggregator::flush
+    #[allow(dead_code)]
     completed_bars: Vec<BarEvent>,
 }
 

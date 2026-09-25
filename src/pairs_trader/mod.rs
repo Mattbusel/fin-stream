@@ -42,11 +42,13 @@ pub enum PairsPosition {
     /// No open position.
     Flat,
     /// Long spread (long A, short B).
+    #[allow(non_camel_case_types)]
     LongA_ShortB {
         /// Z-score at entry.
         entry_zscore: f64,
     },
     /// Short spread (short A, long B).
+    #[allow(non_camel_case_types)]
     LongB_ShortA {
         /// Z-score at entry.
         entry_zscore: f64,
