@@ -43,7 +43,6 @@
 pub mod analytics;
 
 use crate::error::StreamError;
-use rust_decimal::Decimal;
 use std::collections::VecDeque;
 
 // ─── Tick input ───────────────────────────────────────────────────────────────

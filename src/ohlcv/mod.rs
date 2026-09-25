@@ -3436,7 +3436,6 @@ impl OhlcvBar {
     ///
     /// Returns 0 for slices with fewer than 2 bars.
     pub fn close_cluster_count(bars: &[OhlcvBar]) -> usize {
-        use rust_decimal::prelude::ToPrimitive;
         if bars.len() < 2 {
             return 0;
         }
@@ -3765,7 +3764,6 @@ impl OhlcvBar {
     ///
     /// Returns `None` for an empty slice.
     pub fn volume_above_mean_fraction(bars: &[OhlcvBar]) -> Option<f64> {
-        use rust_decimal::prelude::ToPrimitive;
         if bars.is_empty() {
             return None;
         }
@@ -9611,7 +9609,6 @@ impl OhlcvBar {
 
     /// Fraction of bars where high was rising relative to previous bar.
     pub fn bar_high_low_trend(bars: &[OhlcvBar]) -> Option<f64> {
-        use rust_decimal::prelude::ToPrimitive;
         if bars.len() < 2 { return None; }
         let ups = bars.windows(2).filter(|w| w[1].high > w[0].high && w[1].low > w[0].low).count();
         Some(ups as f64 / (bars.len() - 1) as f64)
@@ -9619,7 +9616,6 @@ impl OhlcvBar {
 
     /// Fraction of bars where close > OHLC/4 (proxy VWAP).
     pub fn bar_close_above_vwap(bars: &[OhlcvBar]) -> Option<f64> {
-        use rust_decimal::prelude::ToPrimitive;
         if bars.is_empty() { return None; }
         let four = rust_decimal::Decimal::new(4, 0);
         let count = bars.iter().filter(|b| {

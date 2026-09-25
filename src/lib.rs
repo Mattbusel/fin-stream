@@ -1,79 +1,130 @@
 // SPDX-License-Identifier: MIT
 #![deny(missing_docs)]
+#![doc(
+    html_logo_url = "https://raw.githubusercontent.com/Mattbusel/fin-stream/main/assets/logo.svg",
+    html_favicon_url = "https://raw.githubusercontent.com/Mattbusel/fin-stream/main/assets/logo.svg"
+)]
 //! # fin-stream
 //!
-//! Lock-free streaming primitives for real-time financial market data.
+//! Streaming primitives for real-time market data: exchange tick normalization,
+//! a lock-free SPSC ring buffer, OHLCV bar aggregation, incremental order books,
+//! feed health checks, replay, and a set of microstructure analytics. Prices are
+//! exact [`rust_decimal::Decimal`]s and every fallible call returns a
+//! [`StreamError`].
 //!
-//! ## Architecture
+//! ## Four wire formats in, one tick out
 //!
-//! ```text
-//! Tick Source (live WebSocket or TickReplayer)
-//!     |
-//!     v
-//! SPSC Ring Buffer  (lock-free, zero-allocation hot path)
-//!     |
-//!     v
-//! FeedAggregator    (merge N feeds, VWAP / BestBid / BestAsk / Fallback)
-//!     |
-//!     +---> ArbDetector  (cross-feed arbitrage opportunity detection)
-//!     |
-//!     v
-//! OHLCV Aggregator  (streaming bar construction at any timeframe)
-//!     |
-//!     v
-//! MinMax Normalizer (rolling-window coordinate normalization)
-//!     |
-//!     +---> Lorentz Transform  (spacetime boost for feature engineering)
-//!     |
-//!     v
-//! Downstream (ML model, trade signal engine, order management)
+//! Binance, Coinbase, Alpaca and Polygon each spell a trade differently.
+//! [`TickNormalizer`] maps all of them onto one [`NormalizedTick`]. From there
+//! the stages take and return plain values: hand ticks to another thread with
+//! [`SpscRing`], roll them into bars with [`OhlcvAggregator`], watch the feed
+//! with [`HealthMonitor`].
+//!
 //! ```
+//! use fin_stream::ohlcv::{OhlcvAggregator, Timeframe};
+//! use fin_stream::ring::SpscRing;
+//! use fin_stream::tick::{Exchange, NormalizedTick, RawTick, TickNormalizer};
+//! use serde_json::json;
+//!
+//! # fn main() -> Result<(), fin_stream::StreamError> {
+//! let normalizer = TickNormalizer::new();
+//! let ring: SpscRing<NormalizedTick, 64> = SpscRing::new();
+//! let (tx, rx) = ring.split();
+//!
+//! // Feed side: a Coinbase match and a Binance trade, one second apart.
+//! let coinbase = json!({"price": "64250.10", "size": "0.012", "side": "buy",
+//!                       "time": "2026-09-24T14:30:00.112Z"});
+//! let binance = json!({"p": "64251.30", "q": "0.40", "m": true, "t": 7u64,
+//!                      "T": 1_790_260_201_205u64});
+//! for (venue, payload) in [(Exchange::Coinbase, coinbase), (Exchange::Binance, binance)] {
+//!     tx.push(normalizer.normalize(RawTick::new(venue, "BTC-USD", payload))?)?;
+//! }
+//!
+//! // Consumer side: roll ticks into one-second bars.
+//! let mut bars = OhlcvAggregator::new("BTC-USD", Timeframe::Seconds(1))?;
+//! let mut closed = Vec::new();
+//! while let Ok(tick) = rx.pop() {
+//!     closed.extend(bars.feed(&tick)?);
+//! }
+//! assert_eq!(closed.len(), 1); // the 14:30:00 bar closed when the 14:30:01 trade arrived
+//! assert_eq!(closed[0].close.to_string(), "64250.10");
+//! # Ok(())
+//! # }
+//! ```
+//!
+//! ## Runnable examples
+//!
+//! The repository has four examples that need no network and no API keys:
+//!
+//! | Command | Shows |
+//! |---|---|
+//! | `cargo run --example tape` | four venues normalized on a feed thread, handed across an `SpscRing`, printed as a time-and-sales tape and rolled into bars |
+//! | `cargo run --example normalize` | one trade in four wire formats, the `NormalizedTick` each becomes, and typed rejections |
+//! | `cargo run --example feed_health` | `HealthMonitor` marking a stalled feed stale and opening its circuit |
+//! | `cargo run --example replay` | `TickReplayer` streaming a recorded NDJSON file into 30-second bars |
 //!
 //! ## Performance
 //!
-//! The SPSC ring buffer sustains 100 K+ ticks/second with no heap allocation
-//! on the fast path. All error paths return `Result<_, StreamError>` — the
-//! library never panics on the hot path. Construction functions validate their
-//! arguments and panic on misuse with a clear message (e.g. ring capacity of 0,
-//! normalizer window size of 0).
+//! Criterion medians from `cargo bench --bench tick_hot_path` (i7-13700KF,
+//! single thread): push and pop of a `u64` through [`SpscRing`] 2.3 ns;
+//! build, push and pop a [`NormalizedTick`] 53 ns; normalize a Binance trade
+//! including the JSON payload clone 714 ns; feed a tick into an open bar 101 ns;
+//! apply an order book delta 65 ns. Numbers vary by machine; the benchmark is in
+//! the repository.
 //!
 //! ## Modules
 //!
+//! **Ingest and transport**
+//!
 //! | Module | Responsibility |
-//! |--------|----------------|
-//! [`agg`] | Cross-feed aggregation, merge strategies, and arb detection |
-//! [`aggregator`] | Bar aggregator: time/tick/volume-based OHLCV aggregation from trades |
-//! [`anomaly`] | Tick anomaly detection: price spikes, volume spikes, sequence gaps, timestamp inversions |
-//! [`book`] | Order book delta streaming and crossed-book detection |
-//! [`circuit_breaker`] | WebSocket circuit breaker with degraded-mode synthetic tick emission |
-//! [`correlation`] | Streaming NxN Pearson correlation matrix (Welford, DashMap) |
-//! [`error`] | Typed error hierarchy (`StreamError`) |
-//! [`fix`] | FIX 4.2 session adapter — parse, serialize, logon, market data |
-//! [`grpc`] | gRPC streaming endpoint (`grpc` feature) — expose tick stream via tonic |
-//! [`health`] | Feed staleness detection and circuit-breaker |
-//! [`lorentz`] | Lorentz spacetime transforms for time-series features |
-//! [`mev`] | MEV detection scaffold — sandwich, frontrun, backrun heuristics |
-//! [`multi_exchange`] | NBBO-style multi-exchange aggregation and arbitrage detection |
-//! [`norm`] | Rolling min-max coordinate normalization |
-//! [`ohlcv`] | OHLCV bar aggregation at arbitrary timeframes |
-//! [`portfolio_feed`] | Multi-asset parallel WebSocket feed with merged tick stream |
-//! [`protocol`] | Unified streaming protocol: `MarketEvent` enum, `JsonStreamAdapter`, `EventStream` |
-//! [`replay`] | Historical NDJSON tick replay with speed control |
-//! [`ring`] | SPSC lock-free ring buffer |
-//! [`session`] | Market session and trading-hours classification |
-//! [`snapshot`] | Snapshot-and-replay: binary tick recording and N-speed replay |
-//! [`tick`] | Raw-to-normalized tick conversion for all exchanges |
-//! [`ws`] | WebSocket connection management and reconnect policy |
-//! [`predictive_book`] | Online logistic regression predicting next-tick direction from L2 imbalance, spread, depth |
-//! [`execution`] | Execution quality monitor: implementation shortfall, market impact, slippage decomposition |
-//! [`synthetic`] | Synthetic market data generator: GBM, jump-diffusion, Ornstein–Uhlenbeck, Heston stochastic-vol |
-//! [`toxicity`] | Order flow toxicity: PIN, VPIN, Kyle λ, Amihud illiquidity — identifies informed (smart-money) trading |
-//! [`noise`] | Microstructure noise filter: Roll spread estimator, realised kernel, de-noised efficient price |
-//! [`regime`] | Real-time market regime detection: Trending, MeanReverting, High/LowVolatility (Hurst, ADX, realised vol) |
-//! [`ofi`] | Order flow imbalance: `OrderFlowImbalance`, `OfiAccumulator`, `OfiMetricsComputer`, `ToxicityEstimator` (VPIN) |
-//! [`microstructure`] | Market microstructure analytics: Amihud illiquidity, Kyle lambda, Roll spread, bid-ask bounce |
-//! [`quality`] | Feed quality scoring: latency percentiles, gap rate, duplicate rate, composite score 0–100 |
-//! [`circuit`] | Per-symbol circuit breakers: price-spike/volume-surge detection, Normal/Halted/Recovering FSM |
+//! |---|---|
+//! | [`ws`] | WebSocket connection loop with reconnect and backoff |
+//! | [`tick`] | Raw exchange payloads to [`NormalizedTick`] for Binance, Coinbase, Alpaca, Polygon |
+//! | [`ring`] | Lock-free single-producer single-consumer ring buffer |
+//! | [`agg`] | Merge N feeds (best bid, best ask, VWAP, primary with fallback) and cross-feed arbitrage detection |
+//! | [`multi_exchange`] | NBBO-style consolidated best bid and ask across exchanges |
+//! | [`portfolio_feed`] | One WebSocket task per asset, merged into one tick stream |
+//! | [`protocol`] | Unified `MarketEvent` enum, `JsonStreamAdapter`, `EventStream` |
+//! | [`fix`] | FIX 4.2 parse, serialize, logon and market data |
+//! | [`grpc`] | gRPC tick stream endpoint (behind the `grpc` feature) |
+//! | [`replay`] | NDJSON tick replay with speed control, via the [`TickSource`] trait |
+//! | [`snapshot`] | Binary tick recording and N-speed replay |
+//! | [`synthetic`] | Seeded GBM, jump-diffusion, Ornstein-Uhlenbeck and Heston generators |
+//!
+//! **Bars, books and health**
+//!
+//! | Module | Responsibility |
+//! |---|---|
+//! | [`ohlcv`] | OHLCV bars at any timeframe, optional gap-fill bars |
+//! | [`aggregator`] | Time, tick and volume bars from trades |
+//! | [`book`] | Order book delta streaming and crossed-book detection |
+//! | [`health`] | Feed staleness detection and per-feed circuit breaker |
+//! | [`circuit_breaker`] | WebSocket circuit breaker with degraded-mode synthetic ticks |
+//! | [`circuit`] | Per-symbol halts on price spikes or volume surges |
+//! | [`session`] | Market session and trading-hours classification |
+//! | [`quality`] | Feed quality score from latency percentiles, gap rate and duplicate rate |
+//! | [`anomaly`] | Price spikes, volume spikes, sequence gaps, timestamp inversions |
+//! | [`error`] | The [`StreamError`] hierarchy |
+//!
+//! **Features and analytics**
+//!
+//! | Module | Responsibility |
+//! |---|---|
+//! | [`norm`] | Rolling min-max and z-score normalizers |
+//! | [`ofi`] | Order flow imbalance, rolling accumulator, VPIN estimator |
+//! | [`toxicity`] | PIN, VPIN, Kyle lambda and Amihud illiquidity |
+//! | [`microstructure`] | Amihud, Kyle lambda, Roll spread and bid-ask bounce on one stream |
+//! | [`regime`] | Trending, mean-reverting and volatility regimes from Hurst, ADX and realised vol |
+//! | [`correlation`] | Streaming N by N Pearson correlation matrix |
+//! | [`lorentz`] | Lorentz transforms for price-time feature engineering |
+//! | [`mev`] | Sandwich, frontrun and backrun heuristics on tick slices |
+//! | [`predictive_book`] | Online logistic regression for next-tick direction from L2 features |
+//! | [`execution`] | Implementation shortfall, market impact and slippage |
+//! | [`noise`] | Roll spread, realised kernel and de-noised efficient price |
+//!
+//! The crate also carries further analytics and simulation modules (backtest,
+//! market maker, pairs trading, signal processing, portfolio optimisation and
+//! others); see the module list below.
 
 pub mod agg;
 pub mod aggregator;
@@ -370,3 +421,8 @@ pub mod regime_detector;
 /// Real-time bid-ask spread, order book depth, and liquidity impact cost monitoring.
 /// Provides EWMA spread tracking, depth imbalance, Kyle-lambda impact estimation, and liquidity scoring.
 pub mod liquidity_monitor;
+
+/// Compiles and runs every Rust block in README.md as a doctest.
+#[cfg(doctest)]
+#[doc = include_str!("../README.md")]
+pub struct ReadmeDoctests;

@@ -77,6 +77,7 @@ impl BackoffState {
         delay
     }
 
+    #[allow(dead_code)]
     fn reset(&mut self, initial: Duration) {
         self.current_delay = initial;
     }

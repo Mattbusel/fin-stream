@@ -151,6 +151,7 @@ struct BufferedTick {
     /// Source feed identifier.
     feed_id: Uuid,
     /// Whether this feed is the designated primary.
+    #[allow(dead_code)]
     feed_is_primary: bool,
 }
 

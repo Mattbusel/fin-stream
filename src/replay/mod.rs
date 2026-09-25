@@ -824,7 +824,7 @@ mod memory_replay_tests {
             quantity: Decimal::ONE,
             side: None,
             trade_id: None,
-            exchange_ts_ms: 0,
+            exchange_ts_ms: None,
             received_at_ms: 0,
         }
     }

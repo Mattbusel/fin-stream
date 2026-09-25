@@ -1,10 +1,25 @@
-# fin-stream
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/Mattbusel/fin-stream/main/assets/hero-dark.png">
+    <img alt="fin-stream: real-time market data plumbing for Rust. A BTC-USD time-and-sales tape from four venues, each trade plotted by side and size, rolled into 2-second bars, with a ticker band of every print along the bottom." src="https://raw.githubusercontent.com/Mattbusel/fin-stream/main/assets/hero-light.png" width="100%">
+  </picture>
+</p>
 
-[![CI](https://github.com/Mattbusel/fin-stream/actions/workflows/ci.yml/badge.svg)](https://github.com/Mattbusel/fin-stream/actions/workflows/ci.yml)
-[![Crates.io](https://img.shields.io/crates/v/fin-stream.svg)](https://crates.io/crates/fin-stream)
-[![docs.rs](https://img.shields.io/docsrs/fin-stream)](https://docs.rs/fin-stream)
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Rust MSRV](https://img.shields.io/badge/MSRV-1.75-orange.svg)](https://blog.rust-lang.org/2023/12/28/Rust-1.75.0.html)
+<p align="center">
+  <a href="https://github.com/Mattbusel/fin-stream/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/Mattbusel/fin-stream/actions/workflows/ci.yml/badge.svg"></a>
+  <a href="https://crates.io/crates/fin-stream"><img alt="crates.io" src="https://img.shields.io/crates/v/fin-stream.svg"></a>
+  <a href="https://docs.rs/fin-stream"><img alt="docs.rs" src="https://docs.rs/fin-stream/badge.svg"></a>
+  <a href="LICENSE"><img alt="MIT" src="https://img.shields.io/badge/license-MIT-blue.svg"></a>
+</p>
+
+<p align="center">
+  <a href="https://mattbusel.github.io/fin-stream/"><b>Site</b></a> &nbsp;&middot;&nbsp;
+  <a href="https://docs.rs/fin-stream"><b>API docs</b></a> &nbsp;&middot;&nbsp;
+  <a href="#run-the-examples"><b>Examples</b></a> &nbsp;&middot;&nbsp;
+  <a href="https://github.com/Mattbusel/fin-primitives"><b>fin-primitives</b></a> (the validated types this crate builds on)
+</p>
+
+# fin-stream
 
 Streaming primitives for real-time market data in Rust: WebSocket feeds with reconnect,
 exchange tick normalization (Binance, Coinbase, Alpaca, Polygon), a lock-free SPSC ring
@@ -13,44 +28,35 @@ normalizers, built on Tokio.
 
 Getting ticks from an exchange into a model involves the same plumbing every time:
 parse four slightly different JSON shapes into one tick type, keep the WebSocket alive,
-move ticks between threads without allocating, roll them into bars, and notice when a
-feed goes stale. `fin-stream` packages that plumbing, with exact `Decimal` prices and a
-single `StreamError` type, and adds a large set of microstructure analytics (OFI, VPIN,
-Kyle's lambda, Amihud, regime detection) on top. The design target is 100K+ ticks per
-second with no heap allocation on the tick hot path.
+move ticks between threads, roll them into bars, and notice when a feed goes stale.
+`fin-stream` packages that plumbing, with exact `Decimal` prices and a single
+`StreamError` type, and adds a large set of microstructure analytics (OFI, VPIN, Kyle's
+lambda, Amihud, regime detection) on top.
 
 > Research and engineering library. It does not place orders, and nothing here is
 > financial advice.
 
-**Contents:** [Quickstart](#quickstart) · [What is included](#what-is-included) ·
-[Architecture](#architecture) · [Module guides](#module-guides) ·
-[API reference](#api-reference) · [Tests and benchmarks](#running-tests-and-benchmarks)
-
 ## Quickstart
-
-From crates.io (latest published version: 2.4.2):
 
 ```toml
 [dependencies]
 fin-stream = "2"
 ```
 
-The `main` branch (Cargo.toml version 2.11.0) is ahead of crates.io and many modules
-described below are only on `main`. It depends on
-[fin-primitives](https://github.com/Mattbusel/fin-primitives) through a relative path,
-so clone both side by side:
+crates.io has **2.4.2**; the `main` branch is **2.11.0** and many modules described below
+(and all four examples) are only on `main`. `main` depends on
+[fin-primitives](https://github.com/Mattbusel/fin-primitives) through a relative path, so
+clone both side by side:
 
 ```bash
 git clone https://github.com/Mattbusel/fin-primitives
 git clone https://github.com/Mattbusel/fin-stream
 cd fin-stream
-cargo test
-cargo bench --bench tick_hot_path
+cargo run --example tape
 ```
 
-The examples below compile and run against the current `main` branch.
-
-### Normalize a Binance tick and aggregate OHLCV
+Normalize a raw Binance trade and roll it into one-minute bars. Every Rust block in this
+README is compiled and run by `cargo test --doc`, so the examples track the real API:
 
 ```rust
 use fin_stream::tick::{Exchange, RawTick, TickNormalizer};
@@ -76,7 +82,10 @@ fn main() -> Result<(), fin_stream::StreamError> {
 }
 ```
 
-### SPSC ring buffer pipeline
+<details>
+<summary><b>More quick recipes</b>: ring buffer, normalizers, Lorentz features, order book, feed health, sessions</summary>
+
+#### SPSC ring buffer pipeline
 
 ```rust
 use fin_stream::ring::SpscRing;
@@ -105,7 +114,7 @@ fn main() -> Result<(), fin_stream::StreamError> {
 }
 ```
 
-### Min-max normalization of closing prices
+#### Min-max normalization of closing prices
 
 ```rust
 use fin_stream::norm::MinMaxNormalizer;
@@ -124,7 +133,7 @@ fn main() -> Result<(), fin_stream::StreamError> {
 }
 ```
 
-### Z-score normalization with analytics
+#### Z-score normalization with analytics
 
 ```rust
 use fin_stream::norm::ZScoreNormalizer;
@@ -145,7 +154,7 @@ fn main() -> Result<(), fin_stream::StreamError> {
 }
 ```
 
-### Lorentz feature engineering
+#### Lorentz feature engineering
 
 ```rust
 use fin_stream::lorentz::{LorentzTransform, SpacetimePoint};
@@ -163,7 +172,7 @@ fn main() -> Result<(), fin_stream::StreamError> {
 }
 ```
 
-### Order book delta streaming
+#### Order book delta streaming
 
 ```rust
 use fin_stream::book::{BookDelta, BookSide, OrderBook};
@@ -181,7 +190,7 @@ fn main() -> Result<(), fin_stream::StreamError> {
 }
 ```
 
-### Feed health monitoring with circuit breaker
+#### Feed health monitoring with circuit breaker
 
 ```rust
 use fin_stream::health::HealthMonitor;
@@ -204,7 +213,7 @@ fn main() -> Result<(), fin_stream::StreamError> {
 }
 ```
 
-### Session classification
+#### Session classification
 
 ```rust
 use fin_stream::session::{MarketSession, SessionAwareness};
@@ -218,7 +227,44 @@ fn main() -> Result<(), fin_stream::StreamError> {
 }
 ```
 
-## What Is Included
+</details>
+
+## Run the examples
+
+Four examples, no network, no API keys. Each one is deterministic (seeded generators or a
+recorded file), streams in real time when run in a terminal, and prints instantly when
+piped. The images below are their actual output.
+
+| Command | What it shows |
+|---|---|
+| `cargo run --example tape` | Four venues' trades normalized on a feed thread, handed across an `SpscRing`, printed as a time-and-sales tape and rolled into 2 s bars |
+| `cargo run --example normalize` | The same trade as Binance, Coinbase, Alpaca and Polygon send it, the one `NormalizedTick` each becomes, and three typed rejections |
+| `cargo run --example feed_health` | `HealthMonitor` watching four feeds: a stall goes stale, trips the circuit, and recovers |
+| `cargo run --example replay` | `TickReplayer` streaming a recorded NDJSON file through the live-feed trait into 30 s bars |
+
+### The tape
+
+A feed thread builds each trade in its venue's wire format, runs it through
+`TickNormalizer`, and pushes it into `SpscRing<NormalizedTick, 64>`; the main thread pops,
+prints, and feeds `OhlcvAggregator`. Venues that do not report the aggressor side
+(Alpaca, Polygon) show `n/a` rather than a guess.
+
+<p align="center"><img alt="Output of cargo run --example tape: 40 BTC-USD trades from four venues with time, venue, side, price colored by tick direction, size bar and latency, with a bar summary line every two seconds and a closing summary of ticks per venue, bars, and ring usage." src="https://raw.githubusercontent.com/Mattbusel/fin-stream/main/assets/term-tape.png" width="840"></p>
+
+### Feed health
+
+<p align="center"><img alt="Output of cargo run --example feed_health: a strip chart per feed over 24 seconds. Binance beats steadily, Coinbase goes quiet at 5 s, turns stale, opens its circuit and recovers at 12.5 s, Alpaca drops at 16 s and stays open, Polygon beats every 3 s under its own 5 s threshold. Below, the StreamError messages the monitor produced." src="https://raw.githubusercontent.com/Mattbusel/fin-stream/main/assets/term-feed_health.png" width="820"></p>
+
+<details>
+<summary><b>normalize</b> and <b>replay</b> output</summary>
+
+<p align="center"><img alt="Output of cargo run --example normalize: four venue payloads for one trade and the normalized price, quantity, side and exchange timestamp each produces, then three malformed payloads and their StreamError messages." src="https://raw.githubusercontent.com/Mattbusel/fin-stream/main/assets/term-normalize.png" width="840"></p>
+
+<p align="center"><img alt="Output of cargo run --example replay: twenty 30-second bars drawn as horizontal candles on a fixed price axis, with close, change versus the session open and volume, from 600 recorded ticks." src="https://raw.githubusercontent.com/Mattbusel/fin-stream/main/assets/term-replay.png" width="760"></p>
+
+</details>
+
+## What is included
 
 | Module | Purpose | Key types |
 |---|---|---|
@@ -249,7 +295,7 @@ fn main() -> Result<(), fin_stream::StreamError> {
 | `circuit` | Per-symbol circuit breakers: halt on price spikes or volume surges; Normal/Halted/Recovering FSM; hub manages one breaker per symbol | `SymbolCircuitBreaker`, `CircuitBreakerHub`, `HaltConfig`, `HaltReason`, `CircuitDecision`, `CircuitStats` |
 | `error` | Unified typed error hierarchy covering every pipeline failure mode | `StreamError` |
 
-## Supported Exchanges
+## Supported exchanges
 
 | Exchange | Adapter | Status | Wire-format fields used |
 |---|---|---|---|
@@ -259,116 +305,81 @@ fn main() -> Result<(), fin_stream::StreamError> {
 | Polygon | `Exchange::Polygon` | Stable | `p` (price), `s` (size), `i` (trade id), `t` (exchange ts) |
 
 All four adapters are covered by unit and integration tests. To add a new exchange,
-see the **Contributing** section below.
+see [Contributing](#contributing).
 
 ## Architecture
 
-```
-  Live Feeds                        Historical Data
-  ──────────────────────            ──────────────────────
-  WsManager (Binance)  ──┐          TickReplayer (NDJSON)
-  WsManager (Coinbase) ──┤              │  speed_multiplier
-  WsManager (Alpaca)   ──┤              │  loop_replay
-                         │              │  start_offset_ms
-                         ▼              ▼
-                  [ FeedAggregator ]           ─── TickSource trait (live ≡ replay)
-                    latency compensation
-                    BestBid / BestAsk
-                    VwapWeighted
-                    PrimaryWithFallback
-                         │
-                         +──► [ ArbDetector ]  ── spread > N bps → ArbOpportunity
-                         │
-                         ▼
-               [ TickNormalizer ]     raw JSON payload → NormalizedTick (all exchanges)
-                         │
-                         ▼
-             [ SPSC Ring Buffer ]     lock-free O(1) push/pop, zero-allocation hot path
-                         │
-                         ▼
-             [ OHLCV Aggregator ]     streaming bar construction at any timeframe
-                         │
-                         ▼
-      [ MinMax / ZScore Normalizer ]  rolling-window coordinate normalization
-                         │
-                         +──► [ Lorentz Transform ]  relativistic spacetime boost
-                         │
-                         ▼
-    Downstream (ML model | trade signal engine | order management)
+<p align="center"><img alt="fin-stream architecture. Sources: WsManager for live WebSocket text frames with reconnect, TickReplayer for NDJSON files, and SyntheticMarketGenerator. WsManager output goes through TickNormalizer, which maps Binance, Coinbase, Alpaca and Polygon JSON to NormalizedTick with Decimal prices; replayed and synthetic ticks are already normalized. Ticks can be merged by FeedAggregator with ArbDetector, handed across threads through SpscRing, and consumed by OhlcvAggregator, OrderBook, the MinMax and ZScore normalizers, and the OFI, VPIN and regime analytics. HealthMonitor sits under every feed, marking stale feeds and opening per-feed circuits." src="https://raw.githubusercontent.com/Mattbusel/fin-stream/main/assets/architecture.svg" width="100%"></p>
 
-  Parallel paths:
-  [ OrderBook ]       -- delta streaming, snapshot reset, crossed-book guard
-  [ HealthMonitor ]   -- per-feed staleness detection, circuit-breaker
-  [ SessionAwareness ]-- Open / Extended / Closed classification
-  [ MevDetector ]     -- sandwich, frontrun, backrun heuristics
-  [ AnomalyDetector ] -- price spikes, volume spikes, sequence gaps
-```
+`WsManager` hands you raw text frames; you wrap each one in a `RawTick` and
+`TickNormalizer` turns it into a `NormalizedTick`. From there every stage takes and
+returns plain values, so the stages compose in whatever order your system needs: merge
+feeds with `FeedAggregator`, move ticks to a worker thread with `SpscRing`, then bars,
+books, normalizers and analytics. `TickReplayer` implements the same `TickSource` trait a
+live feed would, so strategy code runs unchanged against recorded data.
 
-## Design Principles
+## Design principles
 
-1. **Never panic on valid production inputs.** Every fallible operation returns
-   `Result<_, StreamError>`. The only intentional panic is `MinMaxNormalizer::new(0)`,
-   which is an API misuse guard documented in the function-level doc comment.
-2. **Zero heap allocation on the hot path.** `SpscRing<T, N>` is a const-generic
-   array; `push`/`pop` never call `malloc`. `NormalizedTick` is stack-allocated.
-3. **Exact decimal arithmetic for prices.** All price and quantity fields use
-   `rust_decimal::Decimal`, never `f64`. `f64` is used only for the dimensionless
-   `beta`/`gamma` Lorentz parameters and the `f64` normalizer observations.
-4. **Thread-safety where needed.** `HealthMonitor` uses `DashMap` for concurrent
-   feed updates. `OrderBook` is `Send + Sync`. `SpscRing` splits into producer/consumer
-   halves that are individually `Send`.
+1. **Errors are values.** Fallible operations return `Result<_, StreamError>`, including
+   constructors that validate their arguments (`MinMaxNormalizer::new(0)` returns
+   `Err`, it does not panic). The crate denies `unwrap_used`, `expect_used` and `panic`
+   in Clippy. The synthetic price models are the exception: their constructors `assert!`
+   on impossible parameters such as a non-positive starting price.
+2. **Exact decimal arithmetic for prices.** Price and quantity fields are
+   `rust_decimal::Decimal`, never `f64`. Venues that send prices as JSON strings
+   (Binance, Coinbase) are parsed straight into `Decimal`. Venues that send JSON numbers
+   (Alpaca, Polygon) go through `serde_json`'s number type first, which holds an `f64`,
+   so `64250.10` arrives as `64250.1`; that is exact for any price with up to 15
+   significant digits. `f64` is also used for dimensionless statistics (normalized
+   values, z-scores, Lorentz parameters).
+3. **No allocation inside the ring.** `SpscRing<T, N>` allocates its `N` slots once in
+   `new()`; `push` and `pop` are an atomic load, a slot write or read, and an atomic
+   store, with no locking and no allocation. `N` must be a power of two, checked at
+   compile time. Note that `NormalizedTick` itself owns a `String` symbol and an optional
+   `String` trade id, so creating a tick allocates; moving it through the ring does not.
+4. **Thread safety where it is needed.** `HealthMonitor`, the correlation matrix and the
+   multi-symbol managers use `DashMap`. `SpscRing::split` returns a producer and a
+   consumer half that can each move to their own thread.
 5. **Unsafe code is confined to the ring buffer.** `src/ring/` uses `UnsafeCell` and
-   `MaybeUninit` with documented safety invariants behind a safe public API; the
-   rest of the crate is safe Rust.
+   `MaybeUninit` with documented safety invariants behind a safe API; the rest of the
+   crate is safe Rust.
 
-## Zero-Allocation Hot Path
+## Performance
 
-The hot path through `TickNormalizer → SpscRing → FeedAggregator` makes zero
-heap allocations per tick:
+Measured with the Criterion suite in `benches/tick_hot_path.rs` on one machine
+(Intel Core i7-13700KF, Windows 11, rustc 1.91, `bench` profile with thin LTO), on
+2026-09-25. Each figure is the Criterion median for one iteration of the benchmark body,
+single-threaded.
 
-- **`NormalizedTick`** is a plain Rust struct, stack-allocated, `Copy`-able,
-  and `Send`. No `Box`, no `Arc`, no `String` clone on the hot path.
-- **`SpscRing<T, N>`** uses a const-generic array (`[MaybeUninit<T>; N]`).
-  `push` and `pop` are single atomic operations (`Release`/`Acquire` ordering).
-  No `malloc` call is made after initial construction.
-- **`FeedAggregator::poll_feeds`** drains the bounded `mpsc` channels (which
-  are pre-allocated at `add_feed` time) into a `BinaryHeap` that is also
-  pre-allocated. Tick merge never allocates on the happy path.
-- **`ArbDetector::check`** iterates over a `HashMap` of `NormalizedTick`
-  references and performs arithmetic comparisons. The only allocation is the
-  `Vec<ArbOpportunity>` returned on a hit, which is empty in the common case.
+| Benchmark | Median | What one iteration does |
+|---|---:|---|
+| `ring_push_pop_u64` | 2.3 ns | push one `u64` into `SpscRing<u64, 128>` and pop it back |
+| `ring_push_pop_normalized_tick` | 52.8 ns | build a `NormalizedTick` (allocates its symbol `String`), push, pop |
+| `tick_normalize_binance` | 714 ns | clone a Binance JSON payload into a `RawTick` and normalize it |
+| `tick_normalize_coinbase` | 831 ns | build a Coinbase JSON payload and normalize it |
+| `ohlcv_feed_same_window` | 101 ns | build a tick and feed it into an open 1-minute bar |
+| `ohlcv_feed_bar_completion` | 200 ns | build a tick that closes the current 1-second bar |
+| `order_book_apply_delta` | 64.8 ns | apply one bid-level update to a two-sided book |
+| `order_book_best_levels` | 11.7 ns | read best bid and best ask from a 10-level book |
 
-The Criterion benchmark `ring_push_pop_u64` in `benches/tick_hot_path.rs` measures the
-ring in isolation. An earlier run on a 3.6 GHz Zen 3 core was reported at roughly
-150 million push/pop pairs per second for `u64` items; the raw output is not committed,
-so treat that as indicative and reproduce it on your own hardware:
+Normalization is the costly step, and most of that cost is JSON handling (the payload
+clone and field lookups) rather than the decimal parse. At roughly 0.7 to 0.8 us per tick
+it works out to over a million normalized ticks per second on one core; the ring and bar
+stages are one to two orders of magnitude cheaper. These are single-thread
+microbenchmarks, not an end-to-end throughput test across threads. To reproduce:
 
 ```bash
-cargo bench --bench tick_hot_path -- ring_push_pop
+cargo bench --bench tick_hot_path
 ```
 
-## Performance Characteristics
+## Reference
 
-| Metric | Value |
-|---|---|
-| SPSC push/pop latency | O(1), single cache-line access |
-| SPSC throughput | design target >100 K ticks/second; see `cargo bench --bench tick_hot_path` |
-| OHLCV feed per tick | O(1) |
-| Normalization update | O(1) amortized; O(W) after window eviction |
-| Lorentz transform | O(1), two multiplications per coordinate |
-| Ring buffer memory | N * sizeof(T) bytes (N is const generic) |
-| OFI raw update | O(1) per top-of-book snapshot |
-| OFI accumulator | O(1) amortized; rolling VecDeque eviction |
-| Microstructure update | O(1) amortized per `MicroTick`; O(W) on window eviction |
-| VPIN bucket | O(1) per tick; O(n_buckets) on bucket close |
+Longer notes per subsystem, grouped from ingestion to analytics. Every Rust block below is compiled by `cargo test --doc`; signature listings are generated from the source.
 
----
+### Module guides
 
-## Module guides
-
-Detailed notes per subsystem, grouped from ingestion to analytics.
-
-### Tick Pipeline
+<details>
+<summary><b>Tick Pipeline</b></summary>
 
 The `pipeline` module provides a composable normalization pipeline for `NormalizedTick` streams.
 
@@ -400,6 +411,10 @@ The `pipeline` module provides a composable normalization pipeline for `Normaliz
 #### Usage
 
 ```rust
+use fin_stream::pipeline::{PriceRangeFilter, PriceRounder, TickPipeline, TimestampAligner, VolumeFilter};
+use rust_decimal_macros::dec;
+# let raw_tick = fin_stream::tick::NormalizedTick { exchange: fin_stream::tick::Exchange::Binance, symbol: "BTCUSDT".into(), price: dec!(65000.123), quantity: dec!(0.5), side: None, trade_id: None, exchange_ts_ms: None, received_at_ms: 1_700_000_000_123 };
+
 let mut pipeline = TickPipeline::new();
 pipeline.add_filter(PriceRangeFilter { min: dec!(100), max: dec!(100_000) });
 pipeline.add_filter(VolumeFilter { min: dec!(0.01) });
@@ -411,7 +426,10 @@ if let Some(tick) = pipeline.process(raw_tick) {
 }
 ```
 
-### Tick-to-Bar Aggregation
+</details>
+
+<details>
+<summary><b>Tick-to-Bar Aggregation</b></summary>
 
 The `aggregator::bars` module aggregates `NormalizedTick` streams into OHLCV bars.
 
@@ -426,7 +444,7 @@ The `aggregator::bars` module aggregates `NormalizedTick` streams into OHLCV bar
 
 #### VWAP Update (Online)
 
-```
+```text
 vwap = (vwap * cum_vol + price * qty) / (cum_vol + qty)
 ```
 
@@ -453,7 +471,10 @@ let mut stream = BarStream::new(&config);
 // stream.push_tick(&tick) → Some(Bar) when boundary crossed
 ```
 
-### Order Book Reconstruction
+</details>
+
+<details>
+<summary><b>Order Book Reconstruction</b></summary>
 
 The `orderbook` module provides a high-performance L2 order book backed by `BTreeMap<OrdF64, f64>`.
 
@@ -497,7 +518,10 @@ println!("Spread: {:.2}", book.spread().unwrap());
 println!("Imbalance: {:.3}", book.imbalance());
 ```
 
-### Multi-Feed Aggregator
+</details>
+
+<details>
+<summary><b>Multi-Feed Aggregator</b></summary>
 
 `FeedAggregator` subscribes to N independent tick feeds simultaneously, applies
 configurable latency compensation per feed, and merges them into a single
@@ -551,6 +575,11 @@ points) an `ArbOpportunity` is emitted.
 ```rust
 use fin_stream::agg::{ArbDetector, ArbOpportunity};
 
+# use rust_decimal_macros::dec;
+# use fin_stream::tick::{Exchange, NormalizedTick};
+# let mk = |ex, px| NormalizedTick { exchange: ex, symbol: "BTC-USD".into(), price: px, quantity: dec!(1), side: None, trade_id: None, exchange_ts_ms: None, received_at_ms: 1_700_000_000_000 };
+# let binance_tick = mk(Exchange::Binance, dec!(65000));
+# let coinbase_tick = mk(Exchange::Coinbase, dec!(65120));
 let mut detector = ArbDetector::new(10.0); // flag spreads > 10 bps
 
 // Ingest ticks as they arrive from the aggregator.
@@ -571,7 +600,10 @@ for opp in &opportunities {
 `ArbOpportunity` carries: `symbol`, `buy_feed`, `sell_feed`, `buy_price`,
 `sell_price`, `spread_bps`, and `detected_at_ms`.
 
-### Multi-Exchange NBBO Aggregation
+</details>
+
+<details>
+<summary><b>Multi-Exchange NBBO Aggregation</b></summary>
 
 `MultiExchangeAggregator` merges N per-exchange `NormalizedTick` streams into a
 single consolidated best bid/ask (NBBO-style view), tracks per-exchange latency
@@ -622,16 +654,20 @@ async fn example() -> Result<(), fin_stream::StreamError> {
 | `max_latency_divergence_ms(now_ms)` | Gap between fastest and slowest exchange (ms) |
 | `exchange_count()` | Number of exchanges with at least one tick |
 
-### Multi-Asset Portfolio Feed
+</details>
+
+<details>
+<summary><b>Multi-Asset Portfolio Feed</b></summary>
 
 `PortfolioFeed` manages one `WsManager` per registered asset in a `JoinSet`, merges
 all tick streams into a single `mpsc` channel, and provides a lock-free latest-tick
 snapshot via `DashMap`.
 
-```rust
+```rust,no_run
 use fin_stream::portfolio_feed::PortfolioFeed;
 use fin_stream::tick::Exchange;
 
+# async fn run() {
 let mut feed = PortfolioFeed::new(256);
 feed.add_asset("BTC-USD", Exchange::Coinbase).await;
 feed.add_asset("ETH-USD", Exchange::Coinbase).await;
@@ -644,13 +680,17 @@ while let Some((symbol, tick)) = rx.recv().await {
 
 // At any time, get the latest price for every asset:
 let snapshot = feed.portfolio_snapshot(); // HashMap<String, NormalizedTick>
+# }
 ```
 
 Auto-reconnect with exponential backoff is applied at the portfolio level: if any
 asset feed task exits due to a network error, it is restarted after a delay starting
 at 500 ms and doubling up to 30 s.
 
-### WebSocket Circuit Breaker
+</details>
+
+<details>
+<summary><b>WebSocket Circuit Breaker</b></summary>
 
 `WsCircuitBreaker` wraps the raw message channel from a `WsManager` and counts
 consecutive parse failures. After `failure_threshold` consecutive failures (default: 5)
@@ -691,7 +731,10 @@ async fn example() -> Result<(), fin_stream::StreamError> {
 | `initial_backoff` | 500 ms | Starting reconnect backoff |
 | `max_backoff` | 60 s | Reconnect backoff cap |
 
-### Symbol Circuit Breakers
+</details>
+
+<details>
+<summary><b>Symbol Circuit Breakers</b></summary>
 
 `SymbolCircuitBreaker` monitors each symbol independently and halts processing when
 price moves or volume surges exceed configured thresholds.
@@ -709,6 +752,7 @@ let config = HaltConfig::new(
     Duration::from_secs(60),   // 60 s halt duration
 );
 let hub = CircuitBreakerHub::new(config);
+# let tick = fin_stream::tick::NormalizedTick { exchange: fin_stream::tick::Exchange::Coinbase, symbol: "BTC-USD".into(), price: rust_decimal_macros::dec!(65000.25), quantity: rust_decimal_macros::dec!(0.5), side: None, trade_id: Some("7".into()), exchange_ts_ms: None, received_at_ms: 1_700_000_000_000 };
 
 // On each tick, per-symbol breaker created automatically:
 match hub.process_tick(&tick) {
@@ -722,13 +766,16 @@ let stats = hub.stats();
 println!("Total halts: {}  Currently halted: {:?}", stats.total_halts, stats.current_halted_symbols);
 ```
 
-### Feed Quality Scoring
+</details>
+
+<details>
+<summary><b>Feed Quality Scoring</b></summary>
 
 `QualityScorer` tracks per-symbol latency, gap rate, and duplicate rate over a configurable
 rolling window, then computes a composite score in `[0, 100]`.
 
 **Score formula:**
-```
+```text
 score = 100 × (1 − gap_rate) × (1 − duplicate_rate) × exp(−latency_p99_ms / 1000)
 ```
 
@@ -740,6 +787,8 @@ let scorer = QualityScorer::new(500);
 let mut gap_det = FeedGapDetector::new(2000);     // flag gaps > 2 s
 let mut dedup   = TickDeduplicator::new(DeduplicatorConfig::new(5000, HashFields::PriceQtyTimestamp), 256);
 
+# let tick = fin_stream::tick::NormalizedTick { exchange: fin_stream::tick::Exchange::Coinbase, symbol: "BTC-USD".into(), price: rust_decimal_macros::dec!(65000.25), quantity: rust_decimal_macros::dec!(0.5), side: None, trade_id: Some("7".into()), exchange_ts_ms: None, received_at_ms: 1_700_000_000_000 };
+# let prev_ts: Option<u64> = None;
 // On each received tick:
 let is_gap = gap_det.process("BTC-USD", tick.received_at_ms);
 let is_dup = dedup.check(&tick) == fin_stream::quality::DedupDecision::Duplicate;
@@ -757,7 +806,10 @@ println!("System health: {:.1}", report.system_health_score);
 println!("Worst feed: {:?}", report.worst_feed);
 ```
 
-### Tick Anomaly Detection
+</details>
+
+<details>
+<summary><b>Tick Anomaly Detection</b></summary>
 
 `TickAnomalyDetector` flags four anomaly types in a streaming tick pipeline.
 Normal ticks are always forwarded unchanged; anomaly events are emitted on a
@@ -801,7 +853,10 @@ async fn example() {
 | `SequenceGap` | `trade_id` (integer) skips one or more sequence numbers |
 | `TimestampInversion` | `tick.received_at_ms < previous tick's received_at_ms` |
 
-### Replay Engine
+</details>
+
+<details>
+<summary><b>Replay Engine</b></summary>
 
 `TickReplayer` reads NDJSON tick files and replays them at configurable speed
 through the `TickSource` trait, the same interface used by live WebSocket feeds.
@@ -873,7 +928,10 @@ useful for continuous strategy back-tests without manually reloading the file.
 
 `ReplayStats::ticks_per_second()` computes throughput from the above fields.
 
-### Snapshot-and-Replay
+</details>
+
+<details>
+<summary><b>Snapshot-and-Replay</b></summary>
 
 `TickRecorder` writes ticks to a compact binary file (length-prefixed JSON
 records). `TickReplayer` reads the file back and re-emits ticks at original
@@ -926,7 +984,10 @@ async fn example() -> Result<(), fin_stream::StreamError> {
 Wire format: `[4 bytes LE u32 payload_length][JSON bytes]`. Human-inspectable and
 append-safe via `TickRecorder::open_append`.
 
-### Synthetic Market Data Generator
+</details>
+
+<details>
+<summary><b>Synthetic Market Data Generator</b></summary>
 
 `SyntheticMarketGenerator` drives four stochastic price models to produce
 `NormalizedTick` and `OhlcvBar` sequences for testing and simulation.
@@ -969,14 +1030,18 @@ Both `generate_ticks` and `generate_ohlcv` are deterministic given the same seed
 The generator uses a pure-Rust xorshift64 PRNG, no `unsafe` code, no external
 random-number dependencies.
 
-### FIX 4.2 Adapter
+</details>
+
+<details>
+<summary><b>FIX 4.2 Adapter</b></summary>
 
 `FixParser` is a stateless, `Send + Sync` FIX 4.2 frame codec. `FixSession` wraps an
 async TCP connection and handles Logon, Heartbeat, and MarketData message flows.
 
-```rust
+```rust,no_run
 use fin_stream::fix::{FixParser, FixSession};
 
+# async fn run(raw_bytes: &[u8]) -> Result<(), fin_stream::FixError> {
 // Stateless parse/serialize, share across tasks via Arc:
 let parser = FixParser::new();
 let msg = parser.parse(&raw_bytes)?;
@@ -992,12 +1057,17 @@ while let Some(fix_msg) = session.read_message().await? {
         // tick is a NormalizedTick ready for the pipeline
     }
 }
+# Ok(())
+# }
 ```
 
 Supported message types: `A` (Logon), `0` (Heartbeat), `V` (MarketDataRequest),
 `W` (MarketDataSnapshot), `X` (MarketDataIncrementalRefresh).
 
-### gRPC Streaming Endpoint
+</details>
+
+<details>
+<summary><b>gRPC Streaming Endpoint</b></summary>
 
 Enable the `grpc` Cargo feature to expose the tick stream over gRPC using
 [tonic](https://github.com/hyperium/tonic). The proto is defined in
@@ -1053,7 +1123,10 @@ Clients filter by symbol and/or exchange name. Slow subscribers that fall behind
 the broadcast buffer receive a lagged notification and skip buffered ticks (no
 blocking of the fast path).
 
-### Streaming Correlation Matrix
+</details>
+
+<details>
+<summary><b>Streaming Correlation Matrix</b></summary>
 
 `StreamingCorrelationMatrix` maintains rolling Pearson r for every pair of registered
 assets. It uses Welford's online algorithm for numerically stable mean and variance, and
@@ -1064,6 +1137,7 @@ stores pairwise cross-covariance in a `DashMap` so multiple WebSocket feed tasks
 use fin_stream::correlation::StreamingCorrelationMatrix;
 
 let matrix = StreamingCorrelationMatrix::new(100); // 100-tick rolling window
+# let timestamp_ms = 1_700_000_000_000u64;
 
 // Feed ticks from any number of concurrent WebSocket tasks:
 matrix.update("BTC-USD", 30_000.0, timestamp_ms);
@@ -1082,7 +1156,10 @@ let hedges    = matrix.top_decorrelated("BTC-USD", 5); // most negative r
 let followers = matrix.top_correlated("BTC-USD", 5);   // most positive r
 ```
 
-### Order Flow Imbalance (OFI)
+</details>
+
+<details>
+<summary><b>Order Flow Imbalance (OFI)</b></summary>
 
 `OrderFlowImbalance` computes a signed measure of buying vs. selling pressure from
 top-of-book quotes. Unlike tick-test heuristics, OFI uses the full bid and ask queue
@@ -1118,26 +1195,27 @@ OFI < 0  → net selling pressure
 | `VpinResult` | Bucket result: `toxicity`, `buy_vol`, `sell_vol`, `imbalance`, `is_toxic(thr)` |
 
 ```rust
-use fin_stream::{OfiAccumulator, OfiMetricsComputer, OrderFlowImbalance, TopOfBook};
+use fin_stream::{OfiAccumulator, OfiMetricsComputer, OfiNanoTimestamp, OrderFlowImbalance, TopOfBook};
 use rust_decimal_macros::dec;
 
 fn main() -> Result<(), fin_stream::StreamError> {
     let mut raw   = OrderFlowImbalance::new();
     let mut accum = OfiAccumulator::new(50)?;   // 50-tick rolling window
-    let mut stats = OfiMetricsComputer::new(200); // 200-tick stats window
+    let mut stats = OfiMetricsComputer::new(200)?; // 200-tick stats window
 
     // Simulate top-of-book updates arriving from a WebSocket feed:
     let snap1 = TopOfBook { bid_price: dec!(50000), bid_qty: dec!(1.5),
                             ask_price: dec!(50001), ask_qty: dec!(2.0),
-                            timestamp: 0 };
+                            timestamp: OfiNanoTimestamp(0) };
     let snap2 = TopOfBook { bid_price: dec!(50000), bid_qty: dec!(2.0), // bid grew
                             ask_price: dec!(50001), ask_qty: dec!(1.8),
-                            timestamp: 1 };
+                            timestamp: OfiNanoTimestamp(1) };
 
-    let ofi_raw  = raw.update(snap1);
-    let ofi_raw2 = raw.update(snap2);           // = +0.5 − (−0.2) = +0.7 (net buy)
+    let _ofi_raw = raw.update(snap1);
+    let ofi_raw2 = raw.update(snap2);           // = +0.5 - (-0.2) = +0.7 (net buy)
 
-    let signal   = accum.update(ofi_raw2);      // OfiSignal { direction: Buy, strength: … }
+    accum.update(snap1);                        // the accumulator runs its own OFI
+    let signal   = accum.update(snap2);         // OfiSignal { direction, strength, value }
     let metrics  = stats.update(ofi_raw2);      // OfiMetrics { zscore, percentile_rank, … }
 
     println!("Direction: {:?}", signal.direction);
@@ -1179,20 +1257,20 @@ let mut vpin = ToxicityEstimator::new(1_000.0, 50); // 1 000 vol/bucket, 50-buck
 
 #### API reference: `ofi` module
 
-```rust
+```rust,ignore
 OrderFlowImbalance::new() -> OrderFlowImbalance
 OrderFlowImbalance::update(&mut self, snap: TopOfBook) -> f64
 OrderFlowImbalance::reset(&mut self)
 OrderFlowImbalance::tick_count(&self) -> u64
 
-OfiAccumulator::new(window_size: usize) -> Result<Self, StreamError>
-OfiAccumulator::update(&mut self, raw_ofi: f64) -> OfiSignal
+OfiAccumulator::new(window_size: usize) -> Result<OfiAccumulator, StreamError>
+OfiAccumulator::update(&mut self, snap: TopOfBook) -> OfiSignal
 
-OfiMetricsComputer::new(lookback: usize) -> OfiMetricsComputer
-OfiMetricsComputer::update(&mut self, raw_ofi: f64) -> OfiMetrics
+OfiMetricsComputer::new(lookback: usize) -> Result<OfiMetricsComputer, StreamError>
+OfiMetricsComputer::update(&mut self, ofi: f64) -> OfiMetrics
 OfiMetrics::is_significant(&self, z_threshold: f64) -> bool
 
-ToxicityEstimator::new(bucket_size: f64, n_buckets: usize) -> ToxicityEstimator
+ToxicityEstimator::new(bucket_size: f64, n_buckets: usize) -> Result<ToxicityEstimator, StreamError>
 ToxicityEstimator::update(&mut self, ofi: f64, volume: f64) -> Option<VpinResult>
 VpinResult::is_toxic(&self, threshold: f64) -> bool
 
@@ -1200,7 +1278,10 @@ TopOfBook::mid_price(&self) -> Decimal
 TopOfBook::spread(&self) -> Decimal
 ```
 
-### Order Flow Toxicity
+</details>
+
+<details>
+<summary><b>Order Flow Toxicity</b></summary>
 
 `OrderFlowToxicityAnalyzer` computes four complementary toxicity metrics in a single
 rolling-window pass over `NormalizedTick`s, identifying when smart-money (informed)
@@ -1232,7 +1313,10 @@ println!("All metrics valid: {}", m.is_valid());
 The legacy `VpinCalculator` (single VPIN metric, tick-test classification) is
 retained for backward compatibility; new code should use `OrderFlowToxicityAnalyzer`.
 
-### Market Microstructure Analytics
+</details>
+
+<details>
+<summary><b>Market Microstructure Analytics</b></summary>
 
 `MicrostructureMonitor` runs four complementary illiquidity and spread estimators
 on a single stream of `MicroTick`s, no separate data feeds required.
@@ -1293,35 +1377,38 @@ fn main() -> Result<(), fin_stream::StreamError> {
 
 #### API reference: `microstructure` module
 
-```rust
-MicroTick::new(price: f64, volume: f64, signed_volume: f64, timestamp_ns: i64)
+```rust,ignore
+MicroTick::new(price: f64, volume: f64, signed_volume: f64, timestamp_ns: i64) -> Result<MicroTick, StreamError>
     -> Result<MicroTick, StreamError>   // validates price > 0 and volume > 0
 
-MicrostructureMonitor::new(window_size: usize) -> Result<Self, StreamError>
+MicrostructureMonitor::new(window_size: usize) -> Result<MicrostructureMonitor, StreamError>
 MicrostructureMonitor::update(&mut self, tick: &MicroTick) -> Result<MicrostructureReport, StreamError>
 MicrostructureMonitor::reset(&mut self)
-MicrostructureMonitor::amihud(&self)   -> &AmihudIlliquidity
-MicrostructureMonitor::kyle(&self)     -> &KyleImpact
-MicrostructureMonitor::roll(&self)     -> &RollSpread
-MicrostructureMonitor::bounce(&self)   -> &BidAskBounce
+MicrostructureMonitor::amihud(&self) -> &AmihudIlliquidity
+MicrostructureMonitor::kyle(&self) -> &KyleImpact
+MicrostructureMonitor::roll(&self) -> &RollSpread
+MicrostructureMonitor::bounce_estimator(&self) -> &BidAskBounce
 
-AmihudIlliquidity::new(window_size: usize) -> AmihudIlliquidity
+AmihudIlliquidity::new(window_size: usize) -> Result<AmihudIlliquidity, StreamError>
 AmihudIlliquidity::update(&mut self, tick: &MicroTick) -> Option<f64>
 
-KyleImpact::new(window_size: usize) -> KyleImpact
+KyleImpact::new(window_size: usize) -> Result<KyleImpact, StreamError>
 KyleImpact::update(&mut self, tick: &MicroTick) -> Option<f64>
 
-RollSpread::new(window_size: usize) -> RollSpread
+RollSpread::new(window_size: usize) -> Result<RollSpread, StreamError>
 RollSpread::update(&mut self, tick: &MicroTick) -> Option<f64>
 
-BidAskBounce::new(window_size: usize) -> BidAskBounce
+BidAskBounce::new(window_size: usize) -> Result<BidAskBounce, StreamError>
 BidAskBounce::update(&mut self, tick: &MicroTick) -> Option<f64>
 
-MicrostructureReport::is_complete(&self) -> bool      // all four estimators have values
-MicrostructureReport::available_count(&self) -> usize // 0–4
+MicrostructureReport::is_complete(&self) -> bool            // all four estimators have values
+MicrostructureReport::available_count(&self) -> usize       // 0–4
 ```
 
-### Trade Classifier
+</details>
+
+<details>
+<summary><b>Trade Classifier</b></summary>
 
 The `classifier` module implements the Lee-Ready (1991) algorithm for buyer/seller-initiated
 trade classification from tick data.
@@ -1339,7 +1426,7 @@ trade classification from tick data.
 
 #### Lee-Ready Algorithm
 
-```
+```text
 price > quote_mid  →  BuyInitiated
 price < quote_mid  →  SellInitiated
 price == quote_mid →  tick test:
@@ -1350,11 +1437,14 @@ price == quote_mid →  tick test:
 
 #### Order Imbalance
 
-```
+```text
 OI = (buy_volume − sell_volume) / (buy_volume + sell_volume)   ∈ [−1, +1]
 ```
 
-### Real-Time Risk Metrics
+</details>
+
+<details>
+<summary><b>Real-Time Risk Metrics</b></summary>
 
 The `risk` module computes rolling risk metrics from a price tick window.
 
@@ -1376,7 +1466,10 @@ The `risk` module computes rolling risk metrics from a price tick window.
 | `sharpe(rf_daily)` | `(mean_return − rf) / std_dev × √252` (annualized) |
 | `portfolio_var(weights)` | Weighted sum: `Σ weight_i × VaR_i` |
 
-### Real-Time Regime Detection
+</details>
+
+<details>
+<summary><b>Real-Time Regime Detection</b></summary>
 
 `RegimeDetector` classifies an incoming stream of OHLCV bars into one of five
 market regimes using a rolling 100-bar window and three fused indicators.
@@ -1393,9 +1486,13 @@ market regimes using a rolling 100-bar window and three fused indicators.
 ```rust
 use fin_stream::regime::RegimeDetector;
 
+# use fin_stream::synthetic::{GeometricBrownianMotion, SyntheticMarketGenerator};
+# let mut gen = SyntheticMarketGenerator::new(7);
+# let bars = gen.generate_ohlcv(120, &mut GeometricBrownianMotion::new(0.0, 0.3, 100.0), fin_stream::ohlcv::Timeframe::Minutes(1));
+# let closes: Vec<f64> = bars.iter().map(|b| b.close.to_string().parse().unwrap()).collect();
 let mut detector = RegimeDetector::new(100); // 100-bar rolling window
 
-// … feed OhlcvBars …
+for bar in &bars { detector.update(bar); }
 println!("Regime:     {}", detector.current_regime());
 println!("Confidence: {:.1}%", detector.regime_confidence() * 100.0);
 
@@ -1418,7 +1515,10 @@ H ≈ 0.5 → random walk
 H < 0.5 → mean-reverting / anti-persistent
 ```
 
-### Statistical Arbitrage
+</details>
+
+<details>
+<summary><b>Statistical Arbitrage</b></summary>
 
 The `statarb` module detects cointegrated price pairs and emits spread-based trading signals.
 
@@ -1443,6 +1543,8 @@ The `statarb` module detects cointegrated price pairs and emits spread-based tra
 #### Usage
 
 ```rust
+use fin_stream::statarb::StatArbDetector;
+
 let mut det = StatArbDetector::new(50, 200);
 det.add_pair("AAPL", "MSFT");
 det.update("AAPL", 150.0);
@@ -1450,7 +1552,10 @@ det.update("MSFT", 300.0);
 let signals = det.signals(); // Vec<SpreadMonitor>
 ```
 
-### MEV Detection
+</details>
+
+<details>
+<summary><b>MEV Detection</b></summary>
 
 `MevDetector` applies three heuristic passes to a slice of `NormalizedTick`s and
 returns a `Vec<MevCandidate>` describing any patterns found.
@@ -1460,6 +1565,7 @@ use fin_stream::mev::{MevDetector, MevPattern};
 
 // 0.5% price impact threshold, 20-tick lookahead window:
 let detector = MevDetector::with_window(0.005, 20);
+# let block_ticks: Vec<fin_stream::tick::NormalizedTick> = Vec::new();
 let candidates = detector.analyze_block(&block_ticks);
 
 for c in &candidates {
@@ -1482,7 +1588,10 @@ for c in &candidates {
 `estimated_profit_usd` is a coarse order-of-magnitude estimate (price impact × quantity);
 `confidence` is in [0, 1] and saturates at 1.0 when the impact is 10× the threshold.
 
-### Analytics Suite
+</details>
+
+<details>
+<summary><b>Analytics Suite</b></summary>
 
 Batch and rolling-window analytics are available at each layer of the pipeline.
 
@@ -1532,16 +1641,17 @@ Both `MinMaxNormalizer` and `ZScoreNormalizer` expose identical analytics suites
 | Extremes | `max_fraction`, `min_fraction`, `peak_to_trough_ratio`, `range_normalized_value` |
 | Misc | `ema_of_z_scores`, `rms`, `distinct_count`, `interquartile_mean`, `latest_minus_mean`, `latest_to_mean_ratio` |
 
----
+</details>
 
-## Mathematical Definitions
+### Math
 
-### Min-Max Normalization
+<details>
+<summary><b>Min-Max Normalization</b></summary>
 
 Given a rolling window of `W` observations `x_1, ..., x_W` with minimum `m` and
 maximum `M`, the normalized value of a new sample `x` is:
 
-```
+```text
 x_norm = (x - m) / (M - m)    when M != m
 x_norm = 0.0                  when M == m  (degenerate; all window values identical)
 ```
@@ -1549,11 +1659,14 @@ x_norm = 0.0                  when M == m  (degenerate; all window values identi
 The result is clamped to `[0.0, 1.0]`. This ensures that observations falling
 outside the current window range are mapped to the boundary rather than outside it.
 
-### Z-Score Normalization
+</details>
+
+<details>
+<summary><b>Z-Score Normalization</b></summary>
 
 Given a rolling window of `W` observations with mean `μ` and standard deviation `σ`:
 
-```
+```text
 z = (x - μ) / σ    when σ != 0
 z = 0.0            when σ == 0  (degenerate; all window values identical)
 ```
@@ -1561,12 +1674,15 @@ z = 0.0            when σ == 0  (degenerate; all window values identical)
 `ZScoreNormalizer` also provides IQR, percentile rank, variance, EMA of z-scores,
 and rolling mean change across the window.
 
-### Lorentz Transform
+</details>
+
+<details>
+<summary><b>Lorentz Transform</b></summary>
 
 The `LorentzTransform` applies the special-relativistic boost with velocity
 parameter `beta = v/c` (speed of light normalized to `c = 1`):
 
-```
+```text
 t' = gamma * (t - beta * x)
 x' = gamma * (x - beta * t)
 
@@ -1576,7 +1692,7 @@ where  beta  = v/c            (0 <= beta < 1, dimensionless drift velocity)
 
 The inverse transform is:
 
-```
+```text
 t  = gamma * (t' + beta * x')
 x  = gamma * (x' + beta * t')
 ```
@@ -1591,7 +1707,10 @@ price-time plane along Lorentz hyperbolas. Certain microstructure signals that
 appear curved in the untransformed frame can appear as straight lines in a
 suitably boosted frame, simplifying downstream linear models.
 
-### OHLCV Invariants
+</details>
+
+<details>
+<summary><b>OHLCV Invariants</b></summary>
 
 Every completed `OhlcvBar` satisfies:
 
@@ -1602,7 +1721,10 @@ Every completed `OhlcvBar` satisfies:
 | Valid ordering | `high >= low` |
 | Volume non-negative | `volume >= 0` |
 
-### Order Book Guarantees
+</details>
+
+<details>
+<summary><b>Order Book Guarantees</b></summary>
 
 | Property | Guarantee |
 |---|---|
@@ -1610,32 +1732,40 @@ Every completed `OhlcvBar` satisfies:
 | Sequence gap detection | If a delta carries a sequence number that is not exactly `last_sequence + 1`, the apply returns `StreamError::BookReconstructionFailed` |
 | Zero quantity removes level | A delta with `quantity = 0` removes the price level entirely |
 
-### Reconnect Backoff
+</details>
+
+<details>
+<summary><b>Reconnect Backoff</b></summary>
 
 `ReconnectPolicy::backoff_for_attempt(n)` returns:
 
-```
+```text
 backoff(n) = min(initial_backoff * multiplier^n, max_backoff)
 ```
 
 `multiplier` must be `>= 1.0` and `max_attempts` must be `> 0`; both are validated
 at construction time.
 
-## API Reference
+</details>
 
-### `tick` module
+### API signatures
 
-```rust
+Core methods per module. [docs.rs](https://docs.rs/fin-stream) has the complete list.
+
+<details>
+<summary><b><code>tick</code> module</b></summary>
+
+```rust,ignore
 // Parse an exchange identifier string.
-Exchange::from_str("binance") -> Result<Exchange, StreamError>
+"binance".parse::<Exchange>() -> Result<Exchange, StreamError>  // FromStr
 Exchange::Display              // "Binance" / "Coinbase" / "Alpaca" / "Polygon"
 
 // Construct a raw tick (system clock stamp applied automatically).
 RawTick::new(exchange: Exchange, symbol: impl Into<String>, payload: serde_json::Value) -> RawTick
 
 // Normalize a raw tick into a canonical representation.
-TickNormalizer::new() -> TickNormalizer
-TickNormalizer::normalize(&self, raw: RawTick) -> Result<NormalizedTick, StreamError>
+TickNormalizer::new(price_decimals: u32) -> TickNormalizer
+TickNormalizer::normalize(&self, mut tick: RawTick) -> RawTick
 
 // NormalizedTick query methods
 NormalizedTick::is_above_price(&self, reference: Decimal) -> bool
@@ -1645,72 +1775,77 @@ NormalizedTick::price_change_from(&self, reference: Decimal) -> Decimal
 NormalizedTick::quantity_above(&self, threshold: Decimal) -> bool
 NormalizedTick::is_round_number(&self, step: Decimal) -> bool
 NormalizedTick::is_market_open_tick(&self, session_start_ms: u64, session_end_ms: u64) -> bool
-NormalizedTick::signed_quantity(&self) -> Decimal   // +qty Buy, -qty Sell, 0 Unknown
+NormalizedTick::signed_quantity(&self) -> Decimal           // +qty Buy, -qty Sell, 0 Unknown
 NormalizedTick::as_price_level(&self) -> (Decimal, Decimal)  // (price, quantity)
 NormalizedTick::is_buy(&self) -> bool
 NormalizedTick::is_sell(&self) -> bool
 NormalizedTick::age_ms(&self, now_ms: u64) -> u64
 NormalizedTick::has_exchange_ts(&self) -> bool
-NormalizedTick::exchange_latency_ms(&self, now_ms: u64) -> Option<u64>
-NormalizedTick::price_change_pct(&self, reference: Decimal) -> Option<f64>
+NormalizedTick::exchange_latency_ms(&self) -> Option<i64>
 NormalizedTick::is_same_symbol_as(&self, other: &NormalizedTick) -> bool
 NormalizedTick::side_str(&self) -> &'static str
 NormalizedTick::is_large_tick(&self, threshold: Decimal) -> bool
 NormalizedTick::is_zero_quantity(&self) -> bool
-NormalizedTick::dollar_value(&self) -> Decimal      // price * quantity
-NormalizedTick::vwap(&self, total_volume: Decimal, cumulative_pv: Decimal) -> Option<Decimal>
+NormalizedTick::dollar_value(&self) -> Decimal              // price * quantity
+NormalizedTick::vwap(ticks: &[NormalizedTick]) -> Option<Decimal>
 ```
 
-### `ring` module
+</details>
 
-```rust
+<details>
+<summary><b><code>ring</code> module</b></summary>
+
+```rust,ignore
 // Create a const-generic SPSC ring buffer.
 SpscRing::<T, N>::new() -> SpscRing<T, N>          // N slots, zero allocation
 
 // Split into thread-safe producer/consumer halves.
 SpscRing::split(self) -> (SpscProducer<T, N>, SpscConsumer<T, N>)
 
-SpscProducer::push(&self, value: T) -> Result<(), StreamError>  // StreamError::RingBufferFull on overflow
-SpscConsumer::pop(&self) -> Result<T, StreamError>              // StreamError::RingBufferEmpty on underflow
-SpscRing::len(&self) -> usize                                   // items currently queued
+SpscProducer::push(&self, item: T) -> Result<(), StreamError>  // StreamError::RingBufferFull on overflow
+SpscConsumer::pop(&self) -> Result<T, StreamError>          // StreamError::RingBufferEmpty on underflow
+SpscRing::len(&self) -> usize                               // items currently queued
 SpscRing::is_empty(&self) -> bool
-SpscRing::capacity(&self) -> usize                              // always N
+SpscRing::capacity(&self) -> usize                          // always N
 
 // Analytics on a populated ring (clone-based reads on initialized slots)
-SpscRing::sum_cloned(&self) -> T                where T: Clone + Sum + Default
-SpscRing::average_cloned(&self) -> Option<f64>  where T: Clone + Into<f64>
-SpscRing::peek_nth(&self, n: usize) -> Option<T> where T: Clone   // 0 = oldest
-SpscRing::contains_cloned(&self, value: &T) -> bool where T: Clone + PartialEq
+SpscRing::sum_cloned(&self) -> T
+SpscRing::average_cloned(&self) -> Option<f64>
+SpscRing::peek_nth(&self, n: usize) -> Option<T>            // 0 = oldest
+SpscRing::contains_cloned(&self, value: &T) -> bool
 SpscRing::max_cloned_by<F, K>(&self, key: F) -> Option<T>  where F: Fn(&T) -> K, K: Ord
 SpscRing::min_cloned_by<F, K>(&self, key: F) -> Option<T>  where F: Fn(&T) -> K, K: Ord
-SpscRing::to_vec_sorted(&self) -> Vec<T>        where T: Clone + Ord
-SpscRing::to_vec_cloned(&self) -> Vec<T>        where T: Clone
-SpscRing::first(&self) -> Option<T>             where T: Clone   // oldest item
-SpscRing::drain_into(&self, dest: &mut Vec<T>)  where T: Clone
+SpscRing::to_vec_sorted(&self) -> Vec<T>
+SpscRing::to_vec_cloned(&self) -> Vec<T>
+SpscRing::first(&self) -> Option<T>                         // oldest item
+SpscRing::drain_into(&self, buf: &mut Vec<T>)
 ```
 
-### `book` module
+</details>
 
-```rust
+<details>
+<summary><b><code>book</code> module</b></summary>
+
+```rust,ignore
 // Construct a delta (sequence number optional).
-BookDelta::new(symbol, side: BookSide, price: Decimal, quantity: Decimal) -> BookDelta
+BookDelta::new(symbol: impl Into<String>, side: BookSide, price: Decimal, quantity: Decimal) -> BookDelta
 BookDelta::with_sequence(self, seq: u64) -> BookDelta
 
 // Apply deltas and query the book.
 OrderBook::new(symbol: impl Into<String>) -> OrderBook
 OrderBook::apply(&mut self, delta: BookDelta) -> Result<(), StreamError>
-OrderBook::reset(&mut self, bids: Vec<PriceLevel>, asks: Vec<PriceLevel>)
-OrderBook::best_bid(&self) -> Option<Decimal>
-OrderBook::best_ask(&self) -> Option<Decimal>
+OrderBook::reset(&mut self, bids: Vec<PriceLevel>, asks: Vec<PriceLevel>) -> Result<(), StreamError>
+OrderBook::best_bid(&self) -> Option<PriceLevel>
+OrderBook::best_ask(&self) -> Option<PriceLevel>
 OrderBook::mid_price(&self) -> Option<Decimal>
 OrderBook::spread(&self) -> Option<Decimal>
-OrderBook::spread_bps(&self) -> Option<Decimal>
+OrderBook::spread_bps(&self) -> Option<f64>
 OrderBook::top_bids(&self, n: usize) -> Vec<PriceLevel>
 OrderBook::top_asks(&self, n: usize) -> Vec<PriceLevel>
 OrderBook::total_bid_volume(&self) -> Decimal
 OrderBook::total_ask_volume(&self) -> Decimal
 OrderBook::bid_ask_volume_ratio(&self) -> Option<f64>
-OrderBook::depth_imbalance(&self) -> Option<f64>
+OrderBook::depth_imbalance(&self, n: usize) -> Option<f64>
 OrderBook::weighted_mid_price(&self) -> Option<Decimal>
 OrderBook::bid_levels_above(&self, price: Decimal) -> usize
 OrderBook::ask_levels_below(&self, price: Decimal) -> usize
@@ -1718,9 +1853,8 @@ OrderBook::bid_volume_at_price(&self, price: Decimal) -> Option<Decimal>
 OrderBook::ask_volume_at_price(&self, price: Decimal) -> Option<Decimal>
 OrderBook::cumulative_bid_volume(&self, n: usize) -> Decimal
 OrderBook::cumulative_ask_volume(&self, n: usize) -> Decimal
-OrderBook::is_within_spread(&self, price: Decimal) -> bool
-OrderBook::bid_wall(&self, threshold: Decimal) -> Option<Decimal>
-OrderBook::ask_wall(&self, threshold: Decimal) -> Option<Decimal>
+OrderBook::bid_wall(&self, min_qty: Decimal) -> Option<PriceLevel>
+OrderBook::ask_wall(&self, min_qty: Decimal) -> Option<PriceLevel>
 
 // Extended book analytics (added rounds 36–40)
 OrderBook::total_value_at_level(&self, side: BookSide, price: Decimal) -> Option<Decimal>
@@ -1733,35 +1867,38 @@ OrderBook::ask_price_at_rank(&self, n: usize) -> Option<Decimal>  // 0 = best as
 OrderBook::bid_price_at_rank(&self, n: usize) -> Option<Decimal>  // 0 = best bid
 ```
 
-### `ohlcv` module
+</details>
 
-```rust
+<details>
+<summary><b><code>ohlcv</code> module</b></summary>
+
+```rust,ignore
 // Construct an aggregator.
-OhlcvAggregator::new(symbol: impl Into<String>, timeframe: Timeframe) -> OhlcvAggregator
-OhlcvAggregator::with_emit_empty_bars(self, emit: bool) -> OhlcvAggregator
+OhlcvAggregator::new(symbol: impl Into<String>, timeframe: Timeframe) -> Result<OhlcvAggregator, StreamError>
+OhlcvAggregator::with_emit_empty_bars(self, enabled: bool) -> OhlcvAggregator
 
 // Feed ticks; returns completed bars (may be empty or multiple on gaps).
 OhlcvAggregator::feed(&mut self, tick: &NormalizedTick) -> Result<Vec<OhlcvBar>, StreamError>
 
 // Bar boundary alignment.
-Timeframe::duration_ms(self) -> u64
+Timeframe::duration_ms(&self) -> u64
 Timeframe::bar_start_ms(self, ts_ms: u64) -> u64
 
 // OhlcvBar computed properties
 OhlcvBar::true_range(&self, prev_close: Decimal) -> Decimal
-OhlcvBar::body_ratio(&self) -> Option<f64>          // body / range
+OhlcvBar::body_ratio(&self) -> Option<f64>                  // body / range
 OhlcvBar::upper_shadow(&self) -> Decimal
 OhlcvBar::lower_shadow(&self) -> Decimal
-OhlcvBar::hlc3(&self) -> Decimal                    // (high + low + close) / 3
-OhlcvBar::ohlc4(&self) -> Decimal                   // (open + high + low + close) / 4
-OhlcvBar::typical_price(&self) -> Decimal           // hlc3 alias
-OhlcvBar::weighted_close(&self) -> Decimal          // (high + low + 2*close) / 4
-OhlcvBar::close_location_value(&self) -> Option<f64>  // (close - low) / (high - low)
+OhlcvBar::hlc3(&self) -> Decimal                            // (high + low + close) / 3
+OhlcvBar::ohlc4(&self) -> Decimal                           // (open + high + low + close) / 4
+OhlcvBar::typical_price(&self) -> Decimal                   // hlc3 alias
+OhlcvBar::weighted_close(&self) -> Decimal                  // (high + low + 2*close) / 4
+OhlcvBar::close_location_value(&self) -> Option<f64>        // (close - low) / (high - low)
 OhlcvBar::is_bullish(&self) -> bool
 OhlcvBar::is_bearish(&self) -> bool
-OhlcvBar::is_doji(&self, threshold: Decimal) -> bool
-OhlcvBar::is_marubozu(&self, wick_threshold: Decimal) -> bool
-OhlcvBar::is_spinning_top(&self, body_threshold: Decimal) -> bool
+OhlcvBar::is_doji(&self, epsilon: Decimal) -> bool
+OhlcvBar::is_marubozu(&self) -> bool
+OhlcvBar::is_spinning_top(&self, body_pct: Decimal) -> bool
 OhlcvBar::is_shooting_star(&self) -> bool
 OhlcvBar::is_inside_bar(&self, prev: &OhlcvBar) -> bool
 OhlcvBar::is_outside_bar(&self, prev: &OhlcvBar) -> bool
@@ -1769,13 +1906,12 @@ OhlcvBar::is_harami(&self, prev: &OhlcvBar) -> bool
 OhlcvBar::is_engulfing(&self, prev: &OhlcvBar) -> bool
 OhlcvBar::has_upper_wick(&self) -> bool
 OhlcvBar::has_lower_wick(&self) -> bool
-OhlcvBar::volume_notional(&self) -> Decimal         // volume * close
-OhlcvBar::range_pct(&self) -> Option<f64>           // (high - low) / open
-OhlcvBar::price_change_pct(&self, prev: &OhlcvBar) -> Option<f64>
-OhlcvBar::body_size(&self) -> Decimal               // |close - open|
+OhlcvBar::range_pct(&self) -> Option<f64>                   // (high - low) / open
+OhlcvBar::price_change_pct(&self) -> Option<f64>
+OhlcvBar::body_size(&self) -> Decimal                       // |close - open|
 
 // Analytics added in rounds 35–41
-OhlcvBar::mean_volume(bars: &[OhlcvBar]) -> Option<Decimal>   // static
+OhlcvBar::mean_volume(bars: &[OhlcvBar]) -> Option<Decimal>  // static
 OhlcvBar::vwap_deviation(&self) -> Option<f64>
 OhlcvBar::relative_volume(&self, avg_volume: Decimal) -> Option<f64>
 OhlcvBar::intraday_reversal(&self, prev: &OhlcvBar) -> bool
@@ -1812,42 +1948,45 @@ OhlcvBar::avg_wick_symmetry(bars: &[OhlcvBar]) -> Option<f64>
 OhlcvBar::complete_fraction(bars: &[OhlcvBar]) -> Option<f64>
 ```
 
-### `norm` module
+</details>
+
+<details>
+<summary><b><code>norm</code> module</b></summary>
 
 Both normalizers expose 80+ analytics. Only core methods are shown here; see
 the **Analytics Suite** section above for the full categorized function list.
 
-```rust
+```rust,ignore
 // Min-max rolling normalizer
-MinMaxNormalizer::new(window_size: usize) -> MinMaxNormalizer  // panics if window_size == 0
-MinMaxNormalizer::update(&mut self, value: f64)                // O(1) amortized
-MinMaxNormalizer::normalize(&mut self, value: f64) -> Result<f64, StreamError>  // [0.0, 1.0]
-MinMaxNormalizer::min_max(&mut self) -> Option<(f64, f64)>
+MinMaxNormalizer::new(window_size: usize) -> Result<MinMaxNormalizer, StreamError>
+MinMaxNormalizer::update(&mut self, value: Decimal)         // O(1) amortized
+MinMaxNormalizer::normalize(&mut self, value: Decimal) -> Result<f64, StreamError>  // [0.0, 1.0]
+MinMaxNormalizer::min_max(&mut self) -> Option<(Decimal, Decimal)>
 MinMaxNormalizer::reset(&mut self)
 MinMaxNormalizer::len(&self) -> usize
 MinMaxNormalizer::is_empty(&self) -> bool
 MinMaxNormalizer::window_size(&self) -> usize
-MinMaxNormalizer::count_above(&self, threshold: f64) -> usize
+MinMaxNormalizer::count_above(&self, threshold: Decimal) -> usize
 MinMaxNormalizer::normalized_range(&mut self) -> Option<f64>
 MinMaxNormalizer::fraction_above_mid(&mut self) -> Option<f64>
 // ... 70+ additional analytics (moments, percentiles, trend, shape, see Analytics Suite)
 
 // Z-score rolling normalizer
-ZScoreNormalizer::new(window_size: usize) -> ZScoreNormalizer
-ZScoreNormalizer::update(&mut self, value: f64)
-ZScoreNormalizer::normalize(&mut self, value: f64) -> Result<f64, StreamError>
-ZScoreNormalizer::mean(&self) -> Option<f64>
+ZScoreNormalizer::new(window_size: usize) -> Result<ZScoreNormalizer, StreamError>
+ZScoreNormalizer::update(&mut self, value: Decimal)
+ZScoreNormalizer::normalize(&self, value: Decimal) -> Result<f64, StreamError>
+ZScoreNormalizer::mean(&self) -> Option<Decimal>
 ZScoreNormalizer::std_dev(&self) -> Option<f64>
 ZScoreNormalizer::variance_f64(&self) -> Option<f64>
 ZScoreNormalizer::len(&self) -> usize
 ZScoreNormalizer::is_empty(&self) -> bool
 ZScoreNormalizer::window_size(&self) -> usize
-ZScoreNormalizer::interquartile_range(&self) -> Option<f64>
-ZScoreNormalizer::percentile_rank(&self, value: f64) -> Option<f64>
+ZScoreNormalizer::interquartile_range(&self) -> Option<Decimal>
+ZScoreNormalizer::percentile_rank(&self, value: Decimal) -> Option<f64>
 ZScoreNormalizer::ema_of_z_scores(&self, alpha: f64) -> Option<f64>
-ZScoreNormalizer::trim_outliers(&self, z_threshold: f64) -> Vec<f64>
-ZScoreNormalizer::is_outlier(&self, value: f64, z_threshold: f64) -> bool
-ZScoreNormalizer::clamp_to_window(&self, value: f64) -> f64
+ZScoreNormalizer::trim_outliers(&self, sigma: f64) -> Vec<Decimal>
+ZScoreNormalizer::is_outlier(&self, value: Decimal, z_threshold: f64) -> bool
+ZScoreNormalizer::clamp_to_window(&self, value: Decimal) -> Decimal
 ZScoreNormalizer::rolling_mean_change(&self) -> Option<f64>
 ZScoreNormalizer::count_positive_z_scores(&self) -> usize
 ZScoreNormalizer::above_threshold_count(&self, z_threshold: f64) -> usize
@@ -1856,43 +1995,49 @@ ZScoreNormalizer::is_mean_stable(&self, threshold: f64) -> bool
 // ... 60+ additional analytics (see Analytics Suite)
 ```
 
-### `lorentz` module
+</details>
 
-```rust
+<details>
+<summary><b><code>lorentz</code> module</b></summary>
+
+```rust,ignore
 LorentzTransform::new(beta: f64) -> Result<LorentzTransform, StreamError>  // beta in [0, 1)
 LorentzTransform::beta(&self) -> f64
 LorentzTransform::gamma(&self) -> f64
 LorentzTransform::transform(&self, p: SpacetimePoint) -> SpacetimePoint
 LorentzTransform::inverse_transform(&self, p: SpacetimePoint) -> SpacetimePoint
 LorentzTransform::transform_batch(&self, points: &[SpacetimePoint]) -> Vec<SpacetimePoint>
-LorentzTransform::dilate_time(&self, t: f64) -> f64        // t' = gamma * t (x = 0)
-LorentzTransform::contract_length(&self, x: f64) -> f64   // x' = x / gamma (t = 0)
-LorentzTransform::spacetime_interval(&self, p: SpacetimePoint) -> f64  // t^2 - x^2
-LorentzTransform::rapidity(&self) -> f64                   // atanh(beta)
+LorentzTransform::dilate_time(&self, t: f64) -> f64         // t' = gamma * t (x = 0)
+LorentzTransform::contract_length(&self, x: f64) -> f64     // x' = x / gamma (t = 0)
+LorentzTransform::spacetime_interval(p1: SpacetimePoint, p2: SpacetimePoint) -> f64  // t^2 - x^2
+LorentzTransform::rapidity(&self) -> f64                    // atanh(beta)
 LorentzTransform::relativistic_momentum(&self, mass: f64) -> f64  // gamma * mass * beta
-LorentzTransform::four_momentum(&self, mass: f64) -> (f64, f64)   // (E, p)
-LorentzTransform::velocity_addition(&self, other_beta: f64) -> Result<f64, StreamError>
-LorentzTransform::proper_acceleration(&self, coordinate_accel: f64) -> f64
-LorentzTransform::proper_length(&self, coordinate_length: f64) -> f64
-LorentzTransform::time_dilation_ms(&self, coordinate_time_ms: f64) -> f64
-LorentzTransform::boost_composition(&self, other: &LorentzTransform) -> Result<LorentzTransform, StreamError>
-LorentzTransform::beta_times_gamma(&self) -> f64           // β·γ
-LorentzTransform::energy_momentum_invariant(&self, mass: f64) -> f64  // E² - p² = m²
+LorentzTransform::four_momentum(&self, mass: f64) -> (f64, f64)  // (E, p)
+LorentzTransform::velocity_addition(beta1: f64, beta2: f64) -> Result<f64, StreamError>
+LorentzTransform::proper_acceleration(&self, force: f64, mass: f64) -> Option<f64>
+LorentzTransform::proper_length(&self, observed: f64) -> f64
+LorentzTransform::time_dilation_ms(&self, proper_ms: f64) -> f64
+LorentzTransform::boost_composition(beta1: f64, beta2: f64) -> Result<f64, StreamError>
+LorentzTransform::beta_times_gamma(&self) -> f64            // β·γ
+LorentzTransform::energy_momentum_invariant(&self, rest_mass: f64) -> f64  // E² - p² = m²
 
 SpacetimePoint::new(t: f64, x: f64) -> SpacetimePoint
 SpacetimePoint { t: f64, x: f64 }  // public fields
 ```
 
-### `health` module
+</details>
 
-```rust
+<details>
+<summary><b><code>health</code> module</b></summary>
+
+```rust,ignore
 HealthMonitor::new(default_stale_threshold_ms: u64) -> HealthMonitor
 HealthMonitor::with_circuit_breaker_threshold(self, threshold: u32) -> HealthMonitor
 HealthMonitor::register(&self, feed_id: impl Into<String>, stale_threshold_ms: Option<u64>)
-HealthMonitor::register_many(&self, feed_ids: &[impl AsRef<str>])
-HealthMonitor::register_batch(&self, feeds: &[(impl AsRef<str>, u64)])  // per-feed custom thresholds
+HealthMonitor::register_many(&self, ids: &[&str], stale_threshold_ms: Option<u64>)
+HealthMonitor::register_batch(&self, feeds: &[(&str, u64)])  // per-feed custom thresholds
 HealthMonitor::heartbeat(&self, feed_id: &str, ts_ms: u64) -> Result<(), StreamError>
-HealthMonitor::check_all(&self, now_ms: u64) -> Vec<StreamError>
+HealthMonitor::check_all(&self, now_ms: u64) -> Vec<(String, StreamError)>
 HealthMonitor::is_circuit_open(&self, feed_id: &str) -> bool
 HealthMonitor::get(&self, feed_id: &str) -> Option<FeedHealth>
 HealthMonitor::all_feeds(&self) -> Vec<FeedHealth>
@@ -1901,9 +2046,9 @@ HealthMonitor::healthy_count(&self) -> usize
 HealthMonitor::stale_count(&self) -> usize
 HealthMonitor::degraded_count(&self) -> usize
 HealthMonitor::healthy_feed_ids(&self) -> Vec<String>
-HealthMonitor::unknown_feed_ids(&self) -> Vec<String>      // feeds with no heartbeat yet
-HealthMonitor::feeds_needing_check(&self) -> Vec<String>   // sorted non-Healthy feed IDs
-HealthMonitor::ratio_healthy(&self) -> f64                 // healthy / total
+HealthMonitor::unknown_feed_ids(&self) -> Vec<String>       // feeds with no heartbeat yet
+HealthMonitor::feeds_needing_check(&self) -> Vec<String>    // sorted non-Healthy feed IDs
+HealthMonitor::ratio_healthy(&self) -> f64                  // healthy / total
 HealthMonitor::total_tick_count(&self) -> u64
 HealthMonitor::last_updated_feed_id(&self) -> Option<String>
 HealthMonitor::is_any_stale(&self) -> bool
@@ -1912,33 +2057,39 @@ HealthMonitor::min_healthy_age_ms(&self, now_ms: u64) -> Option<u64>
 FeedHealth::elapsed_ms(&self, now_ms: u64) -> Option<u64>
 ```
 
-### `session` module
+</details>
 
-```rust
+<details>
+<summary><b><code>session</code> module</b></summary>
+
+```rust,ignore
 SessionAwareness::new(session: MarketSession) -> SessionAwareness
 SessionAwareness::status(&self, utc_ms: u64) -> Result<TradingStatus, StreamError>
-SessionAwareness::is_active(&self, utc_ms: u64) -> bool          // Open or Extended
-SessionAwareness::remaining_ms(&self, utc_ms: u64) -> Option<u64>
-SessionAwareness::time_until_close(&self, utc_ms: u64) -> Option<u64>
-SessionAwareness::minutes_until_close(&self, utc_ms: u64) -> Option<f64>
-SessionAwareness::session_duration(&self) -> u64
+SessionAwareness::is_active(&self, utc_ms: u64) -> bool     // Open or Extended
+SessionAwareness::remaining_ms(&self, utc_ms: u64) -> u64
+SessionAwareness::time_until_close_ms(&self, utc_ms: u64) -> u64
+SessionAwareness::minutes_until_close(&self, utc_ms: u64) -> u64
+MarketSession::session_duration_ms(self) -> u64
 SessionAwareness::is_pre_market(&self, utc_ms: u64) -> bool
 SessionAwareness::is_after_hours(&self, utc_ms: u64) -> bool
-SessionAwareness::session_label(&self) -> &'static str
+SessionAwareness::session_label(&self, utc_ms: u64) -> &'static str
 SessionAwareness::session_name(&self) -> &'static str
 SessionAwareness::seconds_until_open(&self, utc_ms: u64) -> f64
 SessionAwareness::is_closing_bell_minute(&self, utc_ms: u64) -> bool
-SessionAwareness::is_expiry_week(&self, date: chrono::NaiveDate) -> bool
-SessionAwareness::is_fomc_blackout_window(&self, date: chrono::NaiveDate) -> bool
-SessionAwareness::is_market_holiday_adjacent(&self, date: chrono::NaiveDate) -> bool
-SessionAwareness::day_of_week_name(&self, date: chrono::NaiveDate) -> &'static str
+SessionAwareness::is_expiry_week(date: NaiveDate) -> bool
+SessionAwareness::is_fomc_blackout_window(date: NaiveDate) -> bool
+SessionAwareness::is_market_holiday_adjacent(date: NaiveDate) -> bool
+SessionAwareness::day_of_week_name(date: NaiveDate) -> &'static str
 
 is_tradeable(session: MarketSession, utc_ms: u64) -> Result<bool, StreamError>
 ```
 
-### `ws` module
+</details>
 
-```rust
+<details>
+<summary><b><code>ws</code> module</b></summary>
+
+```rust,ignore
 ReconnectPolicy::new(
     max_attempts: u32,
     initial_backoff: Duration,
@@ -1949,32 +2100,73 @@ ReconnectPolicy::default() -> ReconnectPolicy   // 10 attempts, 500ms initial, 3
 ReconnectPolicy::backoff_for_attempt(&self, attempt: u32) -> Duration
 
 ConnectionConfig::new(url: impl Into<String>, channel_capacity: usize) -> Result<ConnectionConfig, StreamError>
-ConnectionConfig::with_reconnect_policy(self, policy: ReconnectPolicy) -> ConnectionConfig
+ConnectionConfig::with_reconnect(self, policy: ReconnectPolicy) -> ConnectionConfig
 ConnectionConfig::with_ping_interval(self, interval: Duration) -> ConnectionConfig
 
 WsManager::new(config: ConnectionConfig) -> WsManager
-WsManager::connect(&mut self) -> Result<(), StreamError>
-WsManager::disconnect(&mut self)
+WsManager::run(&mut self, message_tx: mpsc::Sender<String>, outbound_rx: Option<mpsc::Receiver<String>>)
+    -> Result<(), StreamError>   // async: connect, forward text frames, reconnect with backoff
 WsManager::is_connected(&self) -> bool
 WsManager::next_reconnect_backoff(&mut self) -> Result<Duration, StreamError>
 ```
 
-## Precision and Accuracy Notes
+</details>
 
-- **Price and quantity fields** use `rust_decimal::Decimal`, a 96-bit integer
-  mantissa with a power-of-10 exponent. This guarantees exact representation of
-  any finite decimal number with up to 28 significant digits. There is no
-  floating-point rounding error on price arithmetic.
-- **Normalization (`f64`)** uses IEEE 754 double precision. The error bound on
-  `normalize(x)` is roughly `2 * machine_epsilon * |x|` in the worst case.
-  For typical price ranges this is well below any practical threshold.
-- **Lorentz parameters (`f64`)** use `f64` throughout. The round-trip error of
-  `inverse_transform(transform(p))` is bounded by `4 * gamma^2 * machine_epsilon`.
-  For `beta <= 0.9`, `gamma <= ~2.3` and the round-trip error is `< 1e-13`.
-- **Bar aggregation** accumulates volume with `Decimal` addition. OHLC fields
-  carry the exact decimal values from normalized ticks with no intermediate rounding.
+### Extending the pipeline
 
-## Error Handling
+<details>
+<summary><b>Implementing a custom tick normalizer</b></summary>
+
+```rust
+use fin_stream::tick::{NormalizedTick, RawTick, TradeSide};
+use fin_stream::error::StreamError;
+
+struct MyNormalizer;
+
+impl MyNormalizer {
+    fn normalize(&self, raw: RawTick) -> Result<NormalizedTick, StreamError> {
+        let price = raw.payload["price"]
+            .as_str()
+            .ok_or_else(|| StreamError::ParseError { exchange: "mine".into(), reason: "missing price".into() })?
+            .parse()
+            .map_err(|e: rust_decimal::Error| StreamError::ParseError { exchange: "mine".into(), reason: e.to_string() })?;
+        Ok(NormalizedTick {
+            exchange: raw.exchange,
+            symbol: raw.symbol.clone(),
+            price,
+            quantity: rust_decimal::Decimal::ONE,
+            side: Some(TradeSide::Buy),
+            trade_id: None,
+            exchange_ts_ms: None,
+            received_at_ms: raw.received_at_ms,
+        })
+    }
+}
+```
+
+</details>
+
+<details>
+<summary><b>Implementing a custom downstream consumer</b></summary>
+
+```rust
+use fin_stream::ohlcv::OhlcvBar;
+
+fn process_bar(bar: &OhlcvBar) {
+    // Access typed fields: bar.open, bar.high, bar.low, bar.close, bar.volume
+    let range = bar.bar_range();
+    let body = bar.body_size();
+    println!("range={range} body={body} trades={}", bar.trade_count);
+    println!("close_location={:.4}", bar.close_location_value().unwrap_or(0.0));
+}
+```
+
+</details>
+
+### Errors and precision
+
+<details>
+<summary><b>Error handling: every <code>StreamError</code> variant</b></summary>
 
 All fallible operations return `Result<_, StreamError>`. `StreamError` variants:
 
@@ -1999,63 +2191,40 @@ All fallible operations return `Result<_, StreamError>`. `StreamError` variants:
 | `Io` | all | Underlying I/O error |
 | `WebSocket` | ws | WebSocket protocol-level error |
 
-## Custom Pipeline Extensions
+</details>
 
-### Implementing a custom tick normalizer
+<details>
+<summary><b>Precision and accuracy notes</b></summary>
 
-```rust
-use fin_stream::tick::{NormalizedTick, RawTick, TradeSide};
-use fin_stream::error::StreamError;
+- **Price and quantity fields** use `rust_decimal::Decimal`, a 96-bit integer
+  mantissa with a power-of-10 exponent. This guarantees exact representation of
+  any finite decimal number with up to 28 significant digits. There is no
+  floating-point rounding error on price arithmetic. Prices that arrive as JSON
+  numbers rather than strings are read through `f64` once at parse time (see Design principles).
+- **Normalization (`f64`)** uses IEEE 754 double precision. The error bound on
+  `normalize(x)` is roughly `2 * machine_epsilon * |x|` in the worst case.
+  For typical price ranges this is well below any practical threshold.
+- **Lorentz parameters (`f64`)** use `f64` throughout. The round-trip error of
+  `inverse_transform(transform(p))` is bounded by `4 * gamma^2 * machine_epsilon`.
+  For `beta <= 0.9`, `gamma <= ~2.3` and the round-trip error is `< 1e-13`.
+- **Bar aggregation** accumulates volume with `Decimal` addition. OHLC fields
+  carry the exact decimal values from normalized ticks with no intermediate rounding.
 
-struct MyNormalizer;
+</details>
 
-impl MyNormalizer {
-    fn normalize(&self, raw: RawTick) -> Result<NormalizedTick, StreamError> {
-        let price = raw.payload["price"]
-            .as_str()
-            .ok_or_else(|| StreamError::ParseError { reason: "missing price".into() })?
-            .parse()
-            .map_err(|e: rust_decimal::Error| StreamError::ParseError { reason: e.to_string() })?;
-        Ok(NormalizedTick {
-            exchange: raw.exchange,
-            symbol: raw.symbol.clone(),
-            price,
-            quantity: rust_decimal::Decimal::ONE,
-            side: TradeSide::Buy,
-            trade_id: None,
-            exchange_ts_ms: None,
-            received_at_ms: raw.received_at_ms,
-        })
-    }
-}
-```
-
-### Implementing a custom downstream consumer
-
-```rust
-use fin_stream::ohlcv::OhlcvBar;
-
-fn process_bar(bar: &OhlcvBar) {
-    // Access typed fields: bar.open, bar.high, bar.low, bar.close, bar.volume
-    let range = bar.bar_range();
-    let body = bar.body_size();
-    println!("range={range} body={body} trades={}", bar.trade_count);
-    println!("close_location={:.4}", bar.close_location_value().unwrap_or(0.0));
-}
-```
-
-## Running Tests and Benchmarks
+## Tests and benchmarks
 
 ```bash
-cargo test                          # unit and integration tests
-cargo test --release                # release-mode correctness check
-PROPTEST_CASES=1000 cargo test      # extended property-based test coverage
-cargo clippy --all-features -- -D warnings
-cargo fmt --all -- --check
-cargo doc --no-deps --all-features --open
-cargo bench                         # Criterion microbenchmarks
-cargo audit                         # security vulnerability scan
+cargo test --doc                    # crate docs and every Rust block in this README
+cargo test --test '*'               # integration and property tests
+cargo run --example tape            # and normalize, feed_health, replay
+cargo bench --bench tick_hot_path   # the Criterion numbers above
 ```
+
+CI runs `cargo check`, the doctests (which include this README), the integration tests
+and a build of every example. `cargo test --lib` currently has 17 failing unit tests in
+newer analytics modules (alert, cross_asset, fix, lob_sim, order_flow, pattern, risk,
+toxicity and others); they are known and tracked separately from the streaming core.
 
 ## Changelog
 
@@ -2070,9 +2239,9 @@ See [CHANGELOG.md](CHANGELOG.md) for a full version-by-version history.
 3. Run `cargo fmt` before opening a pull request.
 4. Keep public APIs documented with `///` doc comments; `#![deny(missing_docs)]`
    is active in `lib.rs`, undocumented public items cause a build failure.
-5. Open a pull request against `main`. CI (`.github/workflows/ci.yml`) currently runs
-   `cargo check` with `fin-primitives` checked out alongside; please also run
-   `cargo test` and `cargo clippy` locally.
+5. Open a pull request against `main`. CI (`.github/workflows/ci.yml`) checks out
+   `fin-primitives` alongside and runs `cargo check`, the doctests, the integration
+   tests and the examples; please also run `cargo clippy` locally.
 
 ### Adding a new exchange adapter
 

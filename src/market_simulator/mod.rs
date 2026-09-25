@@ -55,7 +55,7 @@ impl SimAgent {
         let s0 = seed ^ step.wrapping_mul(6_364_136_223_846_793_005) ^ (self.id as u64).wrapping_mul(2_862_933_555_777_941_757);
         let r = lcg_uniform(s0);
         let s1 = s0 ^ 0xDEAD_BEEF_CAFE_1234_u64;
-        let r2 = lcg_uniform(s1);
+        let _r2 = lcg_uniform(s1);
         let s2 = s1 ^ 0x0123_4567_89AB_CDEF_u64;
         let r3 = lcg_uniform(s2);
 

@@ -7,6 +7,18 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Added
+- Four runnable examples that need no network or keys: `tape`, `normalize`,
+  `feed_health` and `replay` (with a recorded NDJSON file in `examples/data/`).
+- Crate-level doctest showing normalize, ring hand-off and bar aggregation together.
+- README is compiled as a doctest (`ReadmeDoctests`, `cfg(doctest)` only).
+- Project site in `docs/`, README hero, terminal captures and architecture diagram.
+
+### Fixed
+- README examples and API signature listings corrected against the current API.
+- Two unit-test modules that no longer compiled (`tick`, `replay`).
+- All `fin-stream` compiler warnings in the library build.
+
 ---
 
 ## [2.10.75] - 2026-03-20

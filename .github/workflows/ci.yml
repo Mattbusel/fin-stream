@@ -12,4 +12,20 @@ jobs:
           repository: Mattbusel/fin-primitives
           path: fin-primitives
       - uses: dtolnay/rust-toolchain@stable
-      - run: cd fin-stream && cargo check
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: fin-stream
+      - name: cargo check
+        run: cd fin-stream && cargo check
+      - name: Doctests (crate docs and every Rust block in README.md)
+        run: cd fin-stream && cargo test --doc
+      - name: Integration tests
+        run: cd fin-stream && cargo test --test '*'
+      - name: Run the examples
+        run: |
+          cd fin-stream
+          for e in tape normalize feed_health replay; do
+            echo "::group::cargo run --example $e"
+            cargo run --quiet --example "$e"
+            echo "::endgroup::"
+          done
