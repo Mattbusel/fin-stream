@@ -536,6 +536,8 @@ checksum = "37909eebbb50d72f9059c3b6d82c0463f2ff062c9e95845c43a6c9c0355411be"
 [[package]]
 name = "fin-primitives"
 version = "2.14.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "744d0b909963fbf4d07b25c0296be5cb37913522070531904ccd3a0549d1ba36"
 dependencies = [
  "chrono",
  "rust_decimal",
@@ -547,7 +549,7 @@ dependencies = [
 
 [[package]]
 name = "fin-stream"
-version = "2.11.0"
+version = "2.11.1"
 dependencies = [
  "async-trait",
  "chrono",

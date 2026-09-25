@@ -1,62 +1,151 @@
+# fin-stream
+
+**Turn raw trade messages from crypto and stock exchanges into one clean, exact tick format, move them between threads fast, and roll them into price bars, in Rust.**
+
 <p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/Mattbusel/fin-stream/main/assets/hero-dark.png">
-    <img alt="fin-stream: real-time market data plumbing for Rust. A BTC-USD time-and-sales tape from four venues, each trade plotted by side and size, rolled into 2-second bars, with a ticker band of every print along the bottom." src="https://raw.githubusercontent.com/Mattbusel/fin-stream/main/assets/hero-light.png" width="100%">
-  </picture>
+  <img alt="A real terminal session: cargo run --example tape streams 40 BTC-USD trades from Binance, Coinbase, Alpaca and Polygon live over about five seconds, each with side, price, size bar and latency, a summary bar every two seconds, then totals per venue and ring usage" src="https://raw.githubusercontent.com/Mattbusel/fin-stream/main/assets/demo.gif" width="100%">
 </p>
 
 <p align="center">
-  <a href="https://github.com/Mattbusel/fin-stream/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/Mattbusel/fin-stream/actions/workflows/ci.yml/badge.svg"></a>
   <a href="https://crates.io/crates/fin-stream"><img alt="crates.io" src="https://img.shields.io/crates/v/fin-stream.svg"></a>
   <a href="https://docs.rs/fin-stream"><img alt="docs.rs" src="https://docs.rs/fin-stream/badge.svg"></a>
-  <a href="LICENSE"><img alt="MIT" src="https://img.shields.io/badge/license-MIT-blue.svg"></a>
+  <a href="https://github.com/Mattbusel/fin-stream/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/Mattbusel/fin-stream/actions/workflows/ci.yml/badge.svg"></a>
+  <a href="https://github.com/Mattbusel/fin-stream/blob/main/LICENSE"><img alt="MIT" src="https://img.shields.io/badge/license-MIT-blue.svg"></a>
 </p>
 
 <p align="center">
   <a href="https://mattbusel.github.io/fin-stream/"><b>Site</b></a> &nbsp;&middot;&nbsp;
   <a href="https://docs.rs/fin-stream"><b>API docs</b></a> &nbsp;&middot;&nbsp;
-  <a href="#run-the-examples"><b>Examples</b></a> &nbsp;&middot;&nbsp;
-  <a href="https://github.com/Mattbusel/fin-primitives"><b>fin-primitives</b></a> (the validated types this crate builds on)
+  <a href="#results"><b>Examples</b></a> &nbsp;&middot;&nbsp;
+  <a href="https://github.com/Mattbusel/fin-primitives"><b>fin-primitives</b></a> (the checked types this crate builds on)
 </p>
 
-# fin-stream
+The GIF is a real recording of `cargo run --example tape`, made 2026-09-25 and shown at real
+speed: a feed thread paces 40 seeded trades from four venues over about five seconds, and
+the main thread prints each one as it comes off the lock-free ring. No network or API key is
+involved, so you get the same trades when you run it.
 
-Streaming primitives for real-time market data in Rust: WebSocket feeds with reconnect,
-exchange tick normalization (Binance, Coinbase, Alpaca, Polygon), a lock-free SPSC ring
-buffer, OHLCV bar aggregation, incremental order books, feed health checks and rolling
-normalizers, built on Tokio.
+## Install
 
-Getting ticks from an exchange into a model involves the same plumbing every time:
-parse four slightly different JSON shapes into one tick type, keep the WebSocket alive,
-move ticks between threads, roll them into bars, and notice when a feed goes stale.
-`fin-stream` packages that plumbing, with exact `Decimal` prices and a single
-`StreamError` type, and adds a large set of microstructure analytics (OFI, VPIN, Kyle's
-lambda, Amihud, regime detection) on top.
+| How | Command |
+|-----|---------|
+| **cargo** (easiest) | `cargo add fin-stream serde_json` |
+| Cargo.toml | `fin-stream = "2.11"` (plus `serde_json = "1"` to build raw payloads with `json!`) |
+| Latest `main` from git | `cargo add fin-stream --git https://github.com/Mattbusel/fin-stream` |
+| Just run the examples | `git clone https://github.com/Mattbusel/fin-stream && cd fin-stream && cargo run --example tape` |
 
-> Research and engineering library. It does not place orders, and nothing here is
-> financial advice.
+It is a library, so there is nothing to install system-wide. Needs Rust 1.75 or newer. The
+optional gRPC server is behind the `grpc` feature.
 
-## Quickstart
+## Use it in 3 steps
 
-```toml
-[dependencies]
-fin-stream = "2"
-```
-
-crates.io has **2.4.2**; the `main` branch is **2.11.0** and many modules described below
-(and all four examples) are only on `main`. `main` depends on
-[fin-primitives](https://github.com/Mattbusel/fin-primitives) through a relative path, so
-clone both side by side:
+**1. Make a project and add the crate**
 
 ```bash
-git clone https://github.com/Mattbusel/fin-primitives
-git clone https://github.com/Mattbusel/fin-stream
-cd fin-stream
-cargo run --example tape
+cargo new tick-demo && cd tick-demo
+cargo add fin-stream serde_json
 ```
 
-Normalize a raw Binance trade and roll it into one-minute bars. Every Rust block in this
-README is compiled and run by `cargo test --doc`, so the examples track the real API:
+**2. Put this in `src/main.rs`**
+
+```rust
+use fin_stream::tick::{Exchange, RawTick, TickNormalizer};
+use serde_json::json;
+
+fn main() -> Result<(), fin_stream::StreamError> {
+    let normalizer = TickNormalizer::new();
+
+    // One BTC trade each, in the JSON shape each exchange really sends.
+    let trades = [
+        (Exchange::Binance, json!({"p": "64251.30", "q": "0.40", "m": true, "t": 7, "T": 1790260201205u64})),
+        (Exchange::Coinbase, json!({"price": "64250.10", "size": "0.012", "side": "buy"})),
+        (Exchange::Alpaca, json!({"p": 64252.0, "s": 0.05, "i": 99})),
+        (Exchange::Polygon, json!({"p": 64249.75, "s": 0.2, "i": "p-1"})),
+    ];
+
+    // Four formats in, one tick type out.
+    for (venue, payload) in trades {
+        let tick = normalizer.normalize(RawTick::new(venue, "BTC-USD", payload))?;
+        let side = tick.side.map_or("n/a".to_string(), |s| s.to_string());
+        println!("{:<9} {:<5} {:>6} BTC @ {}", tick.exchange.to_string(), side, tick.quantity, tick.price);
+    }
+
+    // Bad input is a typed error, not a panic.
+    let broken = RawTick::new(Exchange::Binance, "BTC-USD", json!({"q": "1"}));
+    println!("no price  -> {}", normalizer.normalize(broken).unwrap_err());
+    Ok(())
+}
+```
+
+**3. Run it**
+
+```bash
+cargo run
+```
+
+You will see:
+
+```text
+Binance   sell    0.40 BTC @ 64251.30
+Coinbase  buy    0.012 BTC @ 64250.10
+Alpaca    n/a     0.05 BTC @ 64252.0
+Polygon   n/a      0.2 BTC @ 64249.75
+no price  -> Tick parse error from Binance: missing field 'p'
+```
+
+Four exchanges spell a trade four different ways; you get one `NormalizedTick` with exact
+decimal price and size for each. Venues that do not say which side was the aggressor show
+`n/a` rather than a guess, and a malformed message is an error you can match on. This exact
+program was built against fin-stream 2.11 from crates.io and run on 2026-09-25 (it is also
+compiled and run by this repository's `cargo test --doc`).
+
+## Results
+
+Four examples ship in [`examples/`](https://github.com/Mattbusel/fin-stream/tree/main/examples).
+No network and no API keys; each is deterministic (seeded generators or a recorded file),
+streams in real time in a terminal, and prints instantly when piped. The images below are
+their actual output.
+
+```bash
+git clone https://github.com/Mattbusel/fin-stream && cd fin-stream
+cargo run --example tape      # or normalize, feed_health, replay
+```
+
+| Command | What it shows |
+|---|---|
+| `cargo run --example tape` | Four venues' trades normalized on a feed thread, handed across an `SpscRing`, printed as a time-and-sales tape and rolled into 2 s bars |
+| `cargo run --example normalize` | The same trade as Binance, Coinbase, Alpaca and Polygon send it, the one `NormalizedTick` each becomes, and three typed rejections |
+| `cargo run --example feed_health` | `HealthMonitor` watching four feeds: a stall goes stale, trips the circuit, and recovers |
+| `cargo run --example replay` | `TickReplayer` streaming a recorded NDJSON file through the live-feed trait into 30 s bars |
+
+### The tape
+
+A feed thread builds each trade in its venue's wire format, runs it through
+`TickNormalizer`, and pushes it into `SpscRing<NormalizedTick, 64>`; the main thread pops,
+prints, and feeds `OhlcvAggregator`. Venues that do not report the aggressor side
+(Alpaca, Polygon) show `n/a` rather than a guess.
+
+<p align="center"><img alt="Output of cargo run --example tape: 40 BTC-USD trades from four venues with time, venue, side, price colored by tick direction, size bar and latency, with a bar summary line every two seconds and a closing summary of ticks per venue, bars, and ring usage." src="https://raw.githubusercontent.com/Mattbusel/fin-stream/main/assets/term-tape.png" width="840"></p>
+
+### Feed health
+
+<p align="center"><img alt="Output of cargo run --example feed_health: a strip chart per feed over 24 seconds. Binance beats steadily, Coinbase goes quiet at 5 s, turns stale, opens its circuit and recovers at 12.5 s, Alpaca drops at 16 s and stays open, Polygon beats every 3 s under its own 5 s threshold. Below, the StreamError messages the monitor produced." src="https://raw.githubusercontent.com/Mattbusel/fin-stream/main/assets/term-feed_health.png" width="820"></p>
+
+<details>
+<summary><b>normalize</b> and <b>replay</b> output</summary>
+
+<p align="center"><img alt="Output of cargo run --example normalize: four venue payloads for one trade and the normalized price, quantity, side and exchange timestamp each produces, then three malformed payloads and their StreamError messages." src="https://raw.githubusercontent.com/Mattbusel/fin-stream/main/assets/term-normalize.png" width="840"></p>
+
+<p align="center"><img alt="Output of cargo run --example replay: twenty 30-second bars drawn as horizontal candles on a fixed price axis, with close, change versus the session open and volume, from 600 recorded ticks." src="https://raw.githubusercontent.com/Mattbusel/fin-stream/main/assets/term-replay.png" width="760"></p>
+
+</details>
+
+<details>
+<summary><b>More: ticks into one-minute bars</b> (every Rust block in this README is compiled and run by <code>cargo test --doc</code>)</summary>
+
+<br>
+
+Normalize a raw Binance trade and roll it into one-minute bars:
 
 ```rust
 use fin_stream::tick::{Exchange, RawTick, TickNormalizer};
@@ -81,6 +170,8 @@ fn main() -> Result<(), fin_stream::StreamError> {
     Ok(())
 }
 ```
+
+</details>
 
 <details>
 <summary><b>More quick recipes</b>: ring buffer, normalizers, Lorentz features, order book, feed health, sessions</summary>
@@ -229,40 +320,29 @@ fn main() -> Result<(), fin_stream::StreamError> {
 
 </details>
 
-## Run the examples
-
-Four examples, no network, no API keys. Each one is deterministic (seeded generators or a
-recorded file), streams in real time when run in a terminal, and prints instantly when
-piped. The images below are their actual output.
-
-| Command | What it shows |
-|---|---|
-| `cargo run --example tape` | Four venues' trades normalized on a feed thread, handed across an `SpscRing`, printed as a time-and-sales tape and rolled into 2 s bars |
-| `cargo run --example normalize` | The same trade as Binance, Coinbase, Alpaca and Polygon send it, the one `NormalizedTick` each becomes, and three typed rejections |
-| `cargo run --example feed_health` | `HealthMonitor` watching four feeds: a stall goes stale, trips the circuit, and recovers |
-| `cargo run --example replay` | `TickReplayer` streaming a recorded NDJSON file through the live-feed trait into 30 s bars |
-
-### The tape
-
-A feed thread builds each trade in its venue's wire format, runs it through
-`TickNormalizer`, and pushes it into `SpscRing<NormalizedTick, 64>`; the main thread pops,
-prints, and feeds `OhlcvAggregator`. Venues that do not report the aggressor side
-(Alpaca, Polygon) show `n/a` rather than a guess.
-
-<p align="center"><img alt="Output of cargo run --example tape: 40 BTC-USD trades from four venues with time, venue, side, price colored by tick direction, size bar and latency, with a bar summary line every two seconds and a closing summary of ticks per venue, bars, and ring usage." src="https://raw.githubusercontent.com/Mattbusel/fin-stream/main/assets/term-tape.png" width="840"></p>
-
-### Feed health
-
-<p align="center"><img alt="Output of cargo run --example feed_health: a strip chart per feed over 24 seconds. Binance beats steadily, Coinbase goes quiet at 5 s, turns stale, opens its circuit and recovers at 12.5 s, Alpaca drops at 16 s and stays open, Polygon beats every 3 s under its own 5 s threshold. Below, the StreamError messages the monitor produced." src="https://raw.githubusercontent.com/Mattbusel/fin-stream/main/assets/term-feed_health.png" width="820"></p>
+> Research and engineering library. It does not place orders, and nothing here is
+> financial advice.
 
 <details>
-<summary><b>normalize</b> and <b>replay</b> output</summary>
+<summary><b>Why this exists</b></summary>
 
-<p align="center"><img alt="Output of cargo run --example normalize: four venue payloads for one trade and the normalized price, quantity, side and exchange timestamp each produces, then three malformed payloads and their StreamError messages." src="https://raw.githubusercontent.com/Mattbusel/fin-stream/main/assets/term-normalize.png" width="840"></p>
+<br>
 
-<p align="center"><img alt="Output of cargo run --example replay: twenty 30-second bars drawn as horizontal candles on a fixed price axis, with close, change versus the session open and volume, from 600 recorded ticks." src="https://raw.githubusercontent.com/Mattbusel/fin-stream/main/assets/term-replay.png" width="760"></p>
+Getting ticks from an exchange into a model involves the same plumbing every time:
+parse four slightly different JSON shapes into one tick type, keep the WebSocket alive,
+move ticks between threads, roll them into bars, and notice when a feed goes stale.
+`fin-stream` packages that plumbing, with exact `Decimal` prices and a single
+`StreamError` type, and adds a large set of microstructure analytics (OFI, VPIN, Kyle's
+lambda, Amihud, regime detection) on top.
 
 </details>
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/Mattbusel/fin-stream/main/assets/hero-dark.png">
+    <img alt="fin-stream: real-time market data plumbing for Rust. A BTC-USD time-and-sales tape from four venues, each trade plotted by side and size, rolled into 2-second bars, with a ticker band of every print along the bottom." src="https://raw.githubusercontent.com/Mattbusel/fin-stream/main/assets/hero-light.png" width="100%">
+  </picture>
+</p>
 
 ## What is included
 
@@ -2239,9 +2319,9 @@ See [CHANGELOG.md](CHANGELOG.md) for a full version-by-version history.
 3. Run `cargo fmt` before opening a pull request.
 4. Keep public APIs documented with `///` doc comments; `#![deny(missing_docs)]`
    is active in `lib.rs`, undocumented public items cause a build failure.
-5. Open a pull request against `main`. CI (`.github/workflows/ci.yml`) checks out
-   `fin-primitives` alongside and runs `cargo check`, the doctests, the integration
-   tests and the examples; please also run `cargo clippy` locally.
+5. Open a pull request against `main`. CI (`.github/workflows/ci.yml`) runs
+   `cargo check`, the doctests, the integration tests and the examples; please also
+   run `cargo clippy` locally.
 
 ### Adding a new exchange adapter
 

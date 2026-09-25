@@ -1,6 +1,6 @@
 [package]
 name = "fin-stream"
-version = "2.11.0"
+version = "2.11.1"
 edition = "2021"
 rust-version = "1.75"
 license = "MIT"
@@ -9,9 +9,9 @@ documentation = "https://docs.rs/fin-stream"
 homepage = "https://mattbusel.github.io/fin-stream/"
 readme = "README.md"
 authors = ["Matt Busel <matt@busel.dev>"]
-keywords = ["finance", "streaming", "market-data", "high-performance", "trading"]
-categories = ["finance", "asynchronous", "data-structures"]
-description = "Real-time market data streaming primitives for Rust: exchange tick normalization, a lock-free SPSC ring, OHLCV bars, order books, feed health and replay"
+keywords = ["market-data", "trading", "crypto", "websocket", "ohlcv"]
+categories = ["finance", "asynchronous", "concurrency", "network-programming"]
+description = "Turn raw Binance, Coinbase, Alpaca and Polygon trade messages into one exact-decimal tick type, pass them between threads on a lock-free ring, and roll them into OHLCV bars, with feed health checks and replay."
 include = ["src/**/*", "benches/**/*", "tests/**/*", "examples/**/*", "proto/**/*", "build.rs", "Cargo.toml", "README.md", "LICENSE", "CHANGELOG.md"]
 
 [package.metadata.docs.rs]
@@ -65,7 +65,7 @@ uuid = { version = "1.6", features = ["v4", "fast-rng", "serde"] }
 # tracing: pipeline observability
 tracing = "0.1"
 # fin-primitives: tick, orderbook, ohlcv, signals integration
-fin-primitives = { path = "../fin-primitives", version = "2.0.0" }
+fin-primitives = "2.14"
 # tonic: gRPC server/client (optional — grpc feature)
 tonic = { version = "0.12", optional = true }
 # prost: protobuf runtime (optional — grpc feature)
