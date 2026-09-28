@@ -63,6 +63,8 @@
 //! # }
 //! ```
 //!
+//! ![Animated diagram: WebSocket frames become RawTicks, TickNormalizer turns four venue formats into NormalizedTicks, a feed thread pushes them through SpscRing, and the consumer rolls them into OHLCV bars and features](https://raw.githubusercontent.com/Mattbusel/fin-stream/main/docs/img/pipeline.svg)
+//!
 //! ## Runnable examples
 //!
 //! The repository has four examples that need no network and no API keys:
@@ -437,3 +439,13 @@ pub mod liquidity_monitor;
 #[cfg(doctest)]
 #[doc = include_str!("../README.md")]
 pub struct ReadmeDoctests;
+
+/// Compiles and runs every Rust block in docs/EXAMPLES.md as a doctest.
+#[cfg(doctest)]
+#[doc = include_str!("../docs/EXAMPLES.md")]
+pub struct ExamplesDoctests;
+
+/// Compiles and runs every Rust block in docs/REFERENCE.md as a doctest.
+#[cfg(doctest)]
+#[doc = include_str!("../docs/REFERENCE.md")]
+pub struct ReferenceDoctests;

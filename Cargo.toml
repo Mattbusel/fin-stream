@@ -1,6 +1,6 @@
 [package]
 name = "fin-stream"
-version = "2.11.1"
+version = "2.11.2"
 edition = "2021"
 rust-version = "1.75"
 license = "MIT"
@@ -12,7 +12,7 @@ authors = ["Matt Busel <matt@busel.dev>"]
 keywords = ["market-data", "trading", "crypto", "websocket", "ohlcv"]
 categories = ["finance", "asynchronous", "concurrency", "network-programming"]
 description = "Turn raw Binance, Coinbase, Alpaca and Polygon trade messages into one exact-decimal tick type, pass them between threads on a lock-free ring, and roll them into OHLCV bars, with feed health checks and replay."
-include = ["src/**/*", "benches/**/*", "tests/**/*", "examples/**/*", "proto/**/*", "build.rs", "Cargo.toml", "README.md", "LICENSE", "CHANGELOG.md"]
+include = ["src/**/*", "benches/**/*", "tests/**/*", "examples/**/*", "proto/**/*", "build.rs", "Cargo.toml", "README.md", "docs/*.md", "LICENSE", "CHANGELOG.md"]
 
 [package.metadata.docs.rs]
 # Scrape the examples so docs.rs shows real call sites next to the APIs they use.

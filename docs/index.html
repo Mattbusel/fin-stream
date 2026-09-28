@@ -3,12 +3,22 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>fin-stream</title>
-<meta name="description" content="Real-time market data plumbing for Rust: four exchange formats in, one exact-decimal tick out, through a lock-free ring into bars, books and health checks.">
-<meta property="og:title" content="fin-stream">
-<meta property="og:description" content="Four exchange formats in, one exact-decimal tick out. Streaming market data primitives for Rust.">
-<meta property="og:image" content="https://mattbusel.github.io/fin-stream/assets/og.png">
+<title>fin-stream: Rust market data, WebSocket ticks to OHLCV</title>
+<meta name="description" content="Rust crate for exchange market data: Binance, Coinbase, Alpaca and Polygon trades to one exact-decimal tick, a lock-free ring, OHLCV bars and order books.">
+<link rel="canonical" href="https://mattbusel.github.io/fin-stream/">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://mattbusel.github.io/fin-stream/">
+<meta property="og:title" content="fin-stream: Rust market data, WebSocket ticks to OHLCV">
+<meta property="og:description" content="Rust crate for exchange market data: Binance, Coinbase, Alpaca and Polygon trades to one exact-decimal tick, a lock-free ring, OHLCV bars and order books.">
+<meta property="og:image" content="https://mattbusel.github.io/fin-stream/assets/og-1200x630.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="fin-stream: a BTC-USD time-and-sales tape from four venues rolled into 2-second bars">
 <meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="fin-stream: Rust market data, WebSocket ticks to OHLCV">
+<meta name="twitter:description" content="Rust crate for exchange market data: Binance, Coinbase, Alpaca and Polygon trades to one exact-decimal tick, a lock-free ring, OHLCV bars and order books.">
+<meta name="twitter:image" content="https://mattbusel.github.io/fin-stream/assets/og-1200x630.png">
+<script type="application/ld+json">{"@context": "https://schema.org", "@type": "SoftwareSourceCode", "name": "fin-stream", "description": "Rust crate for exchange market data: Binance, Coinbase, Alpaca and Polygon trades to one exact-decimal tick, a lock-free ring, OHLCV bars and order books.", "codeRepository": "https://github.com/Mattbusel/fin-stream", "programmingLanguage": "Rust", "license": "https://opensource.org/licenses/MIT", "author": {"@type": "Person", "name": "Matthew Busel", "url": "https://github.com/Mattbusel"}, "url": "https://mattbusel.github.io/fin-stream/", "runtimePlatform": "Rust 1.75+", "keywords": "rust, market data, websocket, binance, coinbase, alpaca, polygon, ohlcv, order book, ring buffer, trading, crypto"}</script>
 <meta name="color-scheme" content="light dark">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='3' fill='%2316181D'/%3E%3Ccircle cx='5' cy='8' r='2' fill='%233CC48A'/%3E%3Ccircle cx='11' cy='6' r='2' fill='%23F06A4F'/%3E%3Crect x='3' y='12' width='10' height='1.5' fill='%233CC48A'/%3E%3C/svg%3E">
 <style>
@@ -148,8 +158,8 @@ footer a{margin-right:18px}
     <h1>fin<span>-</span>stream</h1>
     <p class="pitch">Real-time market data plumbing for Rust. Four exchange formats in, one exact-decimal tick out, through a lock-free ring into bars, books and health checks.</p>
     <div class="flow">TickNormalizer<i>&rarr;</i>SpscRing<i>&rarr;</i>OhlcvAggregator<br>OrderBook<i>&middot;</i>HealthMonitor<i>&middot;</i>TickReplayer</div>
-    <div class="install"><code><b>$</b> cargo add fin-stream</code><button class="copy" data-copy="cargo add fin-stream" aria-label="Copy install command">Copy</button></div>
-    <p class="note">crates.io has 2.4.2; <code>main</code> (2.11.0) has the examples and newer modules. Clone it next to fin-primitives to build.</p>
+    <div class="install"><code><b>$</b> cargo add fin-stream serde_json</code><button class="copy" data-copy="cargo add fin-stream serde_json" aria-label="Copy install command">Copy</button></div>
+    <p class="note">Rust 1.75 or newer. <code>serde_json</code> is only for building raw payloads with <code>json!</code>.</p>
     <div class="links"><a href="#examples">See real output</a><a href="https://docs.rs/fin-stream">API docs</a><a href="https://crates.io/crates/fin-stream">crates.io</a></div>
   </div>
   <div class="card" aria-label="Live replay of the tape example">
@@ -162,7 +172,7 @@ footer a{margin-right:18px}
 
 <section id="examples"><div class="wrap">
   <h2>Four examples, no keys, no network</h2>
-  <p class="lede">Each example is deterministic: seeded generators or a recorded file. In a terminal they stream in real time; piped, they print at once. What you see below is their actual output, captured from the <code>main</code> branch.</p>
+  <p class="lede">Each example is deterministic: seeded generators or a recorded file. In a terminal they stream in real time; piped, they print at once. What you see below is their actual output, captured from the repository.</p>
   <div class="ex" id="ex-tape">
     <div class="ex-copy">
       <div><h3>The tape</h3><p>A feed thread builds each trade in its venue's wire format, normalizes it with <code>TickNormalizer</code> and pushes it into <code>SpscRing&lt;NormalizedTick, 64&gt;</code>. The main thread pops, prints the tape with the price colored by tick direction, and rolls the same ticks into 2-second bars with <code>OhlcvAggregator</code>. Alpaca and Polygon do not report the aggressor, so their side is <code>n/a</code>, not a guess.</p></div>
@@ -315,6 +325,12 @@ footer a{margin-right:18px}
   </div>
 </div></section>
 
+<section id="how"><div class="wrap">
+  <h2>How a trade gets to your code</h2>
+  <p class="lede"><code>WsManager</code> keeps the WebSocket open and hands you each text frame. <code>TickNormalizer</code> turns any of the four venue formats into one <code>NormalizedTick</code>; a feed thread pushes it through an <code>SpscRing</code>, and your thread rolls it into bars and features. Depth messages go into an <code>OrderBook</code> that rejects crossed books and sequence gaps.</p>
+  <div class="arch"><img src="img/pipeline.svg" width="960" height="884" loading="lazy" alt="Animated diagram replaying the first 17 trades of the tape example: WebSocket frames become RawTicks, TickNormalizer produces NormalizedTicks, the feed thread pushes them through SpscRing, OhlcvAggregator returns the 14:30:00 two-second bar when trade 17 arrives, a ZScoreNormalizer turns prices into z-scores, and OrderBook::apply rejects a crossed book and a sequence gap"></div>
+</div></section>
+
 <section id="architecture"><div class="wrap">
   <h2>How the pieces fit</h2>
   <p class="lede">Every stage takes and returns plain values, so they compose in whatever order your system needs. <code>TickReplayer</code> implements the same <code>TickSource</code> trait a live feed would, so strategy code runs unchanged on recorded data.</p>
@@ -346,14 +362,13 @@ footer a{margin-right:18px}
 
 <section id="start"><div class="wrap">
   <h2>Running in two minutes</h2>
-  <p class="lede"><code>main</code> depends on fin-primitives through a relative path, so clone both side by side.</p>
+  <p class="lede">Add it to your project with <code>cargo add fin-stream serde_json</code>, or clone the repository to run the examples.</p>
   <div class="start">
-    <div><h3>Clone</h3><pre>git clone https://github.com/Mattbusel/fin-primitives
-git clone https://github.com/Mattbusel/fin-stream
-cd fin-stream</pre><p>Or <code>cargo add fin-stream</code> for the 2.4.2 release on crates.io.</p></div>
+    <div><h3>Clone</h3><pre>git clone https://github.com/Mattbusel/fin-stream
+cd fin-stream</pre><p>It builds on its own; fin-primitives comes from crates.io.</p></div>
     <div><h3>Watch the tape</h3><pre>cargo run --example tape</pre><p>Then <code>normalize</code>, <code>feed_health</code> and <code>replay</code>. <code>NO_COLOR=1</code> turns color off.</p></div>
     <div><h3>Check it</h3><pre>cargo test --doc
-cargo test --test '*'</pre><p>The doctests compile and run every Rust block in the README as well as the crate docs.</p></div>
+cargo test --test '*'</pre><p>The doctests compile and run every Rust block in the README, the docs folder and the crate docs.</p></div>
   </div>
 </div></section>
 </main>
