@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
 #![deny(missing_docs)]
 #![doc(
-    html_logo_url = "https://raw.githubusercontent.com/Mattbusel/fin-stream/main/assets/logo.svg",
-    html_favicon_url = "https://raw.githubusercontent.com/Mattbusel/fin-stream/main/assets/logo.svg"
+    html_logo_url = "https://gitlab.com/mattbusel/fin-stream/-/raw/main/assets/logo.svg",
+    html_favicon_url = "https://gitlab.com/mattbusel/fin-stream/-/raw/main/assets/logo.svg"
 )]
 //! # fin-stream
 //!
@@ -10,7 +10,7 @@
 //! exact tick format, move them between threads fast, and roll them into
 //! price bars.
 //!
-//! ![cargo run --example tape: 40 BTC-USD trades from four venues streaming live, with 2-second bars and a summary](https://raw.githubusercontent.com/Mattbusel/fin-stream/main/assets/demo.gif)
+//! ![cargo run --example tape: 40 BTC-USD trades from four venues streaming live, with 2-second bars and a summary](https://gitlab.com/mattbusel/fin-stream/-/raw/main/assets/demo.gif)
 //!
 //! ```text
 //! cargo add fin-stream serde_json
@@ -63,7 +63,7 @@
 //! # }
 //! ```
 //!
-//! ![Animated diagram: WebSocket frames become RawTicks, TickNormalizer turns four venue formats into NormalizedTicks, a feed thread pushes them through SpscRing, and the consumer rolls them into OHLCV bars and features](https://raw.githubusercontent.com/Mattbusel/fin-stream/main/docs/img/pipeline.svg)
+//! ![Animated diagram: WebSocket frames become RawTicks, TickNormalizer turns four venue formats into NormalizedTicks, a feed thread pushes them through SpscRing, and the consumer rolls them into OHLCV bars and features](https://gitlab.com/mattbusel/fin-stream/-/raw/main/docs/img/pipeline.svg)
 //!
 //! ## Runnable examples
 //!

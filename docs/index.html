@@ -5,20 +5,20 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>fin-stream: Rust market data, WebSocket ticks to OHLCV</title>
 <meta name="description" content="Rust crate for exchange market data: Binance, Coinbase, Alpaca and Polygon trades to one exact-decimal tick, a lock-free ring, OHLCV bars and order books.">
-<link rel="canonical" href="https://mattbusel.github.io/fin-stream/">
+<link rel="canonical" href="https://fin-stream-rs.vercel.app/">
 <meta property="og:type" content="website">
-<meta property="og:url" content="https://mattbusel.github.io/fin-stream/">
+<meta property="og:url" content="https://fin-stream-rs.vercel.app/">
 <meta property="og:title" content="fin-stream: Rust market data, WebSocket ticks to OHLCV">
 <meta property="og:description" content="Rust crate for exchange market data: Binance, Coinbase, Alpaca and Polygon trades to one exact-decimal tick, a lock-free ring, OHLCV bars and order books.">
-<meta property="og:image" content="https://mattbusel.github.io/fin-stream/assets/og-1200x630.png">
+<meta property="og:image" content="https://fin-stream-rs.vercel.app/assets/og-1200x630.png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
 <meta property="og:image:alt" content="fin-stream: a BTC-USD time-and-sales tape from four venues rolled into 2-second bars">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="fin-stream: Rust market data, WebSocket ticks to OHLCV">
 <meta name="twitter:description" content="Rust crate for exchange market data: Binance, Coinbase, Alpaca and Polygon trades to one exact-decimal tick, a lock-free ring, OHLCV bars and order books.">
-<meta name="twitter:image" content="https://mattbusel.github.io/fin-stream/assets/og-1200x630.png">
-<script type="application/ld+json">{"@context": "https://schema.org", "@type": "SoftwareSourceCode", "name": "fin-stream", "description": "Rust crate for exchange market data: Binance, Coinbase, Alpaca and Polygon trades to one exact-decimal tick, a lock-free ring, OHLCV bars and order books.", "codeRepository": "https://github.com/Mattbusel/fin-stream", "programmingLanguage": "Rust", "license": "https://opensource.org/licenses/MIT", "author": {"@type": "Person", "name": "Matthew Busel", "url": "https://github.com/Mattbusel"}, "url": "https://mattbusel.github.io/fin-stream/", "runtimePlatform": "Rust 1.75+", "keywords": "rust, market data, websocket, binance, coinbase, alpaca, polygon, ohlcv, order book, ring buffer, trading, crypto"}</script>
+<meta name="twitter:image" content="https://fin-stream-rs.vercel.app/assets/og-1200x630.png">
+<script type="application/ld+json">{"@context": "https://schema.org", "@type": "SoftwareSourceCode", "name": "fin-stream", "description": "Rust crate for exchange market data: Binance, Coinbase, Alpaca and Polygon trades to one exact-decimal tick, a lock-free ring, OHLCV bars and order books.", "codeRepository": "https://gitlab.com/mattbusel/fin-stream", "programmingLanguage": "Rust", "license": "https://opensource.org/licenses/MIT", "author": {"@type": "Person", "name": "Matthew Busel", "url": "https://gitlab.com/mattbusel"}, "url": "https://fin-stream-rs.vercel.app/", "runtimePlatform": "Rust 1.75+", "keywords": "rust, market data, websocket, binance, coinbase, alpaca, polygon, ohlcv, order book, ring buffer, trading, crypto"}</script>
 <meta name="color-scheme" content="light dark">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='3' fill='%2316181D'/%3E%3Ccircle cx='5' cy='8' r='2' fill='%233CC48A'/%3E%3Ccircle cx='11' cy='6' r='2' fill='%23F06A4F'/%3E%3Crect x='3' y='12' width='10' height='1.5' fill='%233CC48A'/%3E%3C/svg%3E">
 <style>
@@ -146,7 +146,7 @@ footer a{margin-right:18px}
     <a class="hide-sm" href="#architecture">Architecture</a>
     <a class="hide-sm" href="#performance">Performance</a>
     <a href="https://docs.rs/fin-stream">docs.rs</a>
-    <a href="https://github.com/Mattbusel/fin-stream">GitHub</a>
+    <a href="https://gitlab.com/mattbusel/fin-stream">GitHub</a>
     <button class="theme" id="theme" aria-label="Toggle color theme">theme</button>
   </nav>
 </div></header>
@@ -177,7 +177,7 @@ footer a{margin-right:18px}
     <div class="ex-copy">
       <div><h3>The tape</h3><p>A feed thread builds each trade in its venue's wire format, normalizes it with <code>TickNormalizer</code> and pushes it into <code>SpscRing&lt;NormalizedTick, 64&gt;</code>. The main thread pops, prints the tape with the price colored by tick direction, and rolls the same ticks into 2-second bars with <code>OhlcvAggregator</code>. Alpaca and Polygon do not report the aggressor, so their side is <code>n/a</code>, not a guess.</p></div>
       <div class="acts"><div class="cmd"><code><b>$</b> cargo run --example tape</code><button class="copy" data-copy="cargo run --example tape" aria-label="Copy command">Copy</button></div>
-      <a class="src" href="https://github.com/Mattbusel/fin-stream/blob/main/examples/tape.rs">examples/tape.rs</a></div>
+      <a class="src" href="https://gitlab.com/mattbusel/fin-stream/-/blob/main/examples/tape.rs">examples/tape.rs</a></div>
     </div>
     <div class="term"><div class="term-bar"><span class="dots"><i></i><i></i><i></i></span><span class="tc"><b>$</b> cargo run --example tape</span></div><pre>  <span class="s">BTC-USD</span>  <span class="m">time and sales, 4 venues, 2s bars</span>
   <span class="m">venue JSON -&gt; TickNormalizer -&gt; SpscRing&lt;NormalizedTick, 64&gt; -&gt; tape + OhlcvAggregator</span>
@@ -235,7 +235,7 @@ footer a{margin-right:18px}
     <div class="ex-copy">
       <div><h3>One trade, four wire formats</h3><p>Binance sends strings and a maker flag, Coinbase spells out the side with an ISO-8601 time, Alpaca sends JSON numbers, Polygon a nanosecond epoch. All four become the same <code>NormalizedTick</code>; malformed payloads come back as a typed <code>StreamError</code>.</p></div>
       <div class="acts"><div class="cmd"><code><b>$</b> cargo run --example normalize</code><button class="copy" data-copy="cargo run --example normalize" aria-label="Copy command">Copy</button></div>
-      <a class="src" href="https://github.com/Mattbusel/fin-stream/blob/main/examples/normalize.rs">examples/normalize.rs</a></div>
+      <a class="src" href="https://gitlab.com/mattbusel/fin-stream/-/blob/main/examples/normalize.rs">examples/normalize.rs</a></div>
     </div>
     <div class="term"><div class="term-bar"><span class="dots"><i></i><i></i><i></i></span><span class="tc"><b>$</b> cargo run --example normalize</span></div><pre>  <span class="s">TickNormalizer</span>  <span class="m">the same BTC-USD trade as four venues send it</span>
 
@@ -270,7 +270,7 @@ footer a{margin-right:18px}
     <div class="ex-copy">
       <div><h3>A feed goes quiet</h3><p><code>HealthMonitor</code> gets a heartbeat per tick and a sweep every 500 ms of simulated time. Coinbase stalls, turns stale after 2 s, opens its circuit after three stale checks, and closes it on the next heartbeat. Polygon beats slowly but has its own 5 s threshold, so it never alarms.</p></div>
       <div class="acts"><div class="cmd"><code><b>$</b> cargo run --example feed_health</code><button class="copy" data-copy="cargo run --example feed_health" aria-label="Copy command">Copy</button></div>
-      <a class="src" href="https://github.com/Mattbusel/fin-stream/blob/main/examples/feed_health.rs">examples/feed_health.rs</a></div>
+      <a class="src" href="https://gitlab.com/mattbusel/fin-stream/-/blob/main/examples/feed_health.rs">examples/feed_health.rs</a></div>
     </div>
     <div class="term"><div class="term-bar"><span class="dots"><i></i><i></i><i></i></span><span class="tc"><b>$</b> cargo run --example feed_health</span></div><pre>  <span class="s">HealthMonitor</span>  <span class="m">stale after 2 s quiet (polygon: 5 s), circuit opens after 3 stale checks</span>
 
@@ -294,7 +294,7 @@ footer a{margin-right:18px}
     <div class="ex-copy">
       <div><h3>Recorded data, live code path</h3><p><code>TickReplayer</code> streams a 600-tick NDJSON file through the same <code>TickSource</code> trait a live feed implements, honoring the recorded gaps at a speed multiplier. Each 30-second bar is drawn as it closes, on a fixed price axis.</p></div>
       <div class="acts"><div class="cmd"><code><b>$</b> cargo run --example replay</code><button class="copy" data-copy="cargo run --example replay" aria-label="Copy command">Copy</button></div>
-      <a class="src" href="https://github.com/Mattbusel/fin-stream/blob/main/examples/replay.rs">examples/replay.rs</a></div>
+      <a class="src" href="https://gitlab.com/mattbusel/fin-stream/-/blob/main/examples/replay.rs">examples/replay.rs</a></div>
     </div>
     <div class="term"><div class="term-bar"><span class="dots"><i></i><i></i><i></i></span><span class="tc"><b>$</b> cargo run --example replay</span></div><pre>  <span class="s">TickReplayer</span>  <span class="m">examples/data/btc-usd-10m.ndjson at full speed, 30s bars</span>
 
@@ -364,7 +364,7 @@ footer a{margin-right:18px}
   <h2>Running in two minutes</h2>
   <p class="lede">Add it to your project with <code>cargo add fin-stream serde_json</code>, or clone the repository to run the examples.</p>
   <div class="start">
-    <div><h3>Clone</h3><pre>git clone https://github.com/Mattbusel/fin-stream
+    <div><h3>Clone</h3><pre>git clone https://gitlab.com/mattbusel/fin-stream
 cd fin-stream</pre><p>It builds on its own; fin-primitives comes from crates.io.</p></div>
     <div><h3>Watch the tape</h3><pre>cargo run --example tape</pre><p>Then <code>normalize</code>, <code>feed_health</code> and <code>replay</code>. <code>NO_COLOR=1</code> turns color off.</p></div>
     <div><h3>Check it</h3><pre>cargo test --doc
@@ -373,7 +373,7 @@ cargo test --test '*'</pre><p>The doctests compile and run every Rust block in t
 </div></section>
 </main>
 <footer><div class="wrap">
-  <div><a href="https://github.com/Mattbusel/fin-stream">GitHub</a><a href="https://docs.rs/fin-stream">docs.rs</a><a href="https://crates.io/crates/fin-stream">crates.io</a><a href="https://mattbusel.github.io/fin-primitives/">fin-primitives</a></div>
+  <div><a href="https://gitlab.com/mattbusel/fin-stream">GitHub</a><a href="https://docs.rs/fin-stream">docs.rs</a><a href="https://crates.io/crates/fin-stream">crates.io</a><a href="https://fin-primitives.vercel.app/">fin-primitives</a></div>
   <div>MIT. Research and engineering library; not financial advice.</div>
 </div></footer>
 <script>

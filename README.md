@@ -7,7 +7,7 @@ For Rust developers building trading bots, market-data collectors, backtesters o
 <p align="center">
   <a href="https://crates.io/crates/fin-stream"><img alt="crates.io version" src="https://img.shields.io/crates/v/fin-stream.svg"></a>
   <a href="https://docs.rs/fin-stream"><img alt="docs.rs" src="https://docs.rs/fin-stream/badge.svg"></a>
-  <a href="https://github.com/Mattbusel/fin-stream/blob/main/LICENSE"><img alt="MIT license" src="https://img.shields.io/badge/license-MIT-blue.svg"></a>
+  <a href="https://gitlab.com/mattbusel/fin-stream/-/blob/main/LICENSE"><img alt="MIT license" src="https://img.shields.io/badge/license-MIT-blue.svg"></a>
 </p>
 
 <p align="center">
@@ -22,7 +22,7 @@ cargo add fin-stream serde_json
 
 It is a library, so there is nothing to download or install system-wide (Rust 1.75 or newer).
 `serde_json` is only there so you can build raw payloads with `json!`. Or in `Cargo.toml`:
-`fin-stream = "2.11"`. Want to see it first? `git clone https://github.com/Mattbusel/fin-stream && cd fin-stream && cargo run --example tape`.
+`fin-stream = "2.11"`. Want to see it first? `git clone https://gitlab.com/mattbusel/fin-stream && cd fin-stream && cargo run --example tape`.
 
 ## How it works
 
@@ -149,7 +149,7 @@ also compiled and run by this repository's `cargo test --doc`).
 | [docs/REFERENCE.md](docs/REFERENCE.md) | module guides (multi-feed and NBBO aggregation, circuit breakers, feed quality, anomalies, replay, FIX 4.2, gRPC, OFI, VPIN, microstructure, regimes and more), math, API signatures, every `StreamError` |
 | [docs/TESTING.md](docs/TESTING.md) | running the tests and benchmarks, current test status |
 | [CHANGELOG.md](CHANGELOG.md) | what changed in each version |
-| [Project site](https://mattbusel.github.io/fin-stream/) | the same overview as a web page |
+| [Project site](https://fin-stream-rs.vercel.app/) | the same overview as a web page |
 
 The optional gRPC server is behind the `grpc` feature.
 
@@ -164,7 +164,7 @@ fallible code returns `Result<_, StreamError>`, and new behavior needs a test. R
 
 ## License and related projects
 
-MIT, see [LICENSE](LICENSE). Built on [fin-primitives](https://github.com/Mattbusel/fin-primitives)
+MIT, see [LICENSE](LICENSE). Built on [fin-primitives](https://gitlab.com/mattbusel/fin-primitives)
 (checked price and quantity types, order book, indicators, risk). The `lorentz` module comes from
-the Special Relativity Financial Modeling work: [Special-Relativity-in-Financial-Modeling](https://github.com/Mattbusel/Special-Relativity-in-Financial-Modeling),
-[srfm-python](https://github.com/Mattbusel/srfm-python), [srfm-paper-impl](https://github.com/Mattbusel/srfm-paper-impl) and [srfm-lab](https://github.com/Mattbusel/srfm-lab).
+the Special Relativity Financial Modeling work: [Special-Relativity-in-Financial-Modeling](https://gitlab.com/mattbusel/Special-Relativity-in-Financial-Modeling),
+[srfm-python](https://gitlab.com/mattbusel/srfm-python), [srfm-paper-impl](https://gitlab.com/mattbusel/srfm-paper-impl) and [srfm-lab](https://gitlab.com/mattbusel/srfm-lab).

@@ -8,8 +8,8 @@ Short programs for the main building blocks. Every Rust block in this file is co
 |-----|---------|
 | cargo | `cargo add fin-stream serde_json` |
 | Cargo.toml | `fin-stream = "2.11"` (plus `serde_json = "1"` to build raw payloads with `json!`) |
-| Latest `main` from git | `cargo add fin-stream --git https://github.com/Mattbusel/fin-stream` |
-| Just run the examples | `git clone https://github.com/Mattbusel/fin-stream && cd fin-stream && cargo run --example tape` |
+| Latest `main` from git | `cargo add fin-stream --git https://gitlab.com/mattbusel/fin-stream` |
+| Just run the examples | `git clone https://gitlab.com/mattbusel/fin-stream && cd fin-stream && cargo run --example tape` |
 
 The README GIF is a real recording of `cargo run --example tape`, made 2026-09-25 and shown at real
 speed: a feed thread paces 40 seeded trades from four venues over about five seconds, and the main
