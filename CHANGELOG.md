@@ -7,6 +7,18 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [2.11.3] - 2026-09-30
+
+### Fixed
+- All 7,840 unit tests pass (17 failed in 2.11.2) and CI now runs `cargo test --lib`. Real bugs found along the way:
+  - `CorrelationMatrix::add_observation` swapped x and y depending on which symbol ticked, mixing the two series inside one accumulator.
+  - `MarketMaker::fill_bid` / `fill_ask` did not realize P&L when a fill closed the position exactly (a round trip booked 0).
+  - `QualityChecker::check_spike` and `OutlierFilter::check` were disabled after a perfectly flat window (zero std), so a 5x or 100x jump passed. Sigma is now floored at 0.1% of the mean price in that case only.
+  - `SeasonalityAnalyzer::detect_session_pattern` had no tolerance for "roughly uniform" volume (50 / 52 / 48 came out as an L shape); thirds within 10% of their mean are now `Uniform`.
+  - `SignalCombiner::orthogonalize` projected uncentered vectors, which zeroes the dot product but not the correlation; it now removes the covariance with each earlier signal and keeps each signal's mean.
+  - Pin bar detection measured the "small opposite wick" against the body, which rejects textbook pin bars (small body by definition); the wick is now measured against the bar's range.
+- 10 tests had wrong expectations and were corrected: a crossover expected one bar late, the sign convention of sell-side implementation shortfall, a FIX checksum test that corrupted the header instead of the body, two FIX tests that needed a Tokio runtime, market orders being immediate-or-cancel (partial fills return `remaining`; docs updated to say so), Kyle lambda and price-impact tests fed constant price changes, and a Sharpe test on a zero-volatility series.
+
 ## [2.11.2] - 2026-09-28
 
 ### Changed
