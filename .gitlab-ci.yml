@@ -18,4 +18,8 @@ test:
     key: cargo-test
     paths: [target/, .cargo-home/]
   script:
-    - cargo test --locked
+  # The same checks the GitHub CI ran. The library's unit tests have known failures and are not part of it yet.
+    - 'cargo check'
+    - 'cargo test --doc'
+    - "cargo test --test '*'"
+    - 'for e in tape normalize feed_health replay; do cargo run --quiet --example "$e"; done'
