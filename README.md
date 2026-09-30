@@ -7,7 +7,6 @@ For Rust developers building trading bots, market-data collectors, backtesters o
 <p align="center">
   <a href="https://crates.io/crates/fin-stream"><img alt="crates.io version" src="https://img.shields.io/crates/v/fin-stream.svg"></a>
   <a href="https://docs.rs/fin-stream"><img alt="docs.rs" src="https://docs.rs/fin-stream/badge.svg"></a>
-  <a href="https://github.com/Mattbusel/fin-stream/actions/workflows/ci.yml"><img alt="CI status" src="https://github.com/Mattbusel/fin-stream/actions/workflows/ci.yml/badge.svg"></a>
   <a href="https://github.com/Mattbusel/fin-stream/blob/main/LICENSE"><img alt="MIT license" src="https://img.shields.io/badge/license-MIT-blue.svg"></a>
 </p>
 
