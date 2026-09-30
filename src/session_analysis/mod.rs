@@ -54,6 +54,9 @@ pub enum SessionPattern {
     Uniform,
 }
 
+/// Relative band within which session thirds count as uniform volume.
+const UNIFORM_BAND: f64 = 0.10;
+
 /// Internal accumulator for one intraday bucket.
 #[derive(Debug, Default, Clone)]
 struct BucketAccum {
@@ -180,6 +183,8 @@ impl SeasonalityAnalyzer {
     /// Classify the intraday session pattern from a bucket profile.
     ///
     /// Classification rules (based on relative volume):
+    /// - **Uniform**: the three third-averages lie within 10% of their mean
+    ///   (max - min <= 0.10 * mean). Checked first.
     /// - **UShape**: first-third avg volume AND last-third avg volume both exceed mid-third.
     /// - **LShape**: first-third average > last-third average AND last < mid (declining).
     /// - **JShape**: last-third average > first-third average AND first < mid (rising).
@@ -206,7 +211,13 @@ impl SeasonalityAnalyzer {
             .sum::<f64>()
             / (n - 2 * third) as f64;
 
-        if first_avg > mid_avg && last_avg > mid_avg {
+        // "Roughly uniform": the three thirds lie within 10% of their mean. Without
+        // this band any wobble (e.g. 50 / 52 / 48) was classified as a shape.
+        let overall = (first_avg + mid_avg + last_avg) / 3.0;
+        let spread = first_avg.max(mid_avg).max(last_avg) - first_avg.min(mid_avg).min(last_avg);
+        if spread <= UNIFORM_BAND * overall.abs() {
+            SessionPattern::Uniform
+        } else if first_avg > mid_avg && last_avg > mid_avg {
             SessionPattern::UShape
         } else if first_avg > last_avg && last_avg <= mid_avg {
             SessionPattern::LShape

@@ -508,10 +508,13 @@ mod tests {
         for _ in 0..4 {
             mgr.update_price("AAPL", 100.0, 1.0, 0);
         }
-        // Rapid jump — fast MA crosses above slow MA
-        mgr.update_price("AAPL", 200.0, 1.0, 1_000);
+        // Rapid jump: on this tick fast SMA(2) = 150 crosses above slow SMA(4) = 125.
+        let fired = mgr.update_price("AAPL", 200.0, 1.0, 1_000);
+        assert!(!fired.is_empty(), "the cross happens on the jump tick");
+        // Next tick fast (200) was already above slow (150): no new cross.
+        // (This test used to expect the alert on this tick, one bar late.)
         let fired = mgr.update_price("AAPL", 200.0, 1.0, 2_000);
-        assert!(!fired.is_empty());
+        assert!(fired.is_empty(), "no second cross while fast stays above slow");
     }
 
     // ── active_alerts / triggered_alerts ──────────────────────────────────

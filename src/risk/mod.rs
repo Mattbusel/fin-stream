@@ -351,9 +351,14 @@ mod tests {
 
     #[test]
     fn test_sharpe_trending_up_is_positive() {
+        // A constant growth rate (the old 100 * 1.001^i) has identical returns,
+        // zero volatility and an undefined Sharpe, which sharpe() reports as None.
+        // Use an uptrend with noise: alternate +0.3% and -0.1%.
         let mut rr = RollingRisk::new("X", 50);
+        let mut p = 100.0;
         for i in 0..30 {
-            rr.push(100.0 * (1.001f64).powi(i));
+            rr.push(p);
+            p *= if i % 2 == 0 { 1.003 } else { 0.999 };
         }
         let s = rr.sharpe(0.0).expect("should compute sharpe");
         assert!(s > 0.0, "uptrending prices → positive Sharpe, got {s}");

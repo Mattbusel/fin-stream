@@ -447,15 +447,18 @@ mod tests {
     #[test]
     fn test_analyzer_kyle_lambda() {
         let mut analyzer = MicrostructureAnalyzer::new(10);
-        // Push data where Δp = 2 * signed_volume
+        // Push data where Δp = 2 * signed_volume. The price has to accumulate the
+        // impact: the old `price = 100 + 2 * v` made the price *level* 2v, so
+        // every Δp was 2 regardless of volume and the OLS slope was exactly 0.
+        let mut price = 100.0;
         for i in 0..5 {
             let v = (i + 1) as f64;
-            let price = 100.0 + 2.0 * v;
+            price += 2.0 * v;
             analyzer.push_trade(price, v, 1.0, price - 1.0);
         }
         let lambda = analyzer.kyle_lambda();
         assert!(lambda.is_some());
-        assert!(lambda.unwrap() > 0.0);
+        assert!((lambda.unwrap() - 2.0).abs() < 1e-9, "lambda={:?}", lambda);
     }
 
     #[test]

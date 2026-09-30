@@ -111,10 +111,11 @@ impl MarketMaker {
             unrealized_pnl: 0.0,
         });
         // Weighted average cost for long side
+        // Realize before checking for a flat result: an exact round trip closes
+        // the whole position and must book its P&L (checking `new_qty == 0` first
+        // used to skip the realization entirely).
         let new_qty = pos.quantity + qty;
-        if new_qty.abs() < f64::EPSILON {
-            pos.avg_cost = 0.0;
-        } else if pos.quantity >= 0.0 {
+        if pos.quantity >= 0.0 {
             // Adding to existing long or opening from zero
             pos.avg_cost = (pos.avg_cost * pos.quantity + price * qty) / new_qty;
         } else {
@@ -127,6 +128,9 @@ impl MarketMaker {
             if remaining > 0.0 {
                 pos.avg_cost = price; // flip to long
             }
+        }
+        if new_qty.abs() < f64::EPSILON {
+            pos.avg_cost = 0.0;
         }
         pos.quantity = new_qty;
         pos.market_value = pos.quantity * price;
@@ -143,10 +147,9 @@ impl MarketMaker {
             market_value: 0.0,
             unrealized_pnl: 0.0,
         });
+        // Realize before checking for a flat result (see fill_bid).
         let new_qty = pos.quantity - qty;
-        if new_qty.abs() < f64::EPSILON {
-            pos.avg_cost = 0.0;
-        } else if pos.quantity <= 0.0 {
+        if pos.quantity <= 0.0 {
             // Adding to existing short or opening from zero
             let total_short = pos.quantity.abs() + qty;
             pos.avg_cost =
@@ -161,6 +164,9 @@ impl MarketMaker {
             if remaining > 0.0 {
                 pos.avg_cost = price; // flip to short
             }
+        }
+        if new_qty.abs() < f64::EPSILON {
+            pos.avg_cost = 0.0;
         }
         pos.quantity = new_qty;
         pos.market_value = pos.quantity * price;

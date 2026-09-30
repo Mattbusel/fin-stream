@@ -252,8 +252,13 @@ impl DuplicateFilter {
     }
 }
 
+/// Std used by [`OutlierFilter`] when its window is perfectly flat, as a
+/// fraction of the mean price (0.1%).
+const FLAT_STD_FLOOR: f64 = 1e-3;
+
 /// Rejects ticks whose price deviates more than `std_threshold` standard
-/// deviations from a rolling mean of recent prices.
+/// deviations from a rolling mean of recent prices. If the window is perfectly
+/// flat, the std is floored at 0.1% of the mean price.
 #[derive(Debug, Clone)]
 pub struct OutlierFilter {
     window: usize,
@@ -289,11 +294,15 @@ impl OutlierFilter {
             .sum::<f64>()
             / (self.prices.len() - 1) as f64;
         let std = variance.sqrt();
-        let z = if std == 0.0 {
-            0.0
+        // A perfectly flat window has zero std, which used to make every tick pass
+        // (z = 0), even a 100x spike. Floor std at 0.1% of the mean price in that
+        // case so ordinary moves still pass and gross errors are rejected.
+        let std = if std == 0.0 {
+            (FLAT_STD_FLOOR * mean.abs()).max(f64::MIN_POSITIVE)
         } else {
-            (tick.price - mean).abs() / std
+            std
         };
+        let z = (tick.price - mean).abs() / std;
         // Slide window
         self.prices.pop_front();
         self.prices.push_back(tick.price);

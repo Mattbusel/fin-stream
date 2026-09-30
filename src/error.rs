@@ -209,8 +209,9 @@ pub enum StreamError {
 
     /// Insufficient liquidity in the order book to fill the requested quantity.
     ///
-    /// Returned by [`crate::lob_sim`] when a market order exhausts all resting
-    /// liquidity without being fully filled.
+    /// Returned by [`crate::lob_sim`] when a market order finds no resting
+    /// liquidity on the opposite side. Partial fills are reported as
+    /// `LobResult::Filled` with a non-zero `remaining`.
     #[error("Insufficient liquidity to fill the requested quantity")]
     InsufficientLiquidity,
 }

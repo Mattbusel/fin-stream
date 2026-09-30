@@ -118,6 +118,9 @@ impl OrderFlowImbalanceMetrics {
     /// Computes OLS regression of price changes on signed volume:
     /// `Δprice = α + β * signed_volume`
     ///
+    /// Each price change `price[i] - price[i-1]` is paired with the signed volume
+    /// of trade `i - 1`, i.e. the move that follows a trade.
+    ///
     /// Returns `(alpha, beta)`. If fewer than 2 trades, returns `(0.0, 0.0)`.
     pub fn price_impact_regression(trades: &[Trade]) -> (f64, f64) {
         if trades.len() < 2 {
@@ -287,14 +290,18 @@ mod tests {
     #[test]
     fn test_price_impact_regression_sign() {
         // Buying pressure: price should rise with positive signed volume.
+        // Each price change is 0.05 per unit of the preceding trade's signed volume.
+        // (The old data rose by a constant 0.5 per trade whatever the volume, so
+        // Δp had zero variance and the slope was correctly 0.)
         let trades = vec![
             make_trade(100.0, 10.0,  1, 1000),
             make_trade(100.5, 20.0,  1, 2000),
-            make_trade(101.0, 15.0,  1, 3000),
-            make_trade(101.5, 25.0,  1, 4000),
+            make_trade(101.5, 15.0,  1, 3000),
+            make_trade(102.25, 25.0, 1, 4000),
         ];
-        let (_, beta) = OrderFlowImbalanceMetrics::price_impact_regression(&trades);
-        assert!(beta > 0.0, "beta should be positive for buying pressure, got {beta}");
+        let (alpha, beta) = OrderFlowImbalanceMetrics::price_impact_regression(&trades);
+        assert!((beta - 0.05).abs() < 1e-9, "beta should be 0.05 for this buying pressure, got {beta}");
+        assert!(alpha.abs() < 1e-9, "alpha={alpha}");
     }
 
     #[test]

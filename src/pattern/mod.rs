@@ -43,7 +43,8 @@ pub enum PatternType {
     MorningStar,
     /// Three-bar top reversal pattern.
     EveningStar,
-    /// Long tail (wick) ≥ 2.5× the body, small opposite wick.
+    /// Long tail (wick) ≥ 2.5× the body and ≥ 2/3 of the bar's range; opposite
+    /// wick ≤ 1/4 of the range.
     PinBar,
     /// Current bar's high/low is entirely within the prior bar's range.
     InsideBar,
@@ -143,10 +144,17 @@ impl PatternDetector {
             }
 
             // ── PinBar ───────────────────────────────────────────────────────
-            // Tail (longest wick) ≥ 2.5× body, small opposite wick.
+            // Tail (longest wick) ≥ 2.5× body and at least two thirds of the
+            // range; the opposite wick is at most a quarter of the range.
+            // "Small" used to be measured against the body (≤ 0.5× body), which
+            // degenerates exactly when the body is small, as it is on a pin bar:
+            // a 0.5 body with a 0.5 nose under a 10-point tail was rejected.
             let long_wick = lower_wick.max(upper_wick);
             let short_wick = lower_wick.min(upper_wick);
-            if body > 0.0 && long_wick >= 2.5 * body && short_wick <= 0.5 * body {
+            if long_wick >= 2.5 * body
+                && long_wick >= range * 2.0 / 3.0
+                && short_wick <= 0.25 * range
+            {
                 let dir = if lower_wick > upper_wick {
                     Direction::Bullish
                 } else {

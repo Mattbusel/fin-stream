@@ -85,6 +85,10 @@ pub enum DataQualityFlag {
     DuplicateTick,
 }
 
+/// Sigma used for spike detection when the price history is perfectly flat,
+/// as a fraction of the mean price (0.1%).
+const FLAT_SIGMA_FLOOR: f64 = 1e-3;
+
 // ---------------------------------------------------------------------------
 // QualityReport
 // ---------------------------------------------------------------------------
@@ -385,7 +389,8 @@ impl QualityChecker {
     /// Check whether a price is a spike relative to `history`.
     ///
     /// Returns `Some(SuspiciousSpike { .. })` if the price deviates by more than
-    /// `self.spike_sigma` standard deviations, `None` otherwise.
+    /// `self.spike_sigma` standard deviations, `None` otherwise. When the history
+    /// is flat (zero deviation), sigma is floored at 0.1% of the mean price.
     pub fn check_spike(&self, price: f64, history: &VecDeque<f64>) -> Option<DataQualityFlag> {
         if history.len() < 5 {
             return None;
@@ -394,9 +399,14 @@ impl QualityChecker {
         let var = history.iter().map(|p| (p - mean).powi(2)).sum::<f64>()
             / history.len() as f64;
         let sigma = var.sqrt();
-        if sigma < 1e-12 {
-            return None;
-        }
+        // A flat history has zero dispersion, which used to disable the check
+        // entirely (a 5x jump after flat prices passed unflagged). In that case
+        // measure against a noise floor of 0.1% of the price level instead.
+        let sigma = if sigma < 1e-12 {
+            (FLAT_SIGMA_FLOOR * mean.abs()).max(f64::MIN_POSITIVE)
+        } else {
+            sigma
+        };
         let deviation = (price - mean).abs() / sigma;
         if deviation > self.spike_sigma {
             Some(DataQualityFlag::SuspiciousSpike { deviation_sigma: deviation })

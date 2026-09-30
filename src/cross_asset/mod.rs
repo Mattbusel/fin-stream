@@ -161,10 +161,14 @@ impl CorrelationMatrix {
 
         for (other_sym, other_val) in others {
             let key = Self::pair_key(symbol, &other_sym);
+            // Keep x = first symbol of the key and y = second, whichever side
+            // ticked. Feeding (new, other) flipped x and y from tick to tick and
+            // mixed the two series inside one accumulator.
+            let (x, y) = if key.0 == symbol { (value, other_val) } else { (other_val, value) };
             self.pairs
                 .entry(key)
                 .or_insert_with(OnlineCorrelation::new)
-                .update(value, other_val);
+                .update(x, y);
         }
 
         self.latest.insert(symbol.to_owned(), value);
@@ -385,7 +389,12 @@ mod tests {
         let cor = cm.correlation("SPY", "QQQ");
         assert!(cor.is_some(), "correlation should be available");
         let c = cor.unwrap();
-        assert!((c - 1.0).abs() < 1e-6, "perfectly correlated assets: cor={c}");
+        // add_observation is an as-of join: each tick pairs with the other symbol's
+        // latest value, so SPY(i) is paired once with QQQ(i-1) and once with QQQ(i).
+        // Those staggered pairs give exactly 179/182 = 0.98352 for two series that
+        // are perfectly correlated tick for tick; 1.0 is not reachable here.
+        // (Before the x/y orientation fix this came out as 0.99525.)
+        assert!((c - 179.0 / 182.0).abs() < 1e-9, "as-of joined correlation: cor={c}");
     }
 
     #[test]

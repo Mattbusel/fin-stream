@@ -645,14 +645,22 @@ mod tests {
 
     #[test]
     fn kyle_lambda_positive_on_buy_pressure() {
+        // Buy sizes vary and each price step is 0.01 per unit bought, so the
+        // regression has something to fit. (With a constant size of 10, signed
+        // volume has zero variance and kyle_lambda() is documented to be NaN.)
+        // 21 ticks: the first has no previous price and falls out of the window.
         let mut a = OrderFlowToxicityAnalyzer::new(20, 5, 5);
-        let prices: Vec<f64> = (0..20).map(|i| 100.0 + i as f64 * 0.1).collect();
-        for p in &prices {
-            a.update(&make_tick(&format!("{p:.2}"), "10", TradeSide::Buy));
+        let mut price = 100.0_f64;
+        for i in 0..21 {
+            let qty = [5, 10, 15, 20][i % 4];
+            if i > 0 {
+                price += 0.01 * qty as f64;
+            }
+            a.update(&make_tick(&format!("{price:.2}"), &qty.to_string(), TradeSide::Buy));
         }
         let lambda = a.kyle_lambda();
         assert!(lambda.is_finite());
-        assert!(lambda >= 0.0, "lambda should be >=0 on sustained buy flow, got {lambda}");
+        assert!((lambda - 0.01).abs() < 1e-9, "lambda should be 0.01 per unit, got {lambda}");
     }
 
     #[test]

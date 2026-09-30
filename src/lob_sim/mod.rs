@@ -12,7 +12,9 @@
 //! ## Matching Rules
 //! - Price-time priority (FIFO within each price level)
 //! - Partial fills are supported
-//! - Market orders that exhaust the book return `Err(StreamError::InsufficientLiquidity)`
+//! - Market orders are immediate-or-cancel: whatever the book can fill is filled and
+//!   the rest comes back as `LobResult::Filled { remaining, .. }`. A market order that
+//!   finds no liquidity at all returns `Err(StreamError::InsufficientLiquidity)`.
 //!
 //! ## NOT Responsible For
 //! - Persistent storage of order history
@@ -168,7 +170,8 @@ impl LobSimulator {
     /// # Errors
     /// - `StreamError::InvalidInput` if the order ID already exists (for `LimitOrder`).
     /// - `StreamError::InvalidInput` if the order ID is not found (for `CancelOrder`).
-    /// - `StreamError::InsufficientLiquidity` if a market order cannot be fully filled.
+    /// - `StreamError::InsufficientLiquidity` if a market order finds no resting liquidity
+    ///   on the opposite side. A partial fill is `Ok(LobResult::Filled { remaining > 0, .. })`.
     pub fn process(&mut self, event: LobEvent) -> Result<LobResult, StreamError> {
         match event {
             LobEvent::LimitOrder { id, side, price, quantity } => {
@@ -412,8 +415,20 @@ mod tests {
 
     #[test]
     fn test_market_order_insufficient_liquidity() {
+        // Market orders are immediate-or-cancel. The fills already happened, so
+        // they are reported with the unfilled remainder rather than discarded
+        // behind an error (the `remaining` field exists for exactly this case).
         let mut sim = LobSimulator::new();
         sim.process(LobEvent::LimitOrder { id: 1, side: Side::Ask, price: 100, quantity: 5 }).unwrap();
+        let res = sim.process(LobEvent::MarketOrder { side: Side::Bid, quantity: 100 }).unwrap();
+        match res {
+            LobResult::Filled { fills, remaining } => {
+                assert_eq!(fills.iter().map(|f| f.quantity).sum::<u64>(), 5);
+                assert_eq!(remaining, 95);
+            }
+            other => panic!("expected partial fill, got {other:?}"),
+        }
+        // The book is now empty on the ask side: nothing at all can fill.
         let err = sim.process(LobEvent::MarketOrder { side: Side::Bid, quantity: 100 });
         assert!(matches!(err, Err(StreamError::InsufficientLiquidity)));
     }

@@ -311,14 +311,16 @@ mod tests {
     }
 
     #[test]
-    fn sell_is_negative_when_filled_below_decision() {
+    fn sell_is_positive_when_filled_below_decision() {
         let mut m = ExecutionMonitor::new();
         m.record_order(OrderRecord::new("ord-s", 100.0, 500.0, Side::Sell));
-        // Sold below decision price → IS negative (bad for seller).
+        // Sold below decision price: a cost for the seller. The field is documented
+        // as "positive = worse than decision price for the direction", so IS is
+        // +0.1% here, the same sign as the buy-above-decision case.
         m.add_fill("ord-s", FillRecord { price: 99.9, quantity: 500.0, vwap_at_fill: 100.0 })
             .unwrap();
         let r = m.compute_report("ord-s").unwrap();
-        assert!(r.implementation_shortfall < 0.0);
+        assert!((r.implementation_shortfall - 0.001).abs() < 1e-12, "is={}", r.implementation_shortfall);
     }
 
     #[test]

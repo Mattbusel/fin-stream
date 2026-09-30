@@ -146,32 +146,35 @@ impl SignalCombiner {
         if count == 0 { 0.0 } else { total / count as f64 }
     }
 
-    /// Orthogonalize signals in-place using Gram-Schmidt.
+    /// Orthogonalize signals in-place using Gram-Schmidt on demeaned values.
     ///
-    /// For each signal `i`, subtracts the projection onto each preceding signal `j < i`.
+    /// For each signal `i`, subtracts `beta_ij * (s_j - mean(s_j))` for each
+    /// preceding signal `j < i`, where `beta_ij = cov(s_i, s_j) / var(s_j)`.
+    /// Afterwards every pair of signals has zero Pearson correlation, and each
+    /// signal keeps its own mean. (Projecting the raw, uncentered vectors, as
+    /// this used to, only makes the dot product zero: two signals that differ by
+    /// a constant stayed perfectly correlated, or flipped to -1.)
     pub fn orthogonalize(&mut self) {
         let n = self.signals.len();
         for i in 1..n {
-            // Collect projections first to avoid borrow conflicts
-            let len = self.signals[i].values.len();
-            let projs: Vec<Vec<f64>> = (0..i)
-                .map(|j| {
-                    let a = &self.signals[j].values;
-                    let b = &self.signals[i].values;
-                    let dot_ab: f64 = a.iter().zip(b.iter()).map(|(x, y)| x * y).sum();
-                    let dot_aa: f64 = a.iter().map(|x| x * x).sum();
-                    if dot_aa == 0.0 {
-                        vec![0.0; len]
-                    } else {
-                        let scale = dot_ab / dot_aa;
-                        a.iter().map(|x| x * scale).collect()
-                    }
-                })
-                .collect();
-            // Apply all projections
-            for proj in &projs {
-                for (v, p) in self.signals[i].values.iter_mut().zip(proj.iter()) {
-                    *v -= p;
+            for j in 0..i {
+                let len = self.signals[i].values.len().min(self.signals[j].values.len());
+                if len < 2 {
+                    continue;
+                }
+                let a = &self.signals[j].values[..len];
+                let b = &self.signals[i].values[..len];
+                let mean_a = a.iter().sum::<f64>() / len as f64;
+                let mean_b = b.iter().sum::<f64>() / len as f64;
+                let cov: f64 = a.iter().zip(b.iter()).map(|(x, y)| (x - mean_a) * (y - mean_b)).sum();
+                let var: f64 = a.iter().map(|x| (x - mean_a).powi(2)).sum();
+                if var == 0.0 {
+                    continue;
+                }
+                let beta = cov / var;
+                let centered: Vec<f64> = a.iter().map(|x| x - mean_a).collect();
+                for (v, c) in self.signals[i].values[..len].iter_mut().zip(centered.iter()) {
+                    *v -= beta * c;
                 }
             }
         }
@@ -316,14 +319,19 @@ mod tests {
     fn orthogonalize_makes_signals_uncorrelated() {
         let mut combiner = SignalCombiner::new(CombinationMethod::EqualWeight);
         combiner.add_signal(make_signal("a", vec![1.0, 2.0, 3.0, 4.0], 0.5));
-        // b is correlated with a
-        combiner.add_signal(make_signal("b", vec![2.0, 3.0, 4.0, 5.0], 0.4));
+        // b is partly correlated with a (corr 0.6). The old b = a + 1 is a
+        // perfect linear copy: its residual is a constant with no defined correlation.
+        combiner.add_signal(make_signal("b", vec![2.0, 1.0, 4.0, 3.0], 0.4));
         combiner.orthogonalize();
         let corr = SignalCombiner::signal_correlation(
             &combiner.signals[0].values,
             &combiner.signals[1].values,
         );
         assert!(corr.abs() < 1e-10, "after orthogonalize corr should be ~0, got {corr}");
+        // b keeps its mean (2.5) and is not collapsed to a constant.
+        let b = &combiner.signals[1].values;
+        assert!((b.iter().sum::<f64>() / 4.0 - 2.5).abs() < 1e-12);
+        assert!(b.iter().any(|x| (x - b[0]).abs() > 1e-6));
     }
 
     #[test]

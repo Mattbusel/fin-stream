@@ -523,10 +523,16 @@ mod tests {
     #[test]
     fn parse_checksum_mismatch_error() {
         let mut frame = make_minimal_fix_frame("0", "49=A\x0156=B\x01");
-        // Corrupt a byte in the body to trigger checksum failure.
-        if let Some(b) = frame.get_mut(10) {
-            *b = b'^';
-        }
+        // Corrupt a byte in the body to trigger checksum failure. (Index 10, used
+        // before, is the '9' of the BodyLength tag in the header, so the parser
+        // correctly failed earlier with a non-numeric tag error.) Change the value
+        // of 49=A to 49=Z instead.
+        let pos = frame
+            .windows(4)
+            .position(|w| w == b"49=A")
+            .expect("frame contains 49=A")
+            + 3;
+        frame[pos] = b'Z';
         let parser = FixParser::new();
         let result = parser.parse(&frame);
         assert!(matches!(result, Err(FixError::ChecksumMismatch { .. })));
@@ -549,8 +555,10 @@ mod tests {
         assert_eq!(parsed.get(tag::SENDER_COMP_ID).unwrap(), "SENDER");
     }
 
-    #[test]
-    fn on_message_snapshot_converts_to_tick() {
+    // TcpStream::from_std registers the socket with the Tokio reactor, so these
+    // tests need a runtime (plain #[test] panicked with "no reactor running").
+    #[tokio::test]
+    async fn on_message_snapshot_converts_to_tick() {
         let parser = FixParser::new();
         let mut fields = HashMap::new();
         fields.insert(tag::SYMBOL, "AAPL".to_string());
@@ -571,6 +579,7 @@ mod tests {
                 let addr = listener.local_addr().expect("local addr");
                 let std_stream =
                     std::net::TcpStream::connect(addr).expect("connect loopback");
+                std_stream.set_nonblocking(true).expect("nonblocking");
                 TcpStream::from_std(std_stream).expect("into tokio stream")
             },
             parser,
@@ -584,12 +593,15 @@ mod tests {
         assert_eq!(tick.quantity.to_string(), "100");
     }
 
-    #[test]
-    fn on_message_heartbeat_returns_none() {
+    // TcpStream::from_std registers the socket with the Tokio reactor, so these
+    // tests need a runtime (plain #[test] panicked with "no reactor running").
+    #[tokio::test]
+    async fn on_message_heartbeat_returns_none() {
         let parser = FixParser::new();
         let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind");
         let addr = listener.local_addr().expect("addr");
         let std_stream = std::net::TcpStream::connect(addr).expect("connect");
+        std_stream.set_nonblocking(true).expect("nonblocking");
         let stream = TcpStream::from_std(std_stream).expect("tokio stream");
         let session = FixSession {
             stream,
