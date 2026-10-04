@@ -14,6 +14,11 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - TLS for `wss://` feeds is rustls with the ring provider instead of native-tls, so Linux builds no longer link OpenSSL. The provider is installed at connect time; without that, the first `wss://` connect panicked inside rustls.
 
 ### Fixed
+- `FixParser::parse` rejected valid FIX messages containing tag 110
+  (MinQty), 210 (MaxShow) or any field whose text contains `10=`: it took the
+  first `10=` in the frame for the checksum trailer and reported
+  `ChecksumMismatch`. It now reads the trailer as the last `<SOH>10=` field.
+  Found by the new property test (`fix_parser_never_panics_on_framed_fields`).
 - `WsManager::run`: every successful connection used up reconnect slots, so a long-running feed stopped for good after `max_attempts` ordinary server-side disconnects. The retry budget now resets after each connection that came up, and backoff restarts from `initial_backoff`.
 - `WsManager::run`: once the outbound sender was dropped the select loop spun on an always-ready `recv()` (measured: over 7 million wakeups during the test run). The closed channel is now left alone.
 - `WsManager::run`: a half-open connection (handshake done, then silence) hung forever because pongs were never checked. Nothing received for two ping intervals now counts as a dead connection and triggers a reconnect.

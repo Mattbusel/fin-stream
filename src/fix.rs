@@ -204,9 +204,13 @@ impl FixParser {
         }
 
         // Validate checksum: sum all bytes except the `10=NNN\x01` trailer.
+        // The trailer is the last field, so search for `<SOH>10=` from the
+        // end: a bare `10=` also occurs inside tags such as 110 (MinQty) and
+        // 210 (MaxShow), and inside values.
         let checksum_tag_pos = raw
-            .windows(3)
-            .position(|w| w == b"10=")
+            .windows(4)
+            .rposition(|w| w[0] == SOH && &w[1..] == b"10=")
+            .map(|p| p + 1)
             .ok_or(FixError::MissingTag { tag: tag::CHECKSUM })?;
         let computed: u8 = raw[..checksum_tag_pos]
             .iter()
@@ -518,6 +522,24 @@ mod tests {
         let parser = FixParser::new();
         let result = parser.parse(&frame);
         assert!(matches!(result, Err(FixError::UnsupportedVersion(_))));
+    }
+
+    #[test]
+    fn parse_accepts_tags_that_contain_10_equals() {
+        // Tag 110 (MinQty) serialises as "110=", which contains "10=". The
+        // parser used to take the first "10=" as the checksum and reject
+        // every such message with ChecksumMismatch.
+        let soh = SOH as char;
+        let body = format!("35=D{soh}110=500{soh}210=100{soh}58=ratio 10=ok{soh}");
+        let pre = format!("8=FIX.4.2{soh}9={}{soh}{body}", body.len());
+        let checksum: u8 = pre.as_bytes().iter().fold(0u8, |acc, &b| acc.wrapping_add(b));
+        let frame = format!("{pre}10={checksum:03}{soh}").into_bytes();
+        let parser = FixParser::new();
+        let msg = parser.parse(&frame).expect("a valid frame with tag 110 parses");
+        assert_eq!(msg.fields.get(&110).map(String::as_str), Some("500"));
+        assert_eq!(msg.fields.get(&58).map(String::as_str), Some("ratio 10=ok"));
+        // And it survives a serialize/parse round trip.
+        assert!(parser.parse(&parser.serialize(&msg)).is_ok());
     }
 
     #[test]

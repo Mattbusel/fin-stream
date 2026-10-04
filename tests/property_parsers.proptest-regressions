@@ -1,0 +1,4 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+cc 77f2fc951fa47f224d2f1b3231cd2c12de86706bdb8d96eeaea78ea177bc30ec # FIX tag 110 ("110=") was taken for the checksum trailer
