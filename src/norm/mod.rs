@@ -634,7 +634,7 @@ impl MinMaxNormalizer {
 
     /// Returns `true` if the absolute z-score of `value` exceeds `z_threshold`.
     pub fn is_outlier(&self, value: Decimal, z_threshold: f64) -> bool {
-        self.z_score(value).map_or(false, |z| z.abs() > z_threshold)
+        self.z_score(value).is_some_and(|z| z.abs() > z_threshold)
     }
 
     /// Returns a copy of the window values that fall within `sigma` standard
@@ -701,14 +701,14 @@ impl MinMaxNormalizer {
     ///
     /// Returns `false` if the window is empty.
     pub fn is_at_min(&mut self, value: Decimal) -> bool {
-        self.min().map_or(false, |m| value == m)
+        self.min() == Some(value)
     }
 
     /// Returns `true` if `value` equals the current window maximum.
     ///
     /// Returns `false` if the window is empty.
     pub fn is_at_max(&mut self, value: Decimal) -> bool {
-        self.max().map_or(false, |m| value == m)
+        self.max() == Some(value)
     }
 
     /// Fraction of window values strictly above `threshold`.
@@ -2415,12 +2415,12 @@ impl MinMaxNormalizer {
             .windows(3)
             .filter(|w| w[1] > w[0] && w[1] > w[2])
             .map(|w| w[1])
-            .last();
+            .next_back();
         let last_trough = vals
             .windows(3)
             .filter(|w| w[1] < w[0] && w[1] < w[2])
             .map(|w| w[1])
-            .last();
+            .next_back();
         match (last_trough, last_peak) {
             (Some(t), Some(p)) if !p.is_zero() => Some((t / p).to_f64().unwrap_or(0.0)),
             _ => None,
@@ -4693,7 +4693,7 @@ impl MinMaxNormalizer {
         Some(max_run)
     }
 
-    /// Geometric mean of successive ratios (value[i]/value[i-1]) as a trend indicator.
+    /// Geometric mean of successive ratios (value\[i\]/value[i-1]) as a trend indicator.
     pub fn window_geometric_trend(&self) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
         if self.window.len() < 2 { return None; }
@@ -4837,7 +4837,7 @@ impl MinMaxNormalizer {
         Some(vals.iter().map(|&x| (x - mean).abs()).sum::<f64>() / vals.len() as f64)
     }
 
-    /// Last window value normalized to [0,1] within the window range.
+    /// Last window value normalized to \[0,1\] within the window range.
     pub fn window_normalized_last(&self) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
         if self.window.is_empty() { return None; }
@@ -4854,8 +4854,8 @@ impl MinMaxNormalizer {
         use rust_decimal::prelude::ToPrimitive;
         if self.window.is_empty() { return None; }
         let n = self.window.len() as f64;
-        let pos = self.window.iter().filter(|v| v.to_f64().map_or(false, |x| x > 0.0)).count() as f64;
-        let neg = self.window.iter().filter(|v| v.to_f64().map_or(false, |x| x < 0.0)).count() as f64;
+        let pos = self.window.iter().filter(|v| v.to_f64().is_some_and(|x| x > 0.0)).count() as f64;
+        let neg = self.window.iter().filter(|v| v.to_f64().is_some_and(|x| x < 0.0)).count() as f64;
         Some((pos - neg) / n)
     }
 
@@ -5710,7 +5710,7 @@ impl MinMaxNormalizer {
 
     // ── round-168 ────────────────────────────────────────────────────────────
 
-    /// Mean of (value[i] - value[i-lag]) for lag=1 (mean consecutive change).
+    /// Mean of (value\[i\] - value[i-lag]) for lag=1 (mean consecutive change).
     pub fn window_mean_lag_diff(&self) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
         if self.window.len() < 2 { return None; }
@@ -5935,7 +5935,7 @@ impl MinMaxNormalizer {
         Some(above.iter().sum::<f64>() / above.len() as f64)
     }
 
-    /// Parabolic trend score: mean(diffs[i+1] - diffs[i]) — mean second derivative.
+    /// Parabolic trend score: mean(diffs[i+1] - diffs\[i\]): mean second derivative.
     pub fn window_parabolic_trend(&self) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
         if self.window.len() < 3 { return None; }
@@ -6234,7 +6234,7 @@ impl MinMaxNormalizer {
         use rust_decimal::prelude::ToPrimitive;
         if self.window.is_empty() { return None; }
         let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0).abs()).collect();
-        if vals.iter().any(|&v| v == 0.0) { return None; }
+        if vals.contains(&0.0) { return None; }
         let log_sum: f64 = vals.iter().map(|v| v.ln()).sum();
         Some((log_sum / vals.len() as f64).exp())
     }
@@ -6375,7 +6375,7 @@ impl MinMaxNormalizer {
         Some(vals.iter().map(|v| v - mean).sum::<f64>())
     }
 
-    /// Count of consecutive pairs where value[i] < value[i+1].
+    /// Count of consecutive pairs where value\[i\] < value[i+1].
     pub fn window_consecutive_increase(&self) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
         if self.window.len() < 2 { return None; }
@@ -6476,7 +6476,7 @@ impl MinMaxNormalizer {
         Some(logs.iter().sum::<f64>() / logs.len() as f64)
     }
 
-    /// Sum of exponentially decayed values: sum(value[i] * 0.9^(n-1-i)).
+    /// Sum of exponentially decayed values: sum(value\[i\] * 0.9^(n-1-i)).
     pub fn window_decay_sum(&self) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
         if self.window.is_empty() { return None; }
@@ -6910,7 +6910,7 @@ impl MinMaxNormalizer {
         Some(signs.iter().sum::<f64>() / signs.len() as f64)
     }
 
-    /// Entropy normalized to [0,1] by dividing by log(n).
+    /// Entropy normalized to \[0,1\] by dividing by log(n).
     pub fn window_normalized_entropy(&self) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
         if self.window.is_empty() { return None; }
@@ -8373,6 +8373,7 @@ impl MinMaxNormalizer {
 }
 
 #[cfg(test)]
+#[allow(deprecated)] // the tests still cover the deprecated aliases
 mod tests {
     use super::*;
     use rust_decimal_macros::dec;
@@ -10328,7 +10329,7 @@ mod tests {
         let mut n = norm(4);
         for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
         let f = n.above_median_fraction().unwrap();
-        assert!(f >= 0.0 && f <= 1.0, "fraction in [0,1], got {}", f);
+        assert!((0.0..=1.0).contains(&f), "fraction in [0,1], got {}", f);
     }
 
     // ── round-85 tests ─────────────────────────────────────────────────────
@@ -11618,7 +11619,7 @@ mod tests {
         // 1, 5, 2, 5 — values alternate away from mean, some move toward
         for v in [dec!(1), dec!(5), dec!(2), dec!(5)] { n.update(v); }
         let r = n.window_mean_reversion().unwrap();
-        assert!(r >= 0.0 && r <= 1.0, "expected [0,1], got {}", r);
+        assert!((0.0..=1.0).contains(&r), "expected [0,1], got {}", r);
     }
 
     #[test]
@@ -16750,7 +16751,7 @@ mod tests {
         let mut n = norm(4);
         for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
         let q1 = n.window_q1_f64().unwrap();
-        assert!(q1 >= 1.0 && q1 <= 2.0);
+        assert!((1.0..=2.0).contains(&q1));
     }
 
     #[test]
@@ -16778,7 +16779,7 @@ mod tests {
         let mut n = norm(4);
         for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
         let r = n.window_lower_tail().unwrap();
-        assert!(r >= 0.0 && r <= 1.0);
+        assert!((0.0..=1.0).contains(&r));
     }
 
     #[test]
@@ -16791,7 +16792,7 @@ mod tests {
         let mut n = norm(4);
         for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
         let r = n.window_upper_tail().unwrap();
-        assert!(r >= 0.0 && r <= 1.0);
+        assert!((0.0..=1.0).contains(&r));
     }
 
     #[test]
@@ -16819,7 +16820,7 @@ mod tests {
         let mut n = norm(4);
         for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
         let r = n.window_percentile_90().unwrap();
-        assert!(r >= 1.0 && r <= 4.0);
+        assert!((1.0..=4.0).contains(&r));
     }
 
     #[test]
@@ -16834,7 +16835,7 @@ mod tests {
         let mut n = norm(4);
         for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
         let r = n.window_iqr_fraction().unwrap();
-        assert!(r >= 0.0 && r <= 1.0);
+        assert!((0.0..=1.0).contains(&r));
     }
 
     #[test]
@@ -16860,7 +16861,7 @@ mod tests {
         let mut n = norm(4);
         for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
         let r = n.window_range_concentration().unwrap();
-        assert!(r >= 0.0 && r <= 1.0);
+        assert!((0.0..=1.0).contains(&r));
     }
 
     #[test]
@@ -16901,7 +16902,7 @@ mod tests {
         let mut n = norm(4);
         for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
         let r = n.window_value_run().unwrap();
-        assert!(r >= 0.0 && r <= 1.0);
+        assert!((0.0..=1.0).contains(&r));
     }
 
     #[test]
@@ -16970,7 +16971,7 @@ mod tests {
         let mut n = norm(4);
         for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
         let r = n.window_monotone_run_pct().unwrap();
-        assert!(r >= 0.0 && r <= 1.0);
+        assert!((0.0..=1.0).contains(&r));
     }
 
     #[test]
@@ -17112,7 +17113,7 @@ mod tests {
         let mut n = norm(4);
         for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
         let r = n.window_below_mean_pct().unwrap();
-        assert!(r >= 0.0 && r <= 1.0);
+        assert!((0.0..=1.0).contains(&r));
     }
 
     #[test]
@@ -17270,7 +17271,7 @@ mod tests {
         let mut n = norm(4);
         for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
         let r = n.window_density_peak_score().unwrap();
-        assert!(r >= 0.0 && r <= 1.0);
+        assert!((0.0..=1.0).contains(&r));
     }
 
     #[test]
@@ -17354,7 +17355,7 @@ mod tests {
         let mut n = norm(5);
         for v in [dec!(1), dec!(3), dec!(2), dec!(5), dec!(4)] { n.update(v); }
         let r = n.window_above_median_run().unwrap();
-        assert!(r >= 0.0 && r <= 1.0);
+        assert!((0.0..=1.0).contains(&r));
     }
 
     #[test]
@@ -17369,7 +17370,7 @@ mod tests {
         let mut n = norm(5);
         for v in [dec!(1), dec!(2), dec!(3), dec!(4), dec!(5)] { n.update(v); }
         let r = n.window_last_decile().unwrap();
-        assert!(r >= 1.0 && r <= 5.0);
+        assert!((1.0..=5.0).contains(&r));
     }
 
     #[test]
@@ -17576,7 +17577,7 @@ mod tests {
         let mut n = norm(5);
         for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
         let r = n.window_lag1_corr().unwrap();
-        assert!(r >= -1.0 && r <= 1.0);
+        assert!((-1.0..=1.0).contains(&r));
     }
 
     #[test]
@@ -17666,7 +17667,7 @@ mod tests {
         let mut n = norm(4);
         for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
         let r = n.window_cum_sum_ratio().unwrap();
-        assert!(r >= 0.0 && r <= 1.0);
+        assert!((0.0..=1.0).contains(&r));
     }
 
     #[test]
@@ -17869,7 +17870,7 @@ mod tests {
         let mut n = norm(4);
         for v in [dec!(1), dec!(10), dec!(1), dec!(10)] { n.update(v); }
         let r = n.window_cross_ema().unwrap();
-        assert!(r >= 0.0 && r <= 1.0);
+        assert!((0.0..=1.0).contains(&r));
     }
 
     #[test]
@@ -17961,7 +17962,7 @@ mod tests {
         let mut n = norm(4);
         for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
         let r = n.window_above_ema_pct().unwrap();
-        assert!(r >= 0.0 && r <= 1.0);
+        assert!((0.0..=1.0).contains(&r));
     }
 
     #[test]
@@ -18008,7 +18009,7 @@ mod tests {
         let mut n = norm(4);
         for v in [dec!(1), dec!(1), dec!(1), dec!(5)] { n.update(v); }
         let r = n.window_lower_vol_ratio().unwrap();
-        assert!(r >= 0.0 && r <= 1.0, "expected [0,1] got {}", r);
+        assert!((0.0..=1.0).contains(&r), "expected [0,1] got {}", r);
     }
 
     #[test]
@@ -18091,7 +18092,7 @@ mod tests {
         let mut n = norm(4);
         for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
         let r = n.window_upper_vol_ratio().unwrap();
-        assert!(r >= 0.0 && r <= 1.0);
+        assert!((0.0..=1.0).contains(&r));
     }
 }
 
@@ -18516,7 +18517,7 @@ impl ZScoreNormalizer {
     /// Convenience wrapper around [`normalize`](Self::normalize) for alert logic.
     /// Returns `false` if the normalizer window is empty or std-dev is zero.
     pub fn is_extreme(&self, value: Decimal, sigma: f64) -> bool {
-        self.normalize(value).ok().map_or(false, |z| z.abs() > sigma)
+        self.normalize(value).ok().is_some_and(|z| z.abs() > sigma)
     }
 
     /// The most recently added value, or `None` if the window is empty.
@@ -18636,7 +18637,7 @@ impl ZScoreNormalizer {
         let Some(mean_f64) = mean.to_f64() else { return vec![]; };
         self.window.iter().copied()
             .filter(|v| {
-                v.to_f64().map_or(false, |vf| ((vf - mean_f64) / std).abs() <= sigma)
+                v.to_f64().is_some_and(|vf| ((vf - mean_f64) / std).abs() <= sigma)
             })
             .collect()
     }
@@ -18677,7 +18678,7 @@ impl ZScoreNormalizer {
     pub fn count_positive_z_scores(&self) -> usize {
         self.window
             .iter()
-            .filter(|&&v| self.normalize(v).map_or(false, |z| z > 0.0))
+            .filter(|&&v| self.normalize(v).is_ok_and(|z| z > 0.0))
             .count()
     }
 
@@ -18686,7 +18687,7 @@ impl ZScoreNormalizer {
     ///
     /// Returns `false` if the window has fewer than 2 observations.
     pub fn is_mean_stable(&self, threshold: f64) -> bool {
-        self.rolling_mean_change().map_or(false, |c| c.abs() < threshold)
+        self.rolling_mean_change().is_some_and(|c| c.abs() < threshold)
     }
 
     /// Count of window values whose absolute z-score exceeds `z_threshold`.
@@ -18697,7 +18698,7 @@ impl ZScoreNormalizer {
             .iter()
             .filter(|&&v| {
                 self.normalize(v)
-                    .map_or(false, |z| z.abs() > z_threshold)
+                    .is_ok_and(|z| z.abs() > z_threshold)
             })
             .count()
     }
@@ -18859,7 +18860,7 @@ impl ZScoreNormalizer {
     /// Z-score of `value` relative to the current window, returned as `Option<f64>`.
     ///
     /// Returns `None` if the window has fewer than 2 elements or variance is zero.
-    /// Unlike [`normalize`], this never returns an error for empty windows — it
+    /// Unlike `normalize`, this never returns an error for empty windows: it
     /// simply returns `None`.
     pub fn z_score_opt(&self, value: Decimal) -> Option<f64> {
         self.normalize(value).ok()
@@ -18871,7 +18872,7 @@ impl ZScoreNormalizer {
     /// Returns `false` if the window is empty or has insufficient data.
     pub fn is_stable(&self, z_threshold: f64) -> bool {
         self.z_score_of_latest()
-            .map_or(false, |z| z.abs() <= z_threshold)
+            .is_some_and(|z| z.abs() <= z_threshold)
     }
 
     /// Fraction of window values strictly above `threshold`.
@@ -20465,12 +20466,12 @@ impl ZScoreNormalizer {
             .windows(3)
             .filter(|w| w[1] > w[0] && w[1] > w[2])
             .map(|w| w[1])
-            .last();
+            .next_back();
         let last_trough = vals
             .windows(3)
             .filter(|w| w[1] < w[0] && w[1] < w[2])
             .map(|w| w[1])
-            .last();
+            .next_back();
         match (last_trough, last_peak) {
             (Some(t), Some(p)) if !p.is_zero() => Some((t / p).to_f64().unwrap_or(0.0)),
             _ => None,
@@ -22731,7 +22732,7 @@ impl ZScoreNormalizer {
         Some(max_run)
     }
 
-    /// Geometric mean of successive ratios (value[i]/value[i-1]) as a trend indicator.
+    /// Geometric mean of successive ratios (value\[i\]/value[i-1]) as a trend indicator.
     pub fn window_geometric_trend(&self) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
         if self.window.len() < 2 { return None; }
@@ -22875,7 +22876,7 @@ impl ZScoreNormalizer {
         Some(vals.iter().map(|&x| (x - mean).abs()).sum::<f64>() / vals.len() as f64)
     }
 
-    /// Last window value normalized to [0,1] within the window range.
+    /// Last window value normalized to \[0,1\] within the window range.
     pub fn window_normalized_last(&self) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
         if self.window.is_empty() { return None; }
@@ -22892,8 +22893,8 @@ impl ZScoreNormalizer {
         use rust_decimal::prelude::ToPrimitive;
         if self.window.is_empty() { return None; }
         let n = self.window.len() as f64;
-        let pos = self.window.iter().filter(|v| v.to_f64().map_or(false, |x| x > 0.0)).count() as f64;
-        let neg = self.window.iter().filter(|v| v.to_f64().map_or(false, |x| x < 0.0)).count() as f64;
+        let pos = self.window.iter().filter(|v| v.to_f64().is_some_and(|x| x > 0.0)).count() as f64;
+        let neg = self.window.iter().filter(|v| v.to_f64().is_some_and(|x| x < 0.0)).count() as f64;
         Some((pos - neg) / n)
     }
 
@@ -23752,7 +23753,7 @@ impl ZScoreNormalizer {
 
     // ── round-168 ────────────────────────────────────────────────────────────
 
-    /// Mean of (value[i] - value[i-lag]) for lag=1 (mean consecutive change).
+    /// Mean of (value\[i\] - value[i-lag]) for lag=1 (mean consecutive change).
     pub fn window_mean_lag_diff(&self) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
         if self.window.len() < 2 { return None; }
@@ -23977,7 +23978,7 @@ impl ZScoreNormalizer {
         Some(above.iter().sum::<f64>() / above.len() as f64)
     }
 
-    /// Parabolic trend score: mean(diffs[i+1] - diffs[i]) — mean second derivative.
+    /// Parabolic trend score: mean(diffs[i+1] - diffs\[i\]): mean second derivative.
     pub fn window_parabolic_trend(&self) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
         if self.window.len() < 3 { return None; }
@@ -24276,7 +24277,7 @@ impl ZScoreNormalizer {
         use rust_decimal::prelude::ToPrimitive;
         if self.window.is_empty() { return None; }
         let vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0).abs()).collect();
-        if vals.iter().any(|&v| v == 0.0) { return None; }
+        if vals.contains(&0.0) { return None; }
         let log_sum: f64 = vals.iter().map(|v| v.ln()).sum();
         Some((log_sum / vals.len() as f64).exp())
     }
@@ -24417,7 +24418,7 @@ impl ZScoreNormalizer {
         Some(vals.iter().map(|v| v - mean).sum::<f64>())
     }
 
-    /// Count of consecutive pairs where value[i] < value[i+1].
+    /// Count of consecutive pairs where value\[i\] < value[i+1].
     pub fn window_consecutive_increase(&self) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
         if self.window.len() < 2 { return None; }
@@ -24518,7 +24519,7 @@ impl ZScoreNormalizer {
         Some(logs.iter().sum::<f64>() / logs.len() as f64)
     }
 
-    /// Sum of exponentially decayed values: sum(value[i] * 0.9^(n-1-i)).
+    /// Sum of exponentially decayed values: sum(value\[i\] * 0.9^(n-1-i)).
     pub fn window_decay_sum(&self) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
         if self.window.is_empty() { return None; }
@@ -24952,7 +24953,7 @@ impl ZScoreNormalizer {
         Some(signs.iter().sum::<f64>() / signs.len() as f64)
     }
 
-    /// Entropy normalized to [0,1] by dividing by log(n).
+    /// Entropy normalized to \[0,1\] by dividing by log(n).
     pub fn window_normalized_entropy(&self) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
         if self.window.is_empty() { return None; }
@@ -28147,7 +28148,7 @@ mod zscore_stability_tests {
         let mut n = znorm(4);
         for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
         let r = n.range_normalized_value(dec!(2)).unwrap();
-        assert!(r >= 0.0 && r <= 1.0, "expected [0,1], got {}", r);
+        assert!((0.0..=1.0).contains(&r), "expected [0,1], got {}", r);
     }
 
     // ── ZScoreNormalizer::distance_from_median ────────────────────────────────
@@ -28510,7 +28511,7 @@ mod zscore_stability_tests {
         let mut n = znorm(4);
         for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
         let f = n.above_median_fraction().unwrap();
-        assert!(f >= 0.0 && f <= 1.0, "fraction in [0,1], got {}", f);
+        assert!((0.0..=1.0).contains(&f), "fraction in [0,1], got {}", f);
     }
 
     // ── round-85 tests ─────────────────────────────────────────────────────
@@ -29765,7 +29766,7 @@ mod zscore_stability_tests {
         let mut n = znorm(4);
         for v in [dec!(1), dec!(5), dec!(2), dec!(5)] { n.update(v); }
         let r = n.window_mean_reversion().unwrap();
-        assert!(r >= 0.0 && r <= 1.0, "expected [0,1], got {}", r);
+        assert!((0.0..=1.0).contains(&r), "expected [0,1], got {}", r);
     }
 
     #[test]
@@ -34738,7 +34739,7 @@ mod zscore_stability_tests {
         let mut n = znorm(4);
         for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
         let q1 = n.window_q1_f64().unwrap();
-        assert!(q1 >= 1.0 && q1 <= 2.0);
+        assert!((1.0..=2.0).contains(&q1));
     }
 
     #[test]
@@ -34766,7 +34767,7 @@ mod zscore_stability_tests {
         let mut n = znorm(4);
         for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
         let r = n.window_lower_tail().unwrap();
-        assert!(r >= 0.0 && r <= 1.0);
+        assert!((0.0..=1.0).contains(&r));
     }
 
     #[test]
@@ -34779,7 +34780,7 @@ mod zscore_stability_tests {
         let mut n = znorm(4);
         for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
         let r = n.window_upper_tail().unwrap();
-        assert!(r >= 0.0 && r <= 1.0);
+        assert!((0.0..=1.0).contains(&r));
     }
 
     #[test]
@@ -34807,7 +34808,7 @@ mod zscore_stability_tests {
         let mut n = znorm(4);
         for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
         let r = n.window_percentile_90().unwrap();
-        assert!(r >= 1.0 && r <= 4.0);
+        assert!((1.0..=4.0).contains(&r));
     }
 
     #[test]
@@ -34822,7 +34823,7 @@ mod zscore_stability_tests {
         let mut n = znorm(4);
         for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
         let r = n.window_iqr_fraction().unwrap();
-        assert!(r >= 0.0 && r <= 1.0);
+        assert!((0.0..=1.0).contains(&r));
     }
 
     #[test]
@@ -34848,7 +34849,7 @@ mod zscore_stability_tests {
         let mut n = znorm(4);
         for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
         let r = n.window_range_concentration().unwrap();
-        assert!(r >= 0.0 && r <= 1.0);
+        assert!((0.0..=1.0).contains(&r));
     }
 
     #[test]
@@ -34889,7 +34890,7 @@ mod zscore_stability_tests {
         let mut n = znorm(4);
         for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
         let r = n.window_value_run().unwrap();
-        assert!(r >= 0.0 && r <= 1.0);
+        assert!((0.0..=1.0).contains(&r));
     }
 
     #[test]
@@ -34958,7 +34959,7 @@ mod zscore_stability_tests {
         let mut n = znorm(4);
         for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
         let r = n.window_monotone_run_pct().unwrap();
-        assert!(r >= 0.0 && r <= 1.0);
+        assert!((0.0..=1.0).contains(&r));
     }
 
     #[test]
@@ -35100,7 +35101,7 @@ mod zscore_stability_tests {
         let mut n = znorm(4);
         for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
         let r = n.window_below_mean_pct().unwrap();
-        assert!(r >= 0.0 && r <= 1.0);
+        assert!((0.0..=1.0).contains(&r));
     }
 
     #[test]
@@ -35258,7 +35259,7 @@ mod zscore_stability_tests {
         let mut n = znorm(4);
         for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
         let r = n.window_density_peak_score().unwrap();
-        assert!(r >= 0.0 && r <= 1.0);
+        assert!((0.0..=1.0).contains(&r));
     }
 
     #[test]
@@ -35342,7 +35343,7 @@ mod zscore_stability_tests {
         let mut n = znorm(5);
         for v in [dec!(1), dec!(4), dec!(2), dec!(5), dec!(3)] { n.update(v); }
         let r = n.window_above_median_run().unwrap();
-        assert!(r >= 0.0 && r <= 1.0);
+        assert!((0.0..=1.0).contains(&r));
     }
 
     #[test]
@@ -35357,7 +35358,7 @@ mod zscore_stability_tests {
         let mut n = znorm(5);
         for v in [dec!(1), dec!(2), dec!(3), dec!(4), dec!(5)] { n.update(v); }
         let r = n.window_last_decile().unwrap();
-        assert!(r >= 1.0 && r <= 5.0);
+        assert!((1.0..=5.0).contains(&r));
     }
 
     #[test]
@@ -35564,7 +35565,7 @@ mod zscore_stability_tests {
         let mut n = znorm(5);
         for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
         let r = n.window_lag1_corr().unwrap();
-        assert!(r >= -1.0 && r <= 1.0);
+        assert!((-1.0..=1.0).contains(&r));
     }
 
     #[test]
@@ -35654,7 +35655,7 @@ mod zscore_stability_tests {
         let mut n = znorm(4);
         for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
         let r = n.window_cum_sum_ratio().unwrap();
-        assert!(r >= 0.0 && r <= 1.0);
+        assert!((0.0..=1.0).contains(&r));
     }
 
     #[test]
@@ -35853,7 +35854,7 @@ mod zscore_stability_tests {
         let mut n = znorm(4);
         for v in [dec!(1), dec!(10), dec!(1), dec!(10)] { n.update(v); }
         let r = n.window_cross_ema().unwrap();
-        assert!(r >= 0.0 && r <= 1.0);
+        assert!((0.0..=1.0).contains(&r));
     }
 
     #[test]
@@ -35943,7 +35944,7 @@ mod zscore_stability_tests {
         let mut n = znorm(4);
         for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
         let r = n.window_above_ema_pct().unwrap();
-        assert!(r >= 0.0 && r <= 1.0);
+        assert!((0.0..=1.0).contains(&r));
     }
 
     #[test]
@@ -35988,7 +35989,7 @@ mod zscore_stability_tests {
         let mut n = znorm(4);
         for v in [dec!(1), dec!(1), dec!(1), dec!(5)] { n.update(v); }
         let r = n.window_lower_vol_ratio().unwrap();
-        assert!(r >= 0.0 && r <= 1.0, "expected [0,1] got {}", r);
+        assert!((0.0..=1.0).contains(&r), "expected [0,1] got {}", r);
     }
 
     #[test]
@@ -36062,6 +36063,6 @@ mod zscore_stability_tests {
         let mut n = znorm(4);
         for v in [dec!(1), dec!(2), dec!(3), dec!(4)] { n.update(v); }
         let r = n.window_upper_vol_ratio().unwrap();
-        assert!(r >= 0.0 && r <= 1.0);
+        assert!((0.0..=1.0).contains(&r));
     }
 }

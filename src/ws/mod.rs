@@ -503,57 +503,81 @@ impl WsManager {
     /// The loop connects, reads frames until the socket closes or errors, then
     /// waits the configured backoff and reconnects. Returns when either:
     /// - `message_tx` is closed (receiver dropped), or
-    /// - reconnect attempts are exhausted ([`StreamError::ReconnectExhausted`]).
+    /// - the initial attempt and then `max_attempts` reconnects in a row have
+    ///   all failed to connect ([`StreamError::ReconnectExhausted`]).
+    ///
+    /// A connection that was established and later dropped resets that count, so a feed that runs for weeks with the odd disconnect never runs
+    /// out of reconnects, and the next backoff starts again from `initial_backoff`.
+    ///
+    /// If nothing at all (data, pong or ping) arrives for two ping intervals the
+    /// connection is treated as dead and replaced, which catches half-open TCP
+    /// connections that would otherwise hang forever.
     ///
     /// `outbound_rx` is an optional channel for sending messages **to** the
     /// server (e.g., subscription requests). When provided, any string received
-    /// on this channel is forwarded to the WebSocket as a text frame.
+    /// on this channel is forwarded to the WebSocket as a text frame. Dropping
+    /// its sender is fine: the loop simply stops polling it.
     ///
     /// # Errors
     ///
-    /// Returns [`StreamError::ReconnectExhausted`] after all reconnect slots
-    /// are consumed, or the underlying connection error if reconnects are
-    /// exhausted immediately on the first attempt.
+    /// Returns [`StreamError::ReconnectExhausted`] once `max_attempts` reconnects
+    /// in a row have failed.
     pub async fn run(
         &mut self,
         message_tx: mpsc::Sender<String>,
         mut outbound_rx: Option<mpsc::Receiver<String>>,
     ) -> Result<(), StreamError> {
+        // Reconnects since the last connection that actually came up.
+        let mut retries_in_row: u32 = 0;
+        let counters = crate::telemetry::WsCounters::new(&self.config.url);
         loop {
             info!(url = %self.config.url, attempt = self.connect_attempts, "connecting");
-            match self.try_connect(&message_tx, &mut outbound_rx).await {
-                Ok(()) => {
-                    // Clean close — receiver dropped or server sent Close frame.
-                    self.is_connected = false;
-                    debug!(url = %self.config.url, "connection closed cleanly");
-                    if message_tx.is_closed() {
-                        return Ok(());
-                    }
-                }
-                Err(e) => {
-                    self.is_connected = false;
-                    warn!(url = %self.config.url, error = %e, "connection error");
-                }
+            self.connect_attempts = self.connect_attempts.saturating_add(1);
+            let mut established = false;
+            let result = self
+                .try_connect(&message_tx, &mut outbound_rx, &mut established, &counters)
+                .await;
+            self.is_connected = false;
+            if established {
+                counters.disconnected();
+            } else {
+                counters.connect_failed();
             }
-
-            if !self.can_reconnect() {
+            match result {
+                Ok(()) => debug!(url = %self.config.url, "connection closed cleanly"),
+                Err(ref e) => warn!(url = %self.config.url, error = %e, "connection error"),
+            }
+            if message_tx.is_closed() {
+                return Ok(());
+            }
+            if established {
+                retries_in_row = 0;
+            } else if self.config.reconnect.is_exhausted(retries_in_row) {
                 return Err(StreamError::ReconnectExhausted {
                     url: self.config.url.clone(),
-                    attempts: self.connect_attempts,
+                    attempts: retries_in_row,
                 });
             }
-            let backoff = self.next_reconnect_backoff()?;
+            let backoff = self.config.reconnect.backoff_for_attempt(retries_in_row);
+            retries_in_row = retries_in_row.saturating_add(1);
             info!(url = %self.config.url, backoff_ms = backoff.as_millis(), "reconnecting after backoff");
             tokio::time::sleep(backoff).await;
         }
     }
 
     /// Attempt a single connection, reading messages until close or error.
+    ///
+    /// Sets `established` once the WebSocket handshake has completed.
     async fn try_connect(
         &mut self,
         message_tx: &mpsc::Sender<String>,
         outbound_rx: &mut Option<mpsc::Receiver<String>>,
+        established: &mut bool,
+        counters: &crate::telemetry::WsCounters,
     ) -> Result<(), StreamError> {
+        // rustls needs a process-wide crypto provider. Install ring unless the
+        // application already installed one (then this is a no-op).
+        let _ = rustls::crypto::ring::default_provider().install_default();
         let (ws_stream, _response) =
             connect_async(&self.config.url)
                 .await
@@ -563,37 +587,51 @@ impl WsManager {
                 })?;
 
         self.is_connected = true;
-        self.connect_attempts += 1;
+        *established = true;
+        counters.connected();
         info!(url = %self.config.url, "connected");
 
         let (mut write, mut read) = ws_stream.split();
         let mut ping_interval = time::interval(self.config.ping_interval);
         // Skip the first tick so we don't ping immediately on connect.
         ping_interval.tick().await;
+        let idle_limit = self.config.ping_interval.saturating_mul(2);
+        let mut last_frame = time::Instant::now();
 
         loop {
             tokio::select! {
+                // The consumer went away: close politely and stop, even on an idle feed.
+                () = message_tx.closed() => {
+                    let _ = write.send(Message::Close(None)).await;
+                    return Ok(());
+                }
                 msg = read.next() => {
+                    last_frame = time::Instant::now();
                     match msg {
                         Some(Ok(Message::Text(text))) => {
                             self.stats.total_messages_received += 1;
                             self.stats.total_bytes_received += text.len() as u64;
+                            counters.message(text.len());
                             if message_tx.send(text.to_string()).await.is_err() {
-                                // Receiver dropped — clean shutdown.
+                                // Receiver dropped: clean shutdown.
                                 return Ok(());
                             }
                         }
                         Some(Ok(Message::Binary(bytes))) => {
                             self.stats.total_messages_received += 1;
                             self.stats.total_bytes_received += bytes.len() as u64;
-                            if let Ok(text) = String::from_utf8(bytes.to_vec()) {
-                                if message_tx.send(text).await.is_err() {
-                                    return Ok(());
+                            counters.message(bytes.len());
+                            match String::from_utf8(bytes.to_vec()) {
+                                Ok(text) => {
+                                    if message_tx.send(text).await.is_err() {
+                                        return Ok(());
+                                    }
                                 }
+                                Err(_) => warn!(url = %self.config.url, "dropping non-UTF-8 binary frame"),
                             }
                         }
                         Some(Ok(Message::Ping(_) | Message::Pong(_) | Message::Frame(_))) => {
-                            // Control frames handled by tungstenite internally.
+                            // Control frames: tungstenite answers pings itself.
                         }
                         Some(Ok(Message::Close(_))) | None => {
                             return Ok(());
@@ -604,14 +642,28 @@ impl WsManager {
                     }
                 }
                 _ = ping_interval.tick() => {
+                    if last_frame.elapsed() >= idle_limit {
+                        counters.dead_connection();
+                        return Err(StreamError::WebSocket(format!(
+                            "no frames received for {} ms; treating the connection as dead",
+                            idle_limit.as_millis()
+                        )));
+                    }
                     debug!(url = %self.config.url, "sending keepalive ping");
-                    if write.send(Message::Ping(vec![].into())).await.is_err() {
-                        return Ok(());
+                    if let Err(e) = write.send(Message::Ping(Vec::new().into())).await {
+                        return Err(StreamError::WebSocket(e.to_string()));
                     }
                 }
                 outbound = recv_outbound(outbound_rx) => {
-                    if let Some(text) = outbound {
-                        let _ = write.send(Message::Text(text.into())).await;
+                    match outbound {
+                        Some(text) => {
+                            if let Err(e) = write.send(Message::Text(text.into())).await {
+                                return Err(StreamError::WebSocket(e.to_string()));
+                            }
+                        }
+                        // The sender was dropped. Stop polling the channel; before this fix
+                        // `recv()` kept returning `None` at once and the loop spun a CPU core.
+                        None => *outbound_rx = None,
                     }
                 }
             }
@@ -684,6 +736,7 @@ async fn recv_outbound(rx: &mut Option<mpsc::Receiver<String>>) -> Option<String
 }
 
 #[cfg(test)]
+#[allow(deprecated)] // the tests still cover the deprecated aliases
 mod tests {
     use super::*;
 
@@ -850,7 +903,7 @@ mod tests {
     /// Verify that `recv_outbound` with `Some(rx)` resolves when a message arrives.
     #[tokio::test]
     async fn test_recv_outbound_some_resolves_with_message() {
-        let (tx, mut channel_rx) = mpsc::channel::<String>(1);
+        let (tx, channel_rx) = mpsc::channel::<String>(1);
         tx.send("subscribe".into()).await.unwrap();
         let mut rx: Option<mpsc::Receiver<String>> = Some(channel_rx);
         let msg = recv_outbound(&mut rx).await;

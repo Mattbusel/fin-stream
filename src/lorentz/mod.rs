@@ -152,7 +152,7 @@ impl LorentzTransform {
     ///
     /// Returns `LorentzConfigError` if `beta` is negative, `NaN`, or `>= 1.0`.
     pub fn new(beta: f64) -> Result<Self, StreamError> {
-        if beta.is_nan() || beta < 0.0 || beta >= 1.0 {
+        if beta.is_nan() || !(0.0..1.0).contains(&beta) {
             return Err(StreamError::LorentzConfigError {
                 reason: format!(
                     "beta must be in [0.0, 1.0) but got {beta}; \
@@ -500,12 +500,12 @@ impl LorentzTransform {
     /// Returns [`StreamError::LorentzConfigError`] if either input is outside
     /// `[0, 1)` or if the composed velocity is `>= 1`.
     pub fn velocity_addition(beta1: f64, beta2: f64) -> Result<f64, StreamError> {
-        if beta1.is_nan() || beta1 < 0.0 || beta1 >= 1.0 {
+        if beta1.is_nan() || !(0.0..1.0).contains(&beta1) {
             return Err(StreamError::LorentzConfigError {
                 reason: format!("beta1 must be in [0.0, 1.0), got {beta1}"),
             });
         }
-        if beta2.is_nan() || beta2 < 0.0 || beta2 >= 1.0 {
+        if beta2.is_nan() || !(0.0..1.0).contains(&beta2) {
             return Err(StreamError::LorentzConfigError {
                 reason: format!("beta2 must be in [0.0, 1.0), got {beta2}"),
             });
@@ -820,6 +820,7 @@ impl LorentzTransform {
 }
 
 #[cfg(test)]
+#[allow(deprecated)] // the tests still cover the deprecated aliases
 mod tests {
     use super::*;
 
@@ -1827,7 +1828,7 @@ mod tests {
     fn test_aberration_angle_range_zero_to_pi() {
         let t = LorentzTransform::new(0.8).unwrap();
         let angle = t.aberration_angle(0.0);
-        assert!(angle >= 0.0 && angle <= std::f64::consts::PI);
+        assert!((0.0..=std::f64::consts::PI).contains(&angle));
     }
 
     // ── LorentzTransform::relativistic_mass / energy_ratio ──────────────────

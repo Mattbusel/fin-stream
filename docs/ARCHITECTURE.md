@@ -131,9 +131,9 @@ cargo bench --bench tick_hot_path
 3. Run `cargo fmt` before opening a pull request.
 4. Keep public APIs documented with `///` doc comments; `#![deny(missing_docs)]`
    is active in `lib.rs`, undocumented public items cause a build failure.
-5. Open a pull request against `main`. CI (`.github/workflows/ci.yml`) runs
-   `cargo check`, the doctests, the integration tests and the examples; please also
-   run `cargo clippy` locally.
+5. Open a merge request against `main`. CI (`.gitlab-ci.yml`) runs the unit,
+   integration and doc tests, the optional-feature tests, the examples, clippy and
+   rustdoc with warnings denied, the MSRV build and the ring buffer under Miri.
 
 ## Adding a new exchange adapter
 

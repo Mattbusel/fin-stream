@@ -549,7 +549,7 @@ impl OrderBook {
 
     /// Returns `true` if there is a non-zero ask entry at exactly `price`.
     pub fn has_ask_at(&self, price: Decimal) -> bool {
-        self.asks.get(&price).map_or(false, |q| !q.is_zero())
+        self.asks.get(&price).is_some_and(|q| !q.is_zero())
     }
 
     /// Returns `(bid_levels, ask_levels)` — the number of distinct price levels
@@ -595,7 +595,7 @@ impl OrderBook {
     ///
     /// Returns `false` when either side is empty (no spread to compare).
     pub fn is_tight_spread(&self, threshold: Decimal) -> bool {
-        self.spread().map_or(false, |s| s <= threshold)
+        self.spread().is_some_and(|s| s <= threshold)
     }
 
     /// Total number of price levels across both sides of the book.
@@ -1006,7 +1006,7 @@ impl OrderBook {
     /// A crossed book indicates an invalid state (stale snapshot or missed
     /// delta). Under normal operation this should always be `false`.
     pub fn is_crossed(&self) -> bool {
-        self.best_bid_price().zip(self.best_ask_price()).map_or(false, |(b, a)| b >= a)
+        self.best_bid_price().zip(self.best_ask_price()).is_some_and(|(b, a)| b >= a)
     }
 
     /// Returns `true` if there is at least one bid level in the book.
@@ -1296,6 +1296,7 @@ impl OrderBook {
 }
 
 #[cfg(test)]
+#[allow(deprecated)] // the tests still cover the deprecated aliases
 mod tests {
     use super::*;
     use rust_decimal_macros::dec;

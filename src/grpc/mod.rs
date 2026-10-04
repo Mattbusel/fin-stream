@@ -10,8 +10,8 @@
 //!
 //! ## Proto definition
 //!
-//! See `proto/tick_stream.proto`. The service exposes a single bidirectional
-//! streaming RPC `SubscribeTicks` that emits [`Tick`] messages as fast as the
+//! See `proto/tick_stream.proto`. The service exposes a single server-streaming
+//! RPC `SubscribeTicks` that emits `Tick` messages as fast as the
 //! pipeline produces them.
 //!
 //! ## Architecture
@@ -42,9 +42,14 @@ mod grpc_impl {
     use tokio_stream::{Stream, StreamExt};
     use tonic::{Request, Response, Status};
 
-    // Include the generated tonic code.
+    /// Message and service types generated from `proto/tick_stream.proto`.
+    ///
+    /// The generated file is checked in (`src/grpc/fin_stream.rs`) so that the
+    /// `grpc` feature builds without `protoc` installed. To regenerate it after
+    /// editing the proto, run `tonic-build` 0.12 with `out_dir` set to `src/grpc`.
+    #[allow(clippy::all, clippy::pedantic, missing_docs)]
     pub mod proto {
-        tonic::include_proto!("fin_stream");
+        include!("fin_stream.rs");
     }
 
     use proto::tick_stream_service_server::{TickStreamService, TickStreamServiceServer};
@@ -67,7 +72,7 @@ mod grpc_impl {
     /// gRPC server that broadcasts ticks to all connected clients.
     ///
     /// Construct with [`TickStreamServer::new`], then feed ticks via
-    /// [`TickStreamServer::publish`]. Pass [`TickStreamServer::into_service`]
+    /// [`TickStreamServer::publish`]. Pass `TickStreamServer::into_service`
     /// to a `tonic::transport::Server`.
     ///
     /// # Example
@@ -112,10 +117,8 @@ mod grpc_impl {
         /// Returns the number of active subscribers that received the tick.
         /// Returns `0` (not an error) if no clients are connected.
         pub fn publish(&self, tick: NormalizedTick) -> usize {
-            match self.tx.send(tick) {
-                Ok(n) => n,
-                Err(_) => 0, // No receivers — not an error.
-            }
+            // No receivers is not an error: it reports 0.
+            self.tx.send(tick).unwrap_or_default()
         }
 
         /// Number of currently active subscribers.
@@ -148,10 +151,14 @@ mod grpc_impl {
             } else {
                 Some(filter.symbol)
             };
+            // An exchange name we do not know used to be ignored, which silently
+            // streamed every exchange. Reject it instead.
             let exchange_filter: Option<Exchange> = if filter.exchange.is_empty() {
                 None
             } else {
-                Exchange::from_str(&filter.exchange).ok()
+                Some(Exchange::from_str(&filter.exchange).map_err(|_| {
+                    Status::invalid_argument(format!("unknown exchange {:?}", filter.exchange))
+                })?)
             };
 
             let rx = self.tx.subscribe();

@@ -11,7 +11,7 @@
 //!
 //! | Detector | Trigger |
 //! |---|---|
-//! | Price spike | `|price - rolling_mean| > N × rolling_std` |
+//! | Price spike | `abs(price - rolling_mean) > N × rolling_std` |
 //! | Volume spike | `quantity > base_volume × threshold_multiplier` |
 //! | Sequence gap | `tick.trade_id` sequence increments by more than 1 |
 //! | Timestamp inversion | `tick.received_at_ms < last_received_at_ms` |

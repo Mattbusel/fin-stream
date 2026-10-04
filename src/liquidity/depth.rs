@@ -202,8 +202,9 @@ impl OrderBook {
                 order_count: 1,
             });
             match side {
-                OrderSide::Bid => levels.sort_by(|a, b| b.price.partial_cmp(&a.price).unwrap()),
-                OrderSide::Ask => levels.sort_by(|a, b| a.price.partial_cmp(&b.price).unwrap()),
+                // total_cmp: a NaN price used to panic here via partial_cmp().unwrap().
+                OrderSide::Bid => levels.sort_by(|a, b| b.price.total_cmp(&a.price)),
+                OrderSide::Ask => levels.sort_by(|a, b| a.price.total_cmp(&b.price)),
             }
         }
     }
@@ -384,7 +385,7 @@ mod tests {
     fn imbalance_bounds() {
         let book = make_book();
         let imb = book.bid_ask_imbalance();
-        assert!(imb >= -1.0 && imb <= 1.0, "imbalance must be in [-1, 1], got {imb}");
+        assert!((-1.0..=1.0).contains(&imb), "imbalance must be in [-1, 1], got {imb}");
     }
 
     #[test]

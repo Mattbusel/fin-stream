@@ -112,7 +112,7 @@ fn main() -> Result<(), StreamError> {
                 Cell::Open
             } else if h
                 .as_ref()
-                .map_or(false, |h| h.status == HealthStatus::Stale)
+                .is_some_and(|h| h.status == HealthStatus::Stale)
             {
                 Cell::Stale
             } else if beat[i] {

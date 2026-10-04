@@ -107,7 +107,7 @@ impl LiquidityMonitor {
 
     /// Compute spread metrics from the current quote history.
     pub fn spread_metrics(&self) -> SpreadMetrics {
-        if self.quote_history.is_empty() {
+        let Some(last) = self.quote_history.back() else {
             return SpreadMetrics {
                 current_spread: 0.0,
                 spread_bps: 0.0,
@@ -115,8 +115,7 @@ impl LiquidityMonitor {
                 max_spread_1h: 0.0,
                 min_spread_1h: 0.0,
             };
-        }
-        let last = self.quote_history.back().unwrap();
+        };
         let current_spread = last.ask - last.bid;
         let mid = (last.bid + last.ask) / 2.0;
         let spread_bps = if mid > 1e-10 {

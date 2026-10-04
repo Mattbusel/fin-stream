@@ -22,7 +22,7 @@ pub struct RawTick {
     pub size: f64,
     /// Exchange identifier (e.g. "NYSE", "NASDAQ").
     pub exchange: String,
-    /// Sale condition codes (e.g. ["@", "I"]).
+    /// Sale condition codes (e.g. `["@", "I"]`).
     pub conditions: Vec<String>,
 }
 

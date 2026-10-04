@@ -780,7 +780,7 @@ impl TradeIntensity {
     pub fn record(&mut self, timestamp_ms: i64) -> f64 {
         self.timestamps.push_back(timestamp_ms);
         let cutoff = timestamp_ms - self.window_ms;
-        while self.timestamps.front().map_or(false, |&t| t < cutoff) {
+        while self.timestamps.front().is_some_and(|&t| t < cutoff) {
             self.timestamps.pop_front();
         }
         self.trades_per_second()
@@ -852,7 +852,7 @@ impl FlowClassifier {
         let kind = if volume >= self.threshold { FlowKind::Institutional } else { FlowKind::Retail };
         self.events.push_back((timestamp_ms, kind, volume));
         let cutoff = timestamp_ms - self.window_ms;
-        while self.events.front().map_or(false, |e| e.0 < cutoff) {
+        while self.events.front().is_some_and(|e| e.0 < cutoff) {
             self.events.pop_front();
         }
         let (inst_vol, total_vol) =

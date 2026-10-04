@@ -152,7 +152,7 @@ impl StatArbDetector {
     /// This is called once per tick. Updates the rolling history and recomputes
     /// signals for all pairs involving this symbol.
     pub fn update(&mut self, symbol: &str, price: f64) {
-        let entry = self.prices.entry(symbol.to_string()).or_insert_with(Vec::new);
+        let entry = self.prices.entry(symbol.to_string()).or_default();
         entry.push(price);
         if entry.len() > self.max_window {
             entry.remove(0);

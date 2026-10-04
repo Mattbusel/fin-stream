@@ -1,0 +1,27 @@
+[package]
+name = "competitors"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Benchmarks: fin-stream's SpscRing vs rtrb, ringbuf and crossbeam ArrayQueue; LatencyHistogram vs the 2.11.3 implementation."
+
+[dependencies]
+fin-stream = { path = "../..", default-features = false }
+rtrb = "0.3"
+ringbuf = "0.4"
+crossbeam-queue = "0.3"
+
+[dev-dependencies]
+criterion = "0.5"
+
+[[bench]]
+name = "vs"
+harness = false
+
+[profile.bench]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+
+# Standalone: not a member of any parent workspace.
+[workspace]

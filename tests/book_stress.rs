@@ -1,3 +1,4 @@
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 //! Stress tests for OrderBook: large depth, sorted order invariants, and best-bid < best-ask.
 
 use fin_stream::book::{BookDelta, BookSide, OrderBook};

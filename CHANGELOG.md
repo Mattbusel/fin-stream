@@ -7,6 +7,38 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [2.12.0] - 2026-10-03
+
+### Security
+- `SpscRing::peek_front` and `peek_back` took `&self` and returned a reference into the slot, so safe code could `pop` the same item while holding the reference and read freed memory (confirmed with Miri on 2.11.3). They now take `&mut self`, which lets the borrow checker reject that; a `compile_fail` doc test keeps it that way. This changes two method signatures in a minor release because it fixes unsoundness; code that called them on a `let ring` binding needs `let mut ring`.
+- TLS for `wss://` feeds is rustls with the ring provider instead of native-tls, so Linux builds no longer link OpenSSL. The provider is installed at connect time; without that, the first `wss://` connect panicked inside rustls.
+
+### Fixed
+- `WsManager::run`: every successful connection used up reconnect slots, so a long-running feed stopped for good after `max_attempts` ordinary server-side disconnects. The retry budget now resets after each connection that came up, and backoff restarts from `initial_backoff`.
+- `WsManager::run`: once the outbound sender was dropped the select loop spun on an always-ready `recv()` (measured: over 7 million wakeups during the test run). The closed channel is now left alone.
+- `WsManager::run`: a half-open connection (handshake done, then silence) hung forever because pongs were never checked. Nothing received for two ping intervals now counts as a dead connection and triggers a reconnect.
+- `WsManager::run`: dropping the receiver only stopped the loop when the next message arrived, so an idle feed never shut down. It now closes the socket and returns at once. Outbound send errors are reported instead of ignored.
+- `LatencyHistogram` reported bucket upper edges (up to 25% high: one 100 us sample gave p50 = 112) and clamped everything over 10 s. It is now backed by `hdrhistogram` (2 significant digits, 1 us to 1 hour); on a latency-shaped sample p50 went from 15.9% high to 0.36%.
+- `OhlcvAggregator::feed`: a tick older than the open bar closed that bar early and opened one back in time. Late ticks are now dropped and counted (`late_tick_count()`).
+- `Timeframe::bar_start_ms` divided by zero for `Seconds(0)`; `duration_ms` overflowed for huge values.
+- `grpc` feature did not compile (`tonic-build` was not enabled by the feature and `tokio-stream` lacked `sync`), and it needed `protoc` installed. The generated code is now checked in; an unknown exchange in the subscription filter is rejected instead of silently streaming every exchange.
+- `liquidity::depth` and `RegimeDetector` panicked on NaN input (`partial_cmp().unwrap()`); the other `unwrap`s in library code that failed the crate's own `deny` lints are gone, so `cargo clippy` passes again.
+- `cargo doc` with warnings denied: 135 broken intra-doc links and a few HTML warnings fixed.
+
+### Added
+- `metrics` feature: connection, reconnect, dead-connection, message, byte, bar and late-tick counters through the `metrics` facade (see the `telemetry` module).
+- `interop` module: `fin_primitives::tick::Tick::try_from(&NormalizedTick)` (default `fin-primitives` feature) and, with the `barter` feature, `barter_data` `PublicTrade::try_from(&NormalizedTick)`; `NormalizedTick::with_side_if_unknown` and `best_timestamp_ms`.
+- `LatencyHistogram::merge`.
+- Tests against a real local WebSocket server (`tests/ws_local_server.rs`), a real gRPC round trip (`tests/grpc_roundtrip.rs`), the metrics counters, property tests that throw random JSON and random bytes at the normalizers and the FIX parser, and cross-thread ring tests that also run under Miri in CI.
+- `bench/competitors`: `SpscRing` against rtrb, ringbuf and crossbeam's `ArrayQueue`, and the histogram against the 2.11.3 one.
+
+### Changed
+- `SpscRing` keeps `head` and `tail` on separate cache lines, and the split producer and consumer cache the other side's index: cross-thread throughput 94 to 121 million items per second in the benchmark above.
+- `fin-primitives` is now an optional (default-on) dependency; it was only used for the error conversion.
+- `tokio-tungstenite` 0.28, `dashmap` 6. MSRV is now 1.81 (tested in CI; 1.75 was declared but never tested).
+
+---
+
 ## [2.11.3] - 2026-09-30
 
 ### Fixed

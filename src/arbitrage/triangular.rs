@@ -124,7 +124,7 @@ impl ArbOpportunity {
 
 /// Concurrent triangular arbitrage detector backed by a `DashMap` of live rates.
 ///
-/// Call [`update_rate`] on every incoming quote, then [`scan_opportunities`] to
+/// Call `update_rate` on every incoming quote, then `scan_opportunities` to
 /// check all known triads for profitable paths.
 pub struct TriangularArbDetector {
     /// Live exchange rates keyed by pair name (e.g. "BTC/USD").

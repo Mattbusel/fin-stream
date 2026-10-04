@@ -1,3 +1,4 @@
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 //! Integration tests: cross-module pipelines and end-to-end scenarios.
 
 use fin_stream::book::{BookDelta, BookSide, OrderBook};
@@ -249,11 +250,9 @@ fn test_tick_to_ohlcv_end_to_end() {
     let mut agg = OhlcvAggregator::new("BTCUSDT", Timeframe::Seconds(30)).unwrap();
 
     let base_ts = 30_000u64;
-    let payloads = vec![
-        (dec!(50000), dec!(1)),
+    let payloads = [(dec!(50000), dec!(1)),
         (dec!(50100), dec!(2)),
-        (dec!(49900), dec!(0.5)),
-    ];
+        (dec!(49900), dec!(0.5))];
 
     for (i, (price, qty)) in payloads.iter().enumerate() {
         let raw = RawTick {

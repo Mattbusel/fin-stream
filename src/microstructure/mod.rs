@@ -9,7 +9,7 @@
 //!
 //! | Estimator | Reference | Formula |
 //! |-----------|-----------|---------|
-//! | Amihud Illiquidity | Amihud (2002) | `|r| / V` |
+//! | Amihud Illiquidity | Amihud (2002) | `abs(r) / V` |
 //! | Kyle's Lambda | Kyle (1985) | OLS regression: `Δp = λ·Q + ε` |
 //! | Roll Spread | Roll (1984) | `2·√(−Cov(r_t, r_{t−1}))` |
 //! | Bid-Ask Bounce | Blume & Stambaugh (1983) | Variance component from bid-ask noise |
@@ -829,7 +829,7 @@ mod tests {
     #[test]
     fn test_ols_slope_perfect_linear() {
         // y = 2x → slope = 2
-        let x = vec![1.0, 2.0, 3.0, 4.0, 5.0];
+        let x = [1.0, 2.0, 3.0, 4.0, 5.0];
         let y: Vec<f64> = x.iter().map(|v| 2.0 * v).collect();
         let slope = ols_slope(y.iter().copied(), x.iter().copied());
         assert!((slope - 2.0).abs() < 1e-10);
@@ -837,8 +837,8 @@ mod tests {
 
     #[test]
     fn test_ols_slope_zero_variance_x() {
-        let x = vec![1.0, 1.0, 1.0];
-        let y = vec![1.0, 2.0, 3.0];
+        let x = [1.0, 1.0, 1.0];
+        let y = [1.0, 2.0, 3.0];
         let slope = ols_slope(y.iter().copied(), x.iter().copied());
         assert_eq!(slope, 0.0); // x has zero variance; graceful fallback
     }

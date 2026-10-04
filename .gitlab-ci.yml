@@ -1,7 +1,7 @@
-# Runs the tests on pushes to the default branch that change code, and on merge requests.
+# Runs on pushes to the default branch that change code, and on merge requests.
 stages: [test]
 
-test:
+.rust:
   stage: test
   image: rust:1-bookworm
   rules:
@@ -10,17 +10,54 @@ test:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
     - if: $CI_PIPELINE_SOURCE == "web"
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
-      changes: ["src/**/*", "tests/**/*", "examples/**/*", "crates/**/*", "Cargo.toml", "Cargo.lock", ".gitlab-ci.yml"]
+      changes: ["src/**/*", "tests/**/*", "examples/**/*", "benches/**/*", "proto/**/*", "docs/*.md", "Cargo.toml", "Cargo.lock", "README.md", "clippy.toml", ".gitlab-ci.yml"]
   variables:
     CARGO_HOME: "${CI_PROJECT_DIR}/.cargo-home"
     CARGO_TARGET_DIR: "${CI_PROJECT_DIR}/target"
   cache:
-    key: cargo-test
+    key: "cargo-${CI_JOB_NAME}"
     paths: [target/, .cargo-home/]
+
+# Unit, integration (including the local WebSocket server tests) and doc tests,
+# the optional-feature tests, then every example.
+test:
+  extends: .rust
   script:
-  # The same checks the GitHub CI ran, plus the library's unit tests (all passing since the 2026-09-30 fixes).
-    - 'cargo check'
-    - 'cargo test --lib'
-    - 'cargo test --doc'
-    - "cargo test --test '*'"
+    - cargo test --all-targets
+    - cargo test --doc
+    - cargo test --features grpc --test grpc_roundtrip
+    - cargo test --features metrics --test metrics_counters
+    - cargo test --lib --features barter interop::
     - 'for e in tape normalize feed_health replay; do cargo run --quiet --example "$e"; done'
+
+# Lints and docs with warnings as errors.
+lint-docs:
+  extends: .rust
+  script:
+    - rustup component add clippy
+    - cargo clippy --all-targets --features grpc,metrics -- -D warnings
+    - 'RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --features grpc,metrics'
+
+# Feature combinations users can pick still build.
+features:
+  extends: .rust
+  script:
+    - cargo check --lib --no-default-features
+    - cargo check --lib --no-default-features --features metrics
+    - cargo check --lib --features grpc,metrics,barter
+
+# The declared minimum Rust version (Cargo.toml rust-version).
+msrv:
+  extends: .rust
+  image: rust:1.81-bookworm
+  script:
+    - cargo check --lib --locked
+    - cargo check --lib --locked --no-default-features
+
+# The lock-free ring buffer is the only unsafe code; run its tests under Miri
+# (undefined behaviour and data-race detection).
+miri:
+  extends: .rust
+  script:
+    - rustup toolchain install nightly --profile minimal --component miri,rust-src
+    - 'MIRIFLAGS=-Zmiri-disable-isolation cargo +nightly miri test --lib --no-default-features ring:: -- --skip prop_'

@@ -48,14 +48,14 @@ pub fn project_simplex(w: &[f64]) -> Vec<f64> {
     let mut u: Vec<f64> = w.to_vec();
     u.sort_by(|a, b| b.partial_cmp(a).unwrap_or(std::cmp::Ordering::Equal));
     let cssv: Vec<f64> = u.iter().scan(0.0, |s, &x| { *s += x; Some(*s) }).collect();
-    let rho = (0..n).filter(|&j| u[j] - (cssv[j] - 1.0) / (j + 1) as f64 > 0.0).last().unwrap_or(0);
+    let rho = (0..n).filter(|&j| u[j] - (cssv[j] - 1.0) / (j + 1) as f64 > 0.0).next_back().unwrap_or(0);
     let theta = (cssv[rho] - 1.0) / (rho + 1) as f64;
     w.iter().map(|&x| (x - theta).max(0.0)).collect()
 }
 
 /// Mean-variance portfolio optimizer using projected gradient ascent on the Sharpe objective.
 pub struct MeanVarianceOptimizer {
-    /// Quadratic risk-aversion parameter (lambda in: max E[r] - lambda*Var)
+    /// Quadratic risk-aversion parameter (lambda in: max E\[r\] - lambda*Var)
     pub risk_aversion: f64,
     /// Gradient step size
     pub lr: f64,
@@ -155,7 +155,7 @@ impl ExecutionOptimizer {
             trades.push(trade);
             remaining -= trade;
         }
-        if !trades.is_empty() { *trades.last_mut().unwrap() += remaining; }
+        if let Some(last) = trades.last_mut() { *last += remaining; }
         trades
     }
 
@@ -163,7 +163,7 @@ impl ExecutionOptimizer {
     pub fn implementation_shortfall(&self, schedule: &[f64], price_path: &[f64]) -> f64 {
         let arrival_price = price_path[0];
         let mut is_cost = 0.0;
-        for (_i, (&trade, &price)) in schedule.iter().zip(price_path.iter()).enumerate() {
+        for (&trade, &price) in schedule.iter().zip(price_path.iter()) {
             let impact = self.temp_impact * trade + self.perm_impact * trade;
             is_cost += trade * (price + impact - arrival_price);
         }

@@ -1,3 +1,4 @@
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 //! Integration tests for the SPSC ring buffer (`fin_stream::ring`).
 //!
 //! These tests exercise the public API through the crate boundary, verifying

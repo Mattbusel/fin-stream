@@ -408,7 +408,7 @@ mod tests {
         let pm = PositionManager::new(test_limits());
         // Inject a large loss
         pm.daily_pnl_micro
-            .store((-600_000_000_i64), Ordering::Relaxed);
+            .store(-600_000_000_i64, Ordering::Relaxed);
         assert!(pm.check_daily_limit());
     }
 

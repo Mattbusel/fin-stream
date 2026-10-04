@@ -5,7 +5,7 @@
 //! exchange.  All times are stored in UTC.
 //!
 //! Exchange identification uses `&str` names so that this module does not
-//! conflict with the [`Exchange`] enum already defined in [`crate::tick`].
+//! conflict with the [`Exchange`](crate::tick::Exchange) enum already defined in [`crate::tick`].
 
 use std::collections::HashMap;
 

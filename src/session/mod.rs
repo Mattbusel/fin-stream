@@ -171,7 +171,7 @@ impl SessionAwareness {
     /// Shorthand for `self.status(utc_ms) == Ok(TradingStatus::Closed)`.
     /// For [`MarketSession::Crypto`] this always returns `false`.
     pub fn is_closed(&self, utc_ms: u64) -> bool {
-        self.status(utc_ms).map_or(false, |s| s == TradingStatus::Closed)
+        self.status(utc_ms).is_ok_and(|s| s == TradingStatus::Closed)
     }
 
     /// Returns `true` if the session is currently in [`TradingStatus::Extended`] status.
@@ -180,7 +180,7 @@ impl SessionAwareness {
     /// `Open`). For equity, `Extended` covers pre-market (4:00–9:30 ET) and
     /// after-hours (16:00–20:00 ET).
     pub fn is_extended(&self, utc_ms: u64) -> bool {
-        self.status(utc_ms).map_or(false, |s| s == TradingStatus::Extended)
+        self.status(utc_ms).is_ok_and(|s| s == TradingStatus::Extended)
     }
 
     /// Returns `true` if the session is currently in [`TradingStatus::Open`] status.
@@ -188,7 +188,7 @@ impl SessionAwareness {
     /// Shorthand for `self.status(utc_ms).map(|s| s == TradingStatus::Open).unwrap_or(false)`.
     /// For [`MarketSession::Crypto`] this always returns `true`.
     pub fn is_open(&self, utc_ms: u64) -> bool {
-        self.status(utc_ms).map_or(false, |s| s == TradingStatus::Open)
+        self.status(utc_ms).is_ok_and(|s| s == TradingStatus::Open)
     }
 
     /// Returns `true` if the session is currently tradeable: either
@@ -485,7 +485,7 @@ impl SessionAwareness {
     /// Returns `true` if the current time is within the final 60 minutes of
     /// the regular session.
     pub fn is_last_trading_hour(&self, utc_ms: u64) -> bool {
-        self.remaining_session_ms(utc_ms).map_or(false, |r| r <= 3_600_000)
+        self.remaining_session_ms(utc_ms).is_some_and(|r| r <= 3_600_000)
     }
 
     /// Returns `true` if the session is open and `utc_ms` is within
@@ -495,7 +495,7 @@ impl SessionAwareness {
     /// etc.).  Uses the same remaining-time calculation as
     /// [`remaining_session_ms`](Self::remaining_session_ms).
     pub fn is_near_close(&self, utc_ms: u64, margin_ms: u64) -> bool {
-        self.remaining_session_ms(utc_ms).map_or(false, |r| r <= margin_ms)
+        self.remaining_session_ms(utc_ms).is_some_and(|r| r <= margin_ms)
     }
 
     /// Duration of the regular (non-extended) session in milliseconds.
@@ -512,7 +512,7 @@ impl SessionAwareness {
     /// The opening range is a commonly watched period for establishing the
     /// day's initial price range. Returns `false` outside the session.
     pub fn is_opening_range(&self, utc_ms: u64) -> bool {
-        self.time_in_session_ms(utc_ms).map_or(false, |e| e < 30 * 60 * 1_000)
+        self.time_in_session_ms(utc_ms).is_some_and(|e| e < 30 * 60 * 1_000)
     }
 
     /// Returns `true` if the session is between 25 % and 75 % complete.
@@ -521,14 +521,14 @@ impl SessionAwareness {
     /// Returns `false` outside the session or when session progress is
     /// unavailable (e.g. `Crypto`).
     pub fn is_mid_session(&self, utc_ms: u64) -> bool {
-        self.session_progress(utc_ms).map_or(false, |p| p >= 0.25 && p <= 0.75)
+        self.session_progress(utc_ms).is_some_and(|p| (0.25..=0.75).contains(&p))
     }
 
     /// Returns `true` if the session is in the first half (< 50%) of its duration.
     ///
     /// Returns `false` outside the session.
     pub fn is_first_half(&self, utc_ms: u64) -> bool {
-        self.session_progress(utc_ms).map_or(false, |p| p < 0.5)
+        self.session_progress(utc_ms).is_some_and(|p| p < 0.5)
     }
 
     /// Returns which half of the trading session we are in: `1` for the first half,
@@ -572,14 +572,14 @@ impl SessionAwareness {
     ///
     /// Returns `false` outside the session.
     pub fn is_first_quarter(&self, utc_ms: u64) -> bool {
-        self.session_progress(utc_ms).map_or(false, |p| p < 0.25)
+        self.session_progress(utc_ms).is_some_and(|p| p < 0.25)
     }
 
     /// Returns `true` if the session is in the last 25% of its duration.
     ///
     /// Returns `false` outside the session.
     pub fn is_last_quarter(&self, utc_ms: u64) -> bool {
-        self.session_progress(utc_ms).map_or(false, |p| p > 0.75)
+        self.session_progress(utc_ms).is_some_and(|p| p > 0.75)
     }
 
     /// Minutes elapsed since the session opened.
@@ -593,7 +593,7 @@ impl SessionAwareness {
     ///
     /// Returns `false` outside the session.
     pub fn is_power_hour(&self, utc_ms: u64) -> bool {
-        self.session_progress(utc_ms).map_or(false, |p| p > (5.5 / 6.5))
+        self.session_progress(utc_ms).is_some_and(|p| p > (5.5 / 6.5))
     }
 
     /// Returns `true` if the session is overnight: the market is closed
@@ -629,7 +629,7 @@ impl SessionAwareness {
     /// Returns `true` if the session is open and within the last 60 seconds of
     /// the regular trading session.
     pub fn is_last_minute(&self, utc_ms: u64) -> bool {
-        self.remaining_session_ms(utc_ms).map_or(false, |r| r <= 60_000)
+        self.remaining_session_ms(utc_ms).is_some_and(|r| r <= 60_000)
     }
 
     /// Returns the week of the month (1–5) for `date`.
@@ -689,7 +689,7 @@ impl SessionAwareness {
         if self.session != MarketSession::UsEquity {
             return false;
         }
-        self.time_in_session_ms(utc_ms).map_or(false, |e| e >= 150 * 60 * 1_000 && e < 210 * 60 * 1_000)
+        self.time_in_session_ms(utc_ms).is_some_and(|e| (150 * 60 * 1_000..210 * 60 * 1_000).contains(&e))
     }
 
     /// Returns `true` if `date` is a triple witching day (third Friday of March, June,
@@ -705,7 +705,7 @@ impl SessionAwareness {
         }
         // Third Friday: day is in [15, 21]
         let day = date.day();
-        day >= 15 && day <= 21
+        (15..=21).contains(&day)
     }
 
     /// Count of weekdays (Mon–Fri) between `from` and `to`, inclusive.
@@ -750,7 +750,7 @@ impl SessionAwareness {
     /// Returns `true` if `utc_ms` falls within the first 60 seconds of the
     /// regular trading session (the "opening bell" minute).
     pub fn is_opening_bell_minute(&self, utc_ms: u64) -> bool {
-        self.time_in_session_ms(utc_ms).map_or(false, |e| e <= 60_000)
+        self.time_in_session_ms(utc_ms).is_some_and(|e| e <= 60_000)
     }
 
     /// Returns `true` if `utc_ms` falls within the final 60 seconds of the session.
@@ -761,7 +761,7 @@ impl SessionAwareness {
             return false;
         }
         const SESSION_LENGTH_MS: u64 = 6 * 3_600_000 + 30 * 60_000; // 6.5h
-        self.time_in_session_ms(utc_ms).map_or(false, |e| e + 60_000 >= SESSION_LENGTH_MS)
+        self.time_in_session_ms(utc_ms).is_some_and(|e| e + 60_000 >= SESSION_LENGTH_MS)
     }
 
     /// Returns `true` if `date` is the day immediately before or after a major
@@ -788,7 +788,7 @@ impl SessionAwareness {
         // Black Friday (day after Thanksgiving) — 4th Friday of November
         if month == 11 && date.weekday() == Weekday::Fri {
             let d = day;
-            if d >= 23 && d <= 29 {
+            if (23..=29).contains(&d) {
                 return true;
             }
         }
@@ -1016,7 +1016,8 @@ fn is_us_dst(utc_ms: u64) -> bool {
 /// Return the date of the N-th occurrence (1-indexed) of `weekday` in the given month/year.
 fn nth_weekday_of_month(year: i32, month: u32, weekday: Weekday, n: u32) -> NaiveDate {
     let first = NaiveDate::from_ymd_opt(year, month, 1)
-        .unwrap_or_else(|| NaiveDate::from_ymd_opt(year, 1, 1).unwrap());
+        .or_else(|| NaiveDate::from_ymd_opt(year, 1, 1))
+        .unwrap_or(NaiveDate::MIN);
     let first_wd = first.weekday();
     let days_ahead = (weekday.num_days_from_monday() as i32
         - first_wd.num_days_from_monday() as i32)
@@ -1029,7 +1030,7 @@ fn nth_weekday_of_month(year: i32, month: u32, weekday: Weekday, n: u32) -> Naiv
 fn date_to_utc_ms(date: NaiveDate, hour: u32, minute: u32) -> u64 {
     let naive_dt = date
         .and_hms_opt(hour, minute, 0)
-        .unwrap_or_else(|| date.and_hms_opt(0, 0, 0).unwrap());
+        .unwrap_or_else(|| date.and_time(chrono::NaiveTime::MIN));
     let utc_dt = Utc.from_utc_datetime(&naive_dt);
     (utc_dt.timestamp() as u64) * 1000
 }
@@ -1055,7 +1056,9 @@ pub fn is_us_market_holiday(date: NaiveDate) -> bool {
     };
 
     let make_date = |y: i32, m: u32, d: u32| {
-        NaiveDate::from_ymd_opt(y, m, d).unwrap_or_else(|| NaiveDate::from_ymd_opt(y, 1, 1).unwrap())
+        NaiveDate::from_ymd_opt(y, m, d)
+            .or_else(|| NaiveDate::from_ymd_opt(y, 1, 1))
+            .unwrap_or(NaiveDate::MIN)
     };
 
     // New Year's Day: January 1 (observed).
@@ -1126,7 +1129,8 @@ fn easter_sunday(year: i32) -> NaiveDate {
     let month = (h + l - 7 * m + 114) / 31;
     let day = ((h + l - 7 * m + 114) % 31) + 1;
     NaiveDate::from_ymd_opt(year, month as u32, day as u32)
-        .unwrap_or_else(|| NaiveDate::from_ymd_opt(year, 1, 1).unwrap())
+        .or_else(|| NaiveDate::from_ymd_opt(year, 1, 1))
+        .unwrap_or(NaiveDate::MIN)
 }
 
 /// Count of US equity trading days (non-holiday weekdays) in the UTC millisecond range
@@ -1135,7 +1139,7 @@ fn easter_sunday(year: i32) -> NaiveDate {
 /// Uses the same holiday calendar as [`is_us_market_holiday`].
 /// Returns `0` if `end_ms <= start_ms`.
 pub fn trading_day_count(start_ms: u64, end_ms: u64) -> usize {
-    use chrono::{Datelike, NaiveDate, TimeZone, Utc, Weekday};
+    use chrono::{Datelike, TimeZone, Utc, Weekday};
     if end_ms <= start_ms {
         return 0;
     }
@@ -1143,7 +1147,7 @@ pub fn trading_day_count(start_ms: u64, end_ms: u64) -> usize {
         Utc.timestamp_opt((ms / 1000) as i64, 0)
             .single()
             .map(|dt| dt.date_naive())
-            .unwrap_or_else(|| NaiveDate::from_ymd_opt(1970, 1, 1).unwrap())
+            .unwrap_or_default() // NaiveDate::default() is 1970-01-01
     };
     let start_date = ms_to_naive(start_ms);
     let end_date = ms_to_naive(end_ms);
@@ -1167,6 +1171,7 @@ pub fn is_tradeable(session: MarketSession, utc_ms: u64) -> Result<bool, StreamE
 }
 
 #[cfg(test)]
+#[allow(deprecated)] // the tests still cover the deprecated aliases
 mod tests {
     use super::*;
 
@@ -1669,7 +1674,7 @@ mod tests {
         // 7:00 AM EST on Monday 2024-01-08 = pre-market (Extended)
         // 2024-01-08 00:00 UTC = 1704672000 s. 7:00 AM EST (UTC-5) = 12:00 UTC
         // → 1704672000 + 12*3600 = 1704715200 s = 1704715200000 ms
-        let seven_am_est_ms = 1704715200_000u64;
+        let seven_am_est_ms = 1_704_715_200_000_u64;
         let sa = sa(MarketSession::UsEquity);
         assert_eq!(sa.status(seven_am_est_ms).unwrap(), TradingStatus::Extended);
         assert!(sa.is_extended(seven_am_est_ms));
@@ -1763,7 +1768,7 @@ mod tests {
     #[test]
     fn test_is_market_hours_equity_extended_is_true() {
         // 7:00 AM EST = pre-market (Extended)
-        let seven_am_est_ms = 1704715200_000u64;
+        let seven_am_est_ms = 1_704_715_200_000_u64;
         let sa = sa(MarketSession::UsEquity);
         assert!(sa.is_market_hours(seven_am_est_ms));
     }
@@ -2350,7 +2355,7 @@ mod tests {
         // 1ms before close: fraction remaining should be very small (< 0.01%)
         let near_close_ms = MON_OPEN_UTC_MS + 6 * 3_600_000 + 30 * 60_000 - 1;
         let f = sa.fraction_remaining(near_close_ms).unwrap();
-        assert!(f >= 0.0 && f < 0.0001);
+        assert!((0.0..0.0001).contains(&f));
     }
 
     #[test]

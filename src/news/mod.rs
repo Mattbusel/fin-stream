@@ -56,7 +56,7 @@ const MAX_ITEMS_PER_SYMBOL: usize = 200;
 
 /// Concurrent, symbol-keyed store of recent news items.
 ///
-/// At most [`MAX_ITEMS_PER_SYMBOL`] (200) items are retained per symbol;
+/// At most 200 items are retained per symbol;
 /// older items are evicted from the front of the queue.
 pub struct NewsStore {
     data: DashMap<String, VecDeque<NewsItem>>,
@@ -76,7 +76,7 @@ impl NewsStore {
             let mut queue = self
                 .data
                 .entry(symbol.clone())
-                .or_insert_with(VecDeque::new);
+                .or_default();
             if queue.len() == MAX_ITEMS_PER_SYMBOL {
                 queue.pop_front();
             }

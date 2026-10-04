@@ -142,7 +142,7 @@ impl SignalAggregator {
         let ws = WeightedSignal { signal, weight };
         let mut entry = self.signals.entry(symbol).or_default();
         // Prune stale signals
-        while entry.front().map_or(false, |s| s.signal.timestamp_ms < cutoff_ms) {
+        while entry.front().is_some_and(|s| s.signal.timestamp_ms < cutoff_ms) {
             entry.pop_front();
         }
         entry.push_back(ws);

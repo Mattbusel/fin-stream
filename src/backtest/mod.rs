@@ -158,7 +158,7 @@ impl BacktestEngine {
 
     /// Submit a new order and return its assigned ID.
     ///
-    /// The order is recorded but not yet matched. Call [`process_tick`] to match orders.
+    /// The order is recorded but not yet matched. Call `process_tick` to match orders.
     pub fn submit_order(
         &mut self,
         symbol: &str,

@@ -186,7 +186,7 @@ impl CandleBuilder {
     pub fn is_complete(&self, now_ms: u64) -> bool {
         self.state
             .as_ref()
-            .map_or(false, |s| now_ms >= s.bar_end_ms)
+            .is_some_and(|s| now_ms >= s.bar_end_ms)
     }
 }
 

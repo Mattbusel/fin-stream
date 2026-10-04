@@ -100,7 +100,7 @@ impl SignalPipeline {
     /// Returns `None` if the pipeline cannot produce an output yet.
     pub fn process(&mut self, signal: SignalValue) -> Option<f64> {
         let key = format!("{}:{}", signal.symbol, signal.source);
-        let buf = self.buffers.entry(key).or_insert_with(VecDeque::new);
+        let buf = self.buffers.entry(key).or_default();
 
         // Determine required buffer capacity
         let required = self.stages.iter().map(|s| match s {

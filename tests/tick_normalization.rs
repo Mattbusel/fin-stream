@@ -1,3 +1,4 @@
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 //! Tests for tick normalization: [0,1] range, rolling window resets, all exchanges.
 
 use fin_stream::norm::MinMaxNormalizer;

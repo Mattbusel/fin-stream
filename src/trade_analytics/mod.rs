@@ -189,19 +189,19 @@ impl ExecutionAnalyzer {
         let all_slippage: Vec<f64> = self
             .trades
             .iter()
-            .map(|t| ExecutionQuality::slippage_bps(t))
+            .map(ExecutionQuality::slippage_bps)
             .collect();
         let avg_slippage = all_slippage.iter().sum::<f64>() / total_trades as f64;
         let avg_is: f64 = self
             .trades
             .iter()
-            .map(|t| ExecutionQuality::implementation_shortfall_bps(t))
+            .map(ExecutionQuality::implementation_shortfall_bps)
             .sum::<f64>()
             / total_trades as f64;
         let total_pi: f64 = self
             .trades
             .iter()
-            .map(|t| ExecutionQuality::price_improvement(t))
+            .map(ExecutionQuality::price_improvement)
             .sum();
         let good_fills = all_slippage.iter().filter(|&&s| s <= 0.0).count();
         let overall_fill_rate = good_fills as f64 / total_trades as f64;

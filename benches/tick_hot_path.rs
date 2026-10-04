@@ -1,3 +1,4 @@
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use fin_stream::book::{BookDelta, BookSide, OrderBook};
 use fin_stream::ohlcv::{OhlcvAggregator, Timeframe};
@@ -134,7 +135,8 @@ fn bench_order_book_apply(c: &mut Criterion) {
         b.iter(|| {
             let delta = BookDelta::new("BTC-USD", BookSide::Bid, dec!(50000), qty);
             qty += dec!(0.001);
-            black_box(book.apply(delta).unwrap())
+            book.apply(delta).unwrap();
+            black_box(())
         })
     });
 }

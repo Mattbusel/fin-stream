@@ -331,7 +331,7 @@ impl StreamingPatternMonitor {
         let mut entry = self
             .detectors
             .entry(symbol.to_string())
-            .or_insert_with(PatternDetector::new);
+            .or_default();
         entry.push(bar);
         entry.detect()
     }

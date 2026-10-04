@@ -1,3 +1,4 @@
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 //! Accuracy tests for OhlcvAggregator: hand-computed expected values.
 
 use fin_stream::ohlcv::{OhlcvAggregator, Timeframe};

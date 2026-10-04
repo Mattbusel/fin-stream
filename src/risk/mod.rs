@@ -329,7 +329,7 @@ mod tests {
     fn test_max_drawdown_between_zero_and_one() {
         let rr = filled_risk(50);
         let dd = rr.max_drawdown().expect("has prices");
-        assert!(dd >= 0.0 && dd <= 1.0, "drawdown should be in [0,1], got {dd}");
+        assert!((0.0..=1.0).contains(&dd), "drawdown should be in [0,1], got {dd}");
     }
 
     #[test]

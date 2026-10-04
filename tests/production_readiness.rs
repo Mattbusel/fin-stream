@@ -1,3 +1,4 @@
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 //! Production-readiness tests.
 //!
 //! Covers three areas:

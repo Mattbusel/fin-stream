@@ -1001,7 +1001,7 @@ impl SpeedReplayer {
     pub async fn next_tick(&mut self) -> Option<(String, NormalizedTick)> {
         let wall_start = *self.started_at.get_or_insert_with(std::time::Instant::now);
 
-        loop {
+        {
             let total = self.total_ticks();
             if total == 0 {
                 return None;
@@ -1048,7 +1048,7 @@ impl SpeedReplayer {
             self.stats.ticks_sent += 1;
             self.stats.elapsed = wall_start.elapsed();
 
-            return Some((sym, tick));
+            Some((sym, tick))
         }
     }
 

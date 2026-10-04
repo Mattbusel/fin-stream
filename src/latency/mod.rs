@@ -1,41 +1,38 @@
 //! # Module: latency
 //!
 //! ## Responsibility
-//! HDR-style latency histogram for measuring operation latencies in microseconds.
-//! No external dependencies; uses powers-of-2 buckets with 4 sub-buckets each.
+//! Latency histograms for measuring operation latencies in microseconds, backed
+//! by [`hdrhistogram`] (the Rust port of Gil Tene's HdrHistogram).
 //!
 //! ## Guarantees
-//! - No panics on any input (saturating arithmetic for out-of-range values).
-//! - All percentile queries run in O(B) where B = number of buckets.
+//! - No panics on any input: values above one hour are clamped into the top bucket.
+//! - Percentiles are within 1% of the true sample value (two significant digits),
+//!   and exact below 256 µs. `min`, `max` and `mean` are exact.
+//! - Memory is fixed per histogram, whatever the sample count.
 
+use hdrhistogram::Histogram;
 use std::collections::HashMap;
 
 // ─── constants ────────────────────────────────────────────────────────────────
 
-/// Sub-buckets per power-of-2 bucket.
-const SUB_BUCKETS: usize = 4;
-/// Minimum latency bucket: 1 µs.
+/// Lowest trackable latency: 1 µs (0 is recorded as 1).
 const MIN_US: u64 = 1;
-/// Maximum latency bucket: 10 seconds = 10_000_000 µs.
-const MAX_US: u64 = 10_000_000;
-
-/// Total number of main buckets (powers of 2 from 1 to 10_000_000).
-/// ceil(log2(10_000_000)) = 24
-const N_MAIN_BUCKETS: usize = 24;
-/// Total bucket count including sub-buckets.
-const TOTAL_BUCKETS: usize = N_MAIN_BUCKETS * SUB_BUCKETS;
+/// Highest trackable latency: one hour, in µs. Larger values are clamped.
+const MAX_US: u64 = 3_600_000_000;
+/// Significant decimal digits kept by the histogram (1% resolution).
+const SIG_FIGS: u8 = 2;
 
 // ─── histogram ────────────────────────────────────────────────────────────────
 
-/// HDR-style latency histogram.
+/// Latency histogram with percentile queries.
 ///
-/// Buckets cover powers of 2 from 1 µs to 10 s, each subdivided into 4
-/// sub-buckets for finer resolution. Values outside the range are clamped
-/// to the nearest boundary bucket.
+/// Before 2.12 this was a hand-rolled histogram with 4 buckets per power of two:
+/// every percentile came back as a bucket's upper edge, up to 25% above the real
+/// sample (a single 100 µs sample reported p50 = 112 µs), and anything over 10 s
+/// was clamped. It now keeps every value to within 1% from 1 µs to one hour.
 #[derive(Debug, Clone)]
 pub struct LatencyHistogram {
-    counts: [u64; TOTAL_BUCKETS],
-    total_count: u64,
+    hist: Histogram<u64>,
     sum_us: u64,
     max_us: u64,
     min_us: u64,
@@ -44,9 +41,14 @@ pub struct LatencyHistogram {
 impl LatencyHistogram {
     /// Create a new empty histogram.
     pub fn new() -> Self {
+        // The bounds are constants that hdrhistogram accepts (low >= 1, high >= 2 * low,
+        // sigfig <= 5), so the first constructor cannot fail; the fallbacks only exist
+        // to keep this function free of `unwrap`.
+        let hist = Histogram::new_with_bounds(MIN_US, MAX_US, SIG_FIGS)
+            .or_else(|_| Histogram::new(SIG_FIGS))
+            .unwrap_or_else(|_| unreachable!("2 significant figures is always valid"));
         Self {
-            counts: [0; TOTAL_BUCKETS],
-            total_count: 0,
+            hist,
             sum_us: 0,
             max_us: 0,
             min_us: u64::MAX,
@@ -55,60 +57,62 @@ impl LatencyHistogram {
 
     /// Record a latency measurement in microseconds.
     pub fn record(&mut self, latency_us: u64) {
-        let clamped = latency_us.clamp(MIN_US, MAX_US);
-        let idx = Self::bucket_index(clamped);
-        self.counts[idx] = self.counts[idx].saturating_add(1);
-        self.total_count = self.total_count.saturating_add(1);
+        self.hist.saturating_record(latency_us.clamp(MIN_US, MAX_US));
         self.sum_us = self.sum_us.saturating_add(latency_us);
-        if latency_us > self.max_us {
-            self.max_us = latency_us;
+        self.max_us = self.max_us.max(latency_us);
+        self.min_us = self.min_us.min(latency_us);
+    }
+
+    /// Add every sample from `other` into this histogram (for example, one
+    /// histogram per worker thread merged for reporting).
+    pub fn merge(&mut self, other: &LatencyHistogram) {
+        if other.count() == 0 {
+            return;
         }
-        if latency_us < self.min_us {
-            self.min_us = latency_us;
-        }
+        // Both histograms share the same bounds, so `add` cannot fail.
+        let _ = self.hist.add(&other.hist);
+        self.sum_us = self.sum_us.saturating_add(other.sum_us);
+        self.max_us = self.max_us.max(other.max_us);
+        self.min_us = self.min_us.min(other.min_us);
     }
 
     /// Compute the p-th percentile latency in microseconds.
     ///
     /// `p` is in [0.0, 100.0]. For example, `p=99.9` returns the p99.9 value.
-    /// Returns 0 if no values have been recorded.
+    /// The result is always between [`min_us`](Self::min_us) (or 1, if the
+    /// minimum is 0) and [`max_us`](Self::max_us). Returns 0 if no values have
+    /// been recorded.
     pub fn percentile(&self, p: f64) -> u64 {
-        if self.total_count == 0 {
+        if self.count() == 0 {
             return 0;
         }
-        let p = p.clamp(0.0, 100.0);
-        let target = ((p / 100.0) * self.total_count as f64).ceil() as u64;
-        let mut cumulative: u64 = 0;
-        for (idx, &count) in self.counts.iter().enumerate() {
-            cumulative = cumulative.saturating_add(count);
-            if cumulative >= target {
-                return Self::bucket_upper_us(idx);
-            }
-        }
-        self.max_us
+        let p = if p.is_nan() { 0.0 } else { p.clamp(0.0, 100.0) };
+        let hi = self.max_us.max(MIN_US);
+        let lo = self.min_us.clamp(MIN_US, hi);
+        self.hist.value_at_quantile(p / 100.0).clamp(lo, hi)
     }
 
     /// Mean latency in microseconds. Returns 0.0 if no values recorded.
     pub fn mean_us(&self) -> f64 {
-        if self.total_count == 0 {
+        if self.count() == 0 {
             return 0.0;
         }
-        self.sum_us as f64 / self.total_count as f64
+        self.sum_us as f64 / self.count() as f64
     }
 
     /// Maximum recorded latency in microseconds.
     pub fn max_us(&self) -> u64 {
-        if self.total_count == 0 { 0 } else { self.max_us }
+        if self.count() == 0 { 0 } else { self.max_us }
     }
 
     /// Minimum recorded latency in microseconds.
     pub fn min_us(&self) -> u64 {
-        if self.total_count == 0 { 0 } else { self.min_us }
+        if self.count() == 0 { 0 } else { self.min_us }
     }
 
     /// Total number of recorded samples.
     pub fn count(&self) -> u64 {
-        self.total_count
+        self.hist.len()
     }
 
     /// Produce a snapshot of key percentiles.
@@ -123,35 +127,6 @@ impl LatencyHistogram {
             min: self.min_us(),
             count: self.count(),
         }
-    }
-
-    /// Map a latency value to a bucket index.
-    fn bucket_index(us: u64) -> usize {
-        // Main bucket: floor(log2(us)), clamped to [0, N_MAIN_BUCKETS-1]
-        let us = us.max(1);
-        let main = (63 - us.leading_zeros()) as usize;
-        let main = main.min(N_MAIN_BUCKETS - 1);
-
-        // Sub-bucket within the main bucket
-        // The main bucket covers [2^main, 2^(main+1))
-        // Divide that range into SUB_BUCKETS equal parts.
-        let bucket_start = 1_u64 << main;
-        let bucket_width = bucket_start; // width = 2^main
-        let sub_width = (bucket_width / SUB_BUCKETS as u64).max(1);
-        let offset = us.saturating_sub(bucket_start);
-        let sub = ((offset / sub_width) as usize).min(SUB_BUCKETS - 1);
-
-        main * SUB_BUCKETS + sub
-    }
-
-    /// Return the upper bound of a bucket (used as the representative value).
-    fn bucket_upper_us(idx: usize) -> u64 {
-        let main = idx / SUB_BUCKETS;
-        let sub = idx % SUB_BUCKETS;
-        let bucket_start = 1_u64 << main;
-        let bucket_width = bucket_start;
-        let sub_width = (bucket_width / SUB_BUCKETS as u64).max(1);
-        bucket_start + sub_width * (sub as u64 + 1)
     }
 }
 
@@ -354,8 +329,67 @@ mod tests {
     #[test]
     fn above_max_clamped() {
         let mut h = LatencyHistogram::new();
-        h.record(MAX_US * 10); // should not panic, clamped to MAX_US bucket
+        h.record(MAX_US * 10); // should not panic, clamped into the top bucket
         assert_eq!(h.count(), 1);
+        assert_eq!(h.max_us(), MAX_US * 10);
+        h.record(u64::MAX);
+        assert_eq!(h.count(), 2);
+    }
+
+    #[test]
+    fn single_sample_percentile_is_the_sample() {
+        // The old bucketed histogram answered 112 here (the bucket's upper edge).
+        let mut h = LatencyHistogram::new();
+        h.record(100);
+        assert_eq!(h.percentile(50.0), 100);
+        assert_eq!(h.percentile(99.9), 100);
+    }
+
+    #[test]
+    fn percentiles_within_one_percent_of_exact() {
+        // 1..=100_000 µs: the exact p-th percentile is p * 1000.
+        let mut h = LatencyHistogram::new();
+        for v in 1..=100_000u64 {
+            h.record(v);
+        }
+        for (p, exact) in [(50.0, 50_000.0), (90.0, 90_000.0), (99.0, 99_000.0), (99.9, 99_900.0)] {
+            let got = h.percentile(p) as f64;
+            assert!((got - exact).abs() / exact < 0.01, "p{p}: got {got}, exact {exact}");
+        }
+        assert_eq!(h.min_us(), 1);
+        assert_eq!(h.max_us(), 100_000);
+        assert!((h.mean_us() - 50_000.5).abs() < 1e-9);
+    }
+
+    #[test]
+    fn latencies_above_ten_seconds_are_kept() {
+        // The old histogram clamped everything above 10 s into one bucket.
+        let mut h = LatencyHistogram::new();
+        for _ in 0..99 {
+            h.record(1_000);
+        }
+        h.record(60_000_000); // one 60 s stall
+        let p999 = h.percentile(99.9) as f64;
+        assert!((p999 - 60_000_000.0).abs() / 60_000_000.0 < 0.01, "p99.9 = {p999}");
+    }
+
+    #[test]
+    fn merge_combines_samples() {
+        let mut a = LatencyHistogram::new();
+        let mut b = LatencyHistogram::new();
+        for v in 1..=50u64 {
+            a.record(v);
+        }
+        for v in 51..=100u64 {
+            b.record(v);
+        }
+        a.merge(&b);
+        assert_eq!(a.count(), 100);
+        assert_eq!(a.min_us(), 1);
+        assert_eq!(a.max_us(), 100);
+        assert_eq!(a.percentile(50.0), 50);
+        a.merge(&LatencyHistogram::new());
+        assert_eq!(a.count(), 100);
     }
 
     #[test]

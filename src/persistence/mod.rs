@@ -2,7 +2,7 @@
 //!
 //! ## Responsibility
 //! Persist tick data to a packed binary format with per-symbol indexing.
-//! All I/O is in-memory (Vec<u8>) so this module is fully testable without
+//! All I/O is in-memory (`Vec<u8>`) so this module is fully testable without
 //! touching the filesystem.
 //!
 //! ## Binary Format
@@ -96,7 +96,7 @@ impl TickRecord {
         if bytes.len() < 8 {
             return None;
         }
-        if &bytes[cursor..cursor + 8] != &MAGIC {
+        if bytes[cursor..cursor + 8] != MAGIC {
             return None;
         }
         cursor += 8;
@@ -329,7 +329,7 @@ impl TickReader {
             if self.data.len() < cursor + 8 {
                 break;
             }
-            if &self.data[cursor..cursor + 8] != &MAGIC {
+            if self.data[cursor..cursor + 8] != MAGIC {
                 cursor += 1;
                 continue;
             }

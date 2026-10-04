@@ -52,7 +52,7 @@ pub struct FundingRate {
 
 /// Concurrent per-symbol funding rate tracker.
 ///
-/// Internally stores up to [`MAX_HISTORY`] (500) records per symbol in a `VecDeque`,
+/// Internally stores up to 500 records per symbol in a `VecDeque`,
 /// evicting the oldest when the cap is reached.
 pub struct FundingTracker {
     data: DashMap<String, VecDeque<FundingRate>>,

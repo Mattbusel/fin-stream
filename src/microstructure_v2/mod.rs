@@ -369,6 +369,6 @@ mod tests {
     #[test]
     fn test_information_share_bounds() {
         let is = information_share(0.001, 0.0008, 0.0002);
-        assert!(is >= 0.0 && is <= 1.0, "Information share must be in [0,1]");
+        assert!((0.0..=1.0).contains(&is), "Information share must be in [0,1]");
     }
 }

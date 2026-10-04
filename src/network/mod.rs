@@ -447,12 +447,6 @@ mod tests {
         vec!["BTC".to_owned(), "ETH".to_owned(), "SOL".to_owned()]
     }
 
-    fn feed_prices(graph: &mut CorrelationGraph, prices: &[&[f64]]) {
-        for row in prices {
-            graph.update(row).unwrap();
-        }
-    }
-
     #[test]
     fn test_graph_needs_at_least_two_assets() {
         assert!(CorrelationGraph::new(vec!["BTC".to_owned()], 0.5).is_err());

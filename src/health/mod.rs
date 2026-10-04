@@ -93,7 +93,7 @@ impl HealthMonitor {
         }
         self.feeds
             .get(feed_id)
-            .map_or(false, |e| e.consecutive_stale >= self.circuit_breaker_threshold)
+            .is_some_and(|e| e.consecutive_stale >= self.circuit_breaker_threshold)
     }
 
     /// Register multiple feeds in one call.
@@ -333,8 +333,7 @@ impl HealthMonitor {
     /// The feed that has gone the longest without receiving a tick.
     ///
     /// Among all registered feeds, returns the one with the oldest (smallest)
-    /// `last_tick_ms`. Feeds that have never received a tick (`last_tick_ms ==
-    /// `None`) are considered more stale than any feed that has. Returns `None`
+    /// `last_tick_ms`. Feeds that have never received a tick (`last_tick_ms == None`) are considered more stale than any feed that has. Returns `None`
     /// if no feeds are registered.
     pub fn most_stale_feed(&self) -> Option<FeedHealth> {
         self.feeds.iter().fold(None, |acc: Option<FeedHealth>, entry| {
@@ -748,6 +747,7 @@ impl HealthMonitor {
 }
 
 #[cfg(test)]
+#[allow(deprecated)] // the tests still cover the deprecated aliases
 mod tests {
     use super::*;
 
@@ -1496,7 +1496,7 @@ mod tests {
 
     #[test]
     fn test_feeds_by_status_returns_only_matching_status() {
-        let mut m = monitor();
+        let m = monitor();
         m.register("A", None);
         m.register("B", None);
         // A: old heartbeat → stale; B: recent heartbeat → healthy
@@ -1510,7 +1510,7 @@ mod tests {
 
     #[test]
     fn test_feeds_by_status_empty_when_none_match() {
-        let mut m = monitor();
+        let m = monitor();
         m.register("A", None);
         m.heartbeat("A", 1_000).unwrap();
         m.check_all(2_000);
@@ -1521,7 +1521,7 @@ mod tests {
 
     #[test]
     fn test_feeds_by_status_all_start_as_unknown() {
-        let mut m = monitor();
+        let m = monitor();
         m.register("A", None);
         m.register("B", None);
         let unknown = m.feeds_by_status(HealthStatus::Unknown);
@@ -1586,7 +1586,7 @@ mod tests {
 
     #[test]
     fn test_oldest_stale_feed_returns_feed_with_smallest_last_tick() {
-        let mut m = monitor();
+        let m = monitor();
         m.register("A", None);
         m.register("B", None);
         m.heartbeat("A", 1_000).unwrap(); // older tick
@@ -1598,7 +1598,7 @@ mod tests {
 
     #[test]
     fn test_oldest_stale_feed_none_when_no_stale_feeds() {
-        let mut m = monitor();
+        let m = monitor();
         m.register("A", None);
         m.heartbeat("A", 9_000).unwrap();
         m.check_all(10_000); // 1s elapsed < 5s threshold → healthy
@@ -1613,7 +1613,7 @@ mod tests {
 
     #[test]
     fn test_healthy_ratio_one_when_all_healthy() {
-        let mut m = monitor();
+        let m = monitor();
         m.register("A", None);
         m.register("B", None);
         m.heartbeat("A", 9_000).unwrap();
@@ -1624,7 +1624,7 @@ mod tests {
 
     #[test]
     fn test_healthy_ratio_half_when_one_of_two_healthy() {
-        let mut m = monitor();
+        let m = monitor();
         m.register("A", None);
         m.register("B", None);
         m.heartbeat("A", 1_000).unwrap(); // stale
@@ -1637,7 +1637,7 @@ mod tests {
 
     #[test]
     fn test_most_reliable_feed_returns_highest_tick_count() {
-        let mut m = monitor();
+        let m = monitor();
         m.register("A", None);
         m.register("B", None);
         m.heartbeat("A", 1_000).unwrap();
@@ -1656,7 +1656,7 @@ mod tests {
 
     #[test]
     fn test_feeds_never_seen_returns_feeds_with_no_heartbeat() {
-        let mut m = monitor();
+        let m = monitor();
         m.register("A", None);
         m.register("B", None);
         m.heartbeat("A", 1_000).unwrap();
@@ -1668,7 +1668,7 @@ mod tests {
 
     #[test]
     fn test_feeds_never_seen_empty_when_all_have_heartbeat() {
-        let mut m = monitor();
+        let m = monitor();
         m.register("A", None);
         m.heartbeat("A", 1_000).unwrap();
         assert!(m.feeds_never_seen().is_empty());
@@ -1678,7 +1678,7 @@ mod tests {
 
     #[test]
     fn test_is_any_feed_stale_true_when_stale_feed_exists() {
-        let mut m = monitor();
+        let m = monitor();
         m.register("A", None);
         m.heartbeat("A", 1_000).unwrap();
         m.check_all(10_000); // elapsed > threshold → stale
@@ -1687,7 +1687,7 @@ mod tests {
 
     #[test]
     fn test_is_any_feed_stale_false_when_all_healthy() {
-        let mut m = monitor();
+        let m = monitor();
         m.register("A", None);
         m.heartbeat("A", 9_500).unwrap();
         m.check_all(10_000); // 500ms elapsed → healthy
@@ -1702,7 +1702,7 @@ mod tests {
 
     #[test]
     fn test_all_feeds_seen_true_when_all_have_heartbeat() {
-        let mut m = monitor();
+        let m = monitor();
         m.register("A", None);
         m.register("B", None);
         m.heartbeat("A", 1_000).unwrap();
@@ -1712,7 +1712,7 @@ mod tests {
 
     #[test]
     fn test_all_feeds_seen_false_when_one_never_seen() {
-        let mut m = monitor();
+        let m = monitor();
         m.register("A", None);
         m.register("B", None);
         m.heartbeat("A", 1_000).unwrap();
@@ -1729,7 +1729,7 @@ mod tests {
 
     #[test]
     fn test_tick_count_for_returns_correct_count() {
-        let mut m = monitor();
+        let m = monitor();
         m.register("A", None);
         m.heartbeat("A", 1_000).unwrap();
         m.heartbeat("A", 2_000).unwrap();
@@ -1744,7 +1744,7 @@ mod tests {
 
     #[test]
     fn test_tick_count_for_zero_when_no_heartbeats() {
-        let mut m = monitor();
+        let m = monitor();
         m.register("A", None);
         assert_eq!(m.tick_count_for("A"), Some(0));
     }
@@ -1757,7 +1757,7 @@ mod tests {
 
     #[test]
     fn test_average_tick_count_correct_value() {
-        let mut m = monitor();
+        let m = monitor();
         m.register("A", None);
         m.register("B", None);
         m.heartbeat("A", 1_000).unwrap();
@@ -1770,7 +1770,7 @@ mod tests {
     // --- HealthMonitor::feeds_above_tick_count ---
     #[test]
     fn test_feeds_above_tick_count_correct() {
-        let mut m = monitor();
+        let m = monitor();
         m.register("A", None);
         m.register("B", None);
         m.register("C", None);
@@ -1794,7 +1794,7 @@ mod tests {
     // --- HealthMonitor::oldest_feed_age_ms ---
     #[test]
     fn test_oldest_feed_age_ms_returns_max_age() {
-        let mut m = monitor();
+        let m = monitor();
         m.register("A", None);
         m.register("B", None);
         m.heartbeat("A", 5_000).unwrap();
@@ -1806,7 +1806,7 @@ mod tests {
 
     #[test]
     fn test_oldest_feed_age_ms_none_when_no_ticks() {
-        let mut m = monitor();
+        let m = monitor();
         m.register("A", None);
         assert!(m.oldest_feed_age_ms(10_000).is_none());
     }
@@ -1814,7 +1814,7 @@ mod tests {
     // --- HealthMonitor::total_stale_count ---
     #[test]
     fn test_total_stale_count_zero_when_all_healthy() {
-        let mut m = HealthMonitor::new(5_000);
+        let m = HealthMonitor::new(5_000);
         m.register("A", None);
         m.heartbeat("A", 9_500).unwrap();
         let _ = m.check_all(10_000);
@@ -1823,7 +1823,7 @@ mod tests {
 
     #[test]
     fn test_total_stale_count_correct_when_stale() {
-        let mut m = HealthMonitor::new(5_000);
+        let m = HealthMonitor::new(5_000);
         m.register("A", None);
         m.register("B", None);
         m.heartbeat("A", 1_000).unwrap();
@@ -1836,14 +1836,14 @@ mod tests {
     // --- HealthMonitor::avg_feed_age_ms ---
     #[test]
     fn test_avg_feed_age_ms_none_when_no_ticks() {
-        let mut m = monitor();
+        let m = monitor();
         m.register("A", None);
         assert!(m.avg_feed_age_ms(10_000).is_none());
     }
 
     #[test]
     fn test_avg_feed_age_ms_correct_average() {
-        let mut m = monitor();
+        let m = monitor();
         m.register("A", None);
         m.register("B", None);
         m.heartbeat("A", 5_000).unwrap(); // age at t=10000: 5000

@@ -29,9 +29,6 @@
 //! drop(bar);
 //! ```
 
-/// Tick-to-Bar aggregator: time, tick, volume, and dollar bars from [`NormalizedTick`] streams.
-///
-/// [`NormalizedTick`]: crate::tick::NormalizedTick
 pub mod bars;
 
 use std::collections::HashMap;
@@ -674,9 +671,7 @@ impl CandleBuilder {
 
     /// Force-flush any in-progress candle. Returns `None` if empty.
     pub fn flush(&mut self) -> Option<OhlcvCandle> {
-        if self.open.is_none() {
-            return None;
-        }
+        self.open?;
         let candle = self.build();
         self.reset();
         Some(candle)

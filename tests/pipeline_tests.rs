@@ -1,3 +1,4 @@
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 //! Integration tests for the fin-stream multi-stage pipeline.
 //!
 //! A "pipeline" in fin-stream is the composition:
@@ -95,7 +96,7 @@ fn test_pipeline_processes_all_stages() {
     let close_f64 = bar.close.to_string().parse::<f64>().unwrap();
     let normalized = normalizer.normalize(bar.close).unwrap();
     assert!(
-        normalized >= 0.0 && normalized <= 1.0,
+        (0.0..=1.0).contains(&normalized),
         "normalized close must be in [0, 1], got {normalized}"
     );
 
@@ -191,7 +192,7 @@ fn test_pipeline_normalization_bounds() {
     }
     for &c in &closes {
         let v = norm.normalize(c).unwrap();
-        assert!(v >= 0.0 && v <= 1.0, "normalized value {v} out of [0, 1]");
+        assert!((0.0..=1.0).contains(&v), "normalized value {v} out of [0, 1]");
     }
 }
 
@@ -199,7 +200,7 @@ fn test_pipeline_normalization_bounds() {
 #[test]
 fn test_pipeline_lorentz_identity_at_zero_beta() {
     let transform = LorentzTransform::new(0.0).unwrap();
-    let p = SpacetimePoint { t: 3.14, x: 2.718 };
+    let p = SpacetimePoint { t: 3.5, x: 2.25 };
     let out = transform.transform(p);
     assert!((out.t - p.t).abs() < 1e-9, "identity: t' should equal t");
     assert!((out.x - p.x).abs() < 1e-9, "identity: x' should equal x");
@@ -254,6 +255,6 @@ fn test_pipeline_multi_bar_sequence() {
     // Normalizer has two observations; both should normalize cleanly.
     for bar in &completed {
         let v = norm.normalize(bar.close).unwrap();
-        assert!(v >= 0.0 && v <= 1.0);
+        assert!((0.0..=1.0).contains(&v));
     }
 }

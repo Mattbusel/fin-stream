@@ -20,9 +20,10 @@ For Rust developers building trading bots, market-data collectors, backtesters o
 cargo add fin-stream serde_json
 ```
 
-It is a library, so there is nothing to download or install system-wide (Rust 1.75 or newer).
+It is a library, so there is nothing to download or install system-wide (Rust 1.81 or newer,
+checked in CI). TLS for `wss://` feeds is rustls with the ring provider: no OpenSSL, no cmake.
 `serde_json` is only there so you can build raw payloads with `json!`. Or in `Cargo.toml`:
-`fin-stream = "2.11"`. Want to see it first? `git clone https://gitlab.com/mattbusel/fin-stream && cd fin-stream && cargo run --example tape`.
+`fin-stream = "2.12"`. Want to see it first? `git clone https://gitlab.com/mattbusel/fin-stream && cd fin-stream && cargo run --example tape`.
 
 ## How it works
 
@@ -33,6 +34,35 @@ an `SpscRing`, your thread pops them, and from there they go into bars, features
 Order book depth messages go into an `OrderBook` that rejects crossed books and sequence gaps.
 
 <p align="center"><img alt="Animated diagram of the fin-stream pipeline replaying the first 17 trades of the tape example: WsManager passes WebSocket text frames down an mpsc channel; each frame becomes a RawTick and TickNormalizer turns the Binance, Coinbase, Alpaca or Polygon JSON into a NormalizedTick; the feed thread pushes it into an SpscRing slot and the main thread pops it; OhlcvAggregator returns the 14:30:00 two-second bar (open 64250.19, high 64272.65, low 64250.19, close 64254.78, 16 trades) when trade 17 arrives, a ZScoreNormalizer turns prices into z-scores, and OrderBook::apply returns BookCrossed and SequenceGap errors for bad depth updates" src="docs/img/pipeline.svg" width="100%"></p>
+
+## Why fin-stream
+
+- **Four venues, one tick type.** Binance and Coinbase (crypto) and Alpaca and Polygon (US
+  equities) all become the same `NormalizedTick` with exact `Decimal` price and size.
+  [`barter-data`](https://crates.io/crates/barter-data) covers more crypto exchanges but no
+  stock feeds; use the `barter` feature below to hand fin-stream's equity ticks to barter code.
+- **A connection loop that stays up.** `WsManager` reconnects with backoff, resets its retry
+  budget after every connection that came up, replaces silent half-open connections, and
+  stops as soon as you drop the receiver. These paths are tested against a real local
+  WebSocket server, not mocks.
+- **Untrusted input never panics.** The JSON normalizers and the FIX 4.2 parser are
+  property-tested with random payloads and random byte strings.
+- **Measured, including where others win** ([bench/competitors](bench/competitors/README.md)):
+  pushing and popping on one thread, `SpscRing` did about 1.2 billion operations per second,
+  ahead of `rtrb`, `ringbuf` and crossbeam's `ArrayQueue`. Across two threads `rtrb` and
+  `ringbuf` were faster (about 146 and 139 million items per second against 121 million).
+- **Observable.** With the `metrics` feature, connections, reconnects, messages, bytes, bars
+  and late ticks are counters on whatever recorder you install (Prometheus, StatsD,
+  OpenTelemetry).
+
+## Feature flags
+
+| feature | default | adds |
+|---|---|---|
+| `fin-primitives` | yes | `Tick::try_from(&NormalizedTick)` into [fin-primitives](https://crates.io/crates/fin-primitives) (bars, 700+ indicators, order book, risk), and `?` on its errors |
+| `metrics` | no | counters through the [`metrics`](https://crates.io/crates/metrics) facade; table in the `telemetry` module docs |
+| `grpc` | no | a tonic gRPC server that streams ticks to remote clients (generated code is checked in, no `protoc` needed) |
+| `barter` | no | `PublicTrade::try_from(&NormalizedTick)` for [barter-data](https://crates.io/crates/barter-data) strategies |
 
 ## Examples
 
@@ -136,8 +166,7 @@ no price  -> Tick parse error from Binance: missing field 'p'
 Four exchanges spell a trade four different ways; you get one `NormalizedTick` with exact
 decimal price and size for each. Venues that do not say which side was the aggressor show
 `n/a` rather than a guess, and a malformed message is an error you can match on. This exact
-program was built against fin-stream 2.11 from crates.io and run again on 2026-09-28 (it is
-also compiled and run by this repository's `cargo test --doc`).
+program is compiled and run by this repository's `cargo test --doc`.
 
 ## Documentation
 
@@ -151,7 +180,8 @@ also compiled and run by this repository's `cargo test --doc`).
 | [CHANGELOG.md](CHANGELOG.md) | what changed in each version |
 | [Project site](https://fin-stream-rs.vercel.app/) | the same overview as a web page |
 
-The optional gRPC server is behind the `grpc` feature.
+The optional gRPC server is behind the `grpc` feature; metrics, interop and the rest are
+in the feature table above.
 
 > Research and engineering library. It does not place orders, and nothing here is financial advice.
 
@@ -164,7 +194,8 @@ fallible code returns `Result<_, StreamError>`, and new behavior needs a test. R
 
 ## License and related projects
 
-MIT, see [LICENSE](LICENSE). Built on [fin-primitives](https://gitlab.com/mattbusel/fin-primitives)
-(checked price and quantity types, order book, indicators, risk). The `lorentz` module comes from
+MIT, see [LICENSE](LICENSE). Pairs with [fin-primitives](https://gitlab.com/mattbusel/fin-primitives)
+(checked price and quantity types, order book, indicators, risk): convert ticks with
+`fin_primitives::tick::Tick::try_from(&tick)`. The `lorentz` module comes from
 the Special Relativity Financial Modeling work: [Special-Relativity-in-Financial-Modeling](https://gitlab.com/mattbusel/Special-Relativity-in-Financial-Modeling),
 [srfm-python](https://gitlab.com/mattbusel/srfm-python), [srfm-paper-impl](https://gitlab.com/mattbusel/srfm-paper-impl) and [srfm-lab](https://gitlab.com/mattbusel/srfm-lab).

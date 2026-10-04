@@ -343,7 +343,7 @@ mod tests {
         assert!(b.push(&tick("X", 1.0, 3.0, 1)).is_none());
         assert!(b.push(&tick("X", 1.0, 3.0, 2)).is_none());
         // Only 6 accumulated, not 10
-        assert!(b.is_empty() == false);
+        assert!(!b.is_empty());
     }
 
     // ── BarBuilder: Dollar-based ──────────────────────────────────────────

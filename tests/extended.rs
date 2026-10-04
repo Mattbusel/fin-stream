@@ -1,3 +1,4 @@
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 //! Extended test coverage -- error display, tick edge cases, book invariants,
 //! OHLCV timeframes, health edge cases, session boundary cases, ring buffer,
 //! normalization, and Lorentz transforms.

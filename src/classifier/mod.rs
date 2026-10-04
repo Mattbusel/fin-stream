@@ -216,7 +216,7 @@ impl TradeFlowAccumulator {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tick::{Exchange, NormalizedTick, TradeSide};
+    use crate::tick::{Exchange, NormalizedTick};
     use rust_decimal_macros::dec;
 
     fn make_tick(price: Decimal, qty: Decimal) -> NormalizedTick {

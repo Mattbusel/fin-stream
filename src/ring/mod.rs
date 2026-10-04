@@ -62,8 +62,24 @@ use std::sync::Arc;
 /// ```
 pub struct SpscRing<T, const N: usize> {
     buf: Box<[UnsafeCell<MaybeUninit<T>>; N]>,
-    head: AtomicUsize,
-    tail: AtomicUsize,
+    // `head` (written by the consumer) and `tail` (written by the producer) live on
+    // separate cache lines, so the two threads do not invalidate each other's line
+    // on every operation (false sharing).
+    head: CachePadded<AtomicUsize>,
+    tail: CachePadded<AtomicUsize>,
+}
+
+/// Aligns its contents to 128 bytes (two 64-byte lines, which also covers the
+/// adjacent-line prefetcher on x86 and the 128-byte lines on Apple silicon).
+#[repr(align(128))]
+struct CachePadded<T>(T);
+
+impl<T> std::ops::Deref for CachePadded<T> {
+    type Target = T;
+    #[inline]
+    fn deref(&self) -> &T {
+        &self.0
+    }
 }
 
 // SAFETY: SpscRing is safe to Send because we enforce the single-producer /
@@ -90,8 +106,8 @@ impl<T, const N: usize> SpscRing<T, N> {
     /// Construct an empty ring buffer.
     pub fn new() -> Self {
         // Trigger compile-time assertions.
-        let _ = Self::_ASSERT_N_GE_2;
-        let _ = Self::_ASSERT_N_POW2;
+        let () = Self::_ASSERT_N_GE_2;
+        let () = Self::_ASSERT_N_POW2;
         let buf: Vec<UnsafeCell<MaybeUninit<T>>> =
             (0..N).map(|_| UnsafeCell::new(MaybeUninit::uninit())).collect();
         let buf: Box<[UnsafeCell<MaybeUninit<T>>; N]> = buf
@@ -99,8 +115,8 @@ impl<T, const N: usize> SpscRing<T, N> {
             .unwrap_or_else(|_| unreachable!("length is exactly N"));
         Self {
             buf,
-            head: AtomicUsize::new(0),
-            tail: AtomicUsize::new(0),
+            head: CachePadded(AtomicUsize::new(0)),
+            tail: CachePadded(AtomicUsize::new(0)),
         }
     }
 
@@ -251,7 +267,14 @@ impl<T, const N: usize> SpscRing<T, N> {
     where
         T: Copy,
     {
-        self.peek_back().copied()
+        let head = self.head.load(Ordering::Acquire);
+        let tail = self.tail.load(Ordering::Acquire);
+        if head == tail {
+            return None;
+        }
+        // SAFETY: the slot before `tail` is initialized; the value is copied out
+        // immediately, so no reference outlives this call.
+        Some(unsafe { *(*self.buf[tail.wrapping_sub(1) & (N - 1)].get()).assume_init_ref() })
     }
 
     /// Peek at the oldest item in the ring (the one that would be returned next by `pop`)
@@ -310,13 +333,32 @@ impl<T, const N: usize> SpscRing<T, N> {
     where
         T: Copy,
     {
-        self.peek_front().copied()
+        let head = self.head.load(Ordering::Acquire);
+        let tail = self.tail.load(Ordering::Acquire);
+        if head == tail {
+            return None;
+        }
+        // SAFETY: the slot at `head` is initialized; the value is copied out at once.
+        Some(unsafe { *(*self.buf[head & (N - 1)].get()).assume_init_ref() })
     }
 
     /// Returns a reference to the oldest item (front) without removing it.
     ///
     /// Returns `None` if the buffer is empty. Only valid before calling `split()`.
-    pub fn peek_front(&self) -> Option<&T> {
+    ///
+    /// Takes `&mut self` since 2.12: with `&self` the reference could outlive a
+    /// `pop` of the same item, and safe code could read freed memory (confirmed with
+    /// Miri). The borrow checker now rejects that:
+    ///
+    /// ```compile_fail
+    /// use fin_stream::ring::SpscRing;
+    /// let mut ring: SpscRing<String, 4> = SpscRing::new();
+    /// ring.push("hello".to_string()).unwrap();
+    /// let r = ring.peek_front().unwrap();
+    /// drop(ring.pop().unwrap()); // error: `ring` is still borrowed by `r`
+    /// assert_eq!(r, "hello");
+    /// ```
+    pub fn peek_front(&mut self) -> Option<&T> {
         let head = self.head.load(Ordering::Acquire);
         let tail = self.tail.load(Ordering::Acquire);
         if head == tail {
@@ -329,7 +371,8 @@ impl<T, const N: usize> SpscRing<T, N> {
     /// Returns a reference to the newest item (back) without removing it.
     ///
     /// Returns `None` if the buffer is empty. Only valid before calling `split()`.
-    pub fn peek_back(&self) -> Option<&T> {
+    /// Takes `&mut self` for the same reason as [`peek_front`](Self::peek_front).
+    pub fn peek_back(&mut self) -> Option<&T> {
         let head = self.head.load(Ordering::Acquire);
         let tail = self.tail.load(Ordering::Acquire);
         if head == tail {
@@ -663,8 +706,9 @@ impl<T, const N: usize> SpscRing<T, N> {
         (
             SpscProducer {
                 inner: Arc::clone(&shared),
+                cached_head: std::cell::Cell::new(0),
             },
-            SpscConsumer { inner: shared },
+            SpscConsumer { inner: shared, cached_tail: std::cell::Cell::new(0) },
         )
     }
 }
@@ -697,6 +741,9 @@ impl<T, const N: usize> Default for SpscRing<T, N> {
 /// Producer half of a split [`SpscRing`].
 pub struct SpscProducer<T, const N: usize> {
     inner: Arc<SpscRing<T, N>>,
+    /// Last `head` this producer saw. The ring can only have more room than this
+    /// says, so `push` reloads the shared `head` only when the cache says "full".
+    cached_head: std::cell::Cell<usize>,
 }
 
 // SAFETY: The producer is the only writer; Arc provides shared ownership of
@@ -707,7 +754,23 @@ impl<T, const N: usize> SpscProducer<T, N> {
     /// Push an item into the ring. See [`SpscRing::push`].
     #[inline]
     pub fn push(&self, item: T) -> Result<(), StreamError> {
-        self.inner.push(item)
+        let ring = &*self.inner;
+        // Only this producer writes `tail`.
+        let tail = ring.tail.load(Ordering::Relaxed);
+        if tail.wrapping_sub(self.cached_head.get()) >= N - 1 {
+            self.cached_head.set(ring.head.load(Ordering::Acquire));
+            if tail.wrapping_sub(self.cached_head.get()) >= N - 1 {
+                return Err(StreamError::RingBufferFull { capacity: N - 1 });
+            }
+        }
+        // SAFETY: as in `SpscRing::push`: the slot at `tail` is outside [head, tail)
+        // (checked against a `head` that can only have moved forward since), and only
+        // this producer writes it.
+        unsafe {
+            (*ring.buf[tail & (N - 1)].get()).write(item);
+        }
+        ring.tail.store(tail.wrapping_add(1), Ordering::Release);
+        Ok(())
     }
 
     /// Push an item, silently dropping it if the ring is full. See [`SpscRing::try_push_or_drop`].
@@ -715,7 +778,7 @@ impl<T, const N: usize> SpscProducer<T, N> {
     /// Returns `true` if enqueued, `false` if dropped.
     #[inline]
     pub fn try_push_or_drop(&self, item: T) -> bool {
-        self.inner.try_push_or_drop(item)
+        self.push(item).is_ok()
     }
 
     /// Returns `true` if the ring is full.
@@ -761,6 +824,9 @@ impl<T, const N: usize> SpscProducer<T, N> {
 /// Consumer half of a split [`SpscRing`].
 pub struct SpscConsumer<T, const N: usize> {
     inner: Arc<SpscRing<T, N>>,
+    /// Last `tail` this consumer saw. The ring can only hold more than this says,
+    /// so `pop` reloads the shared `tail` only when the cache says "empty".
+    cached_tail: std::cell::Cell<usize>,
 }
 
 // SAFETY: The consumer is the only reader of each slot; Arc provides shared
@@ -771,7 +837,21 @@ impl<T, const N: usize> SpscConsumer<T, N> {
     /// Pop an item from the ring. See [`SpscRing::pop`].
     #[inline]
     pub fn pop(&self) -> Result<T, StreamError> {
-        self.inner.pop()
+        let ring = &*self.inner;
+        // Only this consumer writes `head`.
+        let head = ring.head.load(Ordering::Relaxed);
+        if head == self.cached_tail.get() {
+            self.cached_tail.set(ring.tail.load(Ordering::Acquire));
+            if head == self.cached_tail.get() {
+                return Err(StreamError::RingBufferEmpty);
+            }
+        }
+        // SAFETY: as in `SpscRing::pop`: head < tail (as last seen with Acquire), so
+        // the slot is initialized and the producer will not touch it until `head`
+        // moves past it.
+        let item = unsafe { (*ring.buf[head & (N - 1)].get()).assume_init_read() };
+        ring.head.store(head.wrapping_add(1), Ordering::Release);
+        Ok(item)
     }
 
     /// Drain all items currently in the ring into a `Vec`, in FIFO order.
@@ -1586,17 +1666,76 @@ mod tests {
         assert_eq!(ring.len(), 1);
     }
 
+    // ── split(): real threads ─────────────────────────────────────────────────
+
+    #[test]
+    fn split_cross_thread_delivers_every_item_in_order() {
+        // Exercises the producer's cached head and the consumer's cached tail under
+        // real contention (and under Miri's data-race detector with a smaller count).
+        let n: u64 = if cfg!(miri) { 2_000 } else { 1_000_000 };
+        let (p, c) = SpscRing::<u64, 16>::new().split();
+        let t = std::thread::spawn(move || {
+            for i in 0..n {
+                while p.push(i).is_err() {
+                    std::thread::yield_now();
+                }
+            }
+        });
+        let mut expected = 0;
+        while expected < n {
+            match c.pop() {
+                Ok(v) => {
+                    assert_eq!(v, expected);
+                    expected += 1;
+                }
+                Err(_) => std::thread::yield_now(),
+            }
+        }
+        t.join().unwrap();
+        assert!(c.pop().is_err());
+    }
+
+    #[test]
+    fn split_cross_thread_drops_heap_items_exactly_once() {
+        let n = if cfg!(miri) { 500 } else { 100_000 };
+        let (p, c) = SpscRing::<String, 8>::new().split();
+        let t = std::thread::spawn(move || {
+            for i in 0..n {
+                let mut item = i.to_string();
+                loop {
+                    match p.push(item) {
+                        Ok(()) => break,
+                        Err(_) => {
+                            item = i.to_string();
+                            std::thread::yield_now();
+                        }
+                    }
+                }
+            }
+        });
+        let mut got = 0;
+        while got < n {
+            if let Ok(s) = c.pop() {
+                assert_eq!(s, got.to_string());
+                got += 1;
+            } else {
+                std::thread::yield_now();
+            }
+        }
+        t.join().unwrap();
+    }
+
     // ── SpscRing::peek_front / peek_back ─────────────────────────────────────
 
     #[test]
     fn test_peek_front_none_when_empty() {
-        let ring: SpscRing<u32, 8> = SpscRing::new();
+        let mut ring: SpscRing<u32, 8> = SpscRing::new();
         assert!(ring.peek_front().is_none());
     }
 
     #[test]
     fn test_peek_front_returns_oldest_item() {
-        let ring: SpscRing<u32, 8> = SpscRing::new();
+        let mut ring: SpscRing<u32, 8> = SpscRing::new();
         ring.push(10u32).unwrap();
         ring.push(20u32).unwrap();
         assert_eq!(ring.peek_front(), Some(&10u32));
@@ -1604,7 +1743,7 @@ mod tests {
 
     #[test]
     fn test_peek_front_does_not_remove_item() {
-        let ring: SpscRing<u32, 8> = SpscRing::new();
+        let mut ring: SpscRing<u32, 8> = SpscRing::new();
         ring.push(42u32).unwrap();
         let _ = ring.peek_front();
         assert_eq!(ring.len(), 1);
@@ -1612,13 +1751,13 @@ mod tests {
 
     #[test]
     fn test_peek_back_none_when_empty() {
-        let ring: SpscRing<u32, 8> = SpscRing::new();
+        let mut ring: SpscRing<u32, 8> = SpscRing::new();
         assert!(ring.peek_back().is_none());
     }
 
     #[test]
     fn test_peek_back_returns_newest_item() {
-        let ring: SpscRing<u32, 8> = SpscRing::new();
+        let mut ring: SpscRing<u32, 8> = SpscRing::new();
         ring.push(10u32).unwrap();
         ring.push(20u32).unwrap();
         assert_eq!(ring.peek_back(), Some(&20u32));

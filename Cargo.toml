@@ -1,8 +1,8 @@
 [package]
 name = "fin-stream"
-version = "2.11.3"
+version = "2.12.0"
 edition = "2021"
-rust-version = "1.75"
+rust-version = "1.81"
 license = "MIT"
 repository = "https://gitlab.com/mattbusel/fin-stream"
 documentation = "https://docs.rs/fin-stream"
@@ -12,9 +12,12 @@ authors = ["Matt Busel <matt@busel.dev>"]
 keywords = ["market-data", "trading", "crypto", "websocket", "ohlcv"]
 categories = ["finance", "asynchronous", "concurrency", "network-programming"]
 description = "Turn raw Binance, Coinbase, Alpaca and Polygon trade messages into one exact-decimal tick type, pass them between threads on a lock-free ring, and roll them into OHLCV bars, with feed health checks and replay."
-include = ["src/**/*", "benches/**/*", "tests/**/*", "examples/**/*", "proto/**/*", "build.rs", "Cargo.toml", "README.md", "docs/*.md", "LICENSE", "CHANGELOG.md"]
+include = ["src/**/*", "benches/**/*", "tests/**/*", "examples/**/*", "proto/**/*", "Cargo.toml", "README.md", "docs/*.md", "LICENSE"]
 
 [package.metadata.docs.rs]
+# `barter` is left out to keep the docs build small; its one impl is documented in `interop`.
+features = ["fin-primitives", "grpc", "metrics"]
+rustdoc-args = ["--cfg", "docsrs"]
 # Scrape the examples so docs.rs shows real call sites next to the APIs they use.
 cargo-args = ["-Zunstable-options", "-Zrustdoc-scrape-examples"]
 
@@ -35,9 +38,20 @@ unwrap_used = "deny"
 expect_used = "deny"
 panic = "deny"
 todo = "deny"
+# Index loops read better than iterator chains in the matrix and window maths here.
+needless_range_loop = "allow"
+type_complexity = "allow"
 
 [features]
-## Enable the gRPC streaming endpoint (adds tonic, prost, tokio-stream, tonic-build deps).
+default = ["fin-primitives"]
+## `From<fin_primitives::FinError> for StreamError`, so `?` works on fin-primitives calls.
+fin-primitives = ["dep:fin-primitives"]
+## Emit counters (messages, bytes, reconnects, late ticks) through the `metrics` crate,
+## for any recorder: Prometheus, StatsD, OpenTelemetry. Zero cost without a recorder.
+metrics = ["dep:metrics"]
+## `TryFrom<&NormalizedTick>` for barter-data's `PublicTrade` (pulls in barter-data and its deps).
+barter = ["dep:barter-data", "dep:barter-instrument"]
+## Enable the gRPC streaming endpoint (adds tonic, prost and tokio-stream; no protoc needed).
 grpc = ["dep:tonic", "dep:prost", "dep:tokio-stream"]
 
 [dependencies]
@@ -51,7 +65,9 @@ thiserror = "1.0"
 # async-trait: trait objects for feed adapters
 async-trait = "0.1"
 # tokio-tungstenite: async WebSocket
-tokio-tungstenite = { version = "0.24", features = ["native-tls"] }
+tokio-tungstenite = { version = "0.28", default-features = false, features = ["connect", "handshake", "rustls-tls-webpki-roots"] }
+# rustls: TLS for wss:// feeds, with the ring crypto provider (no OpenSSL, no cmake)
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
 # futures: stream combinators
 futures-util = "0.3"
 # rust_decimal: exact price arithmetic — never use f64 for prices
@@ -59,31 +75,38 @@ rust_decimal = { version = "1.35", features = ["serde-with-str"] }
 # chrono: timestamp handling
 chrono = { version = "0.4", features = ["serde"] }
 # dashmap: concurrent order book / health state
-dashmap = "5.5"
+dashmap = "6.1"
 # uuid: feed/subscription identifiers
 uuid = { version = "1.6", features = ["v4", "fast-rng", "serde"] }
+# hdrhistogram: latency percentiles (latency module)
+hdrhistogram = { version = "7.5", default-features = false }
 # tracing: pipeline observability
 tracing = "0.1"
-# fin-primitives: tick, orderbook, ohlcv, signals integration
-fin-primitives = "2.14"
+# fin-primitives: only for `From<FinError> for StreamError` (optional, default on)
+fin-primitives = { version = "2.14", default-features = false, optional = true }
+# barter-data / barter-instrument: target types for the `barter` interop feature
+barter-data = { version = "0.13", optional = true }
+barter-instrument = { version = "0.3", optional = true }
+# metrics: counters and histograms through the `metrics` facade (optional `metrics` feature)
+metrics = { version = "0.24", optional = true }
 # tonic: gRPC server/client (optional — grpc feature)
 tonic = { version = "0.12", optional = true }
 # prost: protobuf runtime (optional — grpc feature)
 prost = { version = "0.13", optional = true }
 # tokio-stream: stream utilities for gRPC (optional — grpc feature)
-tokio-stream = { version = "0.1", optional = true }
+tokio-stream = { version = "0.1", optional = true, features = ["sync"] }
 
 [dev-dependencies]
+# metrics-util: in-memory recorder to assert on emitted metrics in tests
+metrics-util = { version = "0.20", default-features = false, features = ["debugging"] }
+# tokio-stream with `net`: TcpListenerStream for the local gRPC round-trip test
+tokio-stream = { version = "0.1", features = ["net"] }
 tokio-test = "0.4"
 criterion = { version = "0.5", features = ["async_tokio"] }
 # rust_decimal_macros: dec!() macro for test literals
 rust_decimal_macros = "1.35"
 # proptest: property-based tests for FIFO ordering, normalization monotonicity
 proptest = "1.4"
-
-[build-dependencies]
-# tonic-build: gRPC code generation from proto files (optional — grpc feature)
-tonic-build = { version = "0.12", optional = true }
 
 [[bench]]
 name = "tick_hot_path"

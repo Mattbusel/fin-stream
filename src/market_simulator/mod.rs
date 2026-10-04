@@ -373,8 +373,8 @@ impl MarketSimulator {
     ///
     /// Returns a list of `(price, quantity)` trades.
     pub fn match_orders(
-        bids: &mut Vec<SimOrder>,
-        asks: &mut Vec<SimOrder>,
+        bids: &mut [SimOrder],
+        asks: &mut [SimOrder],
     ) -> Vec<(f64, f64)> {
         // Sort bids descending by price, asks ascending.
         bids.sort_by(|a, b| b.price.partial_cmp(&a.price).unwrap_or(std::cmp::Ordering::Equal));

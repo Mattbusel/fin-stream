@@ -334,14 +334,23 @@ impl OrderBookSim {
             }
 
             // Match best bid against best ask
-            let bid_queue = self.bids.get_mut(&bid_key).unwrap();
-            let mut bid_order = bid_queue.pop_front().unwrap();
+            // Both keys came from the maps above and empty queues are removed as soon
+            // as they drain, so these lookups succeed; drop a stale empty level if not.
+            let Some(bid_queue) = self.bids.get_mut(&bid_key) else { break };
+            let Some(mut bid_order) = bid_queue.pop_front() else {
+                self.bids.remove(&bid_key);
+                continue;
+            };
             if bid_queue.is_empty() {
                 self.bids.remove(&bid_key);
             }
 
-            let ask_queue = self.asks.get_mut(&ask_key).unwrap();
-            let ask_order = ask_queue.front_mut().unwrap();
+            let Some(ask_queue) = self.asks.get_mut(&ask_key) else { break };
+            let Some(ask_order) = ask_queue.front_mut() else {
+                self.asks.remove(&ask_key);
+                self.bids.entry(bid_key).or_default().push_front(bid_order);
+                continue;
+            };
 
             let fill_qty = bid_order.remaining_qty.min(ask_order.remaining_qty);
             let fill_price = ask_order.price; // resting order price

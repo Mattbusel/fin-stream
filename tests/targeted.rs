@@ -1,11 +1,12 @@
-/// Targeted tests for fin-stream.
-///
-/// Covers:
-/// - SPSC buffer wraparound at capacity boundary
-/// - OHLCV aggregation on bar boundary (last tick of one bar, first of next)
-/// - Feed health state transitions (Unknown -> Healthy -> Stale -> Healthy)
-/// - Session lifecycle: open / extended / closed state machine
-/// - WebSocket reconnect behavior with simulated disconnects
+//! Targeted tests for fin-stream.
+//!
+//! Covers:
+//! - SPSC buffer wraparound at capacity boundary
+//! - OHLCV aggregation on bar boundary (last tick of one bar, first of next)
+//! - Feed health state transitions (Unknown -> Healthy -> Stale -> Healthy)
+//! - Session lifecycle: open / extended / closed state machine
+//! - WebSocket reconnect behavior with simulated disconnects
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use fin_stream::health::{HealthMonitor, HealthStatus};
 use fin_stream::ohlcv::{OhlcvAggregator, Timeframe};

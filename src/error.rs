@@ -216,6 +216,7 @@ pub enum StreamError {
     InsufficientLiquidity,
 }
 
+#[cfg(feature = "fin-primitives")]
 impl From<fin_primitives::error::FinError> for StreamError {
     fn from(e: fin_primitives::error::FinError) -> Self {
         StreamError::FinPrimitives(e.to_string())

@@ -1,2 +1,6 @@
 /target
+**/target/
 __pycache__/
+*.pdb
+*.rlib
+*.log

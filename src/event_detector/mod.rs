@@ -118,16 +118,19 @@ pub struct EventDetector {
     symbols: HashMap<String, SymbolState>,
 }
 
+impl Default for EventDetector {
+    /// Create a new detector with default configuration.
+    fn default() -> Self {
+        Self::new(EventDetectorConfig::default())
+    }
+}
+
 impl EventDetector {
     /// Create a new detector with the given configuration.
     pub fn new(config: EventDetectorConfig) -> Self {
         Self { config, symbols: HashMap::new() }
     }
 
-    /// Create a new detector with default configuration.
-    pub fn default() -> Self {
-        Self::new(EventDetectorConfig::default())
-    }
 
     /// Process one tick update for `symbol` and return any events detected.
     ///

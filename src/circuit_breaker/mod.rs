@@ -1,7 +1,7 @@
 //! WebSocket circuit breaker — degraded-mode synthetic ticks after repeated failures.
 //!
 //! ## Responsibility
-//! Wrap a [`WsManager`] connection loop with a circuit breaker that counts
+//! Wrap a `WsManager` connection loop with a circuit breaker that counts
 //! consecutive failures. After [`CircuitBreakerConfig::failure_threshold`]
 //! consecutive failures the circuit opens, enters **degraded mode**, and emits
 //! synthetic ticks derived from the last-known price with an inflated spread

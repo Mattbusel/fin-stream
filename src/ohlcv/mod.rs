@@ -24,18 +24,24 @@ pub enum Timeframe {
 }
 
 impl Timeframe {
-    /// Duration in milliseconds.
+    /// Duration in milliseconds (saturates at `u64::MAX` instead of overflowing).
     pub fn duration_ms(self) -> u64 {
         match self {
-            Timeframe::Seconds(s) => s * 1_000,
-            Timeframe::Minutes(m) => m * 60 * 1_000,
-            Timeframe::Hours(h) => h * 3600 * 1_000,
+            Timeframe::Seconds(s) => s.saturating_mul(1_000),
+            Timeframe::Minutes(m) => m.saturating_mul(60_000),
+            Timeframe::Hours(h) => h.saturating_mul(3_600_000),
         }
     }
 
     /// Bar start timestamp for a given ms timestamp.
+    ///
+    /// A zero-length timeframe (for example `Seconds(0)`) has no bars; it returns
+    /// `ts_ms` unchanged instead of dividing by zero.
     pub fn bar_start_ms(self, ts_ms: u64) -> u64 {
         let dur = self.duration_ms();
+        if dur == 0 {
+            return ts_ms;
+        }
         (ts_ms / dur) * dur
     }
 
@@ -749,7 +755,7 @@ impl OhlcvBar {
         if self.trade_count == 0 {
             return None;
         }
-        Some(self.volume / Decimal::from(self.trade_count as u64))
+        Some(self.volume / Decimal::from(self.trade_count))
     }
 
     /// Returns `true` if this bar's high-low range overlaps with `other`'s range.
@@ -1478,7 +1484,7 @@ impl OhlcvBar {
         bars.iter().min_by(|a, b| a.volume.cmp(&b.volume))
     }
 
-    /// Sum of gap-open amounts: Σ (open[n] − close[n−1]) for n ≥ 1.
+    /// Sum of gap-open amounts: Σ (open\[n\] − close[n−1]) for n ≥ 1.
     ///
     /// A positive value indicates upward gaps dominate; negative means downward.
     pub fn gap_sum(bars: &[OhlcvBar]) -> Decimal {
@@ -2071,7 +2077,7 @@ impl OhlcvBar {
     /// Mean open-to-first-close range for the session opening bar.
     ///
     /// Defined as the absolute distance `|close - open|` averaged over all
-    /// bars. Equivalent to [`open_close_spread`] but named for discoverability.
+    /// bars. Equivalent to `open_close_spread` but named for discoverability.
     /// Returns `None` if the slice is empty.
     pub fn open_range(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
@@ -5485,7 +5491,7 @@ impl OhlcvBar {
         Some(fills as f64 / (bars.len() - 1) as f64)
     }
 
-    /// Volume deceleration: mean of (vol[i] - vol[i-1]) for decreasing pairs.
+    /// Volume deceleration: mean of (vol\[i\] - vol[i-1]) for decreasing pairs.
     pub fn volume_deceleration(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
         if bars.len() < 2 { return None; }
@@ -5538,7 +5544,7 @@ impl OhlcvBar {
         Some(sum / bars.len() as f64)
     }
 
-    /// Mean absolute gap between consecutive bars: |open[i] - close[i-1]|.
+    /// Mean absolute gap between consecutive bars: |open\[i\] - close[i-1]|.
     pub fn avg_open_close_gap(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
         if bars.len() < 2 { return None; }
@@ -5641,7 +5647,7 @@ impl OhlcvBar {
         Some(below as f64 / n as f64)
     }
 
-    /// Momentum of open prices: fraction of bars where open[i] > open[i-1].
+    /// Momentum of open prices: fraction of bars where open\[i\] > open[i-1].
     pub fn open_momentum_score(bars: &[OhlcvBar]) -> Option<f64> {
         if bars.len() < 2 { return None; }
         let rising = bars.windows(2).filter(|w| w[1].open > w[0].open).count();
@@ -5699,7 +5705,7 @@ impl OhlcvBar {
         Some(pos as f64 / (ranges.len() - 1).max(1) as f64)
     }
 
-    /// Fraction of bars where high[i] > high[i-1].
+    /// Fraction of bars where high\[i\] > high[i-1].
     pub fn high_persistence(bars: &[OhlcvBar]) -> Option<f64> {
         if bars.len() < 2 { return None; }
         let count = bars.windows(2).filter(|w| w[1].high > w[0].high).count();
@@ -5795,7 +5801,7 @@ impl OhlcvBar {
 
     // ── round-128 ────────────────────────────────────────────────────────────
 
-    /// Average close slope: mean of (close[i] - close[i-1]) across bars.
+    /// Average close slope: mean of (close\[i\] - close[i-1]) across bars.
     pub fn avg_close_slope(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
         if bars.len() < 2 { return None; }
@@ -5833,7 +5839,7 @@ impl OhlcvBar {
         Some(entropy)
     }
 
-    /// Fraction of bars where low[i] < low[i-1] (new lows).
+    /// Fraction of bars where low\[i\] < low[i-1] (new lows).
     pub fn low_persistence(bars: &[OhlcvBar]) -> Option<f64> {
         if bars.len() < 2 { return None; }
         let count = bars.windows(2).filter(|w| w[1].low < w[0].low).count();
@@ -5862,7 +5868,7 @@ impl OhlcvBar {
         Some(count as f64 / (bars.len() - 1) as f64)
     }
 
-    /// Bar range trend: mean of (range[i] - range[i-1]) across consecutive bars.
+    /// Bar range trend: mean of (range\[i\] - range[i-1]) across consecutive bars.
     pub fn bar_range_trend(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
         if bars.len() < 2 { return None; }
@@ -6145,7 +6151,7 @@ impl OhlcvBar {
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
-    /// Bar open persistence: fraction where open[i] > open[i-1].
+    /// Bar open persistence: fraction where open\[i\] > open[i-1].
     pub fn bar_open_persistence(bars: &[OhlcvBar]) -> Option<f64> {
         if bars.len() < 2 { return None; }
         let count = bars.windows(2)
@@ -6240,7 +6246,7 @@ impl OhlcvBar {
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
-    /// Bar range change: mean of range[i] - range[i-1] across consecutive bars.
+    /// Bar range change: mean of range\[i\] - range[i-1] across consecutive bars.
     pub fn bar_range_change(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
         if bars.len() < 2 { return None; }
@@ -6289,7 +6295,7 @@ impl OhlcvBar {
         Some(count as f64 / bars.len() as f64)
     }
 
-    /// Bar open gap score: mean of (open[i] - close[i-1]) / (high[i-1] - low[i-1]).
+    /// Bar open gap score: mean of (open\[i\] - close[i-1]) / (high[i-1] - low[i-1]).
     pub fn bar_open_gap_score(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
         if bars.len() < 2 { return None; }
@@ -6312,7 +6318,7 @@ impl OhlcvBar {
         Some(ups as f64 / (bars.len() - 1) as f64)
     }
 
-    /// Open-close gap mean: mean of (open[i] - close[i]) per bar.
+    /// Open-close gap mean: mean of (open\[i\] - close\[i\]) per bar.
     pub fn open_close_gap_mean(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
         if bars.is_empty() { return None; }
@@ -6363,7 +6369,7 @@ impl OhlcvBar {
         Some(sum / bars.len() as f64)
     }
 
-    /// Close to open ratio: mean of close[i] / open[i] per bar.
+    /// Close to open ratio: mean of close\[i\] / open\[i\] per bar.
     pub fn close_to_open_ratio(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
         if bars.is_empty() { return None; }
@@ -6431,7 +6437,7 @@ impl OhlcvBar {
         Some(ratios.iter().sum::<f64>() / ratios.len() as f64)
     }
 
-    /// Bar volume efficiency: close range (|close[n]-close[0]|) / total volume.
+    /// Bar volume efficiency: close range (|close\[n\]-close\[0\]|) / total volume.
     pub fn bar_volume_efficiency(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
         if bars.len() < 2 { return None; }
@@ -6682,7 +6688,7 @@ impl OhlcvBar {
         use rust_decimal::prelude::ToPrimitive;
         if bars.len() < 2 { return None; }
         let mids: Vec<f64> = bars.iter().filter_map(|b| {
-            Some(((b.high + b.low) / rust_decimal::Decimal::TWO).to_f64()?)
+            ((b.high + b.low) / rust_decimal::Decimal::TWO).to_f64()
         }).collect();
         if mids.len() < 2 { return None; }
         let diffs: Vec<f64> = mids.windows(2).map(|w| w[1] - w[0]).collect();
@@ -6716,13 +6722,13 @@ impl OhlcvBar {
         use rust_decimal::prelude::ToPrimitive;
         if bars.is_empty() { return None; }
         let vals: Vec<f64> = bars.iter().filter_map(|b| {
-            Some(((b.open + b.close) / rust_decimal::Decimal::TWO).to_f64()?)
+            ((b.open + b.close) / rust_decimal::Decimal::TWO).to_f64()
         }).collect();
         if vals.is_empty() { return None; }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
-    /// Mean gap between consecutive bar closes (close[i] - close[i-1]).
+    /// Mean gap between consecutive bar closes (close\[i\] - close[i-1]).
     pub fn close_gap_from_prior(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
         if bars.len() < 2 { return None; }
@@ -6959,7 +6965,7 @@ impl OhlcvBar {
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
-    /// Standard deviation of close gaps (close[i] - close[i-1]).
+    /// Standard deviation of close gaps (close\[i\] - close[i-1]).
     pub fn bar_close_gap_std(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
         if bars.len() < 3 { return None; }
@@ -7063,7 +7069,7 @@ impl OhlcvBar {
         Some(num / den)
     }
 
-    /// Mean of open-to-prior-close gaps (open[i] - close[i-1]).
+    /// Mean of open-to-prior-close gaps (open\[i\] - close[i-1]).
     pub fn bar_open_gap_mean(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
         if bars.len() < 2 { return None; }
@@ -7205,7 +7211,7 @@ impl OhlcvBar {
 
     // ── round-156 ────────────────────────────────────────────────────────────
 
-    /// Mean of open-to-close gaps (close[i] - open[i]) across bars (signed).
+    /// Mean of open-to-close gaps (close\[i\] - open\[i\]) across bars (signed).
     pub fn bar_open_close_gap(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
         if bars.is_empty() { return None; }
@@ -7439,7 +7445,7 @@ impl OhlcvBar {
 
     // ── round-161 ────────────────────────────────────────────────────────────
 
-    /// Mean gap between consecutive bar closes (close[i+1] - close[i]).
+    /// Mean gap between consecutive bar closes (close[i+1] - close\[i\]).
     pub fn bar_gap_mean(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
         if bars.len() < 2 { return None; }
@@ -7532,7 +7538,7 @@ impl OhlcvBar {
         Some(spreads.iter().sum::<f64>() / spreads.len() as f64)
     }
 
-    /// Mean absolute gap between consecutive bar highs (high[i+1] - high[i]).
+    /// Mean absolute gap between consecutive bar highs (high[i+1] - high\[i\]).
     pub fn bar_high_gap_mean(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
         if bars.len() < 2 { return None; }
@@ -7687,7 +7693,7 @@ impl OhlcvBar {
 
     // ── round-165 ────────────────────────────────────────────────────────────
 
-    /// Mean of (range[i] - range[i-1]) across consecutive bars (range expansion).
+    /// Mean of (range\[i\] - range[i-1]) across consecutive bars (range expansion).
     pub fn bar_range_expansion(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
         if bars.len() < 2 { return None; }
@@ -7723,7 +7729,7 @@ impl OhlcvBar {
         Some(max_streak as f64)
     }
 
-    /// ATR normalized by close price: mean(|close[i] - close[i-1]|) / mean_close.
+    /// ATR normalized by close price: mean(|close\[i\] - close[i-1]|) / mean_close.
     pub fn bar_atr_normalized(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
         if bars.len() < 2 { return None; }
@@ -7822,7 +7828,7 @@ impl OhlcvBar {
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
-    /// Mean gap between close[i] and high[i-1] across consecutive bars.
+    /// Mean gap between close\[i\] and high[i-1] across consecutive bars.
     pub fn bar_close_prev_high_gap(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
         if bars.len() < 2 { return None; }
@@ -7865,7 +7871,7 @@ impl OhlcvBar {
 
     // ── round-168 ────────────────────────────────────────────────────────────
 
-    /// Count of engulfing patterns (bar[i] body fully contains bar[i-1] body).
+    /// Count of engulfing patterns (bar\[i\] body fully contains bar[i-1] body).
     pub fn bar_engulfing_count(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
         if bars.len() < 2 { return None; }
@@ -7933,7 +7939,7 @@ impl OhlcvBar {
 
     // ── round-169 ────────────────────────────────────────────────────────────
 
-    /// Mean gap between consecutive bar closes (close[i] - close[i-1]).
+    /// Mean gap between consecutive bar closes (close\[i\] - close[i-1]).
     pub fn bar_close_gap_mean(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
         if bars.len() < 2 { return None; }
@@ -8029,7 +8035,7 @@ impl OhlcvBar {
         Some(entropy)
     }
 
-    /// Mean (open[i] - close[i-1]) gap across consecutive bars.
+    /// Mean (open\[i\] - close[i-1]) gap across consecutive bars.
     pub fn bar_open_prev_close_gap(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
         if bars.len() < 2 { return None; }
@@ -8114,7 +8120,7 @@ impl OhlcvBar {
         Some((last - mean) / std)
     }
 
-    /// Mean of log(close[i] / close[i-1]) across consecutive bars.
+    /// Mean of log(close\[i\] / close[i-1]) across consecutive bars.
     pub fn bar_close_return_mean(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
         if bars.len() < 2 { return None; }
@@ -8237,7 +8243,7 @@ impl OhlcvBar {
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
-    /// Mean pct volume change between consecutive bars: (vol[i]-vol[i-1])/vol[i-1].
+    /// Mean pct volume change between consecutive bars: (vol\[i\]-vol[i-1])/vol[i-1].
     pub fn bar_volume_pct_change(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
         if bars.len() < 2 { return None; }
@@ -8674,7 +8680,7 @@ impl OhlcvBar {
         Some(ups as f64 / (bars.len() - 1) as f64)
     }
 
-    /// Mean gap between close[i] and close[i-2]: 2-bar close gap acceleration.
+    /// Mean gap between close\[i\] and close[i-2]: 2-bar close gap acceleration.
     pub fn bar_close_gap_accel(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
         if bars.len() < 3 { return None; }
@@ -8705,7 +8711,7 @@ impl OhlcvBar {
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
-    /// Mean |open[i] - high[i-1]| gap — open vs prior high distance.
+    /// Mean |open\[i\] - high[i-1]| gap: open vs prior high distance.
     pub fn bar_open_prev_high_dist(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
         if bars.len() < 2 { return None; }
@@ -8795,7 +8801,7 @@ impl OhlcvBar {
         Some(accels.iter().sum::<f64>() / accels.len() as f64)
     }
 
-    /// Mean |open[i] - close[i-1]| / close[i-1]: gap percentage between bars.
+    /// Mean |open\[i\] - close[i-1]| / close[i-1]: gap percentage between bars.
     pub fn bar_open_gap_pct(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
         if bars.len() < 2 { return None; }
@@ -8809,7 +8815,7 @@ impl OhlcvBar {
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
-    /// Mean |close[i] - close[i-1]|: mean absolute close momentum.
+    /// Mean |close\[i\] - close[i-1]|: mean absolute close momentum.
     pub fn bar_abs_close_momentum(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
         if bars.len() < 2 { return None; }
@@ -8820,7 +8826,7 @@ impl OhlcvBar {
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
-    /// Mean volume[i] - volume[i-1]: volume momentum.
+    /// Mean volume\[i\] - volume[i-1]: volume momentum.
     pub fn bar_volume_momentum(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
         if bars.len() < 2 { return None; }
@@ -8831,7 +8837,7 @@ impl OhlcvBar {
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
-    /// Mean (close[i] - open[i]) / open[i]: per-bar close return.
+    /// Mean (close\[i\] - open\[i\]) / open\[i\]: per-bar close return.
     pub fn bar_close_level_return(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
         if bars.is_empty() { return None; }
@@ -9063,7 +9069,7 @@ impl OhlcvBar {
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
-    /// Fraction of bars where (high-low)[i] > (high-low)[i-1]: range expansion sign.
+    /// Fraction of bars where (high-low)\[i\] > (high-low)[i-1]: range expansion sign.
     pub fn bar_range_change_sign(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
         if bars.len() < 2 { return None; }
@@ -9474,7 +9480,7 @@ impl OhlcvBar {
         Some(total_range / bars.len() as f64)
     }
 
-    /// Rate of change in volume: mean (v[i] - v[i-1]) / v[i-1] across bars.
+    /// Rate of change in volume: mean (v\[i\] - v[i-1]) / v[i-1] across bars.
     pub fn bar_vol_accel(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
         if bars.len() < 2 { return None; }
@@ -9852,7 +9858,7 @@ impl OhlcvBar {
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
-    /// Mean relative close-to-close gap: mean of (close[i] - close[i-1]) / close[i-1].
+    /// Mean relative close-to-close gap: mean of (close\[i\] - close[i-1]) / close[i-1].
     pub fn bar_close_gap_pct(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
         if bars.len() < 2 { return None; }
@@ -10382,7 +10388,7 @@ impl OhlcvBar {
         Some(skew)
     }
 
-    /// Rate of change of volume: mean of (vol[i+1] - vol[i]) / vol[i].
+    /// Rate of change of volume: mean of (vol[i+1] - vol\[i\]) / vol\[i\].
     pub fn bar_vol_roc(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
         if bars.len() < 2 { return None; }
@@ -10471,7 +10477,7 @@ impl OhlcvBar {
         Some(var.sqrt())
     }
 
-    /// Momentum index: mean of (close[i] - close[i-2]) across bars (2-step return).
+    /// Momentum index: mean of (close\[i\] - close[i-2]) across bars (2-step return).
     pub fn bar_momentum_index(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
         if bars.len() < 3 { return None; }
@@ -10666,7 +10672,7 @@ impl OhlcvBar {
         let mut sorted = vols.clone();
         sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
         let threshold = sorted[sorted.len() * 3 / 4];
-        let _ = vols.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        vols.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
         let count = vols.iter().filter(|&&v| v >= threshold).count();
         Some(count as f64 / vols.len() as f64)
     }
@@ -11032,6 +11038,10 @@ pub struct OhlcvAggregator {
     peak_volume: Option<Decimal>,
     /// Minimum single-bar volume seen across all completed bars.
     min_volume: Option<Decimal>,
+    /// Ticks dropped because they belonged to a bar window older than the open bar.
+    late_ticks: u64,
+    /// `metrics` counters (no-ops without the `metrics` feature).
+    counters: crate::telemetry::BarCounters,
 }
 
 impl OhlcvAggregator {
@@ -11046,8 +11056,10 @@ impl OhlcvAggregator {
                 reason: "OhlcvAggregator timeframe duration must be > 0".into(),
             });
         }
+        let symbol: String = symbol.into();
         Ok(Self {
-            symbol: symbol.into(),
+            counters: crate::telemetry::BarCounters::new(&symbol),
+            symbol,
             timeframe,
             current_bar: None,
             last_bar: None,
@@ -11057,6 +11069,7 @@ impl OhlcvAggregator {
             total_volume: Decimal::ZERO,
             peak_volume: None,
             min_volume: None,
+            late_ticks: 0,
         })
     }
 
@@ -11069,6 +11082,9 @@ impl OhlcvAggregator {
     /// Feed a tick. Returns completed bars (including any empty gap bars when
     /// `emit_empty_bars` is true). At most one real completed bar plus zero or
     /// more empty bars can be returned per call.
+    ///
+    /// A tick whose bar window is older than the open bar is dropped and counted by
+    /// [`late_tick_count`](Self::late_tick_count).
     ///
     /// Bar boundaries are aligned using the exchange-side timestamp
     /// (`exchange_ts_ms`) when available, falling back to the local system
@@ -11091,11 +11107,20 @@ impl OhlcvAggregator {
         let bar_start = self.timeframe.bar_start_ms(tick_ts);
         let mut emitted: Vec<OhlcvBar> = Vec::new();
 
+        // A tick for a window that is already closed (out-of-order delivery). Opening a
+        // bar for it would close the current bar early and emit bars that go back in
+        // time, so drop it and count it instead.
+        if self.current_bar.as_ref().is_some_and(|b| bar_start < b.bar_start_ms) {
+            self.late_ticks += 1;
+            self.counters.late_tick();
+            return Ok(Vec::new());
+        }
+
         // Check whether the incoming tick belongs to a new bar window.
         let bar_window_changed = self
             .current_bar
             .as_ref()
-            .map_or(false, |b| b.bar_start_ms != bar_start);
+            .is_some_and(|b| b.bar_start_ms != bar_start);
 
         if bar_window_changed {
             // Take ownership — avoids cloning the current bar.
@@ -11172,6 +11197,7 @@ impl OhlcvAggregator {
             }
         }
         self.bars_emitted += emitted.len() as u64;
+        self.counters.bars(emitted.len() as u64);
         for b in &emitted {
             self.total_volume += b.volume;
             self.peak_volume = Some(match self.peak_volume {
@@ -11189,6 +11215,12 @@ impl OhlcvAggregator {
         Ok(emitted)
     }
 
+    /// Number of ticks dropped by [`feed`](Self::feed) because they arrived after
+    /// their bar window had already been closed.
+    pub fn late_tick_count(&self) -> u64 {
+        self.late_ticks
+    }
+
     /// Current partial bar (if any).
     pub fn current_bar(&self) -> Option<&OhlcvBar> {
         self.current_bar.as_ref()
@@ -11200,6 +11232,7 @@ impl OhlcvAggregator {
         let mut bar = self.current_bar.take()?;
         bar.is_complete = true;
         self.bars_emitted += 1;
+        self.counters.bars(1);
         self.total_volume += bar.volume;
         self.peak_volume = Some(match self.peak_volume {
             Some(prev) => prev.max(bar.volume),
@@ -11234,6 +11267,7 @@ impl OhlcvAggregator {
         self.current_bar = None;
         self.last_bar = None;
         self.bars_emitted = 0;
+        self.late_ticks = 0;
         self.price_volume_sum = Decimal::ZERO;
         self.total_volume = Decimal::ZERO;
         self.peak_volume = None;
@@ -11368,6 +11402,32 @@ mod tests {
     }
 
     #[test]
+    fn test_late_tick_is_dropped_not_reopened() {
+        let mut a = agg("BTC-USD", Timeframe::Minutes(1));
+        assert!(a.feed(&make_tick("BTC-USD", dec!(100), dec!(1), 10)).unwrap().is_empty());
+        let done = a.feed(&make_tick("BTC-USD", dec!(101), dec!(1), 60_010)).unwrap();
+        assert_eq!(done.len(), 1);
+        // A straggler from minute 0 after minute 1 opened. It used to emit the
+        // minute-1 bar after one trade and open a second minute-0 bar.
+        let late = a.feed(&make_tick("BTC-USD", dec!(50), dec!(5), 20)).unwrap();
+        assert!(late.is_empty());
+        assert_eq!(a.late_tick_count(), 1);
+        assert!(a.feed(&make_tick("BTC-USD", dec!(102), dec!(1), 60_020)).unwrap().is_empty());
+        let bar = a.current_bar().unwrap();
+        assert_eq!(bar.bar_start_ms, 60_000);
+        assert_eq!(bar.trade_count, 2);
+        assert_eq!(bar.low, dec!(101));
+        assert_eq!(bar.volume, dec!(2));
+        assert_eq!(a.bars_emitted, 1);
+    }
+
+    #[test]
+    fn test_zero_timeframe_bar_start_does_not_divide_by_zero() {
+        assert_eq!(Timeframe::Seconds(0).bar_start_ms(12_345), 12_345);
+        assert_eq!(Timeframe::Hours(u64::MAX).duration_ms(), u64::MAX);
+    }
+
+    #[test]
     fn test_timeframe_seconds_duration_ms() {
         assert_eq!(Timeframe::Seconds(30).duration_ms(), 30_000);
     }
@@ -11417,11 +11477,9 @@ mod tests {
 
     #[test]
     fn test_timeframe_ord_sort() {
-        let mut tfs = vec![
-            Timeframe::Hours(1),
+        let mut tfs = [Timeframe::Hours(1),
             Timeframe::Seconds(30),
-            Timeframe::Minutes(5),
-        ];
+            Timeframe::Minutes(5)];
         tfs.sort();
         assert_eq!(tfs[0], Timeframe::Seconds(30));
         assert_eq!(tfs[1], Timeframe::Minutes(5));
@@ -12346,7 +12404,7 @@ mod tests {
     fn test_peak_volume_via_flush() {
         let mut agg = agg("BTC-USD", Timeframe::Minutes(1));
         agg.feed(&make_tick("BTC-USD", dec!(100), dec!(7), 60_000)).unwrap();
-        agg.flush();
+        let _ = agg.flush();
         assert_eq!(agg.peak_volume(), Some(dec!(7)));
     }
 
@@ -12518,7 +12576,7 @@ mod tests {
     fn test_is_active_false_after_flush() {
         let mut agg = agg("BTC-USD", Timeframe::Minutes(1));
         agg.feed(&make_tick("BTC-USD", dec!(100), dec!(1), 1_000)).unwrap();
-        agg.flush();
+        let _ = agg.flush();
         assert!(!agg.is_active());
     }
 
@@ -14351,7 +14409,7 @@ mod tests {
         let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
         let b2 = make_ohlcv_bar(dec!(100), dec!(115), dec!(85), dec!(100));
         let ratio = OhlcvBar::mean_wick_ratio(&[b1, b2]).unwrap();
-        assert!(ratio >= 0.0 && ratio <= 1.0);
+        assert!((0.0..=1.0).contains(&ratio));
     }
 
     // ── OhlcvBar::bullish_volume / bearish_volume ─────────────────────────────
@@ -14480,7 +14538,7 @@ mod tests {
         let b1 = make_ohlcv_bar(dec!(100), dec!(120), dec!(80), dec!(110));
         let b2 = make_ohlcv_bar(dec!(100), dec!(120), dec!(80), dec!(100));
         let ratio = OhlcvBar::mean_body_ratio(&[b1, b2]).unwrap();
-        assert!(ratio >= 0.0 && ratio <= 1.0);
+        assert!((0.0..=1.0).contains(&ratio));
     }
 
     // ── OhlcvBar::volume_std_dev ──────────────────────────────────────────────
@@ -14698,7 +14756,7 @@ mod tests {
     fn test_bar_efficiency_between_zero_and_one() {
         let bar = make_ohlcv_bar(dec!(100), dec!(115), dec!(95), dec!(108));
         let eff = OhlcvBar::bar_efficiency(&bar).unwrap();
-        assert!(eff >= 0.0 && eff <= 1.0);
+        assert!((0.0..=1.0).contains(&eff));
     }
 
     // ── OhlcvBar::wicks_sum ───────────────────────────────────────────────────
@@ -15235,7 +15293,7 @@ mod tests {
     fn test_price_compression_ratio_in_range() {
         let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(108));
         let r = OhlcvBar::price_compression_ratio(&[b]).unwrap();
-        assert!(r >= 0.0 && r <= 1.0, "expected value in [0,1], got {}", r);
+        assert!((0.0..=1.0).contains(&r), "expected value in [0,1], got {}", r);
     }
 
     // ── OhlcvBar::open_close_spread ───────────────────────────────────────────
@@ -15438,7 +15496,7 @@ mod tests {
         // min_close=90, max_close=100, last_close=100 → 1.0
         // Actually min=90, max=100, last=100 → normalized=1.0
         let nc = OhlcvBar::normalized_close(&[b1, b2]).unwrap();
-        assert!(nc >= 0.0 && nc <= 1.0, "normalized close should be in [0,1], got {}", nc);
+        assert!((0.0..=1.0).contains(&nc), "normalized close should be in [0,1], got {}", nc);
     }
 
     // ── OhlcvBar::candle_score ────────────────────────────────────────────────
@@ -16061,7 +16119,7 @@ mod tests {
     fn test_avg_wick_ratio_in_range() {
         let b = make_ohlcv_bar(dec!(100), dec!(115), dec!(85), dec!(105));
         let r = OhlcvBar::avg_wick_ratio(&[b]).unwrap();
-        assert!(r >= 0.0 && r <= 1.0, "wick ratio should be in [0,1], got {}", r);
+        assert!((0.0..=1.0).contains(&r), "wick ratio should be in [0,1], got {}", r);
     }
 
     #[test]
@@ -16106,7 +16164,7 @@ mod tests {
         let b3 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(95));
         let b4 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(108));
         let f = OhlcvBar::close_above_median_fraction(&[b1, b2, b3, b4]).unwrap();
-        assert!(f >= 0.0 && f <= 1.0, "fraction in [0,1], got {}", f);
+        assert!((0.0..=1.0).contains(&f), "fraction in [0,1], got {}", f);
     }
 
     #[test]
@@ -16159,7 +16217,7 @@ mod tests {
     fn test_avg_body_to_range_in_range() {
         let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
         let r = OhlcvBar::avg_body_to_range(&[b]).unwrap();
-        assert!(r >= 0.0 && r <= 1.0, "body-to-range in [0,1], got {}", r);
+        assert!((0.0..=1.0).contains(&r), "body-to-range in [0,1], got {}", r);
     }
 
     #[test]
@@ -16196,7 +16254,7 @@ mod tests {
     fn test_avg_lower_shadow_ratio_in_range() {
         let b = make_ohlcv_bar(dec!(100), dec!(115), dec!(85), dec!(105));
         let r = OhlcvBar::avg_lower_shadow_ratio(&[b]).unwrap();
-        assert!(r >= 0.0 && r <= 1.0, "lower shadow ratio in [0,1], got {}", r);
+        assert!((0.0..=1.0).contains(&r), "lower shadow ratio in [0,1], got {}", r);
     }
 
     #[test]
@@ -16251,7 +16309,7 @@ mod tests {
     fn test_open_range_fraction_in_range() {
         let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
         let f = OhlcvBar::open_range_fraction(&[b]).unwrap();
-        assert!(f >= 0.0 && f <= 1.0, "fraction in [0,1], got {}", f);
+        assert!((0.0..=1.0).contains(&f), "fraction in [0,1], got {}", f);
     }
 
     #[test]
@@ -16280,7 +16338,7 @@ mod tests {
         let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
         let b2 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
         let f = OhlcvBar::volume_above_median_fraction(&[b1, b2]).unwrap();
-        assert!(f >= 0.0 && f <= 1.0, "fraction in [0,1], got {}", f);
+        assert!((0.0..=1.0).contains(&f), "fraction in [0,1], got {}", f);
     }
 
     #[test]
@@ -16372,7 +16430,7 @@ mod tests {
     fn test_avg_high_above_open_ratio_in_range() {
         let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
         let r = OhlcvBar::avg_high_above_open_ratio(&[b]).unwrap();
-        assert!(r >= 0.0 && r <= 1.0, "ratio in [0,1], got {}", r);
+        assert!((0.0..=1.0).contains(&r), "ratio in [0,1], got {}", r);
     }
 
     #[test]
@@ -16518,7 +16576,7 @@ mod tests {
         let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100));
         // upper wick = 10, lower wick = 10 → perfectly symmetric → ratio = 1
         let s = OhlcvBar::avg_wick_symmetry(&[b]).unwrap();
-        assert!(s >= 0.0 && s <= 1.0, "symmetry in [0,1], got {}", s);
+        assert!((0.0..=1.0).contains(&s), "symmetry in [0,1], got {}", s);
     }
 
     // ── round-88 tests ────────────────────────────────────────────────────────
@@ -16635,7 +16693,7 @@ mod tests {
     fn test_avg_upper_shadow_fraction_in_range() {
         let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100)); // close==open, upper=10, range=20
         let f = OhlcvBar::avg_upper_shadow_fraction(&[b]).unwrap();
-        assert!(f >= 0.0 && f <= 1.0, "fraction in [0,1], got {}", f);
+        assert!((0.0..=1.0).contains(&f), "fraction in [0,1], got {}", f);
     }
 
     #[test]
@@ -18470,7 +18528,7 @@ mod tests {
         // high=110, low=90, open=100, close=105 → upper shadow = 110-105=5, range=20 → 5/20=0.25
         let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
         let r = OhlcvBar::high_low_body_ratio(&[b]).unwrap();
-        assert!(r >= 0.0 && r <= 1.0, "expected [0,1], got {}", r);
+        assert!((0.0..=1.0).contains(&r), "expected [0,1], got {}", r);
     }
 
     #[test]
@@ -18576,7 +18634,7 @@ mod tests {
         // all same range → half below median = 0
         let bars: Vec<_> = (0..4).map(|_| make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105))).collect();
         let r = OhlcvBar::bar_consolidation_ratio(&bars).unwrap();
-        assert!(r >= 0.0 && r <= 1.0, "expected [0,1], got {}", r);
+        assert!((0.0..=1.0).contains(&r), "expected [0,1], got {}", r);
     }
 
     #[test]
@@ -19383,7 +19441,7 @@ mod tests {
             make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105)),
         ];
         let r = OhlcvBar::close_mean_reversion(&bars).unwrap();
-        assert!(r >= 0.0 && r <= 1.0, "expected [0,1], got {}", r);
+        assert!((0.0..=1.0).contains(&r), "expected [0,1], got {}", r);
     }
 
     // ── round-139 ────────────────────────────────────────────────────────────
@@ -19425,7 +19483,7 @@ mod tests {
             make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105)),
         ];
         let s = OhlcvBar::bar_volume_skew(&bars).unwrap();
-        assert!(s >= 0.0 && s <= 1.0, "expected [0,1], got {}", s);
+        assert!((0.0..=1.0).contains(&s), "expected [0,1], got {}", s);
     }
 
     #[test]
@@ -19593,7 +19651,7 @@ mod tests {
             make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105)),
         ];
         let r = OhlcvBar::bar_volume_trend_ratio(&bars).unwrap();
-        assert!(r >= 0.0 && r <= 1.0, "expected [0,1], got {}", r);
+        assert!((0.0..=1.0).contains(&r), "expected [0,1], got {}", r);
     }
 
     #[test]
@@ -19996,7 +20054,7 @@ mod tests {
             make_ohlcv_bar(dec!(120), dec!(140), dec!(118), dec!(135)), // open=120>prior close=115
         ];
         let r = OhlcvBar::bar_open_above_prior_close(&bars).unwrap();
-        assert!(r >= 0.0 && r <= 1.0, "expected fraction, got {}", r);
+        assert!((0.0..=1.0).contains(&r), "expected fraction, got {}", r);
     }
 
     #[test]
@@ -22833,7 +22891,7 @@ mod tests {
         let b2 = make_ohlcv_bar(dec!(100), dec!(120), dec!(90), dec!(110));
         let b3 = make_ohlcv_bar(dec!(100), dec!(125), dec!(90), dec!(120));
         let r = OhlcvBar::bar_close_quartile(&[b0, b1, b2, b3]).unwrap();
-        assert!(r >= 0.0 && r <= 3.0);
+        assert!((0.0..=3.0).contains(&r));
     }
 
     #[test]
@@ -23006,7 +23064,7 @@ mod tests {
     fn test_bar_candle_symmetry_returns_bounded() {
         let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
         let r = OhlcvBar::bar_candle_symmetry(&[b]).unwrap();
-        assert!(r >= 0.0 && r <= 1.0);
+        assert!((0.0..=1.0).contains(&r));
     }
 
     #[test]
@@ -23060,7 +23118,7 @@ mod tests {
         let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
         let b2 = make_ohlcv_bar(dec!(106), dec!(115), dec!(95), dec!(110));
         let r = OhlcvBar::bar_open_vol_trend(&[b1, b2]).unwrap();
-        assert!(r >= 0.0 && r <= 1.0);
+        assert!((0.0..=1.0).contains(&r));
     }
 
     #[test]
@@ -23073,7 +23131,7 @@ mod tests {
         let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
         let b2 = make_ohlcv_bar(dec!(100), dec!(115), dec!(85), dec!(110));
         let r = OhlcvBar::bar_close_vol_rank(&[b1, b2]).unwrap();
-        assert!(r >= 0.0 && r <= 1.0);
+        assert!((0.0..=1.0).contains(&r));
     }
 
     #[test]
@@ -23085,7 +23143,7 @@ mod tests {
     fn test_bar_open_high_spread_returns_bounded() {
         let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
         let r = OhlcvBar::bar_open_high_spread(&[b]).unwrap();
-        assert!(r >= 0.0 && r <= 1.0);
+        assert!((0.0..=1.0).contains(&r));
     }
 
     #[test]
@@ -23123,7 +23181,7 @@ mod tests {
         let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
         let b2 = make_ohlcv_bar(dec!(100), dec!(115), dec!(85), dec!(110));
         let r = OhlcvBar::bar_vol_rank_pct(&[b1, b2]).unwrap();
-        assert!(r >= 0.0 && r <= 1.0);
+        assert!((0.0..=1.0).contains(&r));
     }
 
     #[test]
@@ -23258,7 +23316,7 @@ mod tests {
     fn test_bar_wick_body_delta_returns_bounded() {
         let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
         let r = OhlcvBar::bar_wick_body_delta(&[b]).unwrap();
-        assert!(r >= -1.0 && r <= 1.0);
+        assert!((-1.0..=1.0).contains(&r));
     }
 
     #[test]
@@ -23270,7 +23328,7 @@ mod tests {
     fn test_bar_high_close_momentum_returns_bounded() {
         let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
         let r = OhlcvBar::bar_high_close_momentum(&[b]).unwrap();
-        assert!(r >= 0.0 && r <= 1.0);
+        assert!((0.0..=1.0).contains(&r));
     }
 
     #[test]
@@ -23282,7 +23340,7 @@ mod tests {
     fn test_bar_open_strength_returns_bounded() {
         let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
         let r = OhlcvBar::bar_open_strength(&[b]).unwrap();
-        assert!(r >= 0.0 && r <= 1.0);
+        assert!((0.0..=1.0).contains(&r));
     }
 
     #[test]
@@ -23294,7 +23352,7 @@ mod tests {
     fn test_bar_close_pull_returns_bounded() {
         let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
         let r = OhlcvBar::bar_close_pull(&[b]).unwrap();
-        assert!(r >= 0.0 && r <= 1.0);
+        assert!((0.0..=1.0).contains(&r));
     }
 
     #[test]
@@ -23306,7 +23364,7 @@ mod tests {
     fn test_bar_body_vs_shadow_returns_bounded() {
         let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
         let r = OhlcvBar::bar_body_vs_shadow(&[b]).unwrap();
-        assert!(r >= 0.0 && r <= 1.0);
+        assert!((0.0..=1.0).contains(&r));
     }
 
     #[test]
@@ -23332,7 +23390,7 @@ mod tests {
         let b2 = make_ohlcv_bar(dec!(109), dec!(115), dec!(95), dec!(96));
         let b3 = make_ohlcv_bar(dec!(96), dec!(112), dec!(88), dec!(111));
         let r = OhlcvBar::bar_trend_reversal_pct(&[b1, b2, b3]).unwrap();
-        assert!(r >= 0.0 && r <= 1.0);
+        assert!((0.0..=1.0).contains(&r));
     }
 
     #[test]
@@ -23344,7 +23402,7 @@ mod tests {
     fn test_bar_shadow_range_ratio_returns_bounded() {
         let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
         let r = OhlcvBar::bar_shadow_range_ratio(&[b]).unwrap();
-        assert!(r >= 0.0 && r <= 1.0);
+        assert!((0.0..=1.0).contains(&r));
     }
 
     #[test]
@@ -23454,7 +23512,7 @@ mod tests {
     fn test_bar_open_low_efficiency_returns_bounded() {
         let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
         let r = OhlcvBar::bar_open_low_efficiency(&[b]).unwrap();
-        assert!(r >= 0.0 && r <= 1.0);
+        assert!((0.0..=1.0).contains(&r));
     }
 
     #[test]
@@ -23467,7 +23525,7 @@ mod tests {
         let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
         let b2 = make_ohlcv_bar(dec!(100), dec!(115), dec!(85), dec!(110));
         let r = OhlcvBar::bar_extreme_vol_pct(&[b1, b2]).unwrap();
-        assert!(r >= 0.0 && r <= 1.0);
+        assert!((0.0..=1.0).contains(&r));
     }
 
     #[test]
@@ -23495,7 +23553,7 @@ mod tests {
         let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
         let b2 = make_ohlcv_bar(dec!(105), dec!(115), dec!(95), dec!(110));
         let r = OhlcvBar::bar_body_high_pct(&[b1, b2]).unwrap();
-        assert!(r >= 0.0 && r <= 1.0);
+        assert!((0.0..=1.0).contains(&r));
     }
 
     #[test]
@@ -23549,7 +23607,7 @@ mod tests {
         let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
         let b2 = make_ohlcv_bar(dec!(105), dec!(115), dec!(95), dec!(108));
         let r = OhlcvBar::bar_upper_shadow_pct(&[b1, b2]).unwrap();
-        assert!(r >= 0.0 && r <= 1.0);
+        assert!((0.0..=1.0).contains(&r));
     }
 
     #[test]
@@ -23562,7 +23620,7 @@ mod tests {
         let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(95));
         let b2 = make_ohlcv_bar(dec!(100), dec!(112), dec!(88), dec!(102));
         let r = OhlcvBar::bar_lower_shadow_pct(&[b1, b2]).unwrap();
-        assert!(r >= 0.0 && r <= 1.0);
+        assert!((0.0..=1.0).contains(&r));
     }
 
     #[test]
@@ -23647,7 +23705,7 @@ mod tests {
         let mut b3 = make_ohlcv_bar(dec!(100), dec!(108), dec!(88), dec!(103));
         b3.volume = dec!(5);
         let r = OhlcvBar::bar_high_vol_corr(&[b1, b2, b3]).unwrap();
-        assert!(r >= -1.0 && r <= 1.0);
+        assert!((-1.0..=1.0).contains(&r));
     }
 
     #[test]
@@ -23675,7 +23733,7 @@ mod tests {
         let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
         let b2 = make_ohlcv_bar(dec!(100), dec!(115), dec!(85), dec!(108));
         let r = OhlcvBar::bar_high_minus_close(&[b1, b2]).unwrap();
-        assert!(r >= 0.0 && r <= 1.0);
+        assert!((0.0..=1.0).contains(&r));
     }
 
     #[test]
@@ -23789,7 +23847,7 @@ mod tests {
         let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(108));
         let b2 = make_ohlcv_bar(dec!(100), dec!(115), dec!(85), dec!(98));
         let r = OhlcvBar::bar_directional_efficiency(&[b1, b2]).unwrap();
-        assert!(r >= 0.0 && r <= 1.0);
+        assert!((0.0..=1.0).contains(&r));
     }
 
     #[test]
@@ -23938,7 +23996,7 @@ mod tests {
         let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
         let b2 = make_ohlcv_bar(dec!(100), dec!(115), dec!(85), dec!(110));
         let r = OhlcvBar::bar_hl_persistence(&[b1, b2]).unwrap();
-        assert!(r >= 0.0 && r <= 1.0);
+        assert!((0.0..=1.0).contains(&r));
     }
 
     #[test]
@@ -24073,7 +24131,7 @@ mod tests {
     fn test_bar_upper_body_pct_returns_bounded() {
         let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(108));
         let r = OhlcvBar::bar_upper_body_pct(&[b]).unwrap();
-        assert!(r >= 0.0 && r <= 1.0, "expected [0,1] got {}", r);
+        assert!((0.0..=1.0).contains(&r), "expected [0,1] got {}", r);
     }
 
     #[test]
@@ -24186,7 +24244,7 @@ mod tests {
         let mut b3 = make_ohlcv_bar(dec!(110), dec!(120), dec!(100), dec!(112));
         b3.volume = dec!(5);
         let r = OhlcvBar::bar_vol_spike_count(&[b1, b2, b3]).unwrap();
-        assert!(r >= 0.0 && r <= 1.0);
+        assert!((0.0..=1.0).contains(&r));
     }
 
     #[test]
@@ -24200,7 +24258,7 @@ mod tests {
         let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
         let b2 = make_ohlcv_bar(dec!(105), dec!(115), dec!(95), dec!(112));
         let r = OhlcvBar::bar_open_close_corr(&[b1, b2]).unwrap();
-        assert!(r >= -1.0 && r <= 1.0);
+        assert!((-1.0..=1.0).contains(&r));
     }
 
     #[test]
@@ -24352,7 +24410,7 @@ mod tests {
     fn test_bar_open_wick_pct_returns_bounded() {
         let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
         let r = OhlcvBar::bar_open_wick_pct(&[b]).unwrap();
-        assert!(r >= 0.0 && r <= 1.0);
+        assert!((0.0..=1.0).contains(&r));
     }
 
     #[test]

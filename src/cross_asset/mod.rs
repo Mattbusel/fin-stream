@@ -94,7 +94,7 @@ impl OnlineCorrelation {
         }
         let cor = self.c_xy / (var_x.sqrt() * var_y.sqrt());
         // Clamp to [-1, 1] to guard against floating-point drift
-        Some(cor.max(-1.0).min(1.0))
+        Some(cor.clamp(-1.0, 1.0))
     }
 
     /// Return the number of observations processed.
@@ -167,7 +167,7 @@ impl CorrelationMatrix {
             let (x, y) = if key.0 == symbol { (value, other_val) } else { (other_val, value) };
             self.pairs
                 .entry(key)
-                .or_insert_with(OnlineCorrelation::new)
+                .or_default()
                 .update(x, y);
         }
 
