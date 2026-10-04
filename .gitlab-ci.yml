@@ -13,6 +13,11 @@ stages: [test]
       changes: ["src/**/*", "tests/**/*", "examples/**/*", "benches/**/*", "proto/**/*", "docs/*.md", "Cargo.toml", "Cargo.lock", "README.md", "clippy.toml", ".gitlab-ci.yml"]
   variables:
     CARGO_HOME: "${CI_PROJECT_DIR}/.cargo-home"
+    # No debug info or incremental files in CI: with them the full test job
+    # fills the shared runner's disk ("No space left on device").
+    CARGO_PROFILE_DEV_DEBUG: "0"
+    CARGO_PROFILE_TEST_DEBUG: "0"
+    CARGO_INCREMENTAL: "0"
     CARGO_TARGET_DIR: "${CI_PROJECT_DIR}/target"
   cache:
     key: "cargo-${CI_JOB_NAME}"
