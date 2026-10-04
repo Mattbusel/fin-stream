@@ -633,11 +633,7 @@ impl CandleBuilder {
     /// The triggering tick is NOT included in the returned candle — it opens
     /// the next period instead.
     pub fn push(&mut self, price: f64, volume: f64, timestamp_ms: u64) -> Option<OhlcvCandle> {
-        let bucket = if self.timeframe_ms > 0 {
-            timestamp_ms / self.timeframe_ms
-        } else {
-            0
-        };
+        let bucket = timestamp_ms.checked_div(self.timeframe_ms).unwrap_or(0);
 
         let mut completed: Option<OhlcvCandle> = None;
 

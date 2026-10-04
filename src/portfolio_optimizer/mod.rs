@@ -48,7 +48,7 @@ pub fn project_simplex(w: &[f64]) -> Vec<f64> {
     let mut u: Vec<f64> = w.to_vec();
     u.sort_by(|a, b| b.partial_cmp(a).unwrap_or(std::cmp::Ordering::Equal));
     let cssv: Vec<f64> = u.iter().scan(0.0, |s, &x| { *s += x; Some(*s) }).collect();
-    let rho = (0..n).filter(|&j| u[j] - (cssv[j] - 1.0) / (j + 1) as f64 > 0.0).next_back().unwrap_or(0);
+    let rho = (0..n).rfind(|&j| u[j] - (cssv[j] - 1.0) / (j + 1) as f64 > 0.0).unwrap_or(0);
     let theta = (cssv[rho] - 1.0) / (rho + 1) as f64;
     w.iter().map(|&x| (x - theta).max(0.0)).collect()
 }

@@ -4516,7 +4516,7 @@ impl MinMaxNormalizer {
         if self.window.is_empty() { return None; }
         let mut vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
         vals.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-        let trim = (vals.len() / 10).max(0);
+        let trim = vals.len() / 10;
         let trimmed = &vals[trim..vals.len() - trim];
         if trimmed.is_empty() { return None; }
         Some(trimmed.iter().sum::<f64>() / trimmed.len() as f64)
@@ -22555,7 +22555,7 @@ impl ZScoreNormalizer {
         if self.window.is_empty() { return None; }
         let mut vals: Vec<f64> = self.window.iter().map(|v| v.to_f64().unwrap_or(0.0)).collect();
         vals.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-        let trim = (vals.len() / 10).max(0);
+        let trim = vals.len() / 10;
         let trimmed = &vals[trim..vals.len() - trim];
         if trimmed.is_empty() { return None; }
         Some(trimmed.iter().sum::<f64>() / trimmed.len() as f64)

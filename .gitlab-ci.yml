@@ -27,7 +27,7 @@ test:
     - cargo test --doc
     - cargo test --features grpc --test grpc_roundtrip
     - cargo test --features metrics --test metrics_counters
-    - cargo test --lib --features barter interop::
+    - 'cargo test --lib --features barter interop::'
     - 'for e in tape normalize feed_health replay; do cargo run --quiet --example "$e"; done'
 
 # Lints and docs with warnings as errors.
