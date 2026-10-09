@@ -1,5 +1,7 @@
 # fin-stream
 
+English | [简体中文](README.zh-CN.md) | [日本語](README.ja.md) | [한국어](README.ko.md)
+
 **A Rust library that takes live trade messages from Binance, Coinbase, Alpaca and Polygon, turns them into one clean tick format with exact prices, hands them between threads through a lock-free ring buffer, and rolls them into OHLCV candles.**
 
 For Rust developers building trading bots, market-data collectors, backtesters or crypto and stock analytics who want the exchange plumbing done once.
