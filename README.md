@@ -1,5 +1,13 @@
 # fin-stream
 
+<!-- outcome-block -->
+**Live trades from Binance, Coinbase, Alpaca and Polygon as one clean tick format in your Rust code, rolled into OHLCV candles, without writing a single exchange client.**
+
+**Why this over the alternatives:** Every exchange has its own message format and reconnect quirks. This handles all four with reconnect backoff, a lock-free ring buffer and rustls TLS (no OpenSSL, no cmake).
+
+**Guarantee:** if it doesn't do what this README says, [open an issue](https://github.com/Mattbusel/fin-stream/issues) and I'll fix it.
+<!-- outcome-block -->
+
 English | [简体中文](README.zh-CN.md) | [日本語](README.ja.md) | [한국어](README.ko.md)
 
 **A Rust library that takes live trade messages from Binance, Coinbase, Alpaca and Polygon, turns them into one clean tick format with exact prices, hands them between threads through a lock-free ring buffer, and rolls them into OHLCV candles.**
