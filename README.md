@@ -1,18 +1,16 @@
 # fin-stream
 
 <!-- outcome-block -->
-**Live trades from Binance, Coinbase, Alpaca and Polygon as one clean tick format in your Rust code, rolled into OHLCV candles, without writing a single exchange client.**
+**Live trades from Binance, Coinbase, Alpaca and Polygon in one tick format, rolled into OHLCV candles. You write no exchange clients.**
 
-**Why this over the alternatives:** Every exchange has its own message format and reconnect quirks. This handles all four with reconnect backoff, a lock-free ring buffer and rustls TLS (no OpenSSL, no cmake).
+Every exchange has its own message format and reconnect quirks. This handles all four: reconnect backoff, a lock-free ring buffer, rustls TLS (no OpenSSL, no cmake).
 
-**Guarantee:** if it doesn't do what this README says, [open an issue](https://github.com/Mattbusel/fin-stream/issues) and I'll fix it.
+If it doesn't do what this README says, [open an issue](https://github.com/Mattbusel/fin-stream/issues) and I'll fix it.
 <!-- outcome-block -->
 
 English | [简体中文](README.zh-CN.md) | [日本語](README.ja.md) | [한국어](README.ko.md)
 
-**A Rust library that takes live trade messages from Binance, Coinbase, Alpaca and Polygon, turns them into one clean tick format with exact prices, hands them between threads through a lock-free ring buffer, and rolls them into OHLCV candles.**
-
-For Rust developers building trading bots, market-data collectors, backtesters or crypto and stock analytics who want the exchange plumbing done once.
+**A Rust library for live trades.** Takes messages from Binance, Coinbase, Alpaca and Polygon. Turns them into one tick format with exact prices. Passes them between threads through a lock-free ring buffer. Rolls them into OHLCV candles.
 
 <p align="center">
   <a href="https://crates.io/crates/fin-stream"><img alt="crates.io version" src="https://img.shields.io/crates/v/fin-stream.svg"></a>
@@ -30,40 +28,38 @@ For Rust developers building trading bots, market-data collectors, backtesters o
 cargo add fin-stream serde_json
 ```
 
-It is a library, so there is nothing to download or install system-wide (Rust 1.81 or newer,
-checked in CI). TLS for `wss://` feeds is rustls with the ring provider: no OpenSSL, no cmake.
-`serde_json` is only there so you can build raw payloads with `json!`. Or in `Cargo.toml`:
-`fin-stream = "2.12"`. Want to see it first? `git clone https://gitlab.com/mattbusel/fin-stream && cd fin-stream && cargo run --example tape`.
+It is a library, so nothing to install system-wide. Needs Rust 1.81 or newer (checked in CI).
+TLS for `wss://` feeds is rustls with the ring provider: no OpenSSL, no cmake.
+`serde_json` is only for building raw payloads with `json!`. Or in `Cargo.toml`:
+`fin-stream = "2.12"`. See it first: `git clone https://gitlab.com/mattbusel/fin-stream && cd fin-stream && cargo run --example tape`.
 
 ## How it works
 
-`WsManager` keeps the exchange WebSocket open (reconnecting with backoff) and hands you each
-text frame. You wrap the frame in a `RawTick`; `TickNormalizer` turns any of the four venue
-formats into one `NormalizedTick` with `Decimal` price and size. A feed thread pushes ticks into
-an `SpscRing`, your thread pops them, and from there they go into bars, features or anything else.
-Order book depth messages go into an `OrderBook` that rejects crossed books and sequence gaps.
+`WsManager` keeps the exchange WebSocket open, reconnects with backoff, and hands you each
+text frame. Wrap the frame in a `RawTick`. `TickNormalizer` turns any of the four formats into
+one `NormalizedTick` with `Decimal` price and size. A feed thread pushes ticks into an `SpscRing`.
+Your thread pops them and sends them to bars, features or anything else.
+Depth messages go into an `OrderBook` that rejects crossed books and sequence gaps.
 
 <p align="center"><img alt="Animated diagram of the fin-stream pipeline replaying the first 17 trades of the tape example: WsManager passes WebSocket text frames down an mpsc channel; each frame becomes a RawTick and TickNormalizer turns the Binance, Coinbase, Alpaca or Polygon JSON into a NormalizedTick; the feed thread pushes it into an SpscRing slot and the main thread pops it; OhlcvAggregator returns the 14:30:00 two-second bar (open 64250.19, high 64272.65, low 64250.19, close 64254.78, 16 trades) when trade 17 arrives, a ZScoreNormalizer turns prices into z-scores, and OrderBook::apply returns BookCrossed and SequenceGap errors for bad depth updates" src="docs/img/pipeline.svg" width="100%"></p>
 
 ## Why fin-stream
 
-- **Four venues, one tick type.** Binance and Coinbase (crypto) and Alpaca and Polygon (US
-  equities) all become the same `NormalizedTick` with exact `Decimal` price and size.
+- **Four venues, one tick type.** Binance and Coinbase (crypto), Alpaca and Polygon (US
+  stocks). All become the same `NormalizedTick` with exact `Decimal` price and size.
   [`barter-data`](https://crates.io/crates/barter-data) covers more crypto exchanges but no
-  stock feeds; use the `barter` feature below to hand fin-stream's equity ticks to barter code.
-- **A connection loop that stays up.** `WsManager` reconnects with backoff, resets its retry
-  budget after every connection that came up, replaces silent half-open connections, and
-  stops as soon as you drop the receiver. These paths are tested against a real local
-  WebSocket server, not mocks.
-- **Untrusted input never panics.** The JSON normalizers and the FIX 4.2 parser are
-  property-tested with random payloads and random byte strings.
-- **Measured, including where others win** ([bench/competitors](bench/competitors/README.md)):
-  pushing and popping on one thread, `SpscRing` did about 1.2 billion operations per second,
-  ahead of `rtrb`, `ringbuf` and crossbeam's `ArrayQueue`. Across two threads `rtrb` and
-  `ringbuf` were faster (about 146 and 139 million items per second against 121 million).
-- **Observable.** With the `metrics` feature, connections, reconnects, messages, bytes, bars
-  and late ticks are counters on whatever recorder you install (Prometheus, StatsD,
-  OpenTelemetry).
+  stocks. The `barter` feature below hands fin-stream's stock ticks to barter code.
+- **Stays connected.** `WsManager` reconnects with backoff, resets its retry budget after
+  each good connection, replaces silent half-open connections, and stops when you drop the
+  receiver. Tested against a real local WebSocket server, not mocks.
+- **Bad input never panics.** The JSON normalizers and the FIX 4.2 parser are
+  property-tested with random payloads and random bytes.
+- **Measured, including where others win** ([bench/competitors](bench/competitors/README.md)).
+  On one thread, `SpscRing` did about 1.2 billion push/pop operations per second, ahead of
+  `rtrb`, `ringbuf` and crossbeam's `ArrayQueue`. Across two threads `rtrb` and `ringbuf`
+  were faster (about 146 and 139 million items per second vs 121 million).
+- **Counters.** With the `metrics` feature, connections, reconnects, messages, bytes, bars
+  and late ticks go to whatever recorder you install (Prometheus, StatsD, OpenTelemetry).
 
 ## Feature flags
 
@@ -76,8 +72,8 @@ Order book depth messages go into an `OrderBook` that rejects crossed books and 
 
 ## Examples
 
-Four programs ship in [`examples/`](examples/). No network, no API keys, same trades every run.
-In a terminal they stream in real time; piped, they print instantly. `NO_COLOR=1` turns colors off.
+Four programs in [`examples/`](examples/). No network, no API keys, same trades every run.
+In a terminal they stream in real time. Piped, they print at once. `NO_COLOR=1` turns colors off.
 
 | Run this | You get |
 |---|---|
@@ -86,7 +82,7 @@ In a terminal they stream in real time; piped, they print instantly. `NO_COLOR=1
 | `cargo run --example feed_health` | `HealthMonitor` watching four feeds: one goes quiet, turns stale, trips its circuit and recovers |
 | `cargo run --example replay` | a recorded NDJSON file streamed through the live-feed trait into 30-second bars |
 
-**`tape`** is the recording at the top of this page: trades from four venues, one format, each 2-second bar printed the moment it closes.
+**`tape`** is the recording at the top: four venues, one format, each 2-second bar printed when it closes.
 
 **`feed_health`** (real output, run 2026-09-28, `NO_COLOR=1`):
 
@@ -173,10 +169,10 @@ Polygon   n/a      0.2 BTC @ 64249.75
 no price  -> Tick parse error from Binance: missing field 'p'
 ```
 
-Four exchanges spell a trade four different ways; you get one `NormalizedTick` with exact
-decimal price and size for each. Venues that do not say which side was the aggressor show
-`n/a` rather than a guess, and a malformed message is an error you can match on. This exact
-program is compiled and run by this repository's `cargo test --doc`.
+Four exchanges write a trade four ways. You get one `NormalizedTick` with exact decimal
+price and size for each. Venues that don't say which side was the aggressor show `n/a`, not
+a guess. A bad message is an error you can match on. `cargo test --doc` compiles and runs
+this exact program.
 
 ## Documentation
 
@@ -190,16 +186,16 @@ program is compiled and run by this repository's `cargo test --doc`.
 | [CHANGELOG.md](CHANGELOG.md) | what changed in each version |
 | [Project site](https://fin-stream-rs.vercel.app/) | the same overview as a web page |
 
-The optional gRPC server is behind the `grpc` feature; metrics, interop and the rest are
-in the feature table above.
+The gRPC server is behind the `grpc` feature. Metrics, interop and the rest are in the
+feature table above.
 
 > Research and engineering library. It does not place orders, and nothing here is financial advice.
 
 ## Contributing
 
-Issues and pull requests are welcome. Public items need `///` docs (`#![deny(missing_docs)]`),
-fallible code returns `Result<_, StreamError>`, and new behavior needs a test. Run `cargo fmt`,
-`cargo clippy` and `cargo test --doc` before opening a PR. To add an exchange, follow
+Issues and PRs welcome. Public items need `///` docs (`#![deny(missing_docs)]`).
+Code that can fail returns `Result<_, StreamError>`. New behavior needs a test. Run `cargo fmt`,
+`cargo clippy` and `cargo test --doc` before a PR. To add an exchange, follow
 [Adding a new exchange adapter](docs/ARCHITECTURE.md#adding-a-new-exchange-adapter).
 
 ## License and related projects
