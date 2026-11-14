@@ -7,6 +7,24 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [2.13.0] - 2026-11-14
+
+### Added
+- `barter` feature, the other direction: `NormalizedTick::try_from(&MarketEvent<I, PublicTrade>)` and `NormalizedTick::from_barter_trade(&event, symbol)` turn barter-data public trades into fin-stream ticks, so a barter-data `MarketStream` can feed `OhlcvAggregator` (1-minute bars, tick and volume bars, gap filling, late-tick handling) without writing a candle builder. `f64` price and amount become `Decimal` through checked `Decimal::from_f64` (NaN, infinity, zero or negative price, and negative amount are rejected); the exchange timestamp drives bar boundaries. barter's `BinanceSpot`, `BinanceFuturesUsd`, `BinanceFuturesCoin` and `Coinbase` map to `Exchange`; other venues return `StreamError::UnknownExchange` instead of being mislabelled. The `kind` can be an owned or borrowed `PublicTrade`, so `MarketEvent<I, DataKind>::as_public_trade()` output converts too.
+- `examples/barter_candles.rs`: live Coinbase trades from barter-data rolled into 1-minute bars (`cargo run --example barter_candles --features barter`, needs network).
+- `tests/barter_candles.rs`: offline test that reads barter `MarketEvent` JSON fixtures and checks the exact OHLCV, volume, VWAP, late-tick and gap-fill output.
+- docs.rs now builds with the `barter` feature, so the barter impls and the candle walkthrough in the `interop` module show up there.
+
+### Fixed
+- `SessionAwareness::is_weekend` panicked on timestamps chrono cannot represent (for example `i64::MAX` or `1 << 63` ms; the crate's `unwrap_used` lint does not catch `LocalResult::unwrap`), and values above `i64::MAX` wrapped to dates before 1970. It now returns `false` for them. `is_overnight` goes through it and no longer panics either.
+
+### Notes
+- The `barter` feature needs Rust 1.88+ (checked: 1.87 fails on let chains in barter-instrument 0.3.3, 1.88 builds). The crate's MSRV without it is unchanged (1.81).
+
+## [2.12.1] - 2026-10-21
+
+Published from GitLab with a new README; no code changes from 2.12.0.
+
 ## [2.12.0] - 2026-10-03
 
 ### Security

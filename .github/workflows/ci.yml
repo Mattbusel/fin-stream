@@ -13,6 +13,11 @@ jobs:
         run: cargo test --doc
       - name: Integration tests
         run: cargo test --test '*'
+      - name: barter interop (trades to candles)
+        run: |
+          cargo test --features barter --lib interop::
+          cargo test --features barter --test barter_candles
+          cargo build --features barter --example barter_candles
       - name: Run the examples
         run: |
           for e in tape normalize feed_health replay; do

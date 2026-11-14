@@ -133,8 +133,17 @@ impl SessionAwareness {
     /// Session-agnostic: always checks the UTC calendar day regardless of
     /// the configured [`MarketSession`]. Useful for skip-weekend logic in
     /// backtesting loops and scheduling.
+    ///
+    /// Returns `false` for timestamps chrono cannot represent (beyond about
+    /// year 262,000, including anything above `i64::MAX`). Before 2.13.0 such
+    /// input panicked, and values above `i64::MAX` wrapped to dates before 1970.
     pub fn is_weekend(utc_ms: u64) -> bool {
-        let dt = Utc.timestamp_millis_opt(utc_ms as i64).unwrap();
+        let Some(dt) = i64::try_from(utc_ms)
+            .ok()
+            .and_then(|ms| Utc.timestamp_millis_opt(ms).single())
+        else {
+            return false;
+        };
         let weekday = dt.weekday();
         weekday == Weekday::Sat || weekday == Weekday::Sun
     }
@@ -1879,6 +1888,17 @@ mod tests {
     fn test_is_weekend_monday_is_not_weekend() {
         // MON_OPEN_UTC_MS = 2024-01-08 14:30 UTC (Monday)
         assert!(!SessionAwareness::is_weekend(MON_OPEN_UTC_MS));
+    }
+
+    #[test]
+    fn test_is_weekend_out_of_range_returns_false_instead_of_panicking() {
+        // u64::MAX used to wrap to -1 ms (a Wednesday in 1969); i64::MAX and
+        // 2^63 are outside chrono's range and used to panic on `unwrap`.
+        assert!(!SessionAwareness::is_weekend(u64::MAX));
+        assert!(!SessionAwareness::is_weekend(i64::MAX as u64));
+        assert!(!SessionAwareness::is_weekend(1u64 << 63));
+        // Callers inside the crate go through it too; they must not panic either.
+        let _ = SessionAwareness::new(MarketSession::UsEquity).is_overnight(u64::MAX);
     }
 
     // ── SessionAwareness::minutes_since_open ──────────────────────────────────

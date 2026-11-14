@@ -1,6 +1,6 @@
 [package]
 name = "fin-stream"
-version = "2.12.0"
+version = "2.13.0"
 edition = "2021"
 rust-version = "1.81"
 license = "MIT"
@@ -15,8 +15,7 @@ description = "Turn raw Binance, Coinbase, Alpaca and Polygon trade messages int
 include = ["src/**/*", "benches/**/*", "tests/**/*", "examples/**/*", "proto/**/*", "Cargo.toml", "README.md", "docs/*.md", "LICENSE"]
 
 [package.metadata.docs.rs]
-# `barter` is left out to keep the docs build small; its one impl is documented in `interop`.
-features = ["fin-primitives", "grpc", "metrics"]
+features = ["fin-primitives", "grpc", "metrics", "barter"]
 rustdoc-args = ["--cfg", "docsrs"]
 # Scrape the examples so docs.rs shows real call sites next to the APIs they use.
 cargo-args = ["-Zunstable-options", "-Zrustdoc-scrape-examples"]
@@ -49,7 +48,9 @@ fin-primitives = ["dep:fin-primitives"]
 ## Emit counters (messages, bytes, reconnects, late ticks) through the `metrics` crate,
 ## for any recorder: Prometheus, StatsD, OpenTelemetry. Zero cost without a recorder.
 metrics = ["dep:metrics"]
-## `TryFrom<&NormalizedTick>` for barter-data's `PublicTrade` (pulls in barter-data and its deps).
+## barter-data interop both ways: `PublicTrade::try_from(&NormalizedTick)`, and
+## `NormalizedTick::try_from(&MarketEvent<_, PublicTrade>)` to build OHLCV bars from a
+## barter-data trade stream. Pulls in barter-data and its deps; needs Rust 1.88+.
 barter = ["dep:barter-data", "dep:barter-instrument"]
 ## Enable the gRPC streaming endpoint (adds tonic, prost and tokio-stream; no protoc needed).
 grpc = ["dep:tonic", "dep:prost", "dep:tokio-stream"]
@@ -107,6 +108,10 @@ criterion = { version = "0.5", features = ["async_tokio"] }
 rust_decimal_macros = "1.35"
 # proptest: property-based tests for FIFO ordering, normalization monotonicity
 proptest = "1.4"
+
+[[example]]
+name = "barter_candles"
+required-features = ["barter"]
 
 [[bench]]
 name = "tick_hot_path"

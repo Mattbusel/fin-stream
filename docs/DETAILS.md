@@ -62,7 +62,7 @@ Depth messages go into an `OrderBook` that rejects crossed books and sequence ga
 | `fin-primitives` | yes | `Tick::try_from(&NormalizedTick)` into [fin-primitives](https://crates.io/crates/fin-primitives) (bars, 700+ indicators, order book, risk), and `?` on its errors |
 | `metrics` | no | counters through the [`metrics`](https://crates.io/crates/metrics) facade; table in the `telemetry` module docs |
 | `grpc` | no | a tonic gRPC server that streams ticks to remote clients (generated code is checked in, no `protoc` needed) |
-| `barter` | no | `PublicTrade::try_from(&NormalizedTick)` for [barter-data](https://crates.io/crates/barter-data) strategies |
+| `barter` | no | [barter-data](https://crates.io/crates/barter-data) both ways: `PublicTrade::try_from(&NormalizedTick)` for barter strategies, and `NormalizedTick::try_from(&MarketEvent<_, PublicTrade>)` to build OHLCV bars from a barter-data stream (`examples/barter_candles.rs`) |
 
 ## Examples
 
