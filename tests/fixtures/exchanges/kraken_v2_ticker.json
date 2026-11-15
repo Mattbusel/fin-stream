@@ -1,0 +1,1 @@
+{"channel":"ticker","type":"snapshot","data":[{"symbol":"ALGO/USD","bid":0.10025,"bid_qty":740.0,"ask":0.10035,"ask_qty":740.0,"last":0.10035,"volume":997038.98383185,"vwap":0.10148,"low":0.09979,"high":0.10285,"change":-0.00017,"change_pct":-0.17}]}

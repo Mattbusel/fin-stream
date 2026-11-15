@@ -21,12 +21,14 @@
 //! [`crate::ohlcv::OhlcvAggregator`] starts, so install the recorder before that.
 
 /// Counter handles for one WebSocket connection loop.
+#[cfg(feature = "net")]
 #[derive(Clone)]
 pub(crate) struct WsCounters {
     #[cfg(feature = "metrics")]
     inner: [metrics::Counter; 6],
 }
 
+#[cfg(feature = "net")]
 impl WsCounters {
     /// Register (or look up) the counters for `url`.
     #[cfg_attr(not(feature = "metrics"), allow(unused_variables))]

@@ -1,6 +1,6 @@
 [package]
 name = "fin-stream"
-version = "2.13.0"
+version = "2.14.0"
 edition = "2021"
 rust-version = "1.81"
 license = "MIT"
@@ -11,11 +11,11 @@ readme = "README.md"
 authors = ["Matt Busel <matt@busel.dev>"]
 keywords = ["market-data", "trading", "crypto", "websocket", "ohlcv"]
 categories = ["finance", "asynchronous", "concurrency", "network-programming"]
-description = "Turn raw Binance, Coinbase, Alpaca and Polygon trade messages into one exact-decimal tick type, pass them between threads on a lock-free ring, and roll them into OHLCV bars, with feed health checks and replay."
+description = "Turn raw Binance, Coinbase, Kraken, OKX, Bybit, Alpaca and Polygon trade and quote messages into one exact-decimal tick type, pass them between threads on a lock-free ring, and roll them into OHLCV bars, with feed health checks and replay."
 include = ["src/**/*", "benches/**/*", "tests/**/*", "examples/**/*", "proto/**/*", "Cargo.toml", "README.md", "docs/*.md", "LICENSE"]
 
 [package.metadata.docs.rs]
-features = ["fin-primitives", "grpc", "metrics", "barter"]
+features = ["net", "fin-primitives", "grpc", "metrics", "barter"]
 rustdoc-args = ["--cfg", "docsrs"]
 # Scrape the examples so docs.rs shows real call sites next to the APIs they use.
 cargo-args = ["-Zunstable-options", "-Zrustdoc-scrape-examples"]
@@ -42,7 +42,14 @@ needless_range_loop = "allow"
 type_complexity = "allow"
 
 [features]
-default = ["fin-primitives"]
+default = ["net", "fin-primitives"]
+## Async runtime and networking: `WsManager`, the FIX TCP session, replay,
+## snapshot replay, portfolio feeds, feed aggregation, anomaly and circuit-breaker
+## tasks. Pulls in tokio, tokio-tungstenite, rustls, async-trait and uuid.
+## Without it (`default-features = false`) the crate is pure parsing and maths:
+## tick and quote normalization, ring buffer, OHLCV bars, order books, analytics.
+## That build has no networking dependencies and compiles for `wasm32-unknown-unknown`.
+net = ["dep:tokio", "dep:tokio-tungstenite", "dep:rustls", "dep:async-trait", "dep:uuid"]
 ## `From<fin_primitives::FinError> for StreamError`, so `?` works on fin-primitives calls.
 fin-primitives = ["dep:fin-primitives"]
 ## Emit counters (messages, bytes, reconnects, late ticks) through the `metrics` crate,
@@ -53,22 +60,22 @@ metrics = ["dep:metrics"]
 ## barter-data trade stream. Pulls in barter-data and its deps; needs Rust 1.88+.
 barter = ["dep:barter-data", "dep:barter-instrument"]
 ## Enable the gRPC streaming endpoint (adds tonic, prost and tokio-stream; no protoc needed).
-grpc = ["dep:tonic", "dep:prost", "dep:tokio-stream"]
+grpc = ["net", "dep:tonic", "dep:prost", "dep:tokio-stream"]
 
 [dependencies]
 # tokio: async runtime, channels, timers
-tokio = { version = "1.40", features = ["full"] }
+tokio = { version = "1.40", features = ["full"], optional = true }
 # serde: tick normalization, order book serialization
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 # thiserror: typed streaming errors
 thiserror = "1.0"
 # async-trait: trait objects for feed adapters
-async-trait = "0.1"
+async-trait = { version = "0.1", optional = true }
 # tokio-tungstenite: async WebSocket
-tokio-tungstenite = { version = "0.28", default-features = false, features = ["connect", "handshake", "rustls-tls-webpki-roots"] }
+tokio-tungstenite = { version = "0.28", default-features = false, features = ["connect", "handshake", "rustls-tls-webpki-roots"], optional = true }
 # rustls: TLS for wss:// feeds, with the ring crypto provider (no OpenSSL, no cmake)
-rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"], optional = true }
 # futures: stream combinators
 futures-util = "0.3"
 # rust_decimal: exact price arithmetic — never use f64 for prices
@@ -78,7 +85,7 @@ chrono = { version = "0.4", features = ["serde"] }
 # dashmap: concurrent order book / health state
 dashmap = "6.1"
 # uuid: feed/subscription identifiers
-uuid = { version = "1.6", features = ["v4", "fast-rng", "serde"] }
+uuid = { version = "1.6", features = ["v4", "fast-rng", "serde"], optional = true }
 # hdrhistogram: latency percentiles (latency module)
 hdrhistogram = { version = "7.5", default-features = false }
 # tracing: pipeline observability
@@ -98,6 +105,8 @@ prost = { version = "0.13", optional = true }
 tokio-stream = { version = "0.1", optional = true, features = ["sync"] }
 
 [dev-dependencies]
+# tokio for `#[tokio::test]` in modules that do not need the `net` feature
+tokio = { version = "1.40", features = ["full"] }
 # metrics-util: in-memory recorder to assert on emitted metrics in tests
 metrics-util = { version = "0.20", default-features = false, features = ["debugging"] }
 # tokio-stream with `net`: TcpListenerStream for the local gRPC round-trip test
@@ -112,6 +121,10 @@ proptest = "1.4"
 [[example]]
 name = "barter_candles"
 required-features = ["barter"]
+
+[[example]]
+name = "replay"
+required-features = ["net"]
 
 [[bench]]
 name = "tick_hot_path"

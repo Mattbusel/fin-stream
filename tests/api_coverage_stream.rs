@@ -1,3 +1,4 @@
+#![cfg(feature = "net")]
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 //! Additional tests covering public API paths not exercised by the existing test suite.
 //!
@@ -251,6 +252,6 @@ fn test_exchange_from_str_case_insensitive() {
 
 #[test]
 fn test_exchange_from_str_unknown_returns_error() {
-    assert!(Exchange::from_str("kraken").is_err());
+    assert!(Exchange::from_str("deribit").is_err());
     assert!(Exchange::from_str("").is_err());
 }

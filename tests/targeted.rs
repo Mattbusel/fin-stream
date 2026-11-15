@@ -6,6 +6,7 @@
 //! - Feed health state transitions (Unknown -> Healthy -> Stale -> Healthy)
 //! - Session lifecycle: open / extended / closed state machine
 //! - WebSocket reconnect behavior with simulated disconnects
+#![cfg(feature = "net")]
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use fin_stream::health::{HealthMonitor, HealthStatus};

@@ -1,3 +1,4 @@
+#![cfg(feature = "net")]
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 //! Integration tests: cross-module pipelines and end-to-end scenarios.
 

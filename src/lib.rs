@@ -66,6 +66,38 @@
 //!
 //! ![Animated diagram: WebSocket frames become RawTicks, TickNormalizer turns four venue formats into NormalizedTicks, a feed thread pushes them through SpscRing, and the consumer rolls them into OHLCV bars and features](https://gitlab.com/mattbusel/fin-stream/-/raw/main/docs/img/pipeline.svg)
 //!
+//! ## Kraken, OKX, Bybit, quotes and whole frames
+//!
+//! [`TickNormalizer`] also reads Kraken, OKX and Bybit public trades, and
+//! [`TickNormalizer::normalize_quote`] turns tickers and quotes from all seven
+//! venues into a [`NormalizedQuote`]. [`TickNormalizer::normalize_trade_frame`]
+//! and [`TickNormalizer::normalize_quote_frame`] take a WebSocket frame exactly
+//! as it arrives, envelope included, and skip acks and heartbeats.
+//!
+//! ```
+//! use fin_stream::tick::{Exchange, TickNormalizer, TradeSide};
+//!
+//! let frame: serde_json::Value = serde_json::from_str(r#"{"topic": "publicTrade.BTCUSDT",
+//!   "type": "snapshot", "ts": 1672304486868, "data": [{"T": 1672304486865, "s": "BTCUSDT",
+//!   "S": "Buy", "v": "0.001", "p": "16578.50", "i": "20f43950", "BT": false}]}"#).unwrap();
+//! let ticks = TickNormalizer::new().normalize_trade_frame(Exchange::Bybit, &frame).unwrap();
+//! assert_eq!((ticks[0].symbol.as_str(), ticks[0].side), ("BTCUSDT", Some(TradeSide::Buy)));
+//! ```
+//!
+//! ## Feature flags
+//!
+//! | Feature | Default | Adds |
+//! |---|---|---|
+//! | `net` | yes | tokio, WebSocket ([`ws`]), FIX TCP session, replay, portfolio feeds, feed aggregation |
+//! | `fin-primitives` | yes | `From<FinError> for StreamError` |
+//! | `metrics` | no | counters through the `metrics` facade |
+//! | `grpc` | no | gRPC tick stream (implies `net`) |
+//! | `barter` | no | barter-data trade conversions |
+//!
+//! With `default-features = false` the crate has no async runtime and no
+//! networking dependencies: normalization, the ring buffer, bars, books and the
+//! analytics modules build on their own, including for `wasm32-unknown-unknown`.
+//!
 //! ## Runnable examples
 //!
 //! The repository has four examples that need no network and no API keys:
@@ -93,7 +125,7 @@
 //! | Module | Responsibility |
 //! |---|---|
 //! | [`ws`] | WebSocket connection loop with reconnect and backoff |
-//! | [`tick`] | Raw exchange payloads to [`NormalizedTick`] for Binance, Coinbase, Alpaca, Polygon |
+//! | [`tick`] | Raw exchange payloads to [`NormalizedTick`] (trades) and [`NormalizedQuote`] (best bid/ask) for Binance, Coinbase, Kraken, OKX, Bybit, Alpaca, Polygon; whole WebSocket frames too |
 //! | [`ring`] | Lock-free single-producer single-consumer ring buffer |
 //! | [`agg`] | Merge N feeds (best bid, best ask, VWAP, primary with fallback) and cross-feed arbitrage detection |
 //! | [`multi_exchange`] | NBBO-style consolidated best bid and ask across exchanges |
@@ -140,32 +172,50 @@
 //! market maker, pairs trading, signal processing, portfolio optimisation and
 //! others); see the module list below.
 
+#[cfg(feature = "net")]
+#[cfg_attr(docsrs, doc(cfg(feature = "net")))]
 pub mod agg;
 pub mod interop;
 pub mod telemetry;
 pub mod aggregator;
 
 pub mod orderbook;
+#[cfg(feature = "net")]
+#[cfg_attr(docsrs, doc(cfg(feature = "net")))]
 pub mod anomaly;
 pub mod book;
+#[cfg(feature = "net")]
+#[cfg_attr(docsrs, doc(cfg(feature = "net")))]
 pub mod circuit_breaker;
 pub mod correlation;
 pub mod error;
 pub mod fix;
+#[cfg(feature = "net")]
+#[cfg_attr(docsrs, doc(cfg(feature = "net")))]
 pub mod grpc;
 pub mod health;
 pub mod lorentz;
 pub mod mev;
+#[cfg(feature = "net")]
+#[cfg_attr(docsrs, doc(cfg(feature = "net")))]
 pub mod multi_exchange;
 pub mod norm;
 pub mod ohlcv;
+#[cfg(feature = "net")]
+#[cfg_attr(docsrs, doc(cfg(feature = "net")))]
 pub mod portfolio_feed;
 pub mod protocol;
+#[cfg(feature = "net")]
+#[cfg_attr(docsrs, doc(cfg(feature = "net")))]
 pub mod replay;
 pub mod ring;
 pub mod session;
+#[cfg(feature = "net")]
+#[cfg_attr(docsrs, doc(cfg(feature = "net")))]
 pub mod snapshot;
 pub mod tick;
+#[cfg(feature = "net")]
+#[cfg_attr(docsrs, doc(cfg(feature = "net")))]
 pub mod ws;
 pub mod predictive_book;
 pub mod execution;
@@ -204,33 +254,43 @@ pub mod volatility_forecast;
 
 pub mod portfolio_optimizer;
 
+#[cfg(feature = "net")]
 pub use agg::{AggregatorConfig, ArbDetector, ArbOpportunity, FeedAggregator, FeedHandle, MergeStrategy};
 pub use aggregator::{AggregationMode, BarAggregator, BarBuilder};
 pub use protocol::{
     BarEvent as ProtocolBarEvent, EventStream, FeedStatus, JsonStreamAdapter, MarketEvent,
     OrderBookEvent, QuoteEvent, StatusEvent, TradeSide, TradeEvent as ProtocolTradeEvent,
 };
+#[cfg(feature = "net")]
 pub use anomaly::{AnomalyDetectorConfig, AnomalyEvent, AnomalyKind, TickAnomalyDetector};
 pub use book::{BookDelta, BookSide, OrderBook, PriceLevel};
+#[cfg(feature = "net")]
 pub use circuit_breaker::{CircuitBreakerConfig, CircuitState, WsCircuitBreaker};
 pub use correlation::{CorrelationPair, StreamingCorrelationMatrix};
 pub use error::StreamError;
-pub use fix::{FixError, FixMessage, FixParser, FixSession};
+pub use fix::{FixError, FixMessage, FixParser};
+#[cfg(feature = "net")]
+pub use fix::FixSession;
 pub use health::{FeedHealth, HealthMonitor, HealthStatus};
 pub use lorentz::{LorentzTransform, SpacetimePoint};
 pub use mev::{MevCandidate, MevDetector, MevPattern};
+#[cfg(feature = "net")]
 pub use multi_exchange::{
     AggregatorConfig as MultiExchangeAggregatorConfig, ArbitrageOpportunity,
     ExchangeLatencyStats, MultiExchangeAggregator, Nbbo,
 };
 pub use norm::{MinMaxNormalizer, ZScoreNormalizer};
 pub use ohlcv::{OhlcvAggregator, OhlcvBar, Timeframe};
+#[cfg(feature = "net")]
 pub use portfolio_feed::{AssetFeedConfig, AssetFeedStats, PortfolioFeed};
+#[cfg(feature = "net")]
 pub use replay::{ReplaySession, ReplayStats, TickReplayer, TickSource};
 pub use ring::{SpscConsumer, SpscProducer, SpscRing};
 pub use session::{MarketSession, SessionAwareness, TradingStatus};
+#[cfg(feature = "net")]
 pub use snapshot::{TickRecorder, TickReplayer as SnapshotReplayer};
-pub use tick::{Exchange, NormalizedTick, RawTick, TickNormalizer};
+pub use tick::{Exchange, NormalizedQuote, NormalizedTick, RawTick, TickNormalizer};
+#[cfg(feature = "net")]
 pub use ws::{ConnectionConfig, ReconnectPolicy, WsManager};
 pub use ofi::{
     NanoTimestamp as OfiNanoTimestamp, OfiAccumulator, OfiMetrics, OfiMetricsComputer,
@@ -336,6 +396,7 @@ pub struct ReadmeDoctests;
 pub struct ExamplesDoctests;
 
 /// Compiles and runs every Rust block in docs/REFERENCE.md as a doctest.
-#[cfg(doctest)]
+/// The reference covers the async modules too, so it needs the `net` feature.
+#[cfg(all(doctest, feature = "net"))]
 #[doc = include_str!("../docs/REFERENCE.md")]
 pub struct ReferenceDoctests;

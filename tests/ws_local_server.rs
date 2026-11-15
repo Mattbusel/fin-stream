@@ -2,6 +2,7 @@
 //!
 //! The server side is tokio-tungstenite's own `accept_async`, so these tests run
 //! the full handshake, framing, close and reconnect paths with no network access.
+#![cfg(feature = "net")]
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use fin_stream::ws::{ConnectionConfig, ReconnectPolicy, WsManager};

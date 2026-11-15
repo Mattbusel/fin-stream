@@ -106,6 +106,6 @@ fn empty_minutes_can_be_filled() {
 #[test]
 fn venues_without_an_exchange_variant_are_rejected() {
     let mut e = events().unwrap().remove(0);
-    e.exchange = barter_instrument::exchange::ExchangeId::Okx;
+    e.exchange = barter_instrument::exchange::ExchangeId::Bitfinex;
     assert!(matches!(NormalizedTick::try_from(&e), Err(fin_stream::StreamError::UnknownExchange(_))));
 }

@@ -7,6 +7,29 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [2.14.0] - 2026-11-14
+
+### Added
+- Kraken, OKX and Bybit trade normalization: new `Exchange::Kraken`, `Exchange::Okx` and `Exchange::Bybit` variants (`FromStr` accepts `kraken`, `okx`, `bybit`; `Display` is `Kraken`, `OKX`, `Bybit`; all three are `is_crypto`). Kraken reads WebSocket v2 `trade` objects and v1 trade arrays (`[price, volume, time, side, ...]`), OKX reads v5 `trades` / `trades-all` entries, Bybit reads v5 `publicTrade` entries. All three report the taker side.
+- Quote normalization: `NormalizedQuote` (exact-decimal best bid, best ask, optional sizes, exchange and receive time) and `TickNormalizer::normalize_quote` for all seven venues: Binance `bookTicker` / `24hrTicker`, Coinbase Exchange `ticker` and Advanced Trade `ticker` / `ticker_batch`, Alpaca quotes, Polygon `Q` and `XQ`, Kraken v2 `ticker`, OKX `tickers`, Bybit `tickers`. Non-positive prices and negative sizes are rejected. Helpers: `mid_price`, `spread`, `spread_bps`, `is_crossed`, `is_locked`, and `From<&NormalizedQuote> for protocol::QuoteEvent`.
+- Whole-frame parsing: `TickNormalizer::normalize_trade_frame` and `normalize_quote_frame` take a WebSocket frame as received (Binance combined streams, Coinbase Advanced Trade `events`, Alpaca and Polygon message arrays, Kraken v1/v2, OKX `arg`/`data`, Bybit `topic`/`data`), read the symbol from the message, and return every trade or quote in it. Acks, heartbeats and other channels give an empty `Vec`. Bybit ticker deltas without both sides are skipped.
+- `net` cargo feature (on by default) holding tokio, tokio-tungstenite, rustls, async-trait and uuid, and the modules that need them: `ws`, `agg`, `anomaly`, `circuit_breaker`, `multi_exchange`, `portfolio_feed`, `replay`, `snapshot`, `grpc`, and `fix::FixSession`. With `default-features = false` the crate is pure parsing and maths (normalization, `SpscRing`, OHLCV, order books, FIX parsing, analytics) and builds for `wasm32-unknown-unknown`. `grpc` now implies `net`.
+- `TradeSide::opposite`.
+- barter interop maps barter's `Kraken`, `Okx`, `BybitSpot` and `BybitPerpetualsUsd` to the new variants instead of rejecting them.
+- Sample messages from each venue's WebSocket docs in `tests/fixtures/exchanges/`, checked by `tests/exchange_normalizers.rs`.
+
+### Fixed
+- Coinbase side: on the Coinbase Exchange `matches` channel (`"type": "match"` / `"last_match"`, or a `maker_order_id`), `side` is the maker order's side, and it was reported as the aggressor side, so every trade's direction was backwards. It is now inverted for those messages. Advanced Trade `market_trades` sends uppercase `"BUY"`/`"SELL"`, and `"BUY"` was read as a sell; the side is now compared case-insensitively, and an unrecognised side is `None` instead of `Sell`. Numeric `trade_id`s (Coinbase Exchange) are kept instead of dropped.
+- Polygon: the WebSocket feeds send `t` in milliseconds but it was divided as nanoseconds, giving timestamps in January 1970. `t` is now read by magnitude (s, ms, µs or ns), so nanosecond values still convert as before.
+- Binance `aggTrade` payloads now get their trade id from `a`.
+- Decimal fields sent as JSON numbers in scientific notation (for example Kraken's `1e-8`) parse instead of failing.
+- `RawTick::new` reads the clock through chrono, so it no longer panics on `wasm32-unknown-unknown`.
+
+### Changed
+- `Exchange` has three new variants. Code that matches on it exhaustively needs a `_` arm or the new variants. `"kraken"`, `"okx"` and `"bybit"` now parse instead of returning `UnknownExchange`.
+- Builds that turn off default features and use WebSocket, replay, aggregation or other async parts need `features = ["net"]`.
+- `examples/tape.rs` sends Coinbase `match` messages with the maker side, as Coinbase does.
+
 ## [2.13.0] - 2026-11-14
 
 ### Added

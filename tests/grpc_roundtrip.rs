@@ -80,7 +80,7 @@ async fn unknown_exchange_filter_is_rejected() {
     let (_server, url) = start().await;
     let mut client = TickStreamServiceClient::connect(url).await.unwrap();
     let req = SubscribeTicksRequest {
-        filter: Some(TickFilter { symbol: String::new(), exchange: "kraken".into() }),
+        filter: Some(TickFilter { symbol: String::new(), exchange: "deribit".into() }),
     };
     let err = client.subscribe_ticks(req).await.unwrap_err();
     assert_eq!(err.code(), tonic::Code::InvalidArgument);

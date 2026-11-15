@@ -53,7 +53,9 @@
 //!
 //! Only venues that have an [`Exchange`](crate::tick::Exchange) variant convert:
 //! barter's `BinanceSpot`, `BinanceFuturesUsd` and `BinanceFuturesCoin` become
-//! `Exchange::Binance`, and `Coinbase` becomes `Exchange::Coinbase`. Any other
+//! `Exchange::Binance`, `Coinbase` becomes `Exchange::Coinbase`, `Kraken` and `Okx`
+//! become `Exchange::Kraken` and `Exchange::Okx`, and `BybitSpot` and
+//! `BybitPerpetualsUsd` become `Exchange::Bybit`. Any other
 //! venue is rejected with [`UnknownExchange`](crate::error::StreamError::UnknownExchange) rather than mislabelled.
 //! The symbol keeps barter's instrument kind (`btc_usdt_spot` and
 //! `btc_usdt_perpetual` stay apart), so spot and futures trades on Binance do not
@@ -160,6 +162,9 @@ fn exchange_from_barter(
     match id {
         X::BinanceSpot | X::BinanceFuturesUsd | X::BinanceFuturesCoin => Ok(Exchange::Binance),
         X::Coinbase => Ok(Exchange::Coinbase),
+        X::Kraken => Ok(Exchange::Kraken),
+        X::Okx => Ok(Exchange::Okx),
+        X::BybitSpot | X::BybitPerpetualsUsd => Ok(Exchange::Bybit),
         other => Err(StreamError::UnknownExchange(format!(
             "barter-data venue {} has no fin_stream::Exchange variant",
             other.as_str()
@@ -390,8 +395,17 @@ mod tests {
     #[test]
     fn rejects_barter_trades_it_cannot_represent() {
         use barter_instrument::exchange::ExchangeId;
-        let unknown = NormalizedTick::try_from(&barter_event(ExchangeId::Kraken, 1.0, 1.0));
-        assert!(matches!(unknown, Err(StreamError::UnknownExchange(ref m)) if m.contains("kraken")));
+        let unknown = NormalizedTick::try_from(&barter_event(ExchangeId::Bitfinex, 1.0, 1.0));
+        assert!(matches!(unknown, Err(StreamError::UnknownExchange(ref m)) if m.contains("bitfinex")));
+        for (id, want) in [
+            (ExchangeId::Kraken, Exchange::Kraken),
+            (ExchangeId::Okx, Exchange::Okx),
+            (ExchangeId::BybitSpot, Exchange::Bybit),
+            (ExchangeId::BybitPerpetualsUsd, Exchange::Bybit),
+        ] {
+            let t = NormalizedTick::try_from(&barter_event(id, 1.0, 1.0)).unwrap();
+            assert_eq!(t.exchange, want);
+        }
         let bad = [
             (f64::NAN, 1.0),
             (f64::INFINITY, 1.0),

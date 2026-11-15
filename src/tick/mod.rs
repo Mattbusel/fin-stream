@@ -2,7 +2,15 @@
 //!
 //! ## Responsibility
 //! Convert heterogeneous exchange tick formats (Binance, Coinbase, Alpaca,
-//! Polygon) into a single canonical representation. This stage must add
+//! Polygon, Kraken, OKX, Bybit) into a single canonical representation.
+//! Trades become [`NormalizedTick`]s ([`TickNormalizer::normalize`]); top of
+//! book tickers and quotes become [`NormalizedQuote`]s
+//! ([`TickNormalizer::normalize_quote`]). Whole WebSocket frames, envelope and
+//! all, go through [`TickNormalizer::normalize_trade_frame`] and
+//! [`TickNormalizer::normalize_quote_frame`].
+//!
+//! This module needs no async runtime or networking: it builds with
+//! `default-features = false`, including for `wasm32-unknown-unknown`. This stage must add
 //! <1μs overhead per tick on the hot path.
 //!
 //! ## Guarantees
@@ -16,17 +24,30 @@ use rust_decimal::Decimal;
 use std::str::FromStr;
 use tracing::trace;
 
+mod frame;
+mod quote;
+mod venues;
+
+pub use quote::NormalizedQuote;
+
 /// Supported exchanges.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum Exchange {
     /// Binance spot/futures WebSocket feed.
     Binance,
-    /// Coinbase Advanced Trade WebSocket feed.
+    /// Coinbase WebSocket feeds: Advanced Trade `market_trades` and the
+    /// Coinbase Exchange `matches` channel.
     Coinbase,
     /// Alpaca Markets data stream.
     Alpaca,
     /// Polygon.io WebSocket feed.
     Polygon,
+    /// Kraken spot WebSocket (v2 `trade` / `ticker` channels, and v1 trade arrays).
+    Kraken,
+    /// OKX v5 public WebSocket (`trades` / `tickers` channels).
+    Okx,
+    /// Bybit v5 public WebSocket (`publicTrade` / `tickers` topics).
+    Bybit,
 }
 
 impl Exchange {
@@ -40,16 +61,23 @@ impl Exchange {
             Exchange::Coinbase,
             Exchange::Alpaca,
             Exchange::Polygon,
+            Exchange::Kraken,
+            Exchange::Okx,
+            Exchange::Bybit,
         ]
     }
 
     /// Returns `true` if this exchange primarily trades cryptocurrency spot/futures.
     ///
-    /// [`Binance`](Exchange::Binance) and [`Coinbase`](Exchange::Coinbase) are
-    /// crypto venues. [`Alpaca`](Exchange::Alpaca) and [`Polygon`](Exchange::Polygon)
-    /// are primarily equity/US-market feeds.
+    /// [`Binance`](Exchange::Binance), [`Coinbase`](Exchange::Coinbase),
+    /// [`Kraken`](Exchange::Kraken), [`Okx`](Exchange::Okx) and
+    /// [`Bybit`](Exchange::Bybit) are crypto venues. [`Alpaca`](Exchange::Alpaca)
+    /// and [`Polygon`](Exchange::Polygon) are primarily equity/US-market feeds.
     pub fn is_crypto(self) -> bool {
-        matches!(self, Exchange::Binance | Exchange::Coinbase)
+        matches!(
+            self,
+            Exchange::Binance | Exchange::Coinbase | Exchange::Kraken | Exchange::Okx | Exchange::Bybit
+        )
     }
 }
 
@@ -60,6 +88,9 @@ impl std::fmt::Display for Exchange {
             Exchange::Coinbase => write!(f, "Coinbase"),
             Exchange::Alpaca => write!(f, "Alpaca"),
             Exchange::Polygon => write!(f, "Polygon"),
+            Exchange::Kraken => write!(f, "Kraken"),
+            Exchange::Okx => write!(f, "OKX"),
+            Exchange::Bybit => write!(f, "Bybit"),
         }
     }
 }
@@ -72,6 +103,9 @@ impl FromStr for Exchange {
             "coinbase" => Ok(Exchange::Coinbase),
             "alpaca" => Ok(Exchange::Alpaca),
             "polygon" => Ok(Exchange::Polygon),
+            "kraken" => Ok(Exchange::Kraken),
+            "okx" => Ok(Exchange::Okx),
+            "bybit" => Ok(Exchange::Bybit),
             _ => Err(StreamError::UnknownExchange(s.to_string())),
         }
     }
@@ -165,6 +199,23 @@ impl TradeSide {
     /// Returns `true` if this side is [`TradeSide::Sell`].
     pub fn is_sell(self) -> bool {
         self == TradeSide::Sell
+    }
+
+    /// The other side: `Buy` for `Sell` and `Sell` for `Buy`.
+    ///
+    /// Feeds that report the resting (maker) order's side, such as the Coinbase
+    /// Exchange `matches` channel, need this to get the aggressor side.
+    ///
+    /// ```
+    /// use fin_stream::tick::TradeSide;
+    /// assert_eq!(TradeSide::Buy.opposite(), TradeSide::Sell);
+    /// assert_eq!(TradeSide::Sell.opposite(), TradeSide::Buy);
+    /// ```
+    pub fn opposite(self) -> TradeSide {
+        match self {
+            TradeSide::Buy => TradeSide::Sell,
+            TradeSide::Sell => TradeSide::Buy,
+        }
     }
 }
 
@@ -11436,6 +11487,9 @@ impl TickNormalizer {
             Exchange::Coinbase => self.normalize_coinbase(raw),
             Exchange::Alpaca => self.normalize_alpaca(raw),
             Exchange::Polygon => self.normalize_polygon(raw),
+            Exchange::Kraken => self.normalize_kraken(raw),
+            Exchange::Okx => self.normalize_okx(raw),
+            Exchange::Bybit => self.normalize_bybit(raw),
         }?;
         if tick.price <= Decimal::ZERO {
             return Err(StreamError::InvalidTick {
@@ -11468,7 +11522,13 @@ impl TickNormalizer {
                 TradeSide::Buy
             }
         });
-        let trade_id = p.get("t").and_then(|v| v.as_u64()).map(|id| id.to_string());
+        // `trade` streams carry the trade id in "t"; `aggTrade` streams carry
+        // the aggregate trade id in "a".
+        let trade_id = p
+            .get("t")
+            .or_else(|| p.get("a"))
+            .and_then(|v| v.as_u64())
+            .map(|id| id.to_string());
         let exchange_ts = p.get("T").and_then(|v| v.as_u64());
         Ok(NormalizedTick {
             exchange: raw.exchange,
@@ -11486,18 +11546,20 @@ impl TickNormalizer {
         let p = &raw.payload;
         let price = parse_decimal_field(p, "price", &raw.exchange.to_string())?;
         let qty = parse_decimal_field(p, "size", &raw.exchange.to_string())?;
-        let side = p.get("side").and_then(|v| v.as_str()).map(|s| {
-            if s == "buy" {
-                TradeSide::Buy
-            } else {
-                TradeSide::Sell
-            }
-        });
-        let trade_id = p
-            .get("trade_id")
+        // Two Coinbase feeds share this normalizer and spell `side` differently:
+        // - Coinbase Exchange `matches` channel (`"type": "match"` or
+        //   `"last_match"`, with `maker_order_id`): `side` is the side of the
+        //   resting *maker* order, so the aggressor is the opposite side.
+        // - Advanced Trade `market_trades` (no `type` on the trade object,
+        //   uppercase `"BUY"`/`"SELL"`): taken as the aggressor side as sent.
+        let maker_side = coinbase_side_is_maker(p);
+        let side = p
+            .get("side")
             .and_then(|v| v.as_str())
-            .map(str::to_string);
-        // Coinbase Advanced Trade sends an ISO 8601 timestamp in the "time" field.
+            .and_then(parse_side_ci)
+            .map(|s| if maker_side { s.opposite() } else { s });
+        let trade_id = id_field(p, "trade_id");
+        // Both feeds send an ISO 8601 timestamp in the "time" field.
         let exchange_ts_ms = p
             .get("time")
             .and_then(|v| v.as_str())
@@ -11543,11 +11605,9 @@ impl TickNormalizer {
         let price = parse_decimal_field(p, "p", &raw.exchange.to_string())?;
         let qty = parse_decimal_field(p, "s", &raw.exchange.to_string())?;
         let trade_id = p.get("i").and_then(|v| v.as_str()).map(str::to_string);
-        // Polygon sends nanoseconds since epoch in the "t" field; convert to milliseconds.
-        let exchange_ts = p
-            .get("t")
-            .and_then(|v| v.as_u64())
-            .map(|t_ns| t_ns / 1_000_000);
+        // Polygon's REST and flat files use nanoseconds since epoch; its
+        // WebSocket feeds send milliseconds. Tell them apart by magnitude.
+        let exchange_ts = p.get("t").and_then(|v| v.as_u64()).map(epoch_to_ms);
         Ok(NormalizedTick {
             exchange: raw.exchange,
             symbol: raw.symbol,
@@ -11567,7 +11627,7 @@ impl Default for TickNormalizer {
     }
 }
 
-fn parse_decimal_field(
+pub(crate) fn parse_decimal_field(
     v: &serde_json::Value,
     field: &str,
     exchange: &str,
@@ -11576,6 +11636,16 @@ fn parse_decimal_field(
         exchange: exchange.to_string(),
         reason: format!("missing field '{}'", field),
     })?;
+    parse_decimal_value(raw, field, exchange)
+}
+
+/// Parse a JSON string or number into a [`Decimal`] without going through `f64`.
+/// `field` only labels the error.
+pub(crate) fn parse_decimal_value(
+    raw: &serde_json::Value,
+    field: &str,
+    exchange: &str,
+) -> Result<Decimal, StreamError> {
     // Use the JSON-native string representation for both string and number
     // values. For JSON strings this is a direct parse. For JSON numbers we use
     // serde_json::Number::to_string(), which preserves the original text (e.g.
@@ -11591,17 +11661,78 @@ fn parse_decimal_field(
             });
         }
     };
-    Decimal::from_str(&s).map_err(|e| StreamError::ParseError {
-        exchange: exchange.to_string(),
-        reason: format!("field '{}' parse error: {}", field, e),
-    })
+    // JSON numbers such as 1e-8 (Kraken v2 sends quantities as numbers) come
+    // out in scientific notation, which `from_str` rejects.
+    Decimal::from_str(&s)
+        .or_else(|e| Decimal::from_scientific(&s).map_err(|_| e))
+        .map_err(|e| StreamError::ParseError {
+            exchange: exchange.to_string(),
+            reason: format!("field '{}' parse error: {}", field, e),
+        })
 }
 
-fn now_ms() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis() as u64)
-        .unwrap_or(0)
+/// An epoch timestamp in s, ms, µs or ns, converted to ms by its magnitude.
+/// Anything below 1e11 is taken as seconds (before 1973 in ms), below 1e14 as
+/// ms, below 1e17 as µs, and the rest as ns.
+pub(crate) fn epoch_to_ms(t: u64) -> u64 {
+    match t {
+        0..=99_999_999_999 => t.saturating_mul(1_000),
+        100_000_000_000..=99_999_999_999_999 => t,
+        100_000_000_000_000..=99_999_999_999_999_999 => t / 1_000,
+        _ => t / 1_000_000,
+    }
+}
+
+pub(crate) fn now_ms() -> u64 {
+    // chrono's clock works on wasm32-unknown-unknown (through `Date.now()`),
+    // where `std::time::SystemTime::now()` panics.
+    u64::try_from(chrono::Utc::now().timestamp_millis()).unwrap_or(0)
+}
+
+/// `true` when a Coinbase trade object comes from the Coinbase Exchange
+/// `matches` channel, whose `side` is the maker's side.
+fn coinbase_side_is_maker(p: &serde_json::Value) -> bool {
+    matches!(
+        p.get("type").and_then(|v| v.as_str()),
+        Some("match") | Some("last_match")
+    ) || p.get("maker_order_id").is_some()
+}
+
+/// Case-insensitive `buy`/`sell` (also `b`/`s`). `None` for anything else.
+pub(crate) fn parse_side_ci(s: &str) -> Option<TradeSide> {
+    if s.eq_ignore_ascii_case("buy") || s.eq_ignore_ascii_case("b") {
+        Some(TradeSide::Buy)
+    } else if s.eq_ignore_ascii_case("sell") || s.eq_ignore_ascii_case("s") {
+        Some(TradeSide::Sell)
+    } else {
+        None
+    }
+}
+
+/// An identifier field that may arrive as a JSON string or a JSON number.
+pub(crate) fn id_field(p: &serde_json::Value, field: &str) -> Option<String> {
+    match p.get(field)? {
+        serde_json::Value::String(s) => Some(s.clone()),
+        serde_json::Value::Number(n) => Some(n.to_string()),
+        _ => None,
+    }
+}
+
+/// A millisecond timestamp that may arrive as a JSON number or a numeric string.
+pub(crate) fn ms_field(p: &serde_json::Value, field: &str) -> Option<u64> {
+    match p.get(field)? {
+        serde_json::Value::Number(n) => n.as_u64(),
+        serde_json::Value::String(s) => s.parse().ok(),
+        _ => None,
+    }
+}
+
+/// An RFC 3339 timestamp field, in ms since the Unix epoch.
+pub(crate) fn rfc3339_ms_field(p: &serde_json::Value, field: &str) -> Option<u64> {
+    p.get(field)
+        .and_then(|v| v.as_str())
+        .and_then(|s| DateTime::parse_from_rfc3339(s).ok())
+        .and_then(|dt| u64::try_from(dt.timestamp_millis()).ok())
 }
 
 #[cfg(test)]
@@ -11614,6 +11745,43 @@ mod tests {
 
     fn normalizer() -> TickNormalizer {
         TickNormalizer::new()
+    }
+
+    #[test]
+    fn test_epoch_to_ms_by_magnitude() {
+        assert_eq!(epoch_to_ms(1_700_000_000), 1_700_000_000_000); // s
+        assert_eq!(epoch_to_ms(1_700_000_000_123), 1_700_000_000_123); // ms
+        assert_eq!(epoch_to_ms(1_700_000_000_123_456), 1_700_000_000_123); // µs
+        assert_eq!(epoch_to_ms(1_700_000_000_123_456_789), 1_700_000_000_123); // ns
+    }
+
+    #[test]
+    fn test_parse_side_ci() {
+        assert_eq!(parse_side_ci("BUY"), Some(TradeSide::Buy));
+        assert_eq!(parse_side_ci("Sell"), Some(TradeSide::Sell));
+        assert_eq!(parse_side_ci("b"), Some(TradeSide::Buy));
+        assert_eq!(parse_side_ci("S"), Some(TradeSide::Sell));
+        assert_eq!(parse_side_ci("UNKNOWN_ORDER_SIDE"), None);
+    }
+
+    #[test]
+    fn test_coinbase_match_inverts_and_advanced_trade_does_not() {
+        let matched = RawTick {
+            exchange: Exchange::Coinbase,
+            symbol: "BTC-USD".into(),
+            payload: json!({ "type": "match", "price": "1", "size": "1", "side": "buy", "trade_id": 7 }),
+            received_at_ms: 0,
+        };
+        let t = normalizer().normalize(matched).unwrap();
+        assert_eq!(t.side, Some(TradeSide::Sell));
+        assert_eq!(t.trade_id.as_deref(), Some("7"));
+        let advanced = RawTick {
+            exchange: Exchange::Coinbase,
+            symbol: "BTC-USD".into(),
+            payload: json!({ "price": "1", "size": "1", "side": "BUY" }),
+            received_at_ms: 0,
+        };
+        assert_eq!(normalizer().normalize(advanced).unwrap().side, Some(TradeSide::Buy));
     }
 
     fn binance_tick(symbol: &str) -> RawTick {
@@ -11663,7 +11831,7 @@ mod tests {
 
     #[test]
     fn test_exchange_from_str_unknown_returns_error() {
-        let result = "Kraken".parse::<Exchange>();
+        let result = "Deribit".parse::<Exchange>();
         assert!(matches!(result, Err(StreamError::UnknownExchange(_))));
     }
 

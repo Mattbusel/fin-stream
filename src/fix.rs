@@ -20,23 +20,31 @@
 //! | `X`     | Market Data Incremental Refresh |
 //!
 //! ## Concurrency
-//! [`FixParser`] is stateless and `Send + Sync`. [`FixSession`] owns its TCP
+//! [`FixParser`] is stateless and `Send + Sync` and needs no feature flag.
+//! `FixSession` (behind the `net` feature) owns its TCP
 //! stream and is not intended to be shared across tasks — wrap in `Arc<Mutex<_>>`
 //! if needed.
 
 use crate::error::StreamError;
+#[cfg(feature = "net")]
 use crate::tick::{Exchange, NormalizedTick};
+#[cfg(feature = "net")]
 use rust_decimal::Decimal;
 use std::collections::HashMap;
+#[cfg(feature = "net")]
 use std::str::FromStr;
+#[cfg(feature = "net")]
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
+#[cfg(feature = "net")]
 use tokio::net::TcpStream;
+#[cfg(feature = "net")]
 use tracing::{debug, info, warn};
 
 /// SOH byte — FIX field separator.
 const SOH: u8 = 0x01;
 
 /// FIX 4.2 tag numbers used in this implementation.
+#[cfg_attr(not(feature = "net"), allow(dead_code))]
 mod tag {
     pub const BEGIN_STRING: u32 = 8;
     pub const BODY_LENGTH: u32 = 9;
@@ -283,6 +291,10 @@ impl FixParser {
 }
 
 /// A FIX 4.2 session — TCP connection with sequence number tracking.
+///
+/// Needs the `net` feature; [`FixParser`] and [`FixMessage`] do not.
+#[cfg(feature = "net")]
+#[cfg_attr(docsrs, doc(cfg(feature = "net")))]
 pub struct FixSession {
     stream: TcpStream,
     parser: FixParser,
@@ -291,6 +303,7 @@ pub struct FixSession {
     seq_num: u32,
 }
 
+#[cfg(feature = "net")]
 impl FixSession {
     /// Open a TCP connection to `addr` (e.g. `"127.0.0.1:9878"`).
     ///
@@ -579,6 +592,7 @@ mod tests {
 
     // TcpStream::from_std registers the socket with the Tokio reactor, so these
     // tests need a runtime (plain #[test] panicked with "no reactor running").
+    #[cfg(feature = "net")]
     #[tokio::test]
     async fn on_message_snapshot_converts_to_tick() {
         let parser = FixParser::new();
@@ -617,6 +631,7 @@ mod tests {
 
     // TcpStream::from_std registers the socket with the Tokio reactor, so these
     // tests need a runtime (plain #[test] panicked with "no reactor running").
+    #[cfg(feature = "net")]
     #[tokio::test]
     async fn on_message_heartbeat_returns_none() {
         let parser = FixParser::new();

@@ -270,7 +270,7 @@ impl VenueFeed {
             Exchange::Binance => 38,
             Exchange::Coinbase => 11,
             Exchange::Alpaca => 19,
-            Exchange::Polygon => 24,
+            _ => 24,
         } + self.rng.next_u64() % 9;
         self.seq += 1 + self.rng.next_u64() % 3;
         let ts = self.clock_ms;
@@ -284,11 +284,12 @@ impl VenueFeed {
                 "p": format!("{price:.2}"), "q": format!("{qty:.5}"),
                 "T": ts, "m": !buy
             }),
-            // Taker side spelled out, ISO-8601 time.
+            // `matches` channel: `side` is the resting maker order's side, so a
+            // buy aggressor shows up as "sell". The normalizer flips it back.
             Exchange::Coinbase => json!({
-                "type": "match", "product_id": "BTC-USD", "trade_id": self.seq.to_string(),
+                "type": "match", "product_id": "BTC-USD", "trade_id": self.seq,
                 "price": format!("{price:.2}"), "size": format!("{qty:.8}"),
-                "side": if buy { "buy" } else { "sell" }, "time": iso
+                "side": if buy { "sell" } else { "buy" }, "time": iso
             }),
             // JSON numbers, no side field.
             Exchange::Alpaca => json!({
