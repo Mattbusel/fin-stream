@@ -1,10 +1,10 @@
 [package]
 name = "fin-stream"
-version = "2.14.0"
+version = "2.14.1"
 edition = "2021"
 rust-version = "1.81"
 license = "MIT"
-repository = "https://gitlab.com/mattbusel/fin-stream"
+repository = "https://github.com/Mattbusel/fin-stream"
 documentation = "https://docs.rs/fin-stream"
 homepage = "https://fin-stream-rs.vercel.app/"
 readme = "README.md"
