@@ -89,6 +89,8 @@
 //! | Feature | Default | Adds |
 //! |---|---|---|
 //! | `net` | yes | tokio, WebSocket ([`ws`]), FIX TCP session, replay, portfolio feeds, feed aggregation |
+//! | `shared-state` | yes | `dashmap`, and the modules that keep per-key state in it: [`HealthMonitor`], `orderbook`, `correlation`, `circuit`, `quality`, `risk` and others |
+//! | `latency` | yes | `hdrhistogram`, and the `latency` percentile module |
 //! | `fin-primitives` | yes | `From<FinError> for StreamError` |
 //! | `metrics` | no | counters through the `metrics` facade |
 //! | `grpc` | no | gRPC tick stream (implies `net`) |
@@ -97,6 +99,10 @@
 //! With `default-features = false` the crate has no async runtime and no
 //! networking dependencies: normalization, the ring buffer, bars, books and the
 //! analytics modules build on their own, including for `wasm32-unknown-unknown`.
+//!
+//! The smallest build with the WebSocket client is
+//! `default-features = false, features = ["net"]`: [`ws`] and tick
+//! normalization, without `dashmap` or `hdrhistogram`.
 //!
 //! ## Runnable examples
 //!
@@ -179,6 +185,8 @@ pub mod interop;
 pub mod telemetry;
 pub mod aggregator;
 
+#[cfg(feature = "shared-state")]
+#[cfg_attr(docsrs, doc(cfg(feature = "shared-state")))]
 pub mod orderbook;
 #[cfg(feature = "net")]
 #[cfg_attr(docsrs, doc(cfg(feature = "net")))]
@@ -187,22 +195,26 @@ pub mod book;
 #[cfg(feature = "net")]
 #[cfg_attr(docsrs, doc(cfg(feature = "net")))]
 pub mod circuit_breaker;
+#[cfg(feature = "shared-state")]
+#[cfg_attr(docsrs, doc(cfg(feature = "shared-state")))]
 pub mod correlation;
 pub mod error;
 pub mod fix;
 #[cfg(feature = "net")]
 #[cfg_attr(docsrs, doc(cfg(feature = "net")))]
 pub mod grpc;
+#[cfg(feature = "shared-state")]
+#[cfg_attr(docsrs, doc(cfg(feature = "shared-state")))]
 pub mod health;
 pub mod lorentz;
 pub mod mev;
-#[cfg(feature = "net")]
-#[cfg_attr(docsrs, doc(cfg(feature = "net")))]
+#[cfg(all(feature = "net", feature = "shared-state"))]
+#[cfg_attr(docsrs, doc(cfg(all(feature = "net", feature = "shared-state"))))]
 pub mod multi_exchange;
 pub mod norm;
 pub mod ohlcv;
-#[cfg(feature = "net")]
-#[cfg_attr(docsrs, doc(cfg(feature = "net")))]
+#[cfg(all(feature = "net", feature = "shared-state"))]
+#[cfg_attr(docsrs, doc(cfg(all(feature = "net", feature = "shared-state"))))]
 pub mod portfolio_feed;
 pub mod protocol;
 #[cfg(feature = "net")]
@@ -220,6 +232,8 @@ pub mod ws;
 pub mod predictive_book;
 pub mod execution;
 
+#[cfg(feature = "shared-state")]
+#[cfg_attr(docsrs, doc(cfg(feature = "shared-state")))]
 pub mod portfolio_risk;
 pub mod regime;
 pub mod synthetic;
@@ -230,12 +244,18 @@ pub mod ofi;
 
 pub mod microstructure;
 
+#[cfg(feature = "shared-state")]
+#[cfg_attr(docsrs, doc(cfg(feature = "shared-state")))]
 pub mod quality;
 
+#[cfg(feature = "shared-state")]
+#[cfg_attr(docsrs, doc(cfg(feature = "shared-state")))]
 pub mod circuit;
 
 pub mod lob_sim;
 
+#[cfg(feature = "shared-state")]
+#[cfg_attr(docsrs, doc(cfg(feature = "shared-state")))]
 pub mod arbitrage;
 
 pub mod compression;
@@ -244,6 +264,8 @@ pub mod network;
 
 pub mod marketmaker;
 
+#[cfg(feature = "latency")]
+#[cfg_attr(docsrs, doc(cfg(feature = "latency")))]
 pub mod latency;
 
 pub mod statarb;
@@ -266,22 +288,24 @@ pub use anomaly::{AnomalyDetectorConfig, AnomalyEvent, AnomalyKind, TickAnomalyD
 pub use book::{BookDelta, BookSide, OrderBook, PriceLevel};
 #[cfg(feature = "net")]
 pub use circuit_breaker::{CircuitBreakerConfig, CircuitState, WsCircuitBreaker};
+#[cfg(feature = "shared-state")]
 pub use correlation::{CorrelationPair, StreamingCorrelationMatrix};
 pub use error::StreamError;
 pub use fix::{FixError, FixMessage, FixParser};
 #[cfg(feature = "net")]
 pub use fix::FixSession;
+#[cfg(feature = "shared-state")]
 pub use health::{FeedHealth, HealthMonitor, HealthStatus};
 pub use lorentz::{LorentzTransform, SpacetimePoint};
 pub use mev::{MevCandidate, MevDetector, MevPattern};
-#[cfg(feature = "net")]
+#[cfg(all(feature = "net", feature = "shared-state"))]
 pub use multi_exchange::{
     AggregatorConfig as MultiExchangeAggregatorConfig, ArbitrageOpportunity,
     ExchangeLatencyStats, MultiExchangeAggregator, Nbbo,
 };
 pub use norm::{MinMaxNormalizer, ZScoreNormalizer};
 pub use ohlcv::{OhlcvAggregator, OhlcvBar, Timeframe};
-#[cfg(feature = "net")]
+#[cfg(all(feature = "net", feature = "shared-state"))]
 pub use portfolio_feed::{AssetFeedConfig, AssetFeedStats, PortfolioFeed};
 #[cfg(feature = "net")]
 pub use replay::{ReplaySession, ReplayStats, TickReplayer, TickSource};
@@ -289,7 +313,7 @@ pub use ring::{SpscConsumer, SpscProducer, SpscRing};
 pub use session::{MarketSession, SessionAwareness, TradingStatus};
 #[cfg(feature = "net")]
 pub use snapshot::{TickRecorder, TickReplayer as SnapshotReplayer};
-pub use tick::{Exchange, NormalizedQuote, NormalizedTick, RawTick, TickNormalizer};
+pub use tick::{Exchange, NormalizedQuote, NormalizedTick, RawTick, TickNormalizer, TimestampSource};
 #[cfg(feature = "net")]
 pub use ws::{ConnectionConfig, ReconnectPolicy, WsManager};
 pub use ofi::{
@@ -301,22 +325,36 @@ pub use microstructure::{
     MicrostructureReport, RollSpread,
 };
 
+#[cfg(feature = "shared-state")]
+#[cfg_attr(docsrs, doc(cfg(feature = "shared-state")))]
 pub mod risk;
 
 pub mod classifier;
 
 pub mod spread;
 
+#[cfg(feature = "shared-state")]
+#[cfg_attr(docsrs, doc(cfg(feature = "shared-state")))]
 pub mod depth;
 
+#[cfg(feature = "shared-state")]
+#[cfg_attr(docsrs, doc(cfg(feature = "shared-state")))]
 pub mod funding;
 
+#[cfg(feature = "shared-state")]
+#[cfg_attr(docsrs, doc(cfg(feature = "shared-state")))]
 pub mod pattern;
 
+#[cfg(feature = "shared-state")]
+#[cfg_attr(docsrs, doc(cfg(feature = "shared-state")))]
 pub mod news;
 
+#[cfg(feature = "shared-state")]
+#[cfg_attr(docsrs, doc(cfg(feature = "shared-state")))]
 pub mod signal;
 
+#[cfg(feature = "shared-state")]
+#[cfg_attr(docsrs, doc(cfg(feature = "shared-state")))]
 pub mod position_tracker;
 
 pub mod venue_selector;
@@ -347,6 +385,8 @@ pub mod order_flow;
 
 pub mod market_maker;
 
+#[cfg(feature = "shared-state")]
+#[cfg_attr(docsrs, doc(cfg(feature = "shared-state")))]
 pub mod risk_engine;
 
 pub mod data_pipeline;
@@ -365,16 +405,24 @@ pub mod vwap_tracker;
 
 pub mod spread_monitor;
 
+#[cfg(feature = "shared-state")]
+#[cfg_attr(docsrs, doc(cfg(feature = "shared-state")))]
 pub mod alpha_engine;
 
+#[cfg(feature = "shared-state")]
+#[cfg_attr(docsrs, doc(cfg(feature = "shared-state")))]
 pub mod position_manager;
 
 pub mod market_simulator;
 
+#[cfg(feature = "shared-state")]
+#[cfg_attr(docsrs, doc(cfg(feature = "shared-state")))]
 pub mod tick_processor;
 
 pub mod performance_attribution;
 
+#[cfg(feature = "shared-state")]
+#[cfg_attr(docsrs, doc(cfg(feature = "shared-state")))]
 pub mod order_router;
 
 pub mod pairs_trader;

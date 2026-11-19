@@ -7,6 +7,18 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [2.15.0] - 2026-11-19
+
+### Added
+- `TimestampSource` (`Exchange` or `Local`), `NormalizedTick::timestamp_source()` and `NormalizedTick::event_time_ms()`, which returns the event time together with the clock it came from, so a consumer that falls back to the receive time can record that it did instead of mixing two clocks in one field.
+- `shared-state` feature (on by default) holding `dashmap` and the modules that use it: `health`, `orderbook`, `correlation`, `circuit`, `quality`, `risk`, `risk_engine`, `depth`, `funding`, `pattern`, `news`, `signal`, `arbitrage`, `alpha_engine`, `order_router`, `portfolio_risk`, `position_manager`, `position_tracker`, `tick_processor`, and with `net` also `multi_exchange` and `portfolio_feed`.
+- `latency` feature (on by default) holding `hdrhistogram` and the `latency` module.
+
+### Changed
+- `thiserror` 1 to 2. Error messages and variants are unchanged.
+- `TickNormalizer::normalize` (and so `normalize_trade_frame`) rejects a trade with zero quantity, such as Binance `"q": "0"`, with `StreamError::InvalidTick`, the same as a negative one. A zero-size print is not a trade, and letting it through counted it in volume, trade counts and flow statistics.
+- Builds with `default-features = false` that use any of the modules listed above need `features = ["shared-state"]` (or `["latency"]`). `default-features = false, features = ["net"]` now gives the WebSocket client and normalization without `dashmap` or `hdrhistogram`.
+
 ## [2.14.1] - 2026-11-16
 
 - Package metadata only: `repository` points at https://github.com/Mattbusel/fin-stream (the GitHub repository, where issues, releases and the dependents graph are), no code change from 2.14.0.

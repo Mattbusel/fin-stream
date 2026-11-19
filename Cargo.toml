@@ -1,6 +1,6 @@
 [package]
 name = "fin-stream"
-version = "2.14.1"
+version = "2.15.0"
 edition = "2021"
 rust-version = "1.81"
 license = "MIT"
@@ -15,7 +15,7 @@ description = "Turn raw Binance, Coinbase, Kraken, OKX, Bybit, Alpaca and Polygo
 include = ["src/**/*", "benches/**/*", "tests/**/*", "examples/**/*", "proto/**/*", "Cargo.toml", "README.md", "docs/*.md", "LICENSE"]
 
 [package.metadata.docs.rs]
-features = ["net", "fin-primitives", "grpc", "metrics", "barter"]
+features = ["net", "shared-state", "latency", "fin-primitives", "grpc", "metrics", "barter"]
 rustdoc-args = ["--cfg", "docsrs"]
 # Scrape the examples so docs.rs shows real call sites next to the APIs they use.
 cargo-args = ["-Zunstable-options", "-Zrustdoc-scrape-examples"]
@@ -42,7 +42,7 @@ needless_range_loop = "allow"
 type_complexity = "allow"
 
 [features]
-default = ["net", "fin-primitives"]
+default = ["net", "shared-state", "latency", "fin-primitives"]
 ## Async runtime and networking: `WsManager`, the FIX TCP session, replay,
 ## snapshot replay, portfolio feeds, feed aggregation, anomaly and circuit-breaker
 ## tasks. Pulls in tokio, tokio-tungstenite, rustls, async-trait and uuid.
@@ -50,6 +50,15 @@ default = ["net", "fin-primitives"]
 ## tick and quote normalization, ring buffer, OHLCV bars, order books, analytics.
 ## That build has no networking dependencies and compiles for `wasm32-unknown-unknown`.
 net = ["dep:tokio", "dep:tokio-tungstenite", "dep:rustls", "dep:async-trait", "dep:uuid"]
+## Modules that keep per-key state in a concurrent map (`dashmap`): `health`
+## (`HealthMonitor`), `orderbook`, `correlation`, `circuit`, `quality`, `risk`,
+## `risk_engine`, `depth`, `funding`, `pattern`, `news`, `signal`, `arbitrage`,
+## `alpha_engine`, `order_router`, `portfolio_risk`, `position_manager`,
+## `position_tracker`, `tick_processor`, and with `net` also `multi_exchange` and
+## `portfolio_feed`. The WebSocket client (`ws`) and tick normalization do not need it.
+shared-state = ["dep:dashmap"]
+## The `latency` module (HDR histogram percentiles). Pulls in `hdrhistogram`.
+latency = ["dep:hdrhistogram"]
 ## `From<fin_primitives::FinError> for StreamError`, so `?` works on fin-primitives calls.
 fin-primitives = ["dep:fin-primitives"]
 ## Emit counters (messages, bytes, reconnects, late ticks) through the `metrics` crate,
@@ -69,7 +78,7 @@ tokio = { version = "1.40", features = ["full"], optional = true }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 # thiserror: typed streaming errors
-thiserror = "1.0"
+thiserror = "2.0"
 # async-trait: trait objects for feed adapters
 async-trait = { version = "0.1", optional = true }
 # tokio-tungstenite: async WebSocket
@@ -83,11 +92,11 @@ rust_decimal = { version = "1.35", features = ["serde-with-str"] }
 # chrono: timestamp handling
 chrono = { version = "0.4", features = ["serde"] }
 # dashmap: concurrent order book / health state
-dashmap = "6.1"
+dashmap = { version = "6.1", optional = true }
 # uuid: feed/subscription identifiers
 uuid = { version = "1.6", features = ["v4", "fast-rng", "serde"], optional = true }
 # hdrhistogram: latency percentiles (latency module)
-hdrhistogram = { version = "7.5", default-features = false }
+hdrhistogram = { version = "7.5", default-features = false, optional = true }
 # tracing: pipeline observability
 tracing = "0.1"
 # fin-primitives: only for `From<FinError> for StreamError` (optional, default on)
@@ -125,6 +134,10 @@ required-features = ["barter"]
 [[example]]
 name = "replay"
 required-features = ["net"]
+
+[[example]]
+name = "feed_health"
+required-features = ["shared-state"]
 
 [[bench]]
 name = "tick_hot_path"

@@ -157,6 +157,15 @@ pub struct NormalizedTick {
     pub received_at_ms: u64,
 }
 
+/// The clock a tick's event time was read from. See [`NormalizedTick::event_time_ms`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+pub enum TimestampSource {
+    /// The exchange's timestamp for the trade, or for the frame that carried it.
+    Exchange,
+    /// The local system clock at the moment the message was received.
+    Local,
+}
+
 /// Direction of trade that generated the tick.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum TradeSide {
@@ -340,6 +349,50 @@ impl NormalizedTick {
     /// this returns `true`.
     pub fn has_exchange_ts(&self) -> bool {
         self.exchange_ts_ms.is_some()
+    }
+
+    /// Which clock [`event_time_ms`](Self::event_time_ms) reads for this tick.
+    ///
+    /// [`TimestampSource::Exchange`] when the venue sent a trade time (or the
+    /// frame envelope carried one), [`TimestampSource::Local`] when only the
+    /// receive time is known.
+    pub fn timestamp_source(&self) -> TimestampSource {
+        if self.exchange_ts_ms.is_some() {
+            TimestampSource::Exchange
+        } else {
+            TimestampSource::Local
+        }
+    }
+
+    /// Event time in ms since the Unix epoch, together with the clock it came from.
+    ///
+    /// Gives `exchange_ts_ms` when present and `received_at_ms` otherwise, and
+    /// always says which, so a recorded stream never mixes the two clocks
+    /// without a label.
+    ///
+    /// ```
+    /// use fin_stream::tick::{Exchange, NormalizedTick, TimestampSource};
+    /// use rust_decimal::Decimal;
+    ///
+    /// let tick = NormalizedTick {
+    ///     exchange: Exchange::Binance,
+    ///     symbol: "BTCUSDT".into(),
+    ///     price: Decimal::new(50_000, 0),
+    ///     quantity: Decimal::new(1, 0),
+    ///     side: None,
+    ///     trade_id: None,
+    ///     exchange_ts_ms: None,
+    ///     received_at_ms: 1_700_000_000_123,
+    /// };
+    /// assert_eq!(tick.event_time_ms(), (1_700_000_000_123, TimestampSource::Local));
+    /// let tick = tick.with_exchange_ts(1_700_000_000_000);
+    /// assert_eq!(tick.event_time_ms(), (1_700_000_000_000, TimestampSource::Exchange));
+    /// ```
+    pub fn event_time_ms(&self) -> (u64, TimestampSource) {
+        match self.exchange_ts_ms {
+            Some(ts) => (ts, TimestampSource::Exchange),
+            None => (self.received_at_ms, TimestampSource::Local),
+        }
     }
 
     /// Human-readable trade direction: `"buy"`, `"sell"`, or `"unknown"`.
@@ -11479,8 +11532,8 @@ impl TickNormalizer {
     /// # Errors
     ///
     /// Returns [`StreamError::ParseError`] if required fields are missing or
-    /// malformed, and [`StreamError::InvalidTick`] if price is not positive or
-    /// quantity is negative.
+    /// malformed, and [`StreamError::InvalidTick`] if price or quantity is not
+    /// positive (a zero-size trade such as `"q": "0"` is rejected).
     pub fn normalize(&self, raw: RawTick) -> Result<NormalizedTick, StreamError> {
         let tick = match raw.exchange {
             Exchange::Binance => self.normalize_binance(raw),
@@ -11496,9 +11549,11 @@ impl TickNormalizer {
                 reason: format!("price must be positive, got {}", tick.price),
             });
         }
-        if tick.quantity < Decimal::ZERO {
+        // A trade print of size zero is not a trade; letting it through would
+        // count it in volume, trade counts and flow statistics.
+        if tick.quantity <= Decimal::ZERO {
             return Err(StreamError::InvalidTick {
-                reason: format!("quantity must be non-negative, got {}", tick.quantity),
+                reason: format!("quantity must be positive, got {}", tick.quantity),
             });
         }
         trace!(
@@ -12039,16 +12094,52 @@ mod tests {
     }
 
     #[test]
-    fn test_normalize_zero_quantity_is_valid() {
-        // Zero quantity is allowed (e.g., remove from book), just not negative
+    fn test_normalize_zero_quantity_returns_invalid_tick() {
+        // A zero-size print is not a trade and must not reach volume or flow stats.
+        for q in [json!("0"), json!("0.00000000"), json!(0)] {
+            let raw = RawTick {
+                exchange: Exchange::Binance,
+                symbol: "BTCUSDT".into(),
+                payload: json!({ "p": "100", "q": q }),
+                received_at_ms: 0,
+            };
+            let err = normalizer().normalize(raw).unwrap_err();
+            assert!(matches!(err, StreamError::InvalidTick { .. }), "q={q}");
+        }
+    }
+
+    #[test]
+    fn test_normalize_trade_frame_rejects_zero_quantity() {
+        let frame = json!({
+            "arg": {"channel": "trades", "instId": "BTC-USDT"},
+            "data": [{"instId": "BTC-USDT", "tradeId": "1", "px": "42219.9",
+                      "sz": "0", "side": "buy", "ts": "1630048897897"}]
+        });
+        let err = normalizer().normalize_trade_frame(Exchange::Okx, &frame).unwrap_err();
+        assert!(matches!(err, StreamError::InvalidTick { .. }));
+    }
+
+    #[test]
+    fn test_timestamp_source_reports_clock() {
         let raw = RawTick {
             exchange: Exchange::Binance,
             symbol: "BTCUSDT".into(),
-            payload: json!({ "p": "100", "q": "0" }),
-            received_at_ms: 0,
+            payload: json!({ "p": "100", "q": "1" }),
+            received_at_ms: 42,
         };
         let tick = normalizer().normalize(raw).unwrap();
-        assert_eq!(tick.quantity, Decimal::ZERO);
+        assert_eq!(tick.timestamp_source(), TimestampSource::Local);
+        assert_eq!(tick.event_time_ms(), (42, TimestampSource::Local));
+
+        let raw = RawTick {
+            exchange: Exchange::Binance,
+            symbol: "BTCUSDT".into(),
+            payload: json!({ "p": "100", "q": "1", "T": 1_700_000_000_000u64 }),
+            received_at_ms: 42,
+        };
+        let tick = normalizer().normalize(raw).unwrap();
+        assert_eq!(tick.timestamp_source(), TimestampSource::Exchange);
+        assert_eq!(tick.event_time_ms(), (1_700_000_000_000, TimestampSource::Exchange));
     }
 
     #[test]
@@ -12115,12 +12206,14 @@ mod tests {
             symbol: "BTCUSDT".into(),
             payload: serde_json::json!({
                 "p": "50000",
-                "q": "0",
+                "q": "1",
                 "m": false,
             }),
             received_at_ms: 1000,
         };
-        let tick = normalizer().normalize(raw).unwrap();
+        // normalize rejects zero size, so build the zero-size tick directly.
+        let mut tick = normalizer().normalize(raw).unwrap();
+        tick.quantity = Decimal::ZERO;
         assert_eq!(tick.value(), dec!(0));
     }
 
