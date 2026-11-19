@@ -11,7 +11,7 @@ readme = "README.md"
 authors = ["Matt Busel <matt@busel.dev>"]
 keywords = ["market-data", "trading", "crypto", "websocket", "ohlcv"]
 categories = ["finance", "asynchronous", "concurrency", "network-programming"]
-description = "Turn raw Binance, Coinbase, Kraken, OKX, Bybit, Alpaca and Polygon trade and quote messages into one exact-decimal tick type, pass them between threads on a lock-free ring, and roll them into OHLCV bars, with feed health checks and replay."
+description = "A price is not a float: turn raw Binance, Coinbase, Kraken, OKX, Bybit, Alpaca and Polygon trade and quote messages into one exact-decimal tick type, pass them between threads on a lock-free ring, and roll them into OHLCV bars, with feed health checks and replay."
 include = ["src/**/*", "benches/**/*", "tests/**/*", "examples/**/*", "proto/**/*", "Cargo.toml", "README.md", "docs/*.md", "LICENSE"]
 
 [package.metadata.docs.rs]

@@ -1,4 +1,4 @@
-# fin-stream
+# fin-stream: a price is not a float
 
 English | [简体中文](README.zh-CN.md) | [日本語](README.ja.md) | [한국어](README.ko.md)
 
@@ -6,7 +6,7 @@ English | [简体中文](README.zh-CN.md) | [日本語](README.ja.md) | [한국�
 [![docs.rs](https://docs.rs/fin-stream/badge.svg)](https://docs.rs/fin-stream)
 [![MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-Live trades from four exchanges in one format, for Rust.
+Every exchange sends the same trade in a different shape: Binance and Coinbase send the price as a string, Alpaca and Polygon as a JSON number. Parse them all into `f64` and your bot has already agreed that 0.1 + 0.2 is 0.30000000000000004. fin-stream turns those messages into one exact-decimal tick, so the price your strategy sees is the price the exchange sent.
 
 About 1.2 billion ring buffer push/pops a second on one thread.
 
