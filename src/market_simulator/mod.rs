@@ -52,7 +52,9 @@ impl SimAgent {
         seed: u64,
     ) -> Option<SimOrder> {
         // Deterministic pseudo-random number from step, agent id, and seed.
-        let s0 = seed ^ step.wrapping_mul(6_364_136_223_846_793_005) ^ (self.id as u64).wrapping_mul(2_862_933_555_777_941_757);
+        let s0 = seed
+            ^ step.wrapping_mul(6_364_136_223_846_793_005)
+            ^ (self.id as u64).wrapping_mul(2_862_933_555_777_941_757);
         let r = lcg_uniform(s0);
         let s1 = s0 ^ 0xDEAD_BEEF_CAFE_1234_u64;
         let _r2 = lcg_uniform(s1);
@@ -306,7 +308,9 @@ impl MarketSimulator {
         let mut asks: Vec<SimOrder> = Vec::new();
 
         for agent in &self.agents {
-            if let Some(order) = agent.generate_order(mid, vol, self.step, step_seed ^ (agent.id as u64)) {
+            if let Some(order) =
+                agent.generate_order(mid, vol, self.step, step_seed ^ (agent.id as u64))
+            {
                 if order.is_buy {
                     bids.push(order);
                 } else {
@@ -322,7 +326,8 @@ impl MarketSimulator {
         let shock_u = lcg_uniform(step_seed ^ 0xF00D);
         let shock_u2 = lcg_uniform(step_seed ^ 0xBEEF);
         let shock_u = shock_u.max(1e-12);
-        let shock = (-2.0 * shock_u.ln()).sqrt() * (2.0 * PI * shock_u2).cos()
+        let shock = (-2.0 * shock_u.ln()).sqrt()
+            * (2.0 * PI * shock_u2).cos()
             * self.formation.noise_variance.sqrt();
         self.formation.update_fundamental(shock);
 
@@ -341,7 +346,13 @@ impl MarketSimulator {
         self.spread_history.push(ask - bid);
         self.step += 1;
 
-        SimStep { trades, new_price, bid, ask, volume }
+        SimStep {
+            trades,
+            new_price,
+            bid,
+            ask,
+            volume,
+        }
     }
 
     /// Run the simulator for `steps` steps.
@@ -372,13 +383,18 @@ impl MarketSimulator {
     /// Match bids against asks using price-time priority.
     ///
     /// Returns a list of `(price, quantity)` trades.
-    pub fn match_orders(
-        bids: &mut [SimOrder],
-        asks: &mut [SimOrder],
-    ) -> Vec<(f64, f64)> {
+    pub fn match_orders(bids: &mut [SimOrder], asks: &mut [SimOrder]) -> Vec<(f64, f64)> {
         // Sort bids descending by price, asks ascending.
-        bids.sort_by(|a, b| b.price.partial_cmp(&a.price).unwrap_or(std::cmp::Ordering::Equal));
-        asks.sort_by(|a, b| a.price.partial_cmp(&b.price).unwrap_or(std::cmp::Ordering::Equal));
+        bids.sort_by(|a, b| {
+            b.price
+                .partial_cmp(&a.price)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+        asks.sort_by(|a, b| {
+            a.price
+                .partial_cmp(&b.price)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
 
         let mut trades = Vec::new();
         let mut bid_idx = 0;
@@ -458,13 +474,17 @@ impl MarketSimulator {
 // ---------------------------------------------------------------------------
 
 fn mean(v: &[f64]) -> f64 {
-    if v.is_empty() { return 0.0; }
+    if v.is_empty() {
+        return 0.0;
+    }
     v.iter().sum::<f64>() / v.len() as f64
 }
 
 fn std_dev(v: &[f64]) -> f64 {
     let n = v.len();
-    if n < 2 { return 0.0; }
+    if n < 2 {
+        return 0.0;
+    }
     let m = mean(v);
     let var = v.iter().map(|&x| (x - m).powi(2)).sum::<f64>() / (n - 1) as f64;
     var.sqrt()
@@ -472,26 +492,42 @@ fn std_dev(v: &[f64]) -> f64 {
 
 fn lag1_autocorrelation(v: &[f64]) -> f64 {
     let n = v.len();
-    if n < 3 { return 0.0; }
+    if n < 3 {
+        return 0.0;
+    }
     let m = mean(v);
-    let cov: f64 = v[..n - 1].iter().zip(v[1..].iter()).map(|(&a, &b)| (a - m) * (b - m)).sum();
+    let cov: f64 = v[..n - 1]
+        .iter()
+        .zip(v[1..].iter())
+        .map(|(&a, &b)| (a - m) * (b - m))
+        .sum();
     let var: f64 = v.iter().map(|&x| (x - m).powi(2)).sum();
-    if var < 1e-14 { 0.0 } else { cov / var }
+    if var < 1e-14 {
+        0.0
+    } else {
+        cov / var
+    }
 }
 
 fn excess_kurtosis(v: &[f64]) -> f64 {
     let n = v.len();
-    if n < 4 { return 0.0; }
+    if n < 4 {
+        return 0.0;
+    }
     let m = mean(v);
     let m2 = v.iter().map(|&x| (x - m).powi(2)).sum::<f64>() / n as f64;
-    if m2 < 1e-14 { return 0.0; }
+    if m2 < 1e-14 {
+        return 0.0;
+    }
     let m4 = v.iter().map(|&x| (x - m).powi(4)).sum::<f64>() / n as f64;
     m4 / m2.powi(2) - 3.0
 }
 
 /// Linear congruential generator — returns a value in [0, 1).
 fn lcg_uniform(seed: u64) -> f64 {
-    let s = seed.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1_442_695_040_888_963_407);
+    let s = seed
+        .wrapping_mul(6_364_136_223_846_793_005)
+        .wrapping_add(1_442_695_040_888_963_407);
     (s >> 11) as f64 / (1u64 << 53) as f64
 }
 
@@ -513,12 +549,20 @@ mod tests {
 
     #[test]
     fn test_match_orders_crossing() {
-        let mut bids = vec![
-            SimOrder { agent_id: 0, is_buy: true, price: 101.0, quantity: 10.0, order_type: SimOrderType::Limit },
-        ];
-        let mut asks = vec![
-            SimOrder { agent_id: 1, is_buy: false, price: 100.0, quantity: 10.0, order_type: SimOrderType::Limit },
-        ];
+        let mut bids = vec![SimOrder {
+            agent_id: 0,
+            is_buy: true,
+            price: 101.0,
+            quantity: 10.0,
+            order_type: SimOrderType::Limit,
+        }];
+        let mut asks = vec![SimOrder {
+            agent_id: 1,
+            is_buy: false,
+            price: 100.0,
+            quantity: 10.0,
+            order_type: SimOrderType::Limit,
+        }];
         let trades = MarketSimulator::match_orders(&mut bids, &mut asks);
         assert_eq!(trades.len(), 1);
         assert!((trades[0].1 - 10.0).abs() < 1e-9);
@@ -526,12 +570,20 @@ mod tests {
 
     #[test]
     fn test_match_orders_non_crossing() {
-        let mut bids = vec![
-            SimOrder { agent_id: 0, is_buy: true, price: 99.0, quantity: 5.0, order_type: SimOrderType::Limit },
-        ];
-        let mut asks = vec![
-            SimOrder { agent_id: 1, is_buy: false, price: 101.0, quantity: 5.0, order_type: SimOrderType::Limit },
-        ];
+        let mut bids = vec![SimOrder {
+            agent_id: 0,
+            is_buy: true,
+            price: 99.0,
+            quantity: 5.0,
+            order_type: SimOrderType::Limit,
+        }];
+        let mut asks = vec![SimOrder {
+            agent_id: 1,
+            is_buy: false,
+            price: 101.0,
+            quantity: 5.0,
+            order_type: SimOrderType::Limit,
+        }];
         let trades = MarketSimulator::match_orders(&mut bids, &mut asks);
         assert!(trades.is_empty());
     }

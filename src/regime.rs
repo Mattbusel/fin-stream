@@ -148,8 +148,16 @@ impl AdxState {
         let up_move = high - self.prev_high;
         let down_move = self.prev_low - low;
 
-        let plus_dm = if up_move > down_move && up_move > 0.0 { up_move } else { 0.0 };
-        let minus_dm = if down_move > up_move && down_move > 0.0 { down_move } else { 0.0 };
+        let plus_dm = if up_move > down_move && up_move > 0.0 {
+            up_move
+        } else {
+            0.0
+        };
+        let minus_dm = if down_move > up_move && down_move > 0.0 {
+            down_move
+        } else {
+            0.0
+        };
 
         // True Range.
         let tr = (high - low)
@@ -420,14 +428,7 @@ impl RegimeDetector {
 
     // ── Internal classification ───────────────────────────────────────────
 
-    fn classify(
-        &mut self,
-        adx: f64,
-        hurst: f64,
-        rel_vol: f64,
-        plus_di: f64,
-        minus_di: f64,
-    ) {
+    fn classify(&mut self, adx: f64, hurst: f64, rel_vol: f64, plus_di: f64, minus_di: f64) {
         // Volatility regimes take priority when extreme.
         if rel_vol > HIGH_VOL_THRESHOLD * 2.0 {
             self.regime = MarketRegime::HighVolatility;
@@ -436,8 +437,7 @@ impl RegimeDetector {
         }
         if rel_vol < LOW_VOL_THRESHOLD * 0.5 {
             self.regime = MarketRegime::LowVolatility;
-            self.confidence =
-                ((LOW_VOL_THRESHOLD - rel_vol) / LOW_VOL_THRESHOLD).clamp(0.0, 1.0);
+            self.confidence = ((LOW_VOL_THRESHOLD - rel_vol) / LOW_VOL_THRESHOLD).clamp(0.0, 1.0);
             return;
         }
 
@@ -452,7 +452,13 @@ impl RegimeDetector {
         let mr_votes = adx_mean_rev as u32 + hurst_mean_rev as u32;
 
         if trend_votes > mr_votes {
-            let direction: i8 = if plus_di > minus_di { 1 } else if minus_di > plus_di { -1 } else { 0 };
+            let direction: i8 = if plus_di > minus_di {
+                1
+            } else if minus_di > plus_di {
+                -1
+            } else {
+                0
+            };
             self.regime = MarketRegime::Trending { direction };
 
             // Confidence scales with ADX magnitude and Hurst distance from 0.5.
@@ -514,7 +520,13 @@ fn realised_vol_relative(closes: &[f64]) -> f64 {
     }
     let returns: Vec<f64> = closes
         .windows(2)
-        .filter_map(|w| if w[0] > 0.0 { Some((w[1] / w[0]).ln()) } else { None })
+        .filter_map(|w| {
+            if w[0] > 0.0 {
+                Some((w[1] / w[0]).ln())
+            } else {
+                None
+            }
+        })
         .collect();
     if returns.is_empty() {
         return 0.0;
@@ -624,7 +636,10 @@ mod tests {
             d.update(&make_bar(p, p + 1.0, p - 1.0, p + 0.5, 10.0));
         }
         let conf = d.regime_confidence();
-        assert!((0.0..=1.0).contains(&conf), "confidence {conf} out of [0,1]");
+        assert!(
+            (0.0..=1.0).contains(&conf),
+            "confidence {conf} out of [0,1]"
+        );
     }
 
     #[test]

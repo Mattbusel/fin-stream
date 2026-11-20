@@ -40,7 +40,11 @@ fn run(mut agg: OhlcvAggregator) -> Result<(Vec<OhlcvBar>, OhlcvAggregator), Err
 
 #[test]
 fn fixture_trades_convert_exactly() {
-    let ticks: Vec<NormalizedTick> = events().unwrap().iter().map(|e| NormalizedTick::try_from(e).unwrap()).collect();
+    let ticks: Vec<NormalizedTick> = events()
+        .unwrap()
+        .iter()
+        .map(|e| NormalizedTick::try_from(e).unwrap())
+        .collect();
     assert_eq!(ticks.len(), 8);
     let first = &ticks[0];
     assert_eq!(first.exchange, Exchange::Coinbase);
@@ -89,23 +93,34 @@ fn one_minute_bars_from_barter_trades() {
 
     let last = agg.flush().expect("15:03 bar is open");
     assert_eq!(last.bar_start_ms, T15_00 + 3 * MINUTE);
-    assert_eq!((last.open, last.close, last.volume, last.trade_count), (dec!(97040.0), dec!(97040.0), dec!(0.2), 1));
+    assert_eq!(
+        (last.open, last.close, last.volume, last.trade_count),
+        (dec!(97040.0), dec!(97040.0), dec!(0.2), 1)
+    );
 }
 
 #[test]
 fn empty_minutes_can_be_filled() {
-    let agg = OhlcvAggregator::new("btc_usd_spot", Timeframe::Minutes(1)).unwrap().with_emit_empty_bars(true);
+    let agg = OhlcvAggregator::new("btc_usd_spot", Timeframe::Minutes(1))
+        .unwrap()
+        .with_emit_empty_bars(true);
     let (bars, _) = run(agg).unwrap();
     let starts: Vec<u64> = bars.iter().map(|b| b.bar_start_ms).collect();
     assert_eq!(starts, [T15_00, T15_00 + MINUTE, T15_00 + 2 * MINUTE]);
     let gap = &bars[2];
     assert!(gap.is_gap_fill);
-    assert_eq!((gap.open, gap.close, gap.volume, gap.trade_count), (dec!(97050.75), dec!(97050.75), dec!(0), 0));
+    assert_eq!(
+        (gap.open, gap.close, gap.volume, gap.trade_count),
+        (dec!(97050.75), dec!(97050.75), dec!(0), 0)
+    );
 }
 
 #[test]
 fn venues_without_an_exchange_variant_are_rejected() {
     let mut e = events().unwrap().remove(0);
     e.exchange = barter_instrument::exchange::ExchangeId::Bitfinex;
-    assert!(matches!(NormalizedTick::try_from(&e), Err(fin_stream::StreamError::UnknownExchange(_))));
+    assert!(matches!(
+        NormalizedTick::try_from(&e),
+        Err(fin_stream::StreamError::UnknownExchange(_))
+    ));
 }

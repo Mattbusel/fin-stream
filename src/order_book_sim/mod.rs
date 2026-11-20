@@ -142,12 +142,8 @@ impl OrderBookSim {
         };
 
         // Try to match the incoming order against the opposite side
-        let new_trades = Self::match_incoming(
-            &mut order,
-            &mut self.bids,
-            &mut self.asks,
-            timestamp_ms,
-        );
+        let new_trades =
+            Self::match_incoming(&mut order, &mut self.bids, &mut self.asks, timestamp_ms);
         self.trades.extend(new_trades);
 
         // If not fully filled, rest in book
@@ -188,12 +184,8 @@ impl OrderBookSim {
             trader_id: trader_id.to_string(),
         };
 
-        let new_trades = Self::match_incoming(
-            &mut order,
-            &mut self.bids,
-            &mut self.asks,
-            timestamp_ms,
-        );
+        let new_trades =
+            Self::match_incoming(&mut order, &mut self.bids, &mut self.asks, timestamp_ms);
         self.trades.extend(new_trades.clone());
         new_trades
     }
@@ -336,7 +328,9 @@ impl OrderBookSim {
             // Match best bid against best ask
             // Both keys came from the maps above and empty queues are removed as soon
             // as they drain, so these lookups succeed; drop a stale empty level if not.
-            let Some(bid_queue) = self.bids.get_mut(&bid_key) else { break };
+            let Some(bid_queue) = self.bids.get_mut(&bid_key) else {
+                break;
+            };
             let Some(mut bid_order) = bid_queue.pop_front() else {
                 self.bids.remove(&bid_key);
                 continue;
@@ -345,7 +339,9 @@ impl OrderBookSim {
                 self.bids.remove(&bid_key);
             }
 
-            let Some(ask_queue) = self.asks.get_mut(&ask_key) else { break };
+            let Some(ask_queue) = self.asks.get_mut(&ask_key) else {
+                break;
+            };
             let Some(ask_order) = ask_queue.front_mut() else {
                 self.asks.remove(&ask_key);
                 self.bids.entry(bid_key).or_default().push_front(bid_order);
@@ -510,7 +506,11 @@ mod tests {
         book.submit_limit(Side::Bid, 449.50, 10.0, "mm", 1000);
         book.submit_limit(Side::Ask, 449.55, 10.0, "mm", 1000);
         let spread = book.spread().unwrap();
-        assert!((spread - 0.05).abs() < 0.001, "Spread should be 0.05, got {}", spread);
+        assert!(
+            (spread - 0.05).abs() < 0.001,
+            "Spread should be 0.05, got {}",
+            spread
+        );
     }
 
     #[test]

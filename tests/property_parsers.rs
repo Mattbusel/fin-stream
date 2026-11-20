@@ -15,7 +15,8 @@ fn json_value() -> impl Strategy<Value = Value> {
         Just(Value::Null),
         any::<bool>().prop_map(Value::from),
         any::<i64>().prop_map(Value::from),
-        any::<f64>().prop_map(|f| serde_json::Number::from_f64(f).map_or(Value::Null, Value::Number)),
+        any::<f64>()
+            .prop_map(|f| serde_json::Number::from_f64(f).map_or(Value::Null, Value::Number)),
         "[-+0-9.eE]{0,30}".prop_map(Value::from),
         ".{0,20}".prop_map(Value::from),
     ];
@@ -24,13 +25,30 @@ fn json_value() -> impl Strategy<Value = Value> {
             prop::collection::vec(inner.clone(), 0..6).prop_map(Value::Array),
             prop::collection::btree_map(
                 prop_oneof![
-                    Just("p".to_string()), Just("q".to_string()), Just("m".to_string()),
-                    Just("T".to_string()), Just("t".to_string()), Just("s".to_string()),
-                    Just("price".to_string()), Just("size".to_string()), Just("side".to_string()),
-                    Just("time".to_string()), Just("trade_id".to_string()), Just("product_id".to_string()),
-                    Just("x".to_string()), Just("i".to_string()), Just("bid".to_string()), Just("ask".to_string()),
-                    Just("open".to_string()), Just("high".to_string()), Just("low".to_string()), Just("close".to_string()),
-                    Just("bids".to_string()), Just("asks".to_string()), Just("type".to_string()), Just("status".to_string()),
+                    Just("p".to_string()),
+                    Just("q".to_string()),
+                    Just("m".to_string()),
+                    Just("T".to_string()),
+                    Just("t".to_string()),
+                    Just("s".to_string()),
+                    Just("price".to_string()),
+                    Just("size".to_string()),
+                    Just("side".to_string()),
+                    Just("time".to_string()),
+                    Just("trade_id".to_string()),
+                    Just("product_id".to_string()),
+                    Just("x".to_string()),
+                    Just("i".to_string()),
+                    Just("bid".to_string()),
+                    Just("ask".to_string()),
+                    Just("open".to_string()),
+                    Just("high".to_string()),
+                    Just("low".to_string()),
+                    Just("close".to_string()),
+                    Just("bids".to_string()),
+                    Just("asks".to_string()),
+                    Just("type".to_string()),
+                    Just("status".to_string()),
                     "[a-z]{1,6}",
                 ],
                 inner,
@@ -42,7 +60,12 @@ fn json_value() -> impl Strategy<Value = Value> {
 }
 
 fn exchange() -> impl Strategy<Value = Exchange> {
-    prop_oneof![Just(Exchange::Binance), Just(Exchange::Coinbase), Just(Exchange::Alpaca), Just(Exchange::Polygon)]
+    prop_oneof![
+        Just(Exchange::Binance),
+        Just(Exchange::Coinbase),
+        Just(Exchange::Alpaca),
+        Just(Exchange::Polygon)
+    ]
 }
 
 /// A FIX 4.2 frame with a correct BodyLength and checksum around arbitrary fields,

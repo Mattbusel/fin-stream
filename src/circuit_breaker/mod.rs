@@ -264,12 +264,16 @@ impl WsCircuitBreaker {
                         if let Some(tick) = self.parse_tick(&raw, last_price) {
                             last_price = Some(tick.price);
                             consecutive_failures = 0;
-                            self.counters.consecutive_failures.store(0, Ordering::Relaxed);
+                            self.counters
+                                .consecutive_failures
+                                .store(0, Ordering::Relaxed);
                             real_ticks_forwarded += 1;
                             let _ = self.tick_tx.send(tick).await;
                         } else {
                             consecutive_failures += 1;
-                            self.counters.consecutive_failures.store(consecutive_failures, Ordering::Relaxed);
+                            self.counters
+                                .consecutive_failures
+                                .store(consecutive_failures, Ordering::Relaxed);
                             warn!(
                                 exchange = %self.config.exchange,
                                 consecutive = consecutive_failures,
@@ -354,7 +358,7 @@ impl WsCircuitBreaker {
             exchange: self.config.exchange,
             symbol: self.config.symbol.clone(),
             price: synthetic_price,
-            quantity: Decimal::ZERO, // synthetic — zero volume
+            quantity: Decimal::ZERO,    // synthetic — zero volume
             side: Some(TradeSide::Buy), // sentinel: synthetic ticks use Buy side
             trade_id: Some("synthetic".to_string()),
             exchange_ts_ms: None,

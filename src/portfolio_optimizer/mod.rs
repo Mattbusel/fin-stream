@@ -6,11 +6,17 @@
 pub fn cov_matrix(returns: &[Vec<f64>]) -> Vec<Vec<f64>> {
     let n = returns.len();
     let t = returns[0].len();
-    let means: Vec<f64> = returns.iter().map(|r| r.iter().sum::<f64>() / t as f64).collect();
+    let means: Vec<f64> = returns
+        .iter()
+        .map(|r| r.iter().sum::<f64>() / t as f64)
+        .collect();
     let mut cov = vec![vec![0.0; n]; n];
     for i in 0..n {
         for j in 0..n {
-            let c: f64 = (0..t).map(|k| (returns[i][k] - means[i]) * (returns[j][k] - means[j])).sum::<f64>() / (t - 1).max(1) as f64;
+            let c: f64 = (0..t)
+                .map(|k| (returns[i][k] - means[i]) * (returns[j][k] - means[j]))
+                .sum::<f64>()
+                / (t - 1).max(1) as f64;
             cov[i][j] = c;
         }
     }
@@ -36,7 +42,9 @@ pub fn risk_contributions(weights: &[f64], cov: &[Vec<f64>]) -> Vec<f64> {
     let mut rc = vec![0.0; n];
     for i in 0..n {
         let mut sigma_w_i = 0.0;
-        for j in 0..n { sigma_w_i += cov[i][j] * weights[j]; }
+        for j in 0..n {
+            sigma_w_i += cov[i][j] * weights[j];
+        }
         rc[i] = weights[i] * sigma_w_i / sigma_p;
     }
     rc
@@ -47,8 +55,16 @@ pub fn project_simplex(w: &[f64]) -> Vec<f64> {
     let n = w.len();
     let mut u: Vec<f64> = w.to_vec();
     u.sort_by(|a, b| b.partial_cmp(a).unwrap_or(std::cmp::Ordering::Equal));
-    let cssv: Vec<f64> = u.iter().scan(0.0, |s, &x| { *s += x; Some(*s) }).collect();
-    let rho = (0..n).rfind(|&j| u[j] - (cssv[j] - 1.0) / (j + 1) as f64 > 0.0).unwrap_or(0);
+    let cssv: Vec<f64> = u
+        .iter()
+        .scan(0.0, |s, &x| {
+            *s += x;
+            Some(*s)
+        })
+        .collect();
+    let rho = (0..n)
+        .rfind(|&j| u[j] - (cssv[j] - 1.0) / (j + 1) as f64 > 0.0)
+        .unwrap_or(0);
     let theta = (cssv[rho] - 1.0) / (rho + 1) as f64;
     w.iter().map(|&x| (x - theta).max(0.0)).collect()
 }
@@ -73,11 +89,17 @@ impl MeanVarianceOptimizer {
             let mut grad = vec![0.0; n];
             for i in 0..n {
                 let mut sigma_w_i = 0.0;
-                for j in 0..n { sigma_w_i += cov[i][j] * w[j]; }
+                for j in 0..n {
+                    sigma_w_i += cov[i][j] * w[j];
+                }
                 grad[i] = expected_returns[i] - self.risk_aversion * 2.0 * sigma_w_i;
             }
 
-            let new_w: Vec<f64> = w.iter().zip(grad.iter()).map(|(&wi, &gi)| wi + self.lr * gi).collect();
+            let new_w: Vec<f64> = w
+                .iter()
+                .zip(grad.iter())
+                .map(|(&wi, &gi)| wi + self.lr * gi)
+                .collect();
             w = project_simplex(&new_w);
         }
         w
@@ -113,7 +135,9 @@ impl RiskParityOptimizer {
             }
             let sum: f64 = new_w.iter().sum();
             w = new_w.iter().map(|&x| x / sum).collect();
-            if max_diff < self.tol { break; }
+            if max_diff < self.tol {
+                break;
+            }
         }
         w
     }
@@ -155,7 +179,9 @@ impl ExecutionOptimizer {
             trades.push(trade);
             remaining -= trade;
         }
-        if let Some(last) = trades.last_mut() { *last += remaining; }
+        if let Some(last) = trades.last_mut() {
+            *last += remaining;
+        }
         trades
     }
 

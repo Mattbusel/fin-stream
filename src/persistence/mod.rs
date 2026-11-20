@@ -235,7 +235,9 @@ impl TickWriter {
         let mut map: HashMap<&str, (u64, u64, u64, u64)> = HashMap::new();
 
         for (offset, rec) in &self.records {
-            let entry = map.entry(rec.symbol.as_str()).or_insert((*offset, 0, u64::MAX, 0));
+            let entry = map
+                .entry(rec.symbol.as_str())
+                .or_insert((*offset, 0, u64::MAX, 0));
             entry.1 += 1; // count
             if rec.timestamp_ms < entry.2 {
                 entry.2 = rec.timestamp_ms;

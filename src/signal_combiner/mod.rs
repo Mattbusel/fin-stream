@@ -49,7 +49,10 @@ pub struct SignalCombiner {
 impl SignalCombiner {
     /// Create a new combiner with the given method and no signals.
     pub fn new(method: CombinationMethod) -> Self {
-        Self { signals: Vec::new(), method }
+        Self {
+            signals: Vec::new(),
+            method,
+        }
     }
 
     /// Add a signal to the combiner.
@@ -65,8 +68,10 @@ impl SignalCombiner {
         if n == 0 {
             return Vec::new();
         }
-        let raw: Vec<f64> = self.signals.iter().map(|s| {
-            match self.method {
+        let raw: Vec<f64> = self
+            .signals
+            .iter()
+            .map(|s| match self.method {
                 CombinationMethod::EqualWeight => 1.0,
                 CombinationMethod::ICWeight => s.ic.abs(),
                 CombinationMethod::ICSquaredWeight => s.ic * s.ic,
@@ -75,8 +80,8 @@ impl SignalCombiner {
                     let k = s.ic * (1.0 - s.ic * s.ic);
                     k.max(0.0)
                 }
-            }
-        }).collect();
+            })
+            .collect();
 
         let total: f64 = raw.iter().sum();
         if total == 0.0 {
@@ -124,7 +129,11 @@ impl SignalCombiner {
             var_b += db * db;
         }
         let denom = (var_a * var_b).sqrt();
-        if denom == 0.0 { 0.0 } else { cov / denom }
+        if denom == 0.0 {
+            0.0
+        } else {
+            cov / denom
+        }
     }
 
     /// Average absolute pairwise correlation (lower = more diversified).
@@ -139,11 +148,16 @@ impl SignalCombiner {
         let mut count = 0usize;
         for i in 0..n {
             for j in (i + 1)..n {
-                total += Self::signal_correlation(&self.signals[i].values, &self.signals[j].values).abs();
+                total += Self::signal_correlation(&self.signals[i].values, &self.signals[j].values)
+                    .abs();
                 count += 1;
             }
         }
-        if count == 0 { 0.0 } else { total / count as f64 }
+        if count == 0 {
+            0.0
+        } else {
+            total / count as f64
+        }
     }
 
     /// Orthogonalize signals in-place using Gram-Schmidt on demeaned values.
@@ -158,7 +172,10 @@ impl SignalCombiner {
         let n = self.signals.len();
         for i in 1..n {
             for j in 0..i {
-                let len = self.signals[i].values.len().min(self.signals[j].values.len());
+                let len = self.signals[i]
+                    .values
+                    .len()
+                    .min(self.signals[j].values.len());
                 if len < 2 {
                     continue;
                 }
@@ -166,14 +183,21 @@ impl SignalCombiner {
                 let b = &self.signals[i].values[..len];
                 let mean_a = a.iter().sum::<f64>() / len as f64;
                 let mean_b = b.iter().sum::<f64>() / len as f64;
-                let cov: f64 = a.iter().zip(b.iter()).map(|(x, y)| (x - mean_a) * (y - mean_b)).sum();
+                let cov: f64 = a
+                    .iter()
+                    .zip(b.iter())
+                    .map(|(x, y)| (x - mean_a) * (y - mean_b))
+                    .sum();
                 let var: f64 = a.iter().map(|x| (x - mean_a).powi(2)).sum();
                 if var == 0.0 {
                     continue;
                 }
                 let beta = cov / var;
                 let centered: Vec<f64> = a.iter().map(|x| x - mean_a).collect();
-                for (v, c) in self.signals[i].values[..len].iter_mut().zip(centered.iter()) {
+                for (v, c) in self.signals[i].values[..len]
+                    .iter_mut()
+                    .zip(centered.iter())
+                {
                     *v -= beta * c;
                 }
             }
@@ -225,7 +249,12 @@ mod tests {
     use super::*;
 
     fn make_signal(name: &str, values: Vec<f64>, ic: f64) -> AlphaSignal {
-        AlphaSignal { name: name.to_string(), values, ic, decay_factor: 1.0 }
+        AlphaSignal {
+            name: name.to_string(),
+            values,
+            ic,
+            decay_factor: 1.0,
+        }
     }
 
     #[test]
@@ -327,7 +356,10 @@ mod tests {
             &combiner.signals[0].values,
             &combiner.signals[1].values,
         );
-        assert!(corr.abs() < 1e-10, "after orthogonalize corr should be ~0, got {corr}");
+        assert!(
+            corr.abs() < 1e-10,
+            "after orthogonalize corr should be ~0, got {corr}"
+        );
         // b keeps its mean (2.5) and is not collapsed to a constant.
         let b = &combiner.signals[1].values;
         assert!((b.iter().sum::<f64>() / 4.0 - 2.5).abs() < 1e-12);
@@ -340,7 +372,11 @@ mod tests {
         combiner.add_signal(make_signal("a", vec![1.0], -0.3)); // negative IC → 0 weight
         combiner.add_signal(make_signal("b", vec![1.0], 0.6));
         let w = combiner.compute_weights();
-        assert!(w[0].abs() < 1e-10, "negative IC signal should have 0 weight, got {}", w[0]);
+        assert!(
+            w[0].abs() < 1e-10,
+            "negative IC signal should have 0 weight, got {}",
+            w[0]
+        );
         assert!((w[1] - 1.0).abs() < 1e-10, "w[1]={}", w[1]);
     }
 

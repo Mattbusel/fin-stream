@@ -188,11 +188,7 @@ impl PatternDetector {
             }
 
             // BullishEngulfing
-            if prev_bearish
-                && cur_bullish
-                && cur.open <= prev.close
-                && cur.close >= prev.open
-            {
+            if prev_bearish && cur_bullish && cur.open <= prev.close && cur.close >= prev.open {
                 let prev_body = (prev.close - prev.open).abs();
                 let cur_body_val = (cur.close - cur.open).abs();
                 let strength = if prev_body > 0.0 {
@@ -209,11 +205,7 @@ impl PatternDetector {
             }
 
             // BearishEngulfing
-            if prev_bullish
-                && cur_bearish
-                && cur.open >= prev.close
-                && cur.close <= prev.open
-            {
+            if prev_bullish && cur_bearish && cur.open >= prev.close && cur.close <= prev.open {
                 let prev_body = (prev.close - prev.open).abs();
                 let cur_body_val = (cur.close - cur.open).abs();
                 let strength = if prev_body > 0.0 {
@@ -244,11 +236,7 @@ impl PatternDetector {
             let cur_bearish = cur.close < cur.open;
 
             // MorningStar
-            if b0_bearish
-                && b1_small
-                && cur_bullish
-                && cur.close > (b0.open + b0.close) / 2.0
-            {
+            if b0_bearish && b1_small && cur_bullish && cur.close > (b0.open + b0.close) / 2.0 {
                 signals.push(PatternSignal {
                     pattern: PatternType::MorningStar,
                     bar_index: last_idx,
@@ -258,11 +246,7 @@ impl PatternDetector {
             }
 
             // EveningStar
-            if b0_bullish
-                && b1_small
-                && cur_bearish
-                && cur.close < (b0.open + b0.close) / 2.0
-            {
+            if b0_bullish && b1_small && cur_bearish && cur.close < (b0.open + b0.close) / 2.0 {
                 signals.push(PatternSignal {
                     pattern: PatternType::EveningStar,
                     bar_index: last_idx,
@@ -328,10 +312,7 @@ impl StreamingPatternMonitor {
 
     /// Push a new bar for `symbol` and return any detected patterns.
     pub fn update(&self, symbol: &str, bar: Bar) -> Vec<PatternSignal> {
-        let mut entry = self
-            .detectors
-            .entry(symbol.to_string())
-            .or_default();
+        let mut entry = self.detectors.entry(symbol.to_string()).or_default();
         entry.push(bar);
         entry.detect()
     }
@@ -352,7 +333,14 @@ mod tests {
     use super::*;
 
     fn bar(o: f64, h: f64, l: f64, c: f64) -> Bar {
-        Bar { open: o, high: h, low: l, close: c, volume: 1000.0, timestamp_ms: 0 }
+        Bar {
+            open: o,
+            high: h,
+            low: l,
+            close: c,
+            volume: 1000.0,
+            timestamp_ms: 0,
+        }
     }
 
     #[test]
@@ -382,10 +370,11 @@ mod tests {
     fn bullish_engulfing_detected() {
         let mut det = PatternDetector::new();
         det.push(bar(12.0, 13.0, 10.0, 10.5)); // bearish
-        det.push(bar(9.5, 13.5, 9.0, 13.0));   // bullish engulfs
+        det.push(bar(9.5, 13.5, 9.0, 13.0)); // bullish engulfs
         let sigs = det.detect();
         assert!(
-            sigs.iter().any(|s| s.pattern == PatternType::BullishEngulfing),
+            sigs.iter()
+                .any(|s| s.pattern == PatternType::BullishEngulfing),
             "expected BullishEngulfing signal"
         );
     }
@@ -393,9 +382,9 @@ mod tests {
     #[test]
     fn morning_star_detected() {
         let mut det = PatternDetector::new();
-        det.push(bar(105.0, 106.0, 95.0, 96.0));  // bearish
-        det.push(bar(95.5, 96.0, 94.0, 95.7));    // small doji/star
-        det.push(bar(96.0, 107.0, 95.0, 106.0));  // bullish, closes above midpoint of bar0
+        det.push(bar(105.0, 106.0, 95.0, 96.0)); // bearish
+        det.push(bar(95.5, 96.0, 94.0, 95.7)); // small doji/star
+        det.push(bar(96.0, 107.0, 95.0, 106.0)); // bullish, closes above midpoint of bar0
         let sigs = det.detect();
         assert!(
             sigs.iter().any(|s| s.pattern == PatternType::MorningStar),

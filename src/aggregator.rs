@@ -88,7 +88,10 @@ pub struct BarBuilder {
 impl BarBuilder {
     /// Creates a new, empty [`BarBuilder`] for `symbol`.
     pub fn new(symbol: impl Into<String>) -> Self {
-        Self { symbol: symbol.into(), ..Default::default() }
+        Self {
+            symbol: symbol.into(),
+            ..Default::default()
+        }
     }
 
     /// Updates the builder with a new trade's `price`, `size`, and timestamp.
@@ -347,7 +350,7 @@ impl BarAggregator {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::protocol::{TradeSide, TradeEvent};
+    use crate::protocol::{TradeEvent, TradeSide};
 
     fn make_trade(symbol: &str, price: f64, size: f64, ts_ns: u64) -> TradeEvent {
         TradeEvent {
@@ -474,7 +477,9 @@ mod tests {
 
     #[test]
     fn volume_based_emits_bar_when_threshold_crossed() {
-        let mut agg = BarAggregator::new(AggregationMode::VolumeBased { volume_threshold: 10.0 });
+        let mut agg = BarAggregator::new(AggregationMode::VolumeBased {
+            volume_threshold: 10.0,
+        });
         let t = |p: f64, s: f64, ts: u64| make_trade("ETH", p, s, ts);
 
         assert!(agg.process_trade(&t(1000.0, 4.0, 1)).is_none());
@@ -653,8 +658,12 @@ impl CandleBuilder {
             self.open_time_ms = timestamp_ms;
             self.period_bucket = Some(bucket);
         } else {
-            if price > self.high { self.high = price; }
-            if price < self.low { self.low = price; }
+            if price > self.high {
+                self.high = price;
+            }
+            if price < self.low {
+                self.low = price;
+            }
         }
         self.close = price;
         self.close_time_ms = timestamp_ms;
@@ -804,7 +813,10 @@ mod tick_aggregator_tests {
         agg.process_tick("X", 200.0, 3.0, 1_000);
         let candles = agg.flush_all();
         let vwap = candles[0].vwap;
-        assert!((vwap - 175.0).abs() < 1e-9, "VWAP should be 175, got {vwap}");
+        assert!(
+            (vwap - 175.0).abs() < 1e-9,
+            "VWAP should be 175, got {vwap}"
+        );
     }
 
     #[test]
@@ -815,7 +827,10 @@ mod tick_aggregator_tests {
         agg.process_tick("ETH", 1010.0, 1.0, 30_000);
         // Period 1: tick at 60_000 rolls over
         let completed = agg.process_tick("ETH", 1020.0, 1.0, 60_000);
-        assert!(completed.is_some(), "period rollover should produce a candle");
+        assert!(
+            completed.is_some(),
+            "period rollover should produce a candle"
+        );
         let c = completed.unwrap();
         assert!((c.open - 1000.0).abs() < 1e-9);
         assert!((c.close - 1010.0).abs() < 1e-9);

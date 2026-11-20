@@ -137,8 +137,12 @@ impl BarBuilder {
             self.low = price;
             self.start_ms = ts_ms;
         } else {
-            if price > self.high { self.high = price; }
-            if price < self.low { self.low = price; }
+            if price > self.high {
+                self.high = price;
+            }
+            if price < self.low {
+                self.low = price;
+            }
         }
         self.close = price;
         self.end_ms = ts_ms;
@@ -270,7 +274,10 @@ impl BarStream {
 
     /// Force-flushes all open bars (e.g. end-of-session).
     pub fn flush_all(&mut self) -> Vec<Bar> {
-        self.builders.values_mut().filter_map(|b| b.flush()).collect()
+        self.builders
+            .values_mut()
+            .filter_map(|b| b.flush())
+            .collect()
     }
 
     /// Returns the list of registered symbols.
@@ -307,7 +314,9 @@ mod tests {
         let mut b = BarBuilder::new("BTC", BarSpec::Tick(3));
         assert!(b.push(&tick("BTC", 100.0, 1.0, 1)).is_none());
         assert!(b.push(&tick("BTC", 101.0, 2.0, 2)).is_none());
-        let bar = b.push(&tick("BTC", 102.0, 1.0, 3)).expect("bar on 3rd tick");
+        let bar = b
+            .push(&tick("BTC", 102.0, 1.0, 3))
+            .expect("bar on 3rd tick");
         assert_eq!(bar.tick_count, 3);
         assert!((bar.open - 100.0).abs() < 1e-9);
         assert!((bar.close - 102.0).abs() < 1e-9);
@@ -362,8 +371,8 @@ mod tests {
     #[test]
     fn time_bar_closes_after_duration() {
         let mut b = BarBuilder::new("X", BarSpec::Time(Duration::from_secs(60)));
-        b.push(&tick("X", 1.0, 1.0, 0));          // start at t=0
-        b.push(&tick("X", 1.0, 1.0, 30_000));     // t=30s, no close
+        b.push(&tick("X", 1.0, 1.0, 0)); // start at t=0
+        b.push(&tick("X", 1.0, 1.0, 30_000)); // t=30s, no close
         let bar = b.push(&tick("X", 2.0, 1.0, 60_000)).expect("time bar"); // t=60s
         assert_eq!(bar.tick_count, 3);
         assert!((bar.close - 2.0).abs() < 1e-9);
@@ -477,7 +486,9 @@ mod tests {
         let mut stream = BarStream::new(&config);
 
         stream.push_tick(&tick("BTC", 100.0, 1.0, 1));
-        let bar = stream.push_tick(&tick("BTC", 101.0, 1.0, 2)).expect("BTC bar");
+        let bar = stream
+            .push_tick(&tick("BTC", 101.0, 1.0, 2))
+            .expect("BTC bar");
         assert_eq!(bar.symbol, "BTC");
     }
 

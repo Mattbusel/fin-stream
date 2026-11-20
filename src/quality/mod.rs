@@ -200,12 +200,20 @@ impl QualityScorer {
 
         let worst_feed = per_feed
             .iter()
-            .min_by(|a, b| a.score.partial_cmp(&b.score).unwrap_or(std::cmp::Ordering::Equal))
+            .min_by(|a, b| {
+                a.score
+                    .partial_cmp(&b.score)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
             .map(|m| m.symbol.clone());
 
         let best_feed = per_feed
             .iter()
-            .max_by(|a, b| a.score.partial_cmp(&b.score).unwrap_or(std::cmp::Ordering::Equal))
+            .max_by(|a, b| {
+                a.score
+                    .partial_cmp(&b.score)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
             .map(|m| m.symbol.clone());
 
         let system_health_score = if per_feed.is_empty() {
@@ -291,7 +299,10 @@ pub struct DeduplicatorConfig {
 impl DeduplicatorConfig {
     /// Create a new config.
     pub fn new(window_ms: u64, hash_fields: HashFields) -> Self {
-        Self { window_ms, hash_fields }
+        Self {
+            window_ms,
+            hash_fields,
+        }
     }
 }
 
@@ -412,8 +423,8 @@ pub type SharedQualityScorer = Arc<QualityScorer>;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rust_decimal::Decimal;
     use crate::tick::{Exchange, NormalizedTick};
+    use rust_decimal::Decimal;
 
     fn make_tick(symbol: &str, price: f64, ts_ms: u64) -> NormalizedTick {
         NormalizedTick {

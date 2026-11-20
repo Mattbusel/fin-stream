@@ -24,9 +24,9 @@ impl VwapInterval {
     /// Duration of the interval in milliseconds.
     pub fn as_ms(&self) -> u64 {
         match self {
-            VwapInterval::Minute     => 60_000,
-            VwapInterval::Hour       => 3_600_000,
-            VwapInterval::Day        => 86_400_000,
+            VwapInterval::Minute => 60_000,
+            VwapInterval::Hour => 3_600_000,
+            VwapInterval::Day => 86_400_000,
             VwapInterval::Custom(ms) => *ms,
         }
     }
@@ -104,7 +104,11 @@ impl VwapTracker {
         self.sum_v += volume;
         self.period_volume += volume;
 
-        let vwap = if self.sum_v > 0.0 { self.sum_pv / self.sum_v } else { price };
+        let vwap = if self.sum_v > 0.0 {
+            self.sum_pv / self.sum_v
+        } else {
+            price
+        };
 
         let pt = VwapPoint {
             timestamp_ms,
@@ -119,7 +123,11 @@ impl VwapTracker {
 
     /// Current VWAP value (0.0 if no trades in current period).
     pub fn current_vwap(&self) -> f64 {
-        if self.sum_v > 0.0 { self.sum_pv / self.sum_v } else { 0.0 }
+        if self.sum_v > 0.0 {
+            self.sum_pv / self.sum_v
+        } else {
+            0.0
+        }
     }
 }
 
@@ -135,7 +143,10 @@ pub struct TwapTracker {
 impl TwapTracker {
     /// Create a new `TwapTracker` with the given window.
     pub fn new(window_ms: u64) -> Self {
-        Self { prices: VecDeque::new(), window_ms }
+        Self {
+            prices: VecDeque::new(),
+            window_ms,
+        }
     }
 
     /// Add a price observation.
@@ -168,7 +179,7 @@ impl TwapTracker {
         let mut total_weight = 0.0;
         for i in 1..n {
             let (t0, p0) = self.prices[i - 1];
-            let (t1, _)  = self.prices[i];
+            let (t1, _) = self.prices[i];
             let w = (t1 - t0) as f64;
             weighted_sum += p0 * w;
             total_weight += w;
@@ -179,7 +190,11 @@ impl TwapTracker {
         weighted_sum += p_last * w_last;
         total_weight += w_last;
 
-        if total_weight > 0.0 { weighted_sum / total_weight } else { self.prices[n - 1].1 }
+        if total_weight > 0.0 {
+            weighted_sum / total_weight
+        } else {
+            self.prices[n - 1].1
+        }
     }
 }
 
@@ -243,15 +258,17 @@ impl ExecutionScheduler {
         let duration = schedule.end_ms.saturating_sub(schedule.start_ms);
         let slice_dur = duration / n as u64;
 
-        let slices: Vec<ScheduleSlice> = (0..n).map(|i| {
-            let target_time_ms = schedule.start_ms + i as u64 * slice_dur + slice_dur / 2;
-            ScheduleSlice {
-                slice_index: i,
-                target_time_ms,
-                target_qty: qty_per_slice,
-                executed_qty: 0.0,
-            }
-        }).collect();
+        let slices: Vec<ScheduleSlice> = (0..n)
+            .map(|i| {
+                let target_time_ms = schedule.start_ms + i as u64 * slice_dur + slice_dur / 2;
+                ScheduleSlice {
+                    slice_index: i,
+                    target_time_ms,
+                    target_qty: qty_per_slice,
+                    executed_qty: 0.0,
+                }
+            })
+            .collect();
 
         let interval = VwapInterval::Custom(slice_dur.max(1));
         Self {
@@ -264,7 +281,9 @@ impl ExecutionScheduler {
     /// Return the active slice at `now_ms`, or `None` if outside the schedule.
     pub fn current_slice(&self, now_ms: u64) -> Option<&ScheduleSlice> {
         let n = self.slices.len();
-        if n == 0 { return None; }
+        if n == 0 {
+            return None;
+        }
         let duration = self.schedule.end_ms.saturating_sub(self.schedule.start_ms);
         let slice_dur = (duration / n as u64).max(1);
         if now_ms < self.schedule.start_ms || now_ms >= self.schedule.end_ms {
@@ -311,11 +330,14 @@ mod tests {
     #[test]
     fn test_vwap_period_reset() {
         let mut tracker = VwapTracker::new("AAPL", VwapInterval::Minute);
-        tracker.add_trade(100.0, 10.0, 1_000);           // period 1
-        tracker.add_trade(200.0, 10.0, 61_000);          // period 2 (reset)
-        // After reset, only the second trade counts.
+        tracker.add_trade(100.0, 10.0, 1_000); // period 1
+        tracker.add_trade(200.0, 10.0, 61_000); // period 2 (reset)
+                                                // After reset, only the second trade counts.
         let vwap = tracker.current_vwap();
-        assert!((vwap - 200.0).abs() < 1e-9, "VWAP after reset should be 200, got {vwap}");
+        assert!(
+            (vwap - 200.0).abs() < 1e-9,
+            "VWAP after reset should be 200, got {vwap}"
+        );
     }
 
     #[test]
@@ -328,7 +350,10 @@ mod tests {
         // Only 300 remains (ts=90_000 >= 60_000).
         let t = twap.current_twap(120_000);
         // With only one remaining point or only 300 and 300, result should be 300.
-        assert!((t - 300.0).abs() < 1.0, "TWAP after eviction should be ~300, got {t}");
+        assert!(
+            (t - 300.0).abs() < 1.0,
+            "TWAP after eviction should be ~300, got {t}"
+        );
     }
 
     #[test]
@@ -342,7 +367,10 @@ mod tests {
         };
         let scheduler = ExecutionScheduler::new(schedule, "AAPL");
         let total: f64 = scheduler.slices.iter().map(|s| s.target_qty).sum();
-        assert!((total - 1000.0).abs() < 1e-9, "Slices should sum to total_qty, got {total}");
+        assert!(
+            (total - 1000.0).abs() < 1e-9,
+            "Slices should sum to total_qty, got {total}"
+        );
         assert_eq!(scheduler.slices.len(), 10);
     }
 
@@ -359,7 +387,10 @@ mod tests {
         scheduler.record_execution(0, 25.0, 150.0, 10_000);
         scheduler.record_execution(1, 25.0, 151.0, 30_000);
         let rate = scheduler.participation_rate();
-        assert!((rate - 0.5).abs() < 1e-9, "Participation rate should be 0.5, got {rate}");
+        assert!(
+            (rate - 0.5).abs() < 1e-9,
+            "Participation rate should be 0.5, got {rate}"
+        );
     }
 
     #[test]

@@ -5,8 +5,8 @@
 //! The [`RiskMonitor`] manages per-symbol [`RollingRisk`] instances in a concurrent
 //! [`dashmap::DashMap`] and can compute portfolio-level VaR via weighted summation.
 
-use std::collections::{HashMap, VecDeque};
 use dashmap::DashMap;
+use std::collections::{HashMap, VecDeque};
 
 /// Assumed trading days per year for annualization.
 const TRADING_DAYS_PER_YEAR: f64 = 252.0;
@@ -175,9 +175,10 @@ impl RiskMonitor {
 
     /// Push a price update for `symbol`.
     pub fn update(&self, symbol: &str, price: f64) {
-        let mut entry = self.store.entry(symbol.to_string()).or_insert_with(|| {
-            RollingRisk::new(symbol, self.window_size)
-        });
+        let mut entry = self
+            .store
+            .entry(symbol.to_string())
+            .or_insert_with(|| RollingRisk::new(symbol, self.window_size));
         entry.push(price);
     }
 
@@ -211,7 +212,11 @@ impl RiskMonitor {
                 }
             }
         }
-        if any { Some(total) } else { None }
+        if any {
+            Some(total)
+        } else {
+            None
+        }
     }
 }
 
@@ -295,7 +300,10 @@ mod tests {
         let var_95 = rr.var_historical(0.95).unwrap();
         let var_99 = rr.var_historical(0.99).unwrap();
         // 99% VaR should be >= 95% VaR (worse loss at higher confidence)
-        assert!(var_99 >= var_95, "99% VaR ({var_99}) should be >= 95% VaR ({var_95})");
+        assert!(
+            var_99 >= var_95,
+            "99% VaR ({var_99}) should be >= 95% VaR ({var_95})"
+        );
     }
 
     #[test]
@@ -312,7 +320,10 @@ mod tests {
             rr.push(100.0 + i as f64);
         }
         let dd = rr.max_drawdown().expect("has two prices");
-        assert!(dd < 1e-10, "monotone increasing series → zero drawdown, got {dd}");
+        assert!(
+            dd < 1e-10,
+            "monotone increasing series → zero drawdown, got {dd}"
+        );
     }
 
     #[test]
@@ -320,16 +331,22 @@ mod tests {
         let mut rr = RollingRisk::new("X", 50);
         rr.push(100.0);
         rr.push(120.0); // peak
-        rr.push(90.0);  // trough: drawdown = (120-90)/120 = 0.25
+        rr.push(90.0); // trough: drawdown = (120-90)/120 = 0.25
         let dd = rr.max_drawdown().expect("has prices");
-        assert!((dd - 0.25).abs() < 1e-10, "drawdown should be 0.25, got {dd}");
+        assert!(
+            (dd - 0.25).abs() < 1e-10,
+            "drawdown should be 0.25, got {dd}"
+        );
     }
 
     #[test]
     fn test_max_drawdown_between_zero_and_one() {
         let rr = filled_risk(50);
         let dd = rr.max_drawdown().expect("has prices");
-        assert!((0.0..=1.0).contains(&dd), "drawdown should be in [0,1], got {dd}");
+        assert!(
+            (0.0..=1.0).contains(&dd),
+            "drawdown should be in [0,1], got {dd}"
+        );
     }
 
     #[test]

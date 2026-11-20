@@ -3,8 +3,8 @@
 //! Provides Greek aggregation, P&L attribution, stress testing,
 //! and a concurrent DashMap-backed [`RiskEngine`].
 
-use std::collections::{HashMap, VecDeque};
 use dashmap::DashMap;
+use std::collections::{HashMap, VecDeque};
 
 // ---------------------------------------------------------------------------
 // Greeks
@@ -200,13 +200,18 @@ impl RiskEngine {
 
     /// Aggregate all position Greeks into a single portfolio-level Greeks.
     pub fn aggregate_greeks(&self) -> Greeks {
-        self.greeks.iter().fold(Greeks::default(), |acc, entry| acc.add(entry.value()))
+        self.greeks
+            .iter()
+            .fold(Greeks::default(), |acc, entry| acc.add(entry.value()))
     }
 
     /// Compute full portfolio risk metrics.
     pub fn compute_portfolio_risk(&self) -> PortfolioRisk {
         let agg = self.aggregate_greeks();
-        let returns = self.returns.lock().map(|q| q.iter().copied().collect::<Vec<_>>())
+        let returns = self
+            .returns
+            .lock()
+            .map(|q| q.iter().copied().collect::<Vec<_>>())
             .unwrap_or_default();
 
         let var_95 = Self::historical_var(&returns, 0.95);
@@ -346,10 +351,14 @@ impl RiskEngine {
             return 1.0;
         }
         let mean = returns.iter().sum::<f64>() / returns.len() as f64;
-        let variance = returns.iter().map(|r| (r - mean).powi(2)).sum::<f64>()
-            / returns.len() as f64;
+        let variance =
+            returns.iter().map(|r| (r - mean).powi(2)).sum::<f64>() / returns.len() as f64;
         // Beta = cov(port, market) / var(market). Assume perfect correlation with market.
-        if variance < 1e-15 { 1.0 } else { variance.sqrt() * 10.0 }  // crude approximation
+        if variance < 1e-15 {
+            1.0
+        } else {
+            variance.sqrt() * 10.0
+        } // crude approximation
     }
 
     fn concentration_top5(&self) -> f64 {
@@ -383,7 +392,13 @@ mod tests {
 
     #[test]
     fn greeks_scale_add() {
-        let g = Greeks { delta: 1.0, gamma: 2.0, theta: -0.5, vega: 3.0, rho: 0.1 };
+        let g = Greeks {
+            delta: 1.0,
+            gamma: 2.0,
+            theta: -0.5,
+            vega: 3.0,
+            rho: 0.1,
+        };
         let scaled = g.scale(2.0);
         assert!((scaled.delta - 2.0).abs() < 1e-9);
         let added = g.add(&scaled);
@@ -392,15 +407,32 @@ mod tests {
 
     #[test]
     fn dollar_delta() {
-        let g = Greeks { delta: 0.5, ..Greeks::default() };
+        let g = Greeks {
+            delta: 0.5,
+            ..Greeks::default()
+        };
         assert!((g.dollar_delta(100.0, 1000.0) - 50_000.0).abs() < 1e-6);
     }
 
     #[test]
     fn risk_engine_aggregate() {
         let engine = RiskEngine::new();
-        engine.update_greeks("AAPL", Greeks { delta: 0.5, gamma: 0.01, ..Greeks::default() });
-        engine.update_greeks("GOOG", Greeks { delta: 0.3, gamma: 0.02, ..Greeks::default() });
+        engine.update_greeks(
+            "AAPL",
+            Greeks {
+                delta: 0.5,
+                gamma: 0.01,
+                ..Greeks::default()
+            },
+        );
+        engine.update_greeks(
+            "GOOG",
+            Greeks {
+                delta: 0.3,
+                gamma: 0.02,
+                ..Greeks::default()
+            },
+        );
         let agg = engine.aggregate_greeks();
         assert!((agg.delta - 0.8).abs() < 1e-9);
         assert!((agg.gamma - 0.03).abs() < 1e-9);
@@ -420,7 +452,13 @@ mod tests {
 
     #[test]
     fn pnl_attribution_basic() {
-        let greeks = Greeks { delta: 1.0, gamma: 0.0, theta: -10.0, vega: 0.0, rho: 0.0 };
+        let greeks = Greeks {
+            delta: 1.0,
+            gamma: 0.0,
+            theta: -10.0,
+            vega: 0.0,
+            rho: 0.0,
+        };
         let mut prev = HashMap::new();
         prev.insert("SPY".to_string(), 400.0_f64);
         let mut curr = HashMap::new();
@@ -432,7 +470,13 @@ mod tests {
     #[test]
     fn stress_test_sign() {
         let engine = RiskEngine::new();
-        engine.update_greeks("X", Greeks { delta: 1.0, ..Greeks::default() });
+        engine.update_greeks(
+            "X",
+            Greeks {
+                delta: 1.0,
+                ..Greeks::default()
+            },
+        );
         engine.update_price("X", 100.0);
         let pnl = engine.stress_test(-0.10);
         assert!(pnl < 0.0); // negative delta => loss on down shock

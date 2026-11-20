@@ -150,11 +150,7 @@ impl TickNormalizer {
     pub fn deduplicate(ticks: &mut Vec<RawTick>) {
         let mut seen: Vec<(u64, u64, u64)> = Vec::with_capacity(ticks.len());
         ticks.retain(|t| {
-            let key = (
-                t.timestamp_ns,
-                t.price.to_bits(),
-                t.size.to_bits(),
-            );
+            let key = (t.timestamp_ns, t.price.to_bits(), t.size.to_bits());
             if seen.contains(&key) {
                 false
             } else {
@@ -206,8 +202,12 @@ impl BarState {
     }
 
     fn push(&mut self, tick: &RawTick) {
-        if tick.price > self.high { self.high = tick.price; }
-        if tick.price < self.low { self.low = tick.price; }
+        if tick.price > self.high {
+            self.high = tick.price;
+        }
+        if tick.price < self.low {
+            self.low = tick.price;
+        }
         self.close = tick.price;
         self.close_time_ns = tick.timestamp_ns;
         self.volume += tick.size;
@@ -225,7 +225,11 @@ impl BarState {
             low: self.low,
             close: self.close,
             volume: self.volume,
-            vwap: if self.volume > 0.0 { self.value_sum / self.volume } else { self.close },
+            vwap: if self.volume > 0.0 {
+                self.value_sum / self.volume
+            } else {
+                self.close
+            },
             trade_count: self.trade_count,
         }
     }
@@ -244,7 +248,11 @@ pub struct OhlcvBuilder {
 impl OhlcvBuilder {
     /// Create a new builder for `symbol` with bars of `bar_duration_ns` nanoseconds.
     pub fn new(symbol: impl Into<String>, bar_duration_ns: u64) -> Self {
-        Self { symbol: symbol.into(), bar_duration_ns, current: None }
+        Self {
+            symbol: symbol.into(),
+            bar_duration_ns,
+            current: None,
+        }
     }
 
     /// Push a tick into the builder.
@@ -359,8 +367,8 @@ impl QualityChecker {
         let vol_hist = self.volume_history.entry(tick.symbol.clone()).or_default();
         if vol_hist.len() >= 5 {
             let mean: f64 = vol_hist.iter().sum::<f64>() / vol_hist.len() as f64;
-            let var: f64 = vol_hist.iter().map(|v| (v - mean).powi(2)).sum::<f64>()
-                / vol_hist.len() as f64;
+            let var: f64 =
+                vol_hist.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / vol_hist.len() as f64;
             let sigma = var.sqrt();
             if sigma > 0.0 && (tick.size - mean).abs() / sigma > self.spike_sigma * 2.0 {
                 flags.push(DataQualityFlag::OutlierVolume);
@@ -369,11 +377,15 @@ impl QualityChecker {
 
         // Update state.
         let h = self.price_history.entry(tick.symbol.clone()).or_default();
-        if h.len() >= self.z_score_window { h.pop_front(); }
+        if h.len() >= self.z_score_window {
+            h.pop_front();
+        }
         h.push_back(tick.price);
 
         let vh = self.volume_history.entry(tick.symbol.clone()).or_default();
-        if vh.len() >= self.z_score_window { vh.pop_front(); }
+        if vh.len() >= self.z_score_window {
+            vh.pop_front();
+        }
         vh.push_back(tick.size);
 
         self.last_ts.insert(tick.symbol.clone(), tick.timestamp_ns);
@@ -396,8 +408,7 @@ impl QualityChecker {
             return None;
         }
         let mean = history.iter().sum::<f64>() / history.len() as f64;
-        let var = history.iter().map(|p| (p - mean).powi(2)).sum::<f64>()
-            / history.len() as f64;
+        let var = history.iter().map(|p| (p - mean).powi(2)).sum::<f64>() / history.len() as f64;
         let sigma = var.sqrt();
         // A flat history has zero dispersion, which used to disable the check
         // entirely (a 5x jump after flat prices passed unflagged). In that case
@@ -409,22 +420,24 @@ impl QualityChecker {
         };
         let deviation = (price - mean).abs() / sigma;
         if deviation > self.spike_sigma {
-            Some(DataQualityFlag::SuspiciousSpike { deviation_sigma: deviation })
+            Some(DataQualityFlag::SuspiciousSpike {
+                deviation_sigma: deviation,
+            })
         } else {
             None
         }
     }
 
     /// Generate a quality report from a list of (tick, flags) pairs.
-    pub fn generate_report(
-        &self,
-        flags: &[(RawTick, Vec<DataQualityFlag>)],
-    ) -> QualityReport {
+    pub fn generate_report(&self, flags: &[(RawTick, Vec<DataQualityFlag>)]) -> QualityReport {
         if flags.is_empty() {
             return QualityReport::default();
         }
 
-        let symbol = flags.first().map(|(t, _)| t.symbol.clone()).unwrap_or_default();
+        let symbol = flags
+            .first()
+            .map(|(t, _)| t.symbol.clone())
+            .unwrap_or_default();
         let total_ticks = flags.len();
         let mut clean_ticks = 0usize;
         let mut flagged: HashMap<String, usize> = HashMap::new();
@@ -446,7 +459,13 @@ impl QualityChecker {
             1.0
         };
 
-        QualityReport { symbol, total_ticks, clean_ticks, flagged, data_quality_score }
+        QualityReport {
+            symbol,
+            total_ticks,
+            clean_ticks,
+            flagged,
+            data_quality_score,
+        }
     }
 }
 
@@ -518,9 +537,10 @@ impl DataPipeline {
         let bar = if !is_duplicate {
             let sym = tick.symbol.clone();
             let dur = self.bar_duration_ns;
-            let builder = self.builders.entry(sym).or_insert_with(|| {
-                OhlcvBuilder::new(tick.symbol.clone(), dur)
-            });
+            let builder = self
+                .builders
+                .entry(sym)
+                .or_insert_with(|| OhlcvBuilder::new(tick.symbol.clone(), dur));
             builder.push(&tick)
         } else {
             None
@@ -531,10 +551,13 @@ impl DataPipeline {
 
     /// Generate per-symbol quality reports from the accumulated quality log.
     pub fn pipeline_stats(&self) -> HashMap<String, QualityReport> {
-        self.quality_log.iter().map(|(sym, log)| {
-            let report = self.quality_checker.generate_report(log);
-            (sym.clone(), report)
-        }).collect()
+        self.quality_log
+            .iter()
+            .map(|(sym, log)| {
+                let report = self.quality_checker.generate_report(log);
+                (sym.clone(), report)
+            })
+            .collect()
     }
 }
 
@@ -591,7 +614,9 @@ mod tests {
         let ns_per_min: u64 = 60 * 1_000_000_000;
         let mut builder = OhlcvBuilder::new("SPY", ns_per_min);
         assert!(builder.push(&make_tick("SPY", 0, 400.0, 100.0)).is_none());
-        assert!(builder.push(&make_tick("SPY", 30_000_000_000, 401.0, 50.0)).is_none());
+        assert!(builder
+            .push(&make_tick("SPY", 30_000_000_000, 401.0, 50.0))
+            .is_none());
         let bar = builder.push(&make_tick("SPY", ns_per_min + 1, 402.0, 200.0));
         assert!(bar.is_some());
         let bar = bar.unwrap();
@@ -616,7 +641,9 @@ mod tests {
         }
         // Feed a spike.
         let flags = checker.check(&make_tick("X", 11_000_000_000, 500.0, 10.0));
-        let has_spike = flags.iter().any(|f| matches!(f, DataQualityFlag::SuspiciousSpike { .. }));
+        let has_spike = flags
+            .iter()
+            .any(|f| matches!(f, DataQualityFlag::SuspiciousSpike { .. }));
         assert!(has_spike);
     }
 

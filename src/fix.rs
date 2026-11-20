@@ -173,27 +173,26 @@ impl FixParser {
                     continue;
                 }
                 // Find the '=' separator.
-                let sep = field_bytes
-                    .iter()
-                    .position(|&b| b == b'=')
-                    .ok_or_else(|| FixError::ParseError {
+                let sep = field_bytes.iter().position(|&b| b == b'=').ok_or_else(|| {
+                    FixError::ParseError {
                         tag: 0,
                         reason: format!(
                             "field '{}' has no '=' separator",
                             String::from_utf8_lossy(field_bytes)
                         ),
-                    })?;
-                let tag_str = std::str::from_utf8(&field_bytes[..sep]).map_err(|e| {
-                    FixError::ParseError {
-                        tag: 0,
-                        reason: format!("tag not UTF-8: {e}"),
                     }
                 })?;
-                let val_str =
-                    std::str::from_utf8(&field_bytes[sep + 1..]).map_err(|e| FixError::ParseError {
+                let tag_str =
+                    std::str::from_utf8(&field_bytes[..sep]).map_err(|e| FixError::ParseError {
+                        tag: 0,
+                        reason: format!("tag not UTF-8: {e}"),
+                    })?;
+                let val_str = std::str::from_utf8(&field_bytes[sep + 1..]).map_err(|e| {
+                    FixError::ParseError {
                         tag: 0,
                         reason: format!("value not UTF-8: {e}"),
-                    })?;
+                    }
+                })?;
                 let tag: u32 = tag_str.parse().map_err(|e| FixError::ParseError {
                     tag: 0,
                     reason: format!("tag not numeric ('{tag_str}'): {e}"),
@@ -204,9 +203,9 @@ impl FixParser {
         };
 
         // Validate version.
-        let begin_string = fields
-            .get(&tag::BEGIN_STRING)
-            .ok_or(FixError::MissingTag { tag: tag::BEGIN_STRING })?;
+        let begin_string = fields.get(&tag::BEGIN_STRING).ok_or(FixError::MissingTag {
+            tag: tag::BEGIN_STRING,
+        })?;
         if begin_string != "FIX.4.2" {
             return Err(FixError::UnsupportedVersion(begin_string.clone()));
         }
@@ -274,11 +273,10 @@ impl FixParser {
 
         // Prepend header: 8= and 9=
         let mut frame: Vec<u8> = Vec::new();
+        frame.extend_from_slice(format!("{}=FIX.4.2{}", tag::BEGIN_STRING, SOH as char).as_bytes());
         frame.extend_from_slice(
-            format!("{}=FIX.4.2{}", tag::BEGIN_STRING, SOH as char).as_bytes(),
+            format!("{}={}{}", tag::BODY_LENGTH, body.len(), SOH as char).as_bytes(),
         );
-        frame
-            .extend_from_slice(format!("{}={}{}", tag::BODY_LENGTH, body.len(), SOH as char).as_bytes());
         frame.extend_from_slice(&body);
 
         // Append checksum.
@@ -376,7 +374,7 @@ impl FixSession {
         // NoMDEntryTypes=3 (Bid, Offer, Trade)
         fields.insert(tag::NO_MD_ENTRY_TYPES, "3".to_string());
         fields.insert(tag::MD_ENTRY_TYPE, "0".to_string()); // Bid
-        // NoRelatedSym
+                                                            // NoRelatedSym
         fields.insert(tag::NO_RELATED_SYM, symbols.len().to_string());
         for sym in symbols {
             fields.insert(tag::SYMBOL, sym.to_string());
@@ -501,19 +499,13 @@ mod tests {
         // Build body string: tag 35 + extra fields
         let body = format!("35={msg_type}{soh}{body_fields}", soh = SOH as char);
         let body_len = body.len();
-        let header = format!(
-            "8=FIX.4.2{soh}9={body_len}{soh}",
-            soh = SOH as char
-        );
+        let header = format!("8=FIX.4.2{soh}9={body_len}{soh}", soh = SOH as char);
         let pre_checksum = format!("{header}{body}");
         let checksum: u8 = pre_checksum
             .as_bytes()
             .iter()
             .fold(0u8, |acc, &b| acc.wrapping_add(b));
-        let full = format!(
-            "{pre_checksum}10={checksum:03}{soh}",
-            soh = SOH as char
-        );
+        let full = format!("{pre_checksum}10={checksum:03}{soh}", soh = SOH as char);
         full.into_bytes()
     }
 
@@ -530,7 +522,10 @@ mod tests {
         let body = format!("35=0{soh}49=A{soh}56=B{soh}", soh = SOH as char);
         let body_len = body.len();
         let pre = format!("8=FIX.4.1{soh}9={body_len}{soh}{body}", soh = SOH as char);
-        let checksum: u8 = pre.as_bytes().iter().fold(0u8, |acc, &b| acc.wrapping_add(b));
+        let checksum: u8 = pre
+            .as_bytes()
+            .iter()
+            .fold(0u8, |acc, &b| acc.wrapping_add(b));
         let frame = format!("{pre}10={checksum:03}{soh}", soh = SOH as char).into_bytes();
         let parser = FixParser::new();
         let result = parser.parse(&frame);
@@ -545,10 +540,15 @@ mod tests {
         let soh = SOH as char;
         let body = format!("35=D{soh}110=500{soh}210=100{soh}58=ratio 10=ok{soh}");
         let pre = format!("8=FIX.4.2{soh}9={}{soh}{body}", body.len());
-        let checksum: u8 = pre.as_bytes().iter().fold(0u8, |acc, &b| acc.wrapping_add(b));
+        let checksum: u8 = pre
+            .as_bytes()
+            .iter()
+            .fold(0u8, |acc, &b| acc.wrapping_add(b));
         let frame = format!("{pre}10={checksum:03}{soh}").into_bytes();
         let parser = FixParser::new();
-        let msg = parser.parse(&frame).expect("a valid frame with tag 110 parses");
+        let msg = parser
+            .parse(&frame)
+            .expect("a valid frame with tag 110 parses");
         assert_eq!(msg.fields.get(&110).map(String::as_str), Some("500"));
         assert_eq!(msg.fields.get(&58).map(String::as_str), Some("ratio 10=ok"));
         // And it survives a serialize/parse round trip.
@@ -610,11 +610,9 @@ mod tests {
                 // on_message directly without a live connection.
                 // Use std::net to bind a loopback listener, then connect.
                 // This is acceptable in tests only.
-                let listener =
-                    std::net::TcpListener::bind("127.0.0.1:0").expect("bind loopback");
+                let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind loopback");
                 let addr = listener.local_addr().expect("local addr");
-                let std_stream =
-                    std::net::TcpStream::connect(addr).expect("connect loopback");
+                let std_stream = std::net::TcpStream::connect(addr).expect("connect loopback");
                 std_stream.set_nonblocking(true).expect("nonblocking");
                 TcpStream::from_std(std_stream).expect("into tokio stream")
             },
@@ -660,6 +658,9 @@ mod tests {
             msg_type: "A".to_string(),
             fields: HashMap::new(),
         };
-        assert!(matches!(msg.get(999), Err(FixError::MissingTag { tag: 999 })));
+        assert!(matches!(
+            msg.get(999),
+            Err(FixError::MissingTag { tag: 999 })
+        ));
     }
 }

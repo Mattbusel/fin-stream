@@ -128,9 +128,11 @@ impl Default for EventDetector {
 impl EventDetector {
     /// Create a new detector with the given configuration.
     pub fn new(config: EventDetectorConfig) -> Self {
-        Self { config, symbols: HashMap::new() }
+        Self {
+            config,
+            symbols: HashMap::new(),
+        }
     }
-
 
     /// Process one tick update for `symbol` and return any events detected.
     ///
@@ -180,8 +182,12 @@ impl EventDetector {
                 let mut min_prior = f64::INFINITY;
                 for (i, &p) in prior.iter().enumerate() {
                     if i < prior_len {
-                        if p > max_prior { max_prior = p; }
-                        if p < min_prior { min_prior = p; }
+                        if p > max_prior {
+                            max_prior = p;
+                        }
+                        if p < min_prior {
+                            min_prior = p;
+                        }
                     }
                 }
                 if price > max_prior {
@@ -302,7 +308,10 @@ mod tests {
             det.update("SYM", *p, 1.0, i as u64 * 1000);
         }
         let evts = det.update("SYM", 110.0, 1.0, 6000);
-        let breakouts: Vec<_> = evts.iter().filter(|e| matches!(e, MarketEvent::Breakout { direction: 1, .. })).collect();
+        let breakouts: Vec<_> = evts
+            .iter()
+            .filter(|e| matches!(e, MarketEvent::Breakout { direction: 1, .. }))
+            .collect();
         assert!(!breakouts.is_empty(), "Expected upward breakout");
     }
 
@@ -313,7 +322,10 @@ mod tests {
             det.update("SYM", *p, 1.0, i as u64 * 1000);
         }
         let evts = det.update("SYM", 90.0, 1.0, 6000);
-        let breakouts: Vec<_> = evts.iter().filter(|e| matches!(e, MarketEvent::Breakout { direction: -1, .. })).collect();
+        let breakouts: Vec<_> = evts
+            .iter()
+            .filter(|e| matches!(e, MarketEvent::Breakout { direction: -1, .. }))
+            .collect();
         assert!(!breakouts.is_empty(), "Expected downward breakout");
     }
 
@@ -325,7 +337,10 @@ mod tests {
         }
         // 104 is not above 104, no breakout
         let evts = det.update("SYM", 104.0, 1.0, 6000);
-        let breakouts: Vec<_> = evts.iter().filter(|e| matches!(e, MarketEvent::Breakout { .. })).collect();
+        let breakouts: Vec<_> = evts
+            .iter()
+            .filter(|e| matches!(e, MarketEvent::Breakout { .. }))
+            .collect();
         assert!(breakouts.is_empty());
     }
 
@@ -340,7 +355,10 @@ mod tests {
         }
         // Spike at 500 → ratio 5x → above threshold of 2
         let evts = det.update("VOL", 100.0, 500.0, 5000);
-        let spikes: Vec<_> = evts.iter().filter(|e| matches!(e, MarketEvent::VolumeSpike { .. })).collect();
+        let spikes: Vec<_> = evts
+            .iter()
+            .filter(|e| matches!(e, MarketEvent::VolumeSpike { .. }))
+            .collect();
         assert!(!spikes.is_empty(), "Expected volume spike");
         if let MarketEvent::VolumeSpike { ratio, .. } = spikes[0] {
             assert!(*ratio >= 2.0);
@@ -355,7 +373,10 @@ mod tests {
         }
         // Only 1.5x, below threshold
         let evts = det.update("VOL", 100.0, 150.0, 5000);
-        let spikes: Vec<_> = evts.iter().filter(|e| matches!(e, MarketEvent::VolumeSpike { .. })).collect();
+        let spikes: Vec<_> = evts
+            .iter()
+            .filter(|e| matches!(e, MarketEvent::VolumeSpike { .. }))
+            .collect();
         assert!(spikes.is_empty());
     }
 
@@ -371,7 +392,10 @@ mod tests {
         det.update("REV", 103.0, 1.0, 3000);
         // Now go down
         let evts = det.update("REV", 102.0, 1.0, 4000);
-        let reversals: Vec<_> = evts.iter().filter(|e| matches!(e, MarketEvent::Reversal { prior_trend: 1, .. })).collect();
+        let reversals: Vec<_> = evts
+            .iter()
+            .filter(|e| matches!(e, MarketEvent::Reversal { prior_trend: 1, .. }))
+            .collect();
         assert!(!reversals.is_empty(), "Expected reversal from uptrend");
     }
 
@@ -384,7 +408,18 @@ mod tests {
         det.update("REV", 100.0, 1.0, 3000);
         // Now go up
         let evts = det.update("REV", 101.0, 1.0, 4000);
-        let reversals: Vec<_> = evts.iter().filter(|e| matches!(e, MarketEvent::Reversal { prior_trend: -1, .. })).collect();
+        let reversals: Vec<_> = evts
+            .iter()
+            .filter(|e| {
+                matches!(
+                    e,
+                    MarketEvent::Reversal {
+                        prior_trend: -1,
+                        ..
+                    }
+                )
+            })
+            .collect();
         assert!(!reversals.is_empty(), "Expected reversal from downtrend");
     }
 
@@ -397,7 +432,10 @@ mod tests {
         det.update("GAP", 100.0, 1.0, 1_000_000);
         // > 1 hour later (3_600_001 ms gap), price jumps 5 % → gap open
         let evts = det.update("GAP", 105.0, 1.0, 1_000_000 + 3_600_001);
-        let gaps: Vec<_> = evts.iter().filter(|e| matches!(e, MarketEvent::GapOpen { .. })).collect();
+        let gaps: Vec<_> = evts
+            .iter()
+            .filter(|e| matches!(e, MarketEvent::GapOpen { .. }))
+            .collect();
         assert!(!gaps.is_empty(), "Expected gap open event");
         if let MarketEvent::GapOpen { gap_pct, .. } = gaps[0] {
             assert!((*gap_pct - 0.05).abs() < 1e-6);
@@ -410,7 +448,10 @@ mod tests {
         det.update("GAP", 100.0, 1.0, 1_000_000);
         // Only 0.5 % move (min_gap_pct = 1 %) → no gap
         let evts = det.update("GAP", 100.5, 1.0, 1_000_000 + 3_600_001);
-        let gaps: Vec<_> = evts.iter().filter(|e| matches!(e, MarketEvent::GapOpen { .. })).collect();
+        let gaps: Vec<_> = evts
+            .iter()
+            .filter(|e| matches!(e, MarketEvent::GapOpen { .. }))
+            .collect();
         assert!(gaps.is_empty());
     }
 
@@ -420,7 +461,10 @@ mod tests {
         det.update("GAP", 100.0, 1.0, 1_000_000);
         // Only 10 seconds later — not a session gap
         let evts = det.update("GAP", 110.0, 1.0, 1_010_000);
-        let gaps: Vec<_> = evts.iter().filter(|e| matches!(e, MarketEvent::GapOpen { .. })).collect();
+        let gaps: Vec<_> = evts
+            .iter()
+            .filter(|e| matches!(e, MarketEvent::GapOpen { .. }))
+            .collect();
         assert!(gaps.is_empty());
     }
 
@@ -435,8 +479,14 @@ mod tests {
         }
         // GOOG has no history; first tick should NOT produce a breakout
         let evts = det.update("GOOG", 200.0, 1.0, 0);
-        let breakouts: Vec<_> = evts.iter().filter(|e| matches!(e, MarketEvent::Breakout { .. })).collect();
-        assert!(breakouts.is_empty(), "New symbol should not immediately break out");
+        let breakouts: Vec<_> = evts
+            .iter()
+            .filter(|e| matches!(e, MarketEvent::Breakout { .. }))
+            .collect();
+        assert!(
+            breakouts.is_empty(),
+            "New symbol should not immediately break out"
+        );
     }
 
     // ---- Config default ----

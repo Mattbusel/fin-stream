@@ -245,11 +245,7 @@ async fn run_asset_feed(
     latest: Arc<DashMap<String, NormalizedTick>>,
     stats: Arc<DashMap<String, AssetFeedStats>>,
 ) -> Result<(), StreamError> {
-    let mut backoff = BackoffState::new(
-        Duration::from_millis(500),
-        Duration::from_secs(30),
-        2.0,
-    );
+    let mut backoff = BackoffState::new(Duration::from_millis(500), Duration::from_secs(30), 2.0);
 
     loop {
         {
@@ -273,7 +269,11 @@ async fn run_asset_feed(
         }
 
         let delay = backoff.next_delay();
-        debug!(symbol = cfg.symbol, delay_ms = delay.as_millis(), "backoff before restart");
+        debug!(
+            symbol = cfg.symbol,
+            delay_ms = delay.as_millis(),
+            "backoff before restart"
+        );
         tokio::time::sleep(delay).await;
 
         // After a successful period we could reset backoff, but since we
@@ -290,7 +290,10 @@ async fn run_ws_feed_once(
 ) -> Result<(), StreamError> {
     use crate::tick::{RawTick, TickNormalizer};
 
-    let conn_config = cfg.connection_config.clone().with_reconnect(cfg.reconnect_policy.clone());
+    let conn_config = cfg
+        .connection_config
+        .clone()
+        .with_reconnect(cfg.reconnect_policy.clone());
     let mut manager = WsManager::new(conn_config);
 
     // Create channels for the WsManager message pump.
@@ -298,9 +301,7 @@ async fn run_ws_feed_once(
     let normalizer = TickNormalizer::new();
 
     // Drive the WsManager run loop in a background task.
-    let run_handle = tokio::spawn(async move {
-        manager.run(msg_tx, None).await
-    });
+    let run_handle = tokio::spawn(async move { manager.run(msg_tx, None).await });
 
     // Process incoming raw messages, normalizing each to a tick.
     while let Some(raw_json) = msg_rx.recv().await {
@@ -330,7 +331,9 @@ async fn run_ws_feed_once(
     match run_handle.await {
         Ok(Ok(())) => Ok(()),
         Ok(Err(e)) => Err(e),
-        Err(_join_err) => Err(StreamError::Disconnected { url: cfg.connection_config.url.clone() }),
+        Err(_join_err) => Err(StreamError::Disconnected {
+            url: cfg.connection_config.url.clone(),
+        }),
     }
 }
 
@@ -382,11 +385,7 @@ mod tests {
 
     #[test]
     fn backoff_state_doubles_up_to_max() {
-        let mut b = BackoffState::new(
-            Duration::from_millis(100),
-            Duration::from_secs(1),
-            2.0,
-        );
+        let mut b = BackoffState::new(Duration::from_millis(100), Duration::from_secs(1), 2.0);
         assert_eq!(b.next_delay(), Duration::from_millis(100));
         assert_eq!(b.next_delay(), Duration::from_millis(200));
         assert_eq!(b.next_delay(), Duration::from_millis(400));

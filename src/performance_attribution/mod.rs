@@ -166,7 +166,10 @@ impl BrinsonFachler {
         benchmark_returns: &[Vec<f64>],
         weights: &[Vec<f64>],
     ) -> Vec<AttributionReport> {
-        let n_periods = portfolio_returns.len().min(benchmark_returns.len()).min(weights.len());
+        let n_periods = portfolio_returns
+            .len()
+            .min(benchmark_returns.len())
+            .min(weights.len());
         let mut reports: Vec<AttributionReport> = Vec::with_capacity(n_periods);
 
         for t in 0..n_periods {
@@ -287,7 +290,10 @@ mod tests {
             ("Energy".to_string(), 0.5, 0.6, 0.05, 0.06),
         ];
         let report = BrinsonFachler::attribute(&sectors);
-        assert!((report.active_return - (report.portfolio_return - report.benchmark_return)).abs() < 1e-12);
+        assert!(
+            (report.active_return - (report.portfolio_return - report.benchmark_return)).abs()
+                < 1e-12
+        );
     }
 
     #[test]

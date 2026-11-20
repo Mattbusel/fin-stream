@@ -162,8 +162,7 @@ impl MarketMaker {
         let inv_excess = if self.config.inventory_limit.abs() < f64::EPSILON {
             0.0
         } else {
-            (self.state.inventory - self.config.inventory_target)
-                / self.config.inventory_limit
+            (self.state.inventory - self.config.inventory_target) / self.config.inventory_limit
         };
         let skew = self.config.skew_factor * inv_excess * half_spread;
 
@@ -330,7 +329,12 @@ mod tests {
     fn quote_bid_below_ask() {
         let mut mm = default_mm();
         let q = mm.quote(100.0);
-        assert!(q.bid < q.ask, "bid should be below ask: {} >= {}", q.bid, q.ask);
+        assert!(
+            q.bid < q.ask,
+            "bid should be below ask: {} >= {}",
+            q.bid,
+            q.ask
+        );
     }
 
     #[test]
@@ -338,7 +342,10 @@ mod tests {
         let mut mm = mm_with(20.0, 0.0, 100.0);
         let q = mm.quote(100.0);
         let spread_bps = (q.ask - q.bid) / 100.0 * 10_000.0;
-        assert!((spread_bps - 20.0).abs() < 1e-8, "spread: {spread_bps:.4} bps");
+        assert!(
+            (spread_bps - 20.0).abs() < 1e-8,
+            "spread: {spread_bps:.4} bps"
+        );
     }
 
     #[test]
@@ -370,7 +377,10 @@ mod tests {
 
     #[test]
     fn quote_size_equals_lot_size() {
-        let mut mm = MarketMaker::new(MmConfig { lot_size: 5.0, ..MmConfig::default() });
+        let mut mm = MarketMaker::new(MmConfig {
+            lot_size: 5.0,
+            ..MmConfig::default()
+        });
         let q = mm.quote(100.0);
         assert_eq!(q.bid_size, 5.0);
         assert_eq!(q.ask_size, 5.0);
@@ -386,7 +396,10 @@ mod tests {
         mm2.state.inventory = 0.0;
         let q_flat = mm2.quote(100.0);
 
-        assert!(q_maxlong.bid < q_flat.bid, "max-long should quote lowest bid");
+        assert!(
+            q_maxlong.bid < q_flat.bid,
+            "max-long should quote lowest bid"
+        );
     }
 
     // ── fill mechanics ──
@@ -425,7 +438,11 @@ mod tests {
         let mut mm = default_mm();
         mm.fill(Side::Sell, 99.0, 1.0); // MM buys 1 at 99
         let res = mm.fill(Side::Buy, 101.0, 1.0); // MM sells 1 at 101
-        assert!((res.realized_pnl - 2.0).abs() < 1e-8, "realized PnL: {}", res.realized_pnl);
+        assert!(
+            (res.realized_pnl - 2.0).abs() < 1e-8,
+            "realized PnL: {}",
+            res.realized_pnl
+        );
     }
 
     #[test]
@@ -517,6 +534,10 @@ mod tests {
         mm.fill(Side::Buy, 101.0, 1.0);
         // Trade 1: buy@100, sell@102 → +2; Trade 2: buy@98, sell@101 → +3
         let s = mm.stats();
-        assert!((s.total_pnl - 5.0).abs() < 1e-8, "accumulated PnL: {}", s.total_pnl);
+        assert!(
+            (s.total_pnl - 5.0).abs() < 1e-8,
+            "accumulated PnL: {}",
+            s.total_pnl
+        );
     }
 }

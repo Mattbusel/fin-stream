@@ -57,7 +57,11 @@ impl PairCointegration {
         let hedge_ratio = ols_beta(b, a)?;
 
         // Step 2: Compute spread
-        let spread: Vec<f64> = a.iter().zip(b.iter()).map(|(&ai, &bi)| ai - hedge_ratio * bi).collect();
+        let spread: Vec<f64> = a
+            .iter()
+            .zip(b.iter())
+            .map(|(&ai, &bi)| ai - hedge_ratio * bi)
+            .collect();
 
         let spread_mean = mean(&spread);
         let spread_std = std_dev(&spread);
@@ -75,7 +79,13 @@ impl PairCointegration {
         // Δs = phi * (s_{t-1} - mu) → phi = beta, half-life = -ln(2) / phi
         let half_life = compute_half_life(&spread);
 
-        Some(CointegrationResult { spread_mean, spread_std, half_life, is_cointegrated, adf_statistic })
+        Some(CointegrationResult {
+            spread_mean,
+            spread_std,
+            half_life,
+            is_cointegrated,
+            adf_statistic,
+        })
     }
 }
 
@@ -183,8 +193,11 @@ impl StatArbDetector {
             let hedge_ratio = ols_beta(b, a).unwrap_or(1.0);
 
             // Compute spread
-            let spread: Vec<f64> =
-                a.iter().zip(b.iter()).map(|(&ai, &bi)| ai - hedge_ratio * bi).collect();
+            let spread: Vec<f64> = a
+                .iter()
+                .zip(b.iter())
+                .map(|(&ai, &bi)| ai - hedge_ratio * bi)
+                .collect();
             let s_mean = mean(&spread);
             let s_std = std_dev(&spread);
 
@@ -254,7 +267,11 @@ fn ols_beta(x: &[f64], y: &[f64]) -> Option<f64> {
     let y = &y[..n];
     let mx = mean(x);
     let my = mean(y);
-    let num: f64 = x.iter().zip(y.iter()).map(|(&xi, &yi)| (xi - mx) * (yi - my)).sum();
+    let num: f64 = x
+        .iter()
+        .zip(y.iter())
+        .map(|(&xi, &yi)| (xi - mx) * (yi - my))
+        .sum();
     let den: f64 = x.iter().map(|&xi| (xi - mx).powi(2)).sum();
     if den.abs() < 1e-14 {
         return None;
@@ -278,7 +295,9 @@ fn adf_t_stat(spread: &[f64]) -> Option<f64> {
     // OLS: Δs = beta * s_{t-1} + eps (no constant for ADF simplification)
     let m_lag = mean(&lagged);
     let m_delta = mean(&delta);
-    let num: f64 = lagged.iter().zip(delta.iter())
+    let num: f64 = lagged
+        .iter()
+        .zip(delta.iter())
         .map(|(&l, &d)| (l - m_lag) * (d - m_delta))
         .sum();
     let den: f64 = lagged.iter().map(|&l| (l - m_lag).powi(2)).sum();
@@ -289,11 +308,18 @@ fn adf_t_stat(spread: &[f64]) -> Option<f64> {
 
     // Residuals
     let alpha = m_delta - beta * m_lag;
-    let residuals: Vec<f64> =
-        lagged.iter().zip(delta.iter()).map(|(&l, &d)| d - (alpha + beta * l)).collect();
+    let residuals: Vec<f64> = lagged
+        .iter()
+        .zip(delta.iter())
+        .map(|(&l, &d)| d - (alpha + beta * l))
+        .collect();
     let m_res = residuals.len() as f64;
     let sse: f64 = residuals.iter().map(|r| r.powi(2)).sum::<f64>() / (m_res - 2.0).max(1.0);
-    let se_beta = if den > 0.0 { (sse / den).sqrt() } else { return None };
+    let se_beta = if den > 0.0 {
+        (sse / den).sqrt()
+    } else {
+        return None;
+    };
     if se_beta < 1e-14 {
         return None;
     }
@@ -329,7 +355,9 @@ mod tests {
         // Simple deterministic "random" walk using LCG
         let mut state: u64 = 12345;
         for _ in 0..n {
-            state = state.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1_442_695_040_888_963_407);
+            state = state
+                .wrapping_mul(6_364_136_223_846_793_005)
+                .wrapping_add(1_442_695_040_888_963_407);
             let noise = ((state >> 32) as f64 / u32::MAX as f64 - 0.5) * 0.5;
             price += noise;
             b.push(price);

@@ -148,12 +148,18 @@ impl OrderBook {
 
     /// Returns the best (highest) bid level, or `None` if the bid side is empty.
     pub fn best_bid(&self) -> Option<PriceLevel> {
-        self.bids.iter().next_back().map(|(k, &q)| PriceLevel { price: k.0, quantity: q })
+        self.bids.iter().next_back().map(|(k, &q)| PriceLevel {
+            price: k.0,
+            quantity: q,
+        })
     }
 
     /// Returns the best (lowest) ask level, or `None` if the ask side is empty.
     pub fn best_ask(&self) -> Option<PriceLevel> {
-        self.asks.iter().next().map(|(k, &q)| PriceLevel { price: k.0, quantity: q })
+        self.asks.iter().next().map(|(k, &q)| PriceLevel {
+            price: k.0,
+            quantity: q,
+        })
     }
 
     /// Returns the bid-ask spread (`best_ask.price - best_bid.price`).
@@ -177,13 +183,19 @@ impl OrderBook {
             .iter()
             .rev()
             .take(levels)
-            .map(|(k, &q)| PriceLevel { price: k.0, quantity: q })
+            .map(|(k, &q)| PriceLevel {
+                price: k.0,
+                quantity: q,
+            })
             .collect();
         let asks: Vec<PriceLevel> = self
             .asks
             .iter()
             .take(levels)
-            .map(|(k, &q)| PriceLevel { price: k.0, quantity: q })
+            .map(|(k, &q)| PriceLevel {
+                price: k.0,
+                quantity: q,
+            })
             .collect();
         (bids, asks)
     }
@@ -302,7 +314,9 @@ pub struct OrderBookManager {
 impl OrderBookManager {
     /// Creates a new, empty [`OrderBookManager`].
     pub fn new() -> Self {
-        Self { books: Arc::new(DashMap::new()) }
+        Self {
+            books: Arc::new(DashMap::new()),
+        }
     }
 
     /// Applies a [`BookUpdate`] to the appropriate symbol's book.
@@ -334,7 +348,12 @@ mod tests {
     use super::*;
 
     fn update(seq: u64, bids: Vec<(f64, f64)>, asks: Vec<(f64, f64)>) -> BookUpdate {
-        BookUpdate { symbol: "BTC".to_string(), sequence: seq, bids, asks }
+        BookUpdate {
+            symbol: "BTC".to_string(),
+            sequence: seq,
+            bids,
+            asks,
+        }
     }
 
     fn snapshot_book() -> OrderBook {
@@ -346,7 +365,8 @@ mod tests {
             sequence: 0,
             bids: vec![(100.0, 10.0), (99.0, 5.0), (98.0, 8.0)],
             asks: vec![(101.0, 3.0), (102.0, 7.0), (103.0, 12.0)],
-        }).unwrap();
+        })
+        .unwrap();
         book.sequence = 1;
         book
     }
@@ -488,7 +508,8 @@ mod tests {
     #[test]
     fn apply_update_adds_levels() {
         let mut book = OrderBook::new("BTC");
-        book.apply_update(&update(0, vec![(100.0, 5.0)], vec![(101.0, 3.0)])).unwrap();
+        book.apply_update(&update(0, vec![(100.0, 5.0)], vec![(101.0, 3.0)]))
+            .unwrap();
         assert!(book.best_bid().is_some());
         assert!(book.best_ask().is_some());
     }
@@ -496,7 +517,8 @@ mod tests {
     #[test]
     fn apply_update_removes_level_when_qty_zero() {
         let mut book = snapshot_book();
-        book.apply_update(&update(2, vec![(100.0, 0.0)], vec![])).unwrap();
+        book.apply_update(&update(2, vec![(100.0, 0.0)], vec![]))
+            .unwrap();
         let bid = book.best_bid().expect("bid");
         assert_eq!(bid.price, 99.0); // 100 was removed
     }
@@ -504,7 +526,8 @@ mod tests {
     #[test]
     fn apply_update_updates_qty() {
         let mut book = snapshot_book();
-        book.apply_update(&update(2, vec![(100.0, 99.0)], vec![])).unwrap();
+        book.apply_update(&update(2, vec![(100.0, 99.0)], vec![]))
+            .unwrap();
         let bid = book.best_bid().expect("bid");
         assert_eq!(bid.quantity, 99.0);
     }
@@ -519,33 +542,39 @@ mod tests {
     #[test]
     fn apply_update_gap_rejected() {
         let mut book = snapshot_book(); // sequence = 1
-        let err = book.apply_update(&update(5, vec![], vec![(102.0, 1.0)])).unwrap_err();
+        let err = book
+            .apply_update(&update(5, vec![], vec![(102.0, 1.0)]))
+            .unwrap_err();
         assert!(matches!(err, BookError::SequenceGap { .. }));
     }
 
     #[test]
     fn apply_update_sequence_zero_skips_validation() {
         let mut book = snapshot_book(); // sequence = 1
-        // Sequence 0 should bypass validation (snapshot feed)
-        book.apply_update(&update(0, vec![(100.0, 99.0)], vec![])).unwrap();
+                                        // Sequence 0 should bypass validation (snapshot feed)
+        book.apply_update(&update(0, vec![(100.0, 99.0)], vec![]))
+            .unwrap();
     }
 
     #[test]
     fn apply_update_crossed_book_rejected() {
         let mut book = OrderBook::new("X");
-        let err = book.apply_update(&BookUpdate {
-            symbol: "X".to_string(),
-            sequence: 0,
-            bids: vec![(105.0, 1.0)],
-            asks: vec![(100.0, 1.0)], // ask < bid → crossed
-        }).unwrap_err();
+        let err = book
+            .apply_update(&BookUpdate {
+                symbol: "X".to_string(),
+                sequence: 0,
+                bids: vec![(105.0, 1.0)],
+                asks: vec![(100.0, 1.0)], // ask < bid → crossed
+            })
+            .unwrap_err();
         assert!(matches!(err, BookError::CrossedBook { .. }));
     }
 
     #[test]
     fn apply_update_sequential_ok() {
         let mut book = snapshot_book(); // sequence = 1
-        book.apply_update(&update(2, vec![], vec![(102.0, 99.0)])).unwrap();
+        book.apply_update(&update(2, vec![], vec![(102.0, 99.0)]))
+            .unwrap();
         assert_eq!(book.sequence, 2);
     }
 
@@ -568,7 +597,8 @@ mod tests {
             sequence: 0,
             bids: vec![(2000.0, 5.0)],
             asks: vec![(2001.0, 3.0)],
-        }).unwrap();
+        })
+        .unwrap();
         let book = mgr.get("ETH").expect("book present");
         assert!(book.best_bid().is_some());
     }
@@ -588,7 +618,8 @@ mod tests {
                 sequence: 0,
                 bids: vec![(100.0, 1.0)],
                 asks: vec![(101.0, 1.0)],
-            }).unwrap();
+            })
+            .unwrap();
         }
         assert_eq!(mgr.symbol_count(), 3);
     }
@@ -601,7 +632,8 @@ mod tests {
             sequence: 0,
             bids: vec![(100.0, 5.0)],
             asks: vec![(101.0, 3.0)],
-        }).unwrap();
+        })
+        .unwrap();
         // Force a crossed book
         let err = mgr.apply(&BookUpdate {
             symbol: "X".to_string(),
@@ -620,7 +652,8 @@ mod tests {
             sequence: 0,
             bids: vec![(98.0, 5.0)],
             asks: vec![(102.0, 5.0)],
-        }).unwrap();
+        })
+        .unwrap();
         let mid = book.mid_price().expect("mid");
         assert!((mid - 100.0).abs() < 1e-9);
     }
@@ -655,7 +688,8 @@ mod tests {
     #[test]
     fn apply_update_increments_sequence() {
         let mut book = snapshot_book(); // sequence = 1
-        book.apply_update(&update(2, vec![], vec![(102.0, 7.0)])).unwrap();
+        book.apply_update(&update(2, vec![], vec![(102.0, 7.0)]))
+            .unwrap();
         assert_eq!(book.sequence, 2);
     }
 }

@@ -88,12 +88,18 @@ impl StaleFilter {
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_millis() as u64)
             .unwrap_or(0);
-        Self { max_age_ms, reference_ms }
+        Self {
+            max_age_ms,
+            reference_ms,
+        }
     }
 
     /// Create a `StaleFilter` with an explicit reference timestamp (useful for tests).
     pub fn with_reference(max_age_ms: u64, reference_ms: u64) -> Self {
-        Self { max_age_ms, reference_ms }
+        Self {
+            max_age_ms,
+            reference_ms,
+        }
     }
 }
 
@@ -172,7 +178,10 @@ pub struct TickPipeline {
 impl TickPipeline {
     /// Create an empty pipeline (no filters, no transforms).
     pub fn new() -> Self {
-        Self { filters: Vec::new(), transforms: Vec::new() }
+        Self {
+            filters: Vec::new(),
+            transforms: Vec::new(),
+        }
     }
 
     /// Add a filter. The filter will be applied to all subsequent ticks.
@@ -219,7 +228,12 @@ mod tests {
     use crate::tick::{Exchange, NormalizedTick};
     use rust_decimal_macros::dec;
 
-    fn make_tick(symbol: &str, price: rust_decimal::Decimal, qty: rust_decimal::Decimal, received_at_ms: u64) -> NormalizedTick {
+    fn make_tick(
+        symbol: &str,
+        price: rust_decimal::Decimal,
+        qty: rust_decimal::Decimal,
+        received_at_ms: u64,
+    ) -> NormalizedTick {
         NormalizedTick {
             exchange: Exchange::Binance,
             symbol: symbol.to_string(),
@@ -242,7 +256,10 @@ mod tests {
     #[test]
     fn test_price_range_filter_passes() {
         let mut pipeline = TickPipeline::new();
-        pipeline.add_filter(PriceRangeFilter { min: dec!(1000), max: dec!(100000) });
+        pipeline.add_filter(PriceRangeFilter {
+            min: dec!(1000),
+            max: dec!(100000),
+        });
         let tick = make_tick("BTC", dec!(50000), dec!(1), 1000);
         assert!(pipeline.process(tick).is_some());
     }
@@ -250,7 +267,10 @@ mod tests {
     #[test]
     fn test_price_range_filter_rejects_low() {
         let mut pipeline = TickPipeline::new();
-        pipeline.add_filter(PriceRangeFilter { min: dec!(1000), max: dec!(100000) });
+        pipeline.add_filter(PriceRangeFilter {
+            min: dec!(1000),
+            max: dec!(100000),
+        });
         let tick = make_tick("BTC", dec!(500), dec!(1), 1000);
         assert!(pipeline.process(tick).is_none());
     }
@@ -258,7 +278,10 @@ mod tests {
     #[test]
     fn test_price_range_filter_rejects_high() {
         let mut pipeline = TickPipeline::new();
-        pipeline.add_filter(PriceRangeFilter { min: dec!(1000), max: dec!(100000) });
+        pipeline.add_filter(PriceRangeFilter {
+            min: dec!(1000),
+            max: dec!(100000),
+        });
         let tick = make_tick("BTC", dec!(200000), dec!(1), 1000);
         assert!(pipeline.process(tick).is_none());
     }
@@ -333,7 +356,9 @@ mod tests {
     #[test]
     fn test_volume_normalizer_transform() {
         let mut pipeline = TickPipeline::new();
-        pipeline.add_transform(VolumeNormalizer { scale_factor: dec!(0.001) });
+        pipeline.add_transform(VolumeNormalizer {
+            scale_factor: dec!(0.001),
+        });
         let tick = make_tick("BTC", dec!(50000), dec!(1000), 1000);
         let out = pipeline.process(tick).unwrap();
         assert_eq!(out.quantity, dec!(1));
@@ -342,7 +367,9 @@ mod tests {
     #[test]
     fn test_timestamp_aligner_rounds_to_granularity() {
         let mut pipeline = TickPipeline::new();
-        pipeline.add_transform(TimestampAligner { granularity_ms: 1000 });
+        pipeline.add_transform(TimestampAligner {
+            granularity_ms: 1000,
+        });
         // 1500ms → rounds to 2000ms (nearest 1000ms boundary)
         let tick = make_tick("BTC", dec!(50000), dec!(1), 1500);
         let out = pipeline.process(tick).unwrap();
@@ -352,7 +379,9 @@ mod tests {
     #[test]
     fn test_timestamp_aligner_rounds_down() {
         let mut pipeline = TickPipeline::new();
-        pipeline.add_transform(TimestampAligner { granularity_ms: 1000 });
+        pipeline.add_transform(TimestampAligner {
+            granularity_ms: 1000,
+        });
         // 1200ms → rounds to 1000ms
         let tick = make_tick("BTC", dec!(50000), dec!(1), 1200);
         let out = pipeline.process(tick).unwrap();
@@ -362,7 +391,10 @@ mod tests {
     #[test]
     fn test_multiple_filters_all_must_pass() {
         let mut pipeline = TickPipeline::new();
-        pipeline.add_filter(PriceRangeFilter { min: dec!(1000), max: dec!(100000) });
+        pipeline.add_filter(PriceRangeFilter {
+            min: dec!(1000),
+            max: dec!(100000),
+        });
         pipeline.add_filter(VolumeFilter { min: dec!(0.5) });
         // Good tick
         let tick = make_tick("BTC", dec!(50000), dec!(1), 1000);
@@ -379,8 +411,12 @@ mod tests {
     fn test_transforms_applied_in_order() {
         let mut pipeline = TickPipeline::new();
         // First scale volume up by 2, then scale down by 0.5 → net 1x
-        pipeline.add_transform(VolumeNormalizer { scale_factor: dec!(2) });
-        pipeline.add_transform(VolumeNormalizer { scale_factor: dec!(0.5) });
+        pipeline.add_transform(VolumeNormalizer {
+            scale_factor: dec!(2),
+        });
+        pipeline.add_transform(VolumeNormalizer {
+            scale_factor: dec!(0.5),
+        });
         let tick = make_tick("BTC", dec!(50000), dec!(100), 1000);
         let out = pipeline.process(tick).unwrap();
         assert_eq!(out.quantity, dec!(100));
@@ -389,7 +425,10 @@ mod tests {
     #[test]
     fn test_filter_and_transform_combined() {
         let mut pipeline = TickPipeline::new();
-        pipeline.add_filter(PriceRangeFilter { min: dec!(100), max: dec!(200) });
+        pipeline.add_filter(PriceRangeFilter {
+            min: dec!(100),
+            max: dec!(200),
+        });
         pipeline.add_transform(PriceRounder { decimals: 0 });
         let tick = make_tick("STOCK", dec!(150.75), dec!(10), 1000);
         let out = pipeline.process(tick).unwrap();

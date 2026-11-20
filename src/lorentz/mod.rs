@@ -541,7 +541,10 @@ impl LorentzTransform {
     /// # Complexity: O(1)
     pub fn inverse(&self) -> Self {
         // (-beta)² == beta², so the Lorentz factor is unchanged.
-        Self { beta: -self.beta, gamma: self.gamma }
+        Self {
+            beta: -self.beta,
+            gamma: self.gamma,
+        }
     }
 
     /// Coordinate (lab-frame) time for a given proper time.
@@ -738,7 +741,9 @@ impl LorentzTransform {
     /// In natural units (`c = 1`). Returns `None` if `E² < p²` (unphysical configuration).
     pub fn lorentz_invariant_mass(energy: f64, momentum: f64) -> Option<f64> {
         let m_sq = energy * energy - momentum * momentum;
-        if m_sq < 0.0 { return None; }
+        if m_sq < 0.0 {
+            return None;
+        }
         Some(m_sq.sqrt())
     }
 
@@ -748,7 +753,9 @@ impl LorentzTransform {
     /// Returns `None` if the denominator is zero (numerically degenerate case).
     pub fn aberration_correction(&self, cos_theta: f64) -> Option<f64> {
         let denom = 1.0 - self.beta * cos_theta;
-        if denom.abs() < 1e-15 { return None; }
+        if denom.abs() < 1e-15 {
+            return None;
+        }
         Some((cos_theta - self.beta) / denom)
     }
 
@@ -780,7 +787,9 @@ impl LorentzTransform {
     /// `a = F / (gamma^3 * m)` — coordinate acceleration decreases as gamma grows.
     /// Returns `None` if `mass` is zero.
     pub fn proper_acceleration(&self, force: f64, mass: f64) -> Option<f64> {
-        if mass == 0.0 { return None; }
+        if mass == 0.0 {
+            return None;
+        }
         Some(force / (self.gamma.powi(3) * mass))
     }
 
@@ -1736,7 +1745,10 @@ mod tests {
     fn test_proper_time_dilation_approaches_zero_at_high_speed() {
         let t = LorentzTransform::new(0.9999).unwrap();
         let proper = t.proper_time_dilation(1.0);
-        assert!(proper < 0.02, "expected near-zero proper time at 0.9999c: {proper}");
+        assert!(
+            proper < 0.02,
+            "expected near-zero proper time at 0.9999c: {proper}"
+        );
     }
 
     // --- LorentzTransform::beta_from_rapidity ---

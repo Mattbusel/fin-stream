@@ -140,10 +140,7 @@ impl FilterStats {
     /// Total rejected ticks across all stages.
     #[must_use]
     pub fn total_rejected(&self) -> u64 {
-        self.rejected_size
-            + self.rejected_stale
-            + self.rejected_duplicate
-            + self.rejected_outlier
+        self.rejected_size + self.rejected_stale + self.rejected_duplicate + self.rejected_outlier
     }
 
     /// Pass-through rate `[0.0, 1.0]`. Returns `0.0` if no ticks processed.
@@ -287,11 +284,7 @@ impl OutlierFilter {
         }
         // Compute mean and std of current window
         let mean: f64 = self.prices.iter().sum::<f64>() / self.prices.len() as f64;
-        let variance: f64 = self
-            .prices
-            .iter()
-            .map(|p| (p - mean).powi(2))
-            .sum::<f64>()
+        let variance: f64 = self.prices.iter().map(|p| (p - mean).powi(2)).sum::<f64>()
             / (self.prices.len() - 1) as f64;
         let std = variance.sqrt();
         // A perfectly flat window has zero std, which used to make every tick pass
@@ -360,10 +353,7 @@ impl TickFilter {
             size_filter: SizeFilter::new(config.min_size),
             stale_filter: StaleFilter::new(config.stale_after_ms),
             duplicate_filter: DuplicateFilter::new(),
-            outlier_filter: OutlierFilter::new(
-                config.outlier_window,
-                config.outlier_std_threshold,
-            ),
+            outlier_filter: OutlierFilter::new(config.outlier_window, config.outlier_std_threshold),
             stats: FilterStats::default(),
         }
     }

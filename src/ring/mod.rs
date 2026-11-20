@@ -108,8 +108,9 @@ impl<T, const N: usize> SpscRing<T, N> {
         // Trigger compile-time assertions.
         let () = Self::_ASSERT_N_GE_2;
         let () = Self::_ASSERT_N_POW2;
-        let buf: Vec<UnsafeCell<MaybeUninit<T>>> =
-            (0..N).map(|_| UnsafeCell::new(MaybeUninit::uninit())).collect();
+        let buf: Vec<UnsafeCell<MaybeUninit<T>>> = (0..N)
+            .map(|_| UnsafeCell::new(MaybeUninit::uninit()))
+            .collect();
         let buf: Box<[UnsafeCell<MaybeUninit<T>>; N]> = buf
             .try_into()
             .unwrap_or_else(|_| unreachable!("length is exactly N"));
@@ -651,7 +652,9 @@ impl<T, const N: usize> SpscRing<T, N> {
             .map(|i| {
                 let slot = head.wrapping_add(i) & (N - 1);
                 // SAFETY: slots in [head, tail) are initialized
-                unsafe { (*self.buf[slot].get()).assume_init_ref() }.clone().into()
+                unsafe { (*self.buf[slot].get()).assume_init_ref() }
+                    .clone()
+                    .into()
             })
             .sum();
         Some(sum / len as f64)
@@ -708,7 +711,10 @@ impl<T, const N: usize> SpscRing<T, N> {
                 inner: Arc::clone(&shared),
                 cached_head: std::cell::Cell::new(0),
             },
-            SpscConsumer { inner: shared, cached_tail: std::cell::Cell::new(0) },
+            SpscConsumer {
+                inner: shared,
+                cached_tail: std::cell::Cell::new(0),
+            },
         )
     }
 }
@@ -1309,7 +1315,7 @@ mod tests {
         prod.push(7).unwrap();
         prod.push(8).unwrap();
         assert_eq!(cons.peek_clone(), Some(7)); // first item
-        assert_eq!(cons.pop().unwrap(), 7);     // consume it
+        assert_eq!(cons.pop().unwrap(), 7); // consume it
         assert_eq!(cons.peek_clone(), Some(8)); // now second is first
     }
 
@@ -1558,7 +1564,7 @@ mod tests {
     #[test]
     fn test_fill_ratio_half_when_half_full() {
         let ring: SpscRing<u32, 8> = SpscRing::new(); // capacity = 7
-        // Push approximately half: 3 items out of 7 ≈ 0.428...
+                                                      // Push approximately half: 3 items out of 7 ≈ 0.428...
         ring.push(1).unwrap();
         ring.push(2).unwrap();
         ring.push(3).unwrap();
@@ -1628,7 +1634,7 @@ mod tests {
     #[test]
     fn test_is_nearly_full_true_when_at_threshold() {
         let ring: SpscRing<u32, 8> = SpscRing::new(); // capacity = 7
-        // Push 7 items → fill_ratio = 1.0 ≥ 0.9
+                                                      // Push 7 items → fill_ratio = 1.0 ≥ 0.9
         for i in 0..7u32 {
             ring.push(i).unwrap();
         }
@@ -1975,7 +1981,9 @@ mod tests {
     #[test]
     fn test_sum_cloned_multiple_elements() {
         let ring: SpscRing<u32, 8> = SpscRing::new();
-        for v in [1u32, 2, 3, 4, 5] { ring.push(v).unwrap(); }
+        for v in [1u32, 2, 3, 4, 5] {
+            ring.push(v).unwrap();
+        }
         assert_eq!(ring.sum_cloned(), 15u32);
     }
 
@@ -2006,7 +2014,9 @@ mod tests {
     #[test]
     fn test_average_cloned_multiple_elements() {
         let ring: SpscRing<f64, 8> = SpscRing::new();
-        for v in [2.0f64, 4.0, 6.0, 8.0] { ring.push(v).unwrap(); }
+        for v in [2.0f64, 4.0, 6.0, 8.0] {
+            ring.push(v).unwrap();
+        }
         assert_eq!(ring.average_cloned(), Some(5.0));
     }
 

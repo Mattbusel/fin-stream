@@ -482,7 +482,12 @@ impl OrderBook {
     /// Useful for measuring how much resting bid interest sits above a given
     /// reference price (e.g. the last trade price).
     pub fn bid_levels_above(&self, price: Decimal) -> usize {
-        self.bids.range((std::ops::Bound::Excluded(&price), std::ops::Bound::Unbounded)).count()
+        self.bids
+            .range((
+                std::ops::Bound::Excluded(&price),
+                std::ops::Bound::Unbounded,
+            ))
+            .count()
     }
 
     /// Number of ask levels with price strictly below `price`.
@@ -698,11 +703,15 @@ impl OrderBook {
             BookSide::Bid => &self.bids,
             BookSide::Ask => &self.asks,
         };
-        if map.len() < 2 { return None; }
+        if map.len() < 2 {
+            return None;
+        }
         let min_p = *map.keys().next()?;
         let max_p = *map.keys().next_back()?;
         let range = max_p - min_p;
-        if range.is_zero() { return None; }
+        if range.is_zero() {
+            return None;
+        }
         Some(Decimal::from(map.len()) / range)
     }
 
@@ -754,7 +763,9 @@ impl OrderBook {
     pub fn ladder_balance(&self, n: usize) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
         let ask_qty = self.cumulative_ask_qty(n);
-        if ask_qty.is_zero() { return None; }
+        if ask_qty.is_zero() {
+            return None;
+        }
         (self.cumulative_bid_qty(n) / ask_qty).to_f64()
     }
 
@@ -763,7 +774,9 @@ impl OrderBook {
     /// Values > 1 indicate more ask granularity; < 1 more bid granularity.
     /// Returns `None` if the bid side is empty.
     pub fn ask_bid_level_ratio(&self) -> Option<f64> {
-        if self.bid_depth() == 0 { return None; }
+        if self.bid_depth() == 0 {
+            return None;
+        }
         Some(self.ask_depth() as f64 / self.bid_depth() as f64)
     }
 
@@ -1006,7 +1019,9 @@ impl OrderBook {
     /// A crossed book indicates an invalid state (stale snapshot or missed
     /// delta). Under normal operation this should always be `false`.
     pub fn is_crossed(&self) -> bool {
-        self.best_bid_price().zip(self.best_ask_price()).is_some_and(|(b, a)| b >= a)
+        self.best_bid_price()
+            .zip(self.best_ask_price())
+            .is_some_and(|(b, a)| b >= a)
     }
 
     /// Returns `true` if there is at least one bid level in the book.
@@ -1083,7 +1098,9 @@ impl OrderBook {
     /// `fee ≈ fill_price * qty * fee_bps / 10_000`. Returns fee in base currency.
     /// Returns `None` if the side is empty, qty ≤ 0, or not enough liquidity to fill.
     pub fn fee_estimate(&self, side: BookSide, qty: Decimal, fee_bps: Decimal) -> Option<Decimal> {
-        if qty <= Decimal::ZERO { return None; }
+        if qty <= Decimal::ZERO {
+            return None;
+        }
         let best_price = match side {
             BookSide::Bid => self.best_bid_price()?,
             BookSide::Ask => self.best_ask_price()?,
@@ -1097,7 +1114,9 @@ impl OrderBook {
     ///
     /// Returns `None` if either side is empty or tick_size is zero.
     pub fn spread_ticks(&self, tick_size: Decimal) -> Option<Decimal> {
-        if tick_size.is_zero() { return None; }
+        if tick_size.is_zero() {
+            return None;
+        }
         let spread = self.spread()?;
         Some(spread / tick_size)
     }
@@ -1123,7 +1142,9 @@ impl OrderBook {
     /// Returns `None` if the side is empty or `pct` is negative.
     pub fn depth_at_pct(&self, side: BookSide, pct: f64) -> Option<Decimal> {
         use rust_decimal::prelude::FromPrimitive;
-        if pct < 0.0 { return None; }
+        if pct < 0.0 {
+            return None;
+        }
         let pct_dec = Decimal::from_f64(pct / 100.0)?;
         match side {
             BookSide::Bid => {
@@ -1149,7 +1170,9 @@ impl OrderBook {
         let bid = self.best_bid()?;
         let ask = self.best_ask()?;
         let total_qty = bid.quantity + ask.quantity;
-        if total_qty.is_zero() { return None; }
+        if total_qty.is_zero() {
+            return None;
+        }
         Some((ask.quantity * bid.price + bid.quantity * ask.price) / total_qty)
     }
 
@@ -1160,10 +1183,14 @@ impl OrderBook {
     /// Returns fewer than `n` entries if the side has fewer levels.
     pub fn best_n_levels(&self, side: BookSide, n: usize) -> Vec<(Decimal, Decimal)> {
         match side {
-            BookSide::Bid => self.bids.iter().rev().take(n)
-                .map(|(&p, &q)| (p, q)).collect(),
-            BookSide::Ask => self.asks.iter().take(n)
-                .map(|(&p, &q)| (p, q)).collect(),
+            BookSide::Bid => self
+                .bids
+                .iter()
+                .rev()
+                .take(n)
+                .map(|(&p, &q)| (p, q))
+                .collect(),
+            BookSide::Ask => self.asks.iter().take(n).map(|(&p, &q)| (p, q)).collect(),
         }
     }
 
@@ -1173,7 +1200,9 @@ impl OrderBook {
     /// weighted average fill price minus the best price (positive = adverse).
     /// Returns `None` if the side is empty or `qty` is zero/negative.
     pub fn price_impact(&self, side: BookSide, qty: Decimal) -> Option<Decimal> {
-        if qty <= Decimal::ZERO { return None; }
+        if qty <= Decimal::ZERO {
+            return None;
+        }
         let best_price = match side {
             BookSide::Bid => self.best_bid_price()?,
             BookSide::Ask => self.best_ask_price()?,
@@ -1185,12 +1214,16 @@ impl OrderBook {
             BookSide::Ask => Box::new(self.asks.iter()),
         };
         for (&price, &level_qty) in levels {
-            if remaining <= Decimal::ZERO { break; }
+            if remaining <= Decimal::ZERO {
+                break;
+            }
             let filled = remaining.min(level_qty);
             cost += price * filled;
             remaining -= filled;
         }
-        if remaining > Decimal::ZERO { return None; } // not enough liquidity
+        if remaining > Decimal::ZERO {
+            return None;
+        } // not enough liquidity
         let avg_fill = cost / qty;
         Some((avg_fill - best_price).abs())
     }
@@ -1215,12 +1248,16 @@ impl OrderBook {
         let mut remaining = quantity;
         let mut cost = Decimal::ZERO;
         for (&price, &qty) in &self.asks {
-            if remaining.is_zero() { break; }
+            if remaining.is_zero() {
+                break;
+            }
             let fill = remaining.min(qty);
             cost += fill * price;
             remaining -= fill;
         }
-        if !remaining.is_zero() { return None; }
+        if !remaining.is_zero() {
+            return None;
+        }
         Some(cost / quantity)
     }
 
@@ -1234,12 +1271,16 @@ impl OrderBook {
         let mut remaining = quantity;
         let mut proceeds = Decimal::ZERO;
         for (&price, &qty) in self.bids.iter().rev() {
-            if remaining.is_zero() { break; }
+            if remaining.is_zero() {
+                break;
+            }
             let fill = remaining.min(qty);
             proceeds += fill * price;
             remaining -= fill;
         }
-        if !remaining.is_zero() { return None; }
+        if !remaining.is_zero() {
+            return None;
+        }
         Some(proceeds / quantity)
     }
 
@@ -1261,7 +1302,10 @@ impl OrderBook {
     /// Returns `Decimal::ZERO` if the ask side is empty.
     pub fn ask_volume_within(&self, price_range: Decimal) -> Decimal {
         self.best_ask().map_or(Decimal::ZERO, |best| {
-            self.asks.range(..=(best.price + price_range)).map(|(_, &q)| q).sum()
+            self.asks
+                .range(..=(best.price + price_range))
+                .map(|(_, &q)| q)
+                .sum()
         })
     }
 
@@ -1271,7 +1315,10 @@ impl OrderBook {
     /// Returns `Decimal::ZERO` if the bid side is empty.
     pub fn bid_volume_within(&self, price_range: Decimal) -> Decimal {
         self.best_bid().map_or(Decimal::ZERO, |best| {
-            self.bids.range((best.price - price_range)..).map(|(_, &q)| q).sum()
+            self.bids
+                .range((best.price - price_range)..)
+                .map(|(_, &q)| q)
+                .sum()
         })
     }
 
@@ -1286,8 +1333,8 @@ impl OrderBook {
 
     /// Total bid quantity at price levels strictly below `price`.
     pub fn bid_volume_below(&self, price: Decimal) -> Decimal {
-        use std::ops::Bound::Unbounded;
         use std::ops::Bound::Excluded;
+        use std::ops::Bound::Unbounded;
         self.bids
             .range((Unbounded, Excluded(price)))
             .map(|(_, &q)| q)
@@ -1429,10 +1476,8 @@ mod tests {
     #[test]
     fn test_order_book_reset_clears_sequence() {
         let mut b = book("BTC-USD");
-        b.apply(
-            delta("BTC-USD", BookSide::Bid, dec!(49900), dec!(1)).with_sequence(5),
-        )
-        .unwrap();
+        b.apply(delta("BTC-USD", BookSide::Bid, dec!(49900), dec!(1)).with_sequence(5))
+            .unwrap();
         assert_eq!(b.last_sequence(), Some(5));
         b.reset(
             vec![PriceLevel::new(dec!(50000), dec!(1))],
@@ -1507,7 +1552,11 @@ mod tests {
             b.apply(delta("BTC-USD", BookSide::Ask, dec!(50100), dec!(1)).with_sequence(3));
         assert!(matches!(
             result,
-            Err(StreamError::SequenceGap { expected: 2, got: 3, .. })
+            Err(StreamError::SequenceGap {
+                expected: 2,
+                got: 3,
+                ..
+            })
         ));
     }
 
@@ -1564,8 +1613,7 @@ mod tests {
 
     #[test]
     fn test_book_delta_serde_roundtrip() {
-        let d = BookDelta::new("BTC-USD", BookSide::Bid, dec!(50000), dec!(1))
-            .with_sequence(42);
+        let d = BookDelta::new("BTC-USD", BookSide::Bid, dec!(50000), dec!(1)).with_sequence(42);
         let json = serde_json::to_string(&d).unwrap();
         let d2: BookDelta = serde_json::from_str(&json).unwrap();
         assert_eq!(d2.symbol, "BTC-USD");
@@ -1593,8 +1641,7 @@ mod tests {
 
     #[test]
     fn test_book_delta_display_with_sequence() {
-        let d = BookDelta::new("BTC-USD", BookSide::Bid, dec!(50000), dec!(1))
-            .with_sequence(42);
+        let d = BookDelta::new("BTC-USD", BookSide::Bid, dec!(50000), dec!(1)).with_sequence(42);
         let s = d.to_string();
         assert!(s.contains("BTC-USD"));
         assert!(s.contains("Bid"));
@@ -1645,8 +1692,10 @@ mod tests {
     #[test]
     fn test_bid_ask_imbalance_balanced() {
         let mut b = book("BTC-USD");
-        b.apply(delta("BTC-USD", BookSide::Bid, dec!(50000), dec!(1))).unwrap();
-        b.apply(delta("BTC-USD", BookSide::Ask, dec!(50100), dec!(1))).unwrap();
+        b.apply(delta("BTC-USD", BookSide::Bid, dec!(50000), dec!(1)))
+            .unwrap();
+        b.apply(delta("BTC-USD", BookSide::Ask, dec!(50100), dec!(1)))
+            .unwrap();
         let imb = b.bid_ask_imbalance(1).unwrap();
         assert!((imb).abs() < 1e-9, "equal qty → ~0");
     }
@@ -1654,8 +1703,10 @@ mod tests {
     #[test]
     fn test_bid_ask_imbalance_full_bid_pressure() {
         let mut b = book("BTC-USD");
-        b.apply(delta("BTC-USD", BookSide::Bid, dec!(50000), dec!(10))).unwrap();
-        b.apply(delta("BTC-USD", BookSide::Ask, dec!(50100), dec!(0))).unwrap();
+        b.apply(delta("BTC-USD", BookSide::Bid, dec!(50000), dec!(10)))
+            .unwrap();
+        b.apply(delta("BTC-USD", BookSide::Ask, dec!(50100), dec!(0)))
+            .unwrap();
         // ask qty = 0 → None
         assert!(b.bid_ask_imbalance(1).is_none());
     }
@@ -1663,10 +1714,14 @@ mod tests {
     #[test]
     fn test_bid_ask_imbalance_two_levels() {
         let mut b = book("BTC-USD");
-        b.apply(delta("BTC-USD", BookSide::Bid, dec!(50000), dec!(3))).unwrap();
-        b.apply(delta("BTC-USD", BookSide::Bid, dec!(49900), dec!(1))).unwrap();
-        b.apply(delta("BTC-USD", BookSide::Ask, dec!(50100), dec!(2))).unwrap();
-        b.apply(delta("BTC-USD", BookSide::Ask, dec!(50200), dec!(2))).unwrap();
+        b.apply(delta("BTC-USD", BookSide::Bid, dec!(50000), dec!(3)))
+            .unwrap();
+        b.apply(delta("BTC-USD", BookSide::Bid, dec!(49900), dec!(1)))
+            .unwrap();
+        b.apply(delta("BTC-USD", BookSide::Ask, dec!(50100), dec!(2)))
+            .unwrap();
+        b.apply(delta("BTC-USD", BookSide::Ask, dec!(50200), dec!(2)))
+            .unwrap();
         // bid_vol = 4, ask_vol = 4 → imbalance = 0
         let imb = b.bid_ask_imbalance(2).unwrap();
         assert!((imb).abs() < 1e-9);
@@ -1677,15 +1732,18 @@ mod tests {
     #[test]
     fn test_vwap_single_level_equals_price() {
         let mut b = book("BTC-USD");
-        b.apply(delta("BTC-USD", BookSide::Ask, dec!(50100), dec!(5))).unwrap();
+        b.apply(delta("BTC-USD", BookSide::Ask, dec!(50100), dec!(5)))
+            .unwrap();
         assert_eq!(b.vwap(BookSide::Ask, 1), Some(dec!(50100)));
     }
 
     #[test]
     fn test_vwap_two_equal_qty_levels() {
         let mut b = book("BTC-USD");
-        b.apply(delta("BTC-USD", BookSide::Bid, dec!(50000), dec!(1))).unwrap();
-        b.apply(delta("BTC-USD", BookSide::Bid, dec!(49800), dec!(1))).unwrap();
+        b.apply(delta("BTC-USD", BookSide::Bid, dec!(50000), dec!(1)))
+            .unwrap();
+        b.apply(delta("BTC-USD", BookSide::Bid, dec!(49800), dec!(1)))
+            .unwrap();
         // vwap = (50000 + 49800) / 2 = 49900
         assert_eq!(b.vwap(BookSide::Bid, 2), Some(dec!(49900)));
     }
@@ -1701,14 +1759,16 @@ mod tests {
     #[test]
     fn test_depth_at_price_bid_present() {
         let mut b = book("BTC-USD");
-        b.apply(delta("BTC-USD", BookSide::Bid, dec!(50000), dec!(3))).unwrap();
+        b.apply(delta("BTC-USD", BookSide::Bid, dec!(50000), dec!(3)))
+            .unwrap();
         assert_eq!(b.depth_at_price(dec!(50000), BookSide::Bid), Some(dec!(3)));
     }
 
     #[test]
     fn test_depth_at_price_ask_present() {
         let mut b = book("BTC-USD");
-        b.apply(delta("BTC-USD", BookSide::Ask, dec!(50100), dec!(2))).unwrap();
+        b.apply(delta("BTC-USD", BookSide::Ask, dec!(50100), dec!(2)))
+            .unwrap();
         assert_eq!(b.depth_at_price(dec!(50100), BookSide::Ask), Some(dec!(2)));
     }
 
@@ -1722,8 +1782,10 @@ mod tests {
     #[test]
     fn test_bid_ask_ratio_equal_sides() {
         let mut b = book("BTC-USD");
-        b.apply(delta("BTC-USD", BookSide::Bid, dec!(49900), dec!(5))).unwrap();
-        b.apply(delta("BTC-USD", BookSide::Ask, dec!(50100), dec!(5))).unwrap();
+        b.apply(delta("BTC-USD", BookSide::Bid, dec!(49900), dec!(5)))
+            .unwrap();
+        b.apply(delta("BTC-USD", BookSide::Ask, dec!(50100), dec!(5)))
+            .unwrap();
         let ratio = b.bid_ask_ratio().unwrap();
         assert!((ratio - 1.0).abs() < 1e-9);
     }
@@ -1731,8 +1793,10 @@ mod tests {
     #[test]
     fn test_bid_ask_ratio_more_bids() {
         let mut b = book("BTC-USD");
-        b.apply(delta("BTC-USD", BookSide::Bid, dec!(49900), dec!(10))).unwrap();
-        b.apply(delta("BTC-USD", BookSide::Ask, dec!(50100), dec!(5))).unwrap();
+        b.apply(delta("BTC-USD", BookSide::Bid, dec!(49900), dec!(10)))
+            .unwrap();
+        b.apply(delta("BTC-USD", BookSide::Ask, dec!(50100), dec!(5)))
+            .unwrap();
         let ratio = b.bid_ask_ratio().unwrap();
         assert!((ratio - 2.0).abs() < 1e-9);
     }
@@ -1740,7 +1804,8 @@ mod tests {
     #[test]
     fn test_bid_ask_ratio_no_asks_returns_none() {
         let mut b = book("BTC-USD");
-        b.apply(delta("BTC-USD", BookSide::Bid, dec!(49900), dec!(5))).unwrap();
+        b.apply(delta("BTC-USD", BookSide::Bid, dec!(49900), dec!(5)))
+            .unwrap();
         assert!(b.bid_ask_ratio().is_none());
     }
 
@@ -1749,9 +1814,12 @@ mod tests {
     #[test]
     fn test_all_bids_sorted_descending() {
         let mut b = book("BTC-USD");
-        b.apply(delta("BTC-USD", BookSide::Bid, dec!(49800), dec!(1))).unwrap();
-        b.apply(delta("BTC-USD", BookSide::Bid, dec!(50000), dec!(2))).unwrap();
-        b.apply(delta("BTC-USD", BookSide::Bid, dec!(49900), dec!(3))).unwrap();
+        b.apply(delta("BTC-USD", BookSide::Bid, dec!(49800), dec!(1)))
+            .unwrap();
+        b.apply(delta("BTC-USD", BookSide::Bid, dec!(50000), dec!(2)))
+            .unwrap();
+        b.apply(delta("BTC-USD", BookSide::Bid, dec!(49900), dec!(3)))
+            .unwrap();
         let bids = b.all_bids();
         assert_eq!(bids.len(), 3);
         assert_eq!(bids[0].price, dec!(50000));
@@ -1762,9 +1830,12 @@ mod tests {
     #[test]
     fn test_all_asks_sorted_ascending() {
         let mut b = book("BTC-USD");
-        b.apply(delta("BTC-USD", BookSide::Ask, dec!(50100), dec!(1))).unwrap();
-        b.apply(delta("BTC-USD", BookSide::Ask, dec!(50300), dec!(2))).unwrap();
-        b.apply(delta("BTC-USD", BookSide::Ask, dec!(50200), dec!(3))).unwrap();
+        b.apply(delta("BTC-USD", BookSide::Ask, dec!(50100), dec!(1)))
+            .unwrap();
+        b.apply(delta("BTC-USD", BookSide::Ask, dec!(50300), dec!(2)))
+            .unwrap();
+        b.apply(delta("BTC-USD", BookSide::Ask, dec!(50200), dec!(3)))
+            .unwrap();
         let asks = b.all_asks();
         assert_eq!(asks.len(), 3);
         assert_eq!(asks[0].price, dec!(50100));
@@ -1784,8 +1855,10 @@ mod tests {
     fn test_spread_pct_basic() {
         // bid=100, ask=101 → spread=1, mid=100.5 → pct ≈ 0.995%
         let mut b = book("X");
-        b.apply(delta("X", BookSide::Bid, dec!(100), dec!(1))).unwrap();
-        b.apply(delta("X", BookSide::Ask, dec!(101), dec!(1))).unwrap();
+        b.apply(delta("X", BookSide::Bid, dec!(100), dec!(1)))
+            .unwrap();
+        b.apply(delta("X", BookSide::Ask, dec!(101), dec!(1)))
+            .unwrap();
         let pct = b.spread_pct().unwrap();
         assert!((pct - 100.0 / 100.5).abs() < 1e-9, "got {pct}");
     }
@@ -1799,9 +1872,12 @@ mod tests {
     #[test]
     fn test_total_depth_counts_both_sides() {
         let mut b = book("X");
-        b.apply(delta("X", BookSide::Bid, dec!(99), dec!(1))).unwrap();
-        b.apply(delta("X", BookSide::Bid, dec!(98), dec!(1))).unwrap();
-        b.apply(delta("X", BookSide::Ask, dec!(101), dec!(1))).unwrap();
+        b.apply(delta("X", BookSide::Bid, dec!(99), dec!(1)))
+            .unwrap();
+        b.apply(delta("X", BookSide::Bid, dec!(98), dec!(1)))
+            .unwrap();
+        b.apply(delta("X", BookSide::Ask, dec!(101), dec!(1)))
+            .unwrap();
         assert_eq!(b.total_depth(), 3);
     }
 
@@ -1814,8 +1890,10 @@ mod tests {
     #[test]
     fn test_total_volume_sums_both_sides() {
         let mut b = book("X");
-        b.apply(delta("X", BookSide::Bid, dec!(99), dec!(3))).unwrap();
-        b.apply(delta("X", BookSide::Ask, dec!(101), dec!(5))).unwrap();
+        b.apply(delta("X", BookSide::Bid, dec!(99), dec!(3)))
+            .unwrap();
+        b.apply(delta("X", BookSide::Ask, dec!(101), dec!(5)))
+            .unwrap();
         assert_eq!(b.total_volume(), dec!(8));
     }
 
@@ -1837,9 +1915,12 @@ mod tests {
     #[test]
     fn test_level_count_matches_depth_methods() {
         let mut b = book("BTC-USD");
-        b.apply(delta("BTC-USD", BookSide::Bid, dec!(100), dec!(1))).unwrap();
-        b.apply(delta("BTC-USD", BookSide::Bid, dec!(99), dec!(1))).unwrap();
-        b.apply(delta("BTC-USD", BookSide::Ask, dec!(101), dec!(2))).unwrap();
+        b.apply(delta("BTC-USD", BookSide::Bid, dec!(100), dec!(1)))
+            .unwrap();
+        b.apply(delta("BTC-USD", BookSide::Bid, dec!(99), dec!(1)))
+            .unwrap();
+        b.apply(delta("BTC-USD", BookSide::Ask, dec!(101), dec!(2)))
+            .unwrap();
         assert_eq!(b.level_count(BookSide::Bid), b.bid_depth());
         assert_eq!(b.level_count(BookSide::Ask), b.ask_depth());
     }
@@ -1864,8 +1945,10 @@ mod tests {
     fn test_weighted_mid_price_equal_qtys_is_arithmetic_mid() {
         // bid=100 qty=1, ask=102 qty=1 → wmid = (100*1 + 102*1) / 2 = 101
         let mut b = book("X");
-        b.apply(delta("X", BookSide::Bid, dec!(100), dec!(1))).unwrap();
-        b.apply(delta("X", BookSide::Ask, dec!(102), dec!(1))).unwrap();
+        b.apply(delta("X", BookSide::Bid, dec!(100), dec!(1)))
+            .unwrap();
+        b.apply(delta("X", BookSide::Ask, dec!(102), dec!(1)))
+            .unwrap();
         assert_eq!(b.weighted_mid_price().unwrap(), dec!(101));
     }
 
@@ -1873,8 +1956,10 @@ mod tests {
     fn test_weighted_mid_price_skews_toward_larger_qty() {
         // bid=100 qty=1, ask=102 qty=3 → wmid = (100*3 + 102*1) / 4 = 402/4 = 100.5
         let mut b = book("X");
-        b.apply(delta("X", BookSide::Bid, dec!(100), dec!(1))).unwrap();
-        b.apply(delta("X", BookSide::Ask, dec!(102), dec!(3))).unwrap();
+        b.apply(delta("X", BookSide::Bid, dec!(100), dec!(1)))
+            .unwrap();
+        b.apply(delta("X", BookSide::Ask, dec!(102), dec!(3)))
+            .unwrap();
         assert_eq!(b.weighted_mid_price().unwrap(), dec!(100.5));
     }
 
@@ -1895,22 +1980,26 @@ mod tests {
     #[test]
     fn test_is_empty_false_with_bid() {
         let mut b = book("BTC-USD");
-        b.apply(delta("BTC-USD", BookSide::Bid, dec!(100), dec!(1))).unwrap();
+        b.apply(delta("BTC-USD", BookSide::Bid, dec!(100), dec!(1)))
+            .unwrap();
         assert!(!b.is_empty());
     }
 
     #[test]
     fn test_is_empty_false_with_ask() {
         let mut b = book("BTC-USD");
-        b.apply(delta("BTC-USD", BookSide::Ask, dec!(101), dec!(1))).unwrap();
+        b.apply(delta("BTC-USD", BookSide::Ask, dec!(101), dec!(1)))
+            .unwrap();
         assert!(!b.is_empty());
     }
 
     #[test]
     fn test_is_empty_true_after_removing_all_levels() {
         let mut b = book("BTC-USD");
-        b.apply(delta("BTC-USD", BookSide::Bid, dec!(100), dec!(1))).unwrap();
-        b.apply(delta("BTC-USD", BookSide::Bid, dec!(100), dec!(0))).unwrap(); // remove
+        b.apply(delta("BTC-USD", BookSide::Bid, dec!(100), dec!(1)))
+            .unwrap();
+        b.apply(delta("BTC-USD", BookSide::Bid, dec!(100), dec!(0)))
+            .unwrap(); // remove
         assert!(b.is_empty());
     }
 
@@ -1926,8 +2015,10 @@ mod tests {
     #[test]
     fn test_clear_removes_all_levels() {
         let mut b = book("BTC-USD");
-        b.apply(delta("BTC-USD", BookSide::Bid, dec!(100), dec!(1))).unwrap();
-        b.apply(delta("BTC-USD", BookSide::Ask, dec!(101), dec!(2))).unwrap();
+        b.apply(delta("BTC-USD", BookSide::Bid, dec!(100), dec!(1)))
+            .unwrap();
+        b.apply(delta("BTC-USD", BookSide::Ask, dec!(101), dec!(2)))
+            .unwrap();
         b.clear();
         assert!(b.is_empty());
     }
@@ -1935,10 +2026,12 @@ mod tests {
     #[test]
     fn test_clear_allows_fresh_apply_after() {
         let mut b = book("BTC-USD");
-        b.apply(delta("BTC-USD", BookSide::Bid, dec!(100), dec!(1))).unwrap();
+        b.apply(delta("BTC-USD", BookSide::Bid, dec!(100), dec!(1)))
+            .unwrap();
         b.clear();
         // After clear, a new bid should work without sequence issues
-        b.apply(delta("BTC-USD", BookSide::Bid, dec!(99), dec!(5))).unwrap();
+        b.apply(delta("BTC-USD", BookSide::Bid, dec!(99), dec!(5)))
+            .unwrap();
         assert_eq!(b.bid_depth(), 1);
     }
 
@@ -1947,8 +2040,10 @@ mod tests {
     #[test]
     fn test_total_notional_bid_side() {
         let mut b = book("BTC-USD");
-        b.apply(delta("BTC-USD", BookSide::Bid, dec!(50000), dec!(2))).unwrap();
-        b.apply(delta("BTC-USD", BookSide::Bid, dec!(49900), dec!(3))).unwrap();
+        b.apply(delta("BTC-USD", BookSide::Bid, dec!(50000), dec!(2)))
+            .unwrap();
+        b.apply(delta("BTC-USD", BookSide::Bid, dec!(49900), dec!(3)))
+            .unwrap();
         // 50000*2 + 49900*3 = 100000 + 149700 = 249700
         assert_eq!(b.total_notional(BookSide::Bid), dec!(249700));
     }
@@ -1956,8 +2051,10 @@ mod tests {
     #[test]
     fn test_total_notional_ask_side() {
         let mut b = book("BTC-USD");
-        b.apply(delta("BTC-USD", BookSide::Ask, dec!(50100), dec!(1))).unwrap();
-        b.apply(delta("BTC-USD", BookSide::Ask, dec!(50200), dec!(2))).unwrap();
+        b.apply(delta("BTC-USD", BookSide::Ask, dec!(50100), dec!(1)))
+            .unwrap();
+        b.apply(delta("BTC-USD", BookSide::Ask, dec!(50200), dec!(2)))
+            .unwrap();
         // 50100*1 + 50200*2 = 50100 + 100400 = 150500
         assert_eq!(b.total_notional(BookSide::Ask), dec!(150500));
     }
@@ -1972,9 +2069,12 @@ mod tests {
     #[test]
     fn test_cumulative_bid_volume_top_two() {
         let mut b = book("BTC-USD");
-        b.apply(delta("BTC-USD", BookSide::Bid, dec!(100), dec!(5))).unwrap();
-        b.apply(delta("BTC-USD", BookSide::Bid, dec!(99), dec!(3))).unwrap();
-        b.apply(delta("BTC-USD", BookSide::Bid, dec!(98), dec!(2))).unwrap();
+        b.apply(delta("BTC-USD", BookSide::Bid, dec!(100), dec!(5)))
+            .unwrap();
+        b.apply(delta("BTC-USD", BookSide::Bid, dec!(99), dec!(3)))
+            .unwrap();
+        b.apply(delta("BTC-USD", BookSide::Bid, dec!(98), dec!(2)))
+            .unwrap();
         // best 2 bids: 100 (qty=5), 99 (qty=3)
         assert_eq!(b.cumulative_bid_volume(2), dec!(8));
     }
@@ -1982,9 +2082,12 @@ mod tests {
     #[test]
     fn test_cumulative_ask_volume_top_two() {
         let mut b = book("BTC-USD");
-        b.apply(delta("BTC-USD", BookSide::Ask, dec!(101), dec!(4))).unwrap();
-        b.apply(delta("BTC-USD", BookSide::Ask, dec!(102), dec!(6))).unwrap();
-        b.apply(delta("BTC-USD", BookSide::Ask, dec!(103), dec!(1))).unwrap();
+        b.apply(delta("BTC-USD", BookSide::Ask, dec!(101), dec!(4)))
+            .unwrap();
+        b.apply(delta("BTC-USD", BookSide::Ask, dec!(102), dec!(6)))
+            .unwrap();
+        b.apply(delta("BTC-USD", BookSide::Ask, dec!(103), dec!(1)))
+            .unwrap();
         // best 2 asks: 101 (qty=4), 102 (qty=6)
         assert_eq!(b.cumulative_ask_volume(2), dec!(10));
     }
@@ -1999,9 +2102,12 @@ mod tests {
     #[test]
     fn test_top_n_bids_best_first() {
         let mut b = book("BTC-USD");
-        b.apply(delta("BTC-USD", BookSide::Bid, dec!(100), dec!(1))).unwrap();
-        b.apply(delta("BTC-USD", BookSide::Bid, dec!(99), dec!(2))).unwrap();
-        b.apply(delta("BTC-USD", BookSide::Bid, dec!(98), dec!(3))).unwrap();
+        b.apply(delta("BTC-USD", BookSide::Bid, dec!(100), dec!(1)))
+            .unwrap();
+        b.apply(delta("BTC-USD", BookSide::Bid, dec!(99), dec!(2)))
+            .unwrap();
+        b.apply(delta("BTC-USD", BookSide::Bid, dec!(98), dec!(3)))
+            .unwrap();
         let top2 = b.top_n_bids(2);
         assert_eq!(top2.len(), 2);
         assert_eq!(top2[0].price, dec!(100)); // best bid first
@@ -2011,9 +2117,12 @@ mod tests {
     #[test]
     fn test_top_n_asks_best_first() {
         let mut b = book("BTC-USD");
-        b.apply(delta("BTC-USD", BookSide::Ask, dec!(101), dec!(1))).unwrap();
-        b.apply(delta("BTC-USD", BookSide::Ask, dec!(102), dec!(2))).unwrap();
-        b.apply(delta("BTC-USD", BookSide::Ask, dec!(103), dec!(3))).unwrap();
+        b.apply(delta("BTC-USD", BookSide::Ask, dec!(101), dec!(1)))
+            .unwrap();
+        b.apply(delta("BTC-USD", BookSide::Ask, dec!(102), dec!(2)))
+            .unwrap();
+        b.apply(delta("BTC-USD", BookSide::Ask, dec!(103), dec!(3)))
+            .unwrap();
         let top2 = b.top_n_asks(2);
         assert_eq!(top2.len(), 2);
         assert_eq!(top2[0].price, dec!(101)); // best ask first
@@ -2023,8 +2132,10 @@ mod tests {
     #[test]
     fn test_depth_ratio_balanced_book() {
         let mut b = book("BTC-USD");
-        b.apply(delta("BTC-USD", BookSide::Bid, dec!(100), dec!(5))).unwrap();
-        b.apply(delta("BTC-USD", BookSide::Ask, dec!(101), dec!(5))).unwrap();
+        b.apply(delta("BTC-USD", BookSide::Bid, dec!(100), dec!(5)))
+            .unwrap();
+        b.apply(delta("BTC-USD", BookSide::Ask, dec!(101), dec!(5)))
+            .unwrap();
         let ratio = b.depth_ratio(1).unwrap();
         assert!((ratio - 1.0).abs() < 1e-9);
     }
@@ -2032,7 +2143,8 @@ mod tests {
     #[test]
     fn test_depth_ratio_empty_asks_returns_none() {
         let mut b = book("BTC-USD");
-        b.apply(delta("BTC-USD", BookSide::Bid, dec!(100), dec!(5))).unwrap();
+        b.apply(delta("BTC-USD", BookSide::Bid, dec!(100), dec!(5)))
+            .unwrap();
         assert!(b.depth_ratio(1).is_none());
     }
 
@@ -2041,22 +2153,26 @@ mod tests {
     #[test]
     fn test_is_one_sided_bids_only() {
         let mut b = book("BTC-USD");
-        b.apply(delta("BTC-USD", BookSide::Bid, dec!(100), dec!(1))).unwrap();
+        b.apply(delta("BTC-USD", BookSide::Bid, dec!(100), dec!(1)))
+            .unwrap();
         assert!(b.is_one_sided());
     }
 
     #[test]
     fn test_is_one_sided_asks_only() {
         let mut b = book("BTC-USD");
-        b.apply(delta("BTC-USD", BookSide::Ask, dec!(101), dec!(1))).unwrap();
+        b.apply(delta("BTC-USD", BookSide::Ask, dec!(101), dec!(1)))
+            .unwrap();
         assert!(b.is_one_sided());
     }
 
     #[test]
     fn test_is_one_sided_false_with_both_sides() {
         let mut b = book("BTC-USD");
-        b.apply(delta("BTC-USD", BookSide::Bid, dec!(100), dec!(1))).unwrap();
-        b.apply(delta("BTC-USD", BookSide::Ask, dec!(101), dec!(1))).unwrap();
+        b.apply(delta("BTC-USD", BookSide::Bid, dec!(100), dec!(1)))
+            .unwrap();
+        b.apply(delta("BTC-USD", BookSide::Ask, dec!(101), dec!(1)))
+            .unwrap();
         assert!(!b.is_one_sided());
     }
 
@@ -2071,8 +2187,10 @@ mod tests {
     #[test]
     fn test_bid_ask_spread_bps_known_value() {
         let mut b = book("BTC-USD");
-        b.apply(delta("BTC-USD", BookSide::Bid, dec!(100), dec!(1))).unwrap();
-        b.apply(delta("BTC-USD", BookSide::Ask, dec!(101), dec!(1))).unwrap();
+        b.apply(delta("BTC-USD", BookSide::Bid, dec!(100), dec!(1)))
+            .unwrap();
+        b.apply(delta("BTC-USD", BookSide::Ask, dec!(101), dec!(1)))
+            .unwrap();
         // spread=1, mid=100.5, bps = 1/100.5*10000 ≈ 99.5
         let bps = b.bid_ask_spread_bps().unwrap();
         assert!((bps - 1.0 / 100.5 * 10_000.0).abs() < 0.01);
@@ -2081,7 +2199,8 @@ mod tests {
     #[test]
     fn test_bid_ask_spread_bps_none_when_one_sided() {
         let mut b = book("BTC-USD");
-        b.apply(delta("BTC-USD", BookSide::Bid, dec!(100), dec!(1))).unwrap();
+        b.apply(delta("BTC-USD", BookSide::Bid, dec!(100), dec!(1)))
+            .unwrap();
         assert!(b.bid_ask_spread_bps().is_none());
     }
 
@@ -2096,8 +2215,10 @@ mod tests {
     #[test]
     fn test_ask_wall_returns_cheapest_ask_above_threshold() {
         let mut b = book("BTC-USD");
-        b.apply(delta("BTC-USD", BookSide::Ask, dec!(50100), dec!(2))).unwrap();
-        b.apply(delta("BTC-USD", BookSide::Ask, dec!(50200), dec!(10))).unwrap();
+        b.apply(delta("BTC-USD", BookSide::Ask, dec!(50100), dec!(2)))
+            .unwrap();
+        b.apply(delta("BTC-USD", BookSide::Ask, dec!(50200), dec!(10)))
+            .unwrap();
         // ask_wall(5) should find 50200 (qty=10 >= 5); 50100 has qty=2 < 5
         let wall = b.ask_wall(dec!(5)).unwrap();
         assert_eq!(wall.price, dec!(50200));
@@ -2107,15 +2228,18 @@ mod tests {
     #[test]
     fn test_ask_wall_none_when_no_level_meets_threshold() {
         let mut b = book("BTC-USD");
-        b.apply(delta("BTC-USD", BookSide::Ask, dec!(50100), dec!(1))).unwrap();
+        b.apply(delta("BTC-USD", BookSide::Ask, dec!(50100), dec!(1)))
+            .unwrap();
         assert!(b.ask_wall(dec!(5)).is_none());
     }
 
     #[test]
     fn test_bid_wall_returns_highest_bid_above_threshold() {
         let mut b = book("BTC-USD");
-        b.apply(delta("BTC-USD", BookSide::Bid, dec!(49900), dec!(10))).unwrap();
-        b.apply(delta("BTC-USD", BookSide::Bid, dec!(49800), dec!(2))).unwrap();
+        b.apply(delta("BTC-USD", BookSide::Bid, dec!(49900), dec!(10)))
+            .unwrap();
+        b.apply(delta("BTC-USD", BookSide::Bid, dec!(49800), dec!(2)))
+            .unwrap();
         // bid_wall(5) scans from best (49900) → qty=10 >= 5, so returns 49900
         let wall = b.bid_wall(dec!(5)).unwrap();
         assert_eq!(wall.price, dec!(49900));
@@ -2125,7 +2249,8 @@ mod tests {
     #[test]
     fn test_bid_wall_none_when_no_level_meets_threshold() {
         let mut b = book("BTC-USD");
-        b.apply(delta("BTC-USD", BookSide::Bid, dec!(49900), dec!(1))).unwrap();
+        b.apply(delta("BTC-USD", BookSide::Bid, dec!(49900), dec!(1)))
+            .unwrap();
         assert!(b.bid_wall(dec!(5)).is_none());
     }
 
@@ -2134,8 +2259,10 @@ mod tests {
     #[test]
     fn test_level_count_imbalance_balanced_sides() {
         let mut b = book("BTC-USD");
-        b.apply(delta("BTC-USD", BookSide::Bid, dec!(99), dec!(1))).unwrap();
-        b.apply(delta("BTC-USD", BookSide::Ask, dec!(101), dec!(1))).unwrap();
+        b.apply(delta("BTC-USD", BookSide::Bid, dec!(99), dec!(1)))
+            .unwrap();
+        b.apply(delta("BTC-USD", BookSide::Ask, dec!(101), dec!(1)))
+            .unwrap();
         // 1 bid, 1 ask → (1-1)/(1+1) = 0.0
         assert_eq!(b.level_count_imbalance(), Some(0.0));
     }
@@ -2143,8 +2270,10 @@ mod tests {
     #[test]
     fn test_level_count_imbalance_bids_only() {
         let mut b = book("BTC-USD");
-        b.apply(delta("BTC-USD", BookSide::Bid, dec!(99), dec!(1))).unwrap();
-        b.apply(delta("BTC-USD", BookSide::Bid, dec!(98), dec!(1))).unwrap();
+        b.apply(delta("BTC-USD", BookSide::Bid, dec!(99), dec!(1)))
+            .unwrap();
+        b.apply(delta("BTC-USD", BookSide::Bid, dec!(98), dec!(1)))
+            .unwrap();
         // 2 bids, 0 asks → (2-0)/(2+0) = 1.0
         assert_eq!(b.level_count_imbalance(), Some(1.0));
     }
@@ -2160,16 +2289,20 @@ mod tests {
     #[test]
     fn test_total_bid_volume_sums_all_levels() {
         let mut b = book("BTC-USD");
-        b.apply(delta("BTC-USD", BookSide::Bid, dec!(99), dec!(3))).unwrap();
-        b.apply(delta("BTC-USD", BookSide::Bid, dec!(98), dec!(2))).unwrap();
+        b.apply(delta("BTC-USD", BookSide::Bid, dec!(99), dec!(3)))
+            .unwrap();
+        b.apply(delta("BTC-USD", BookSide::Bid, dec!(98), dec!(2)))
+            .unwrap();
         assert_eq!(b.total_bid_volume(), dec!(5));
     }
 
     #[test]
     fn test_total_ask_volume_sums_all_levels() {
         let mut b = book("BTC-USD");
-        b.apply(delta("BTC-USD", BookSide::Ask, dec!(101), dec!(4))).unwrap();
-        b.apply(delta("BTC-USD", BookSide::Ask, dec!(102), dec!(1))).unwrap();
+        b.apply(delta("BTC-USD", BookSide::Ask, dec!(101), dec!(4)))
+            .unwrap();
+        b.apply(delta("BTC-USD", BookSide::Ask, dec!(102), dec!(1)))
+            .unwrap();
         assert_eq!(b.total_ask_volume(), dec!(5));
     }
 
@@ -2184,9 +2317,12 @@ mod tests {
     #[test]
     fn test_bid_levels_above_counts_strictly_above() {
         let mut b = book("BTC-USD");
-        b.apply(delta("BTC-USD", BookSide::Bid, dec!(100), dec!(1))).unwrap();
-        b.apply(delta("BTC-USD", BookSide::Bid, dec!(101), dec!(1))).unwrap();
-        b.apply(delta("BTC-USD", BookSide::Bid, dec!(102), dec!(1))).unwrap();
+        b.apply(delta("BTC-USD", BookSide::Bid, dec!(100), dec!(1)))
+            .unwrap();
+        b.apply(delta("BTC-USD", BookSide::Bid, dec!(101), dec!(1)))
+            .unwrap();
+        b.apply(delta("BTC-USD", BookSide::Bid, dec!(102), dec!(1)))
+            .unwrap();
         // levels above 100: 101 and 102 → 2
         assert_eq!(b.bid_levels_above(dec!(100)), 2);
     }
@@ -2194,16 +2330,20 @@ mod tests {
     #[test]
     fn test_bid_levels_above_zero_when_none_above() {
         let mut b = book("BTC-USD");
-        b.apply(delta("BTC-USD", BookSide::Bid, dec!(99), dec!(1))).unwrap();
+        b.apply(delta("BTC-USD", BookSide::Bid, dec!(99), dec!(1)))
+            .unwrap();
         assert_eq!(b.bid_levels_above(dec!(100)), 0);
     }
 
     #[test]
     fn test_ask_levels_below_counts_strictly_below() {
         let mut b = book("BTC-USD");
-        b.apply(delta("BTC-USD", BookSide::Ask, dec!(100), dec!(1))).unwrap();
-        b.apply(delta("BTC-USD", BookSide::Ask, dec!(101), dec!(1))).unwrap();
-        b.apply(delta("BTC-USD", BookSide::Ask, dec!(102), dec!(1))).unwrap();
+        b.apply(delta("BTC-USD", BookSide::Ask, dec!(100), dec!(1)))
+            .unwrap();
+        b.apply(delta("BTC-USD", BookSide::Ask, dec!(101), dec!(1)))
+            .unwrap();
+        b.apply(delta("BTC-USD", BookSide::Ask, dec!(102), dec!(1)))
+            .unwrap();
         // levels below 102: 100 and 101 → 2
         assert_eq!(b.ask_levels_below(dec!(102)), 2);
     }
@@ -2219,8 +2359,10 @@ mod tests {
     #[test]
     fn test_bid_ask_volume_ratio_returns_correct_ratio() {
         let mut b = book("BTC-USD");
-        b.apply(delta("BTC-USD", BookSide::Bid, dec!(100), dec!(3))).unwrap();
-        b.apply(delta("BTC-USD", BookSide::Ask, dec!(101), dec!(1))).unwrap();
+        b.apply(delta("BTC-USD", BookSide::Bid, dec!(100), dec!(3)))
+            .unwrap();
+        b.apply(delta("BTC-USD", BookSide::Ask, dec!(101), dec!(1)))
+            .unwrap();
         // 3 / 1 = 3.0
         let ratio = b.bid_ask_volume_ratio().unwrap();
         assert!((ratio - 3.0).abs() < 1e-10);
@@ -2229,32 +2371,39 @@ mod tests {
     #[test]
     fn test_bid_ask_volume_ratio_none_when_ask_empty() {
         let mut b = book("BTC-USD");
-        b.apply(delta("BTC-USD", BookSide::Bid, dec!(100), dec!(1))).unwrap();
+        b.apply(delta("BTC-USD", BookSide::Bid, dec!(100), dec!(1)))
+            .unwrap();
         assert!(b.bid_ask_volume_ratio().is_none());
     }
 
     #[test]
     fn test_bid_ask_volume_ratio_none_when_bid_empty() {
         let mut b = book("BTC-USD");
-        b.apply(delta("BTC-USD", BookSide::Ask, dec!(101), dec!(1))).unwrap();
+        b.apply(delta("BTC-USD", BookSide::Ask, dec!(101), dec!(1)))
+            .unwrap();
         assert!(b.bid_ask_volume_ratio().is_none());
     }
 
     #[test]
     fn test_top_n_bid_volume_sums_top_levels() {
         let mut b = book("BTC-USD");
-        b.apply(delta("BTC-USD", BookSide::Bid, dec!(100), dec!(1))).unwrap(); // worst
-        b.apply(delta("BTC-USD", BookSide::Bid, dec!(101), dec!(2))).unwrap();
-        b.apply(delta("BTC-USD", BookSide::Bid, dec!(102), dec!(3))).unwrap(); // best
-        // top 2: 102 (3) + 101 (2) = 5
+        b.apply(delta("BTC-USD", BookSide::Bid, dec!(100), dec!(1)))
+            .unwrap(); // worst
+        b.apply(delta("BTC-USD", BookSide::Bid, dec!(101), dec!(2)))
+            .unwrap();
+        b.apply(delta("BTC-USD", BookSide::Bid, dec!(102), dec!(3)))
+            .unwrap(); // best
+                       // top 2: 102 (3) + 101 (2) = 5
         assert_eq!(b.top_n_bid_volume(2), dec!(5));
     }
 
     #[test]
     fn test_top_n_bid_volume_all_when_n_exceeds_levels() {
         let mut b = book("BTC-USD");
-        b.apply(delta("BTC-USD", BookSide::Bid, dec!(100), dec!(1))).unwrap();
-        b.apply(delta("BTC-USD", BookSide::Bid, dec!(101), dec!(2))).unwrap();
+        b.apply(delta("BTC-USD", BookSide::Bid, dec!(100), dec!(1)))
+            .unwrap();
+        b.apply(delta("BTC-USD", BookSide::Bid, dec!(101), dec!(2)))
+            .unwrap();
         // n=5 but only 2 levels → total = 3
         assert_eq!(b.top_n_bid_volume(5), dec!(3));
     }
@@ -2270,8 +2419,10 @@ mod tests {
     #[test]
     fn test_imbalance_ratio_positive_when_more_bids() {
         let mut b = book("BTC-USD");
-        b.apply(delta("BTC-USD", BookSide::Bid, dec!(100), dec!(3))).unwrap();
-        b.apply(delta("BTC-USD", BookSide::Ask, dec!(101), dec!(1))).unwrap();
+        b.apply(delta("BTC-USD", BookSide::Bid, dec!(100), dec!(3)))
+            .unwrap();
+        b.apply(delta("BTC-USD", BookSide::Ask, dec!(101), dec!(1)))
+            .unwrap();
         // (3 - 1) / (3 + 1) = 0.5
         let ratio = b.imbalance_ratio().unwrap();
         assert!((ratio - 0.5).abs() < 1e-10);
@@ -2280,8 +2431,10 @@ mod tests {
     #[test]
     fn test_imbalance_ratio_negative_when_more_asks() {
         let mut b = book("BTC-USD");
-        b.apply(delta("BTC-USD", BookSide::Bid, dec!(100), dec!(1))).unwrap();
-        b.apply(delta("BTC-USD", BookSide::Ask, dec!(101), dec!(3))).unwrap();
+        b.apply(delta("BTC-USD", BookSide::Bid, dec!(100), dec!(1)))
+            .unwrap();
+        b.apply(delta("BTC-USD", BookSide::Ask, dec!(101), dec!(3)))
+            .unwrap();
         // (1 - 3) / (1 + 3) = -0.5
         let ratio = b.imbalance_ratio().unwrap();
         assert!((ratio - (-0.5)).abs() < 1e-10);
@@ -2296,10 +2449,13 @@ mod tests {
     #[test]
     fn test_top_n_ask_volume_sums_lowest_asks() {
         let mut b = book("BTC-USD");
-        b.apply(delta("BTC-USD", BookSide::Ask, dec!(100), dec!(2))).unwrap(); // best ask
-        b.apply(delta("BTC-USD", BookSide::Ask, dec!(101), dec!(3))).unwrap();
-        b.apply(delta("BTC-USD", BookSide::Ask, dec!(102), dec!(5))).unwrap(); // worst
-        // top 2: 100 (2) + 101 (3) = 5
+        b.apply(delta("BTC-USD", BookSide::Ask, dec!(100), dec!(2)))
+            .unwrap(); // best ask
+        b.apply(delta("BTC-USD", BookSide::Ask, dec!(101), dec!(3)))
+            .unwrap();
+        b.apply(delta("BTC-USD", BookSide::Ask, dec!(102), dec!(5)))
+            .unwrap(); // worst
+                       // top 2: 100 (2) + 101 (3) = 5
         assert_eq!(b.top_n_ask_volume(2), dec!(5));
     }
 
@@ -2314,23 +2470,28 @@ mod tests {
     #[test]
     fn test_has_ask_at_true_when_ask_exists() {
         let mut b = book("BTC-USD");
-        b.apply(delta("BTC-USD", BookSide::Ask, dec!(101), dec!(2))).unwrap();
+        b.apply(delta("BTC-USD", BookSide::Ask, dec!(101), dec!(2)))
+            .unwrap();
         assert!(b.has_ask_at(dec!(101)));
     }
 
     #[test]
     fn test_has_ask_at_false_when_no_ask_at_price() {
         let mut b = book("BTC-USD");
-        b.apply(delta("BTC-USD", BookSide::Ask, dec!(102), dec!(1))).unwrap();
+        b.apply(delta("BTC-USD", BookSide::Ask, dec!(102), dec!(1)))
+            .unwrap();
         assert!(!b.has_ask_at(dec!(101)));
     }
 
     #[test]
     fn test_bid_ask_depth_correct_counts() {
         let mut b = book("BTC-USD");
-        b.apply(delta("BTC-USD", BookSide::Bid, dec!(100), dec!(1))).unwrap();
-        b.apply(delta("BTC-USD", BookSide::Bid, dec!(99), dec!(1))).unwrap();
-        b.apply(delta("BTC-USD", BookSide::Ask, dec!(101), dec!(1))).unwrap();
+        b.apply(delta("BTC-USD", BookSide::Bid, dec!(100), dec!(1)))
+            .unwrap();
+        b.apply(delta("BTC-USD", BookSide::Bid, dec!(99), dec!(1)))
+            .unwrap();
+        b.apply(delta("BTC-USD", BookSide::Ask, dec!(101), dec!(1)))
+            .unwrap();
         assert_eq!(b.bid_ask_depth(), (2, 1));
     }
 
@@ -2344,8 +2505,10 @@ mod tests {
     #[test]
     fn test_best_bid_qty_returns_top_bid_quantity() {
         let mut b = book("BTC-USD");
-        b.apply(delta("BTC-USD", BookSide::Bid, dec!(100), dec!(3))).unwrap();
-        b.apply(delta("BTC-USD", BookSide::Bid, dec!(99), dec!(5))).unwrap();
+        b.apply(delta("BTC-USD", BookSide::Bid, dec!(100), dec!(3)))
+            .unwrap();
+        b.apply(delta("BTC-USD", BookSide::Bid, dec!(99), dec!(5)))
+            .unwrap();
         // best bid = 100 with qty=3
         assert_eq!(b.best_bid_qty(), Some(dec!(3)));
     }
@@ -2353,8 +2516,10 @@ mod tests {
     #[test]
     fn test_best_ask_qty_returns_top_ask_quantity() {
         let mut b = book("BTC-USD");
-        b.apply(delta("BTC-USD", BookSide::Ask, dec!(101), dec!(7))).unwrap();
-        b.apply(delta("BTC-USD", BookSide::Ask, dec!(102), dec!(2))).unwrap();
+        b.apply(delta("BTC-USD", BookSide::Ask, dec!(101), dec!(7)))
+            .unwrap();
+        b.apply(delta("BTC-USD", BookSide::Ask, dec!(102), dec!(2)))
+            .unwrap();
         // best ask = 101 with qty=7
         assert_eq!(b.best_ask_qty(), Some(dec!(7)));
     }
@@ -2375,8 +2540,10 @@ mod tests {
     #[test]
     fn test_total_book_volume_sum_of_bids_and_asks() {
         let mut b = book("BTC-USD");
-        b.apply(delta("BTC-USD", BookSide::Bid, dec!(100), dec!(3))).unwrap();
-        b.apply(delta("BTC-USD", BookSide::Ask, dec!(101), dec!(2))).unwrap();
+        b.apply(delta("BTC-USD", BookSide::Bid, dec!(100), dec!(3)))
+            .unwrap();
+        b.apply(delta("BTC-USD", BookSide::Ask, dec!(101), dec!(2)))
+            .unwrap();
         assert_eq!(b.total_book_volume(), dec!(5));
     }
 
@@ -2390,9 +2557,12 @@ mod tests {
     #[test]
     fn test_price_range_bids_correct_range() {
         let mut b = book("BTC-USD");
-        b.apply(delta("BTC-USD", BookSide::Bid, dec!(100), dec!(1))).unwrap();
-        b.apply(delta("BTC-USD", BookSide::Bid, dec!(99), dec!(1))).unwrap();
-        b.apply(delta("BTC-USD", BookSide::Bid, dec!(97), dec!(1))).unwrap();
+        b.apply(delta("BTC-USD", BookSide::Bid, dec!(100), dec!(1)))
+            .unwrap();
+        b.apply(delta("BTC-USD", BookSide::Bid, dec!(99), dec!(1)))
+            .unwrap();
+        b.apply(delta("BTC-USD", BookSide::Bid, dec!(97), dec!(1)))
+            .unwrap();
         // best=100, worst=97 → range=3
         assert_eq!(b.price_range_bids(), Some(dec!(3)));
     }
@@ -2400,7 +2570,8 @@ mod tests {
     #[test]
     fn test_price_range_bids_none_with_single_bid() {
         let mut b = book("BTC-USD");
-        b.apply(delta("BTC-USD", BookSide::Bid, dec!(100), dec!(1))).unwrap();
+        b.apply(delta("BTC-USD", BookSide::Bid, dec!(100), dec!(1)))
+            .unwrap();
         assert!(b.price_range_bids().is_none());
     }
 
@@ -2409,8 +2580,10 @@ mod tests {
     #[test]
     fn test_is_tight_spread_true_when_spread_at_threshold() {
         let mut b = book("BTC-USD");
-        b.apply(delta("BTC-USD", BookSide::Bid, dec!(100), dec!(1))).unwrap();
-        b.apply(delta("BTC-USD", BookSide::Ask, dec!(101), dec!(1))).unwrap();
+        b.apply(delta("BTC-USD", BookSide::Bid, dec!(100), dec!(1)))
+            .unwrap();
+        b.apply(delta("BTC-USD", BookSide::Ask, dec!(101), dec!(1)))
+            .unwrap();
         // spread = 1, threshold = 1 → tight
         assert!(b.is_tight_spread(dec!(1)));
     }
@@ -2418,8 +2591,10 @@ mod tests {
     #[test]
     fn test_is_tight_spread_false_when_spread_above_threshold() {
         let mut b = book("BTC-USD");
-        b.apply(delta("BTC-USD", BookSide::Bid, dec!(100), dec!(1))).unwrap();
-        b.apply(delta("BTC-USD", BookSide::Ask, dec!(103), dec!(1))).unwrap();
+        b.apply(delta("BTC-USD", BookSide::Bid, dec!(100), dec!(1)))
+            .unwrap();
+        b.apply(delta("BTC-USD", BookSide::Ask, dec!(103), dec!(1)))
+            .unwrap();
         // spread = 3, threshold = 1 → not tight
         assert!(!b.is_tight_spread(dec!(1)));
     }
@@ -2435,16 +2610,20 @@ mod tests {
     #[test]
     fn test_best_bid_price_returns_price() {
         let mut b = book("X");
-        b.apply(delta("X", BookSide::Bid, dec!(99), dec!(5))).unwrap();
-        b.apply(delta("X", BookSide::Bid, dec!(98), dec!(3))).unwrap();
+        b.apply(delta("X", BookSide::Bid, dec!(99), dec!(5)))
+            .unwrap();
+        b.apply(delta("X", BookSide::Bid, dec!(98), dec!(3)))
+            .unwrap();
         assert_eq!(b.best_bid_price(), Some(dec!(99)));
     }
 
     #[test]
     fn test_best_ask_price_returns_price() {
         let mut b = book("X");
-        b.apply(delta("X", BookSide::Ask, dec!(101), dec!(5))).unwrap();
-        b.apply(delta("X", BookSide::Ask, dec!(102), dec!(3))).unwrap();
+        b.apply(delta("X", BookSide::Ask, dec!(101), dec!(5)))
+            .unwrap();
+        b.apply(delta("X", BookSide::Ask, dec!(102), dec!(3)))
+            .unwrap();
         assert_eq!(b.best_ask_price(), Some(dec!(101)));
     }
 
@@ -2463,8 +2642,10 @@ mod tests {
     #[test]
     fn test_is_crossed_false_when_normal() {
         let mut b = book("X");
-        b.apply(delta("X", BookSide::Bid, dec!(99), dec!(1))).unwrap();
-        b.apply(delta("X", BookSide::Ask, dec!(101), dec!(1))).unwrap();
+        b.apply(delta("X", BookSide::Bid, dec!(99), dec!(1)))
+            .unwrap();
+        b.apply(delta("X", BookSide::Ask, dec!(101), dec!(1)))
+            .unwrap();
         assert!(!b.is_crossed());
     }
 
@@ -2478,7 +2659,8 @@ mod tests {
     #[test]
     fn test_has_bids_true_when_bid_present() {
         let mut b = book("X");
-        b.apply(delta("X", BookSide::Bid, dec!(99), dec!(1))).unwrap();
+        b.apply(delta("X", BookSide::Bid, dec!(99), dec!(1)))
+            .unwrap();
         assert!(b.has_bids());
     }
 
@@ -2490,7 +2672,8 @@ mod tests {
     #[test]
     fn test_has_asks_true_when_ask_present() {
         let mut b = book("X");
-        b.apply(delta("X", BookSide::Ask, dec!(101), dec!(1))).unwrap();
+        b.apply(delta("X", BookSide::Ask, dec!(101), dec!(1)))
+            .unwrap();
         assert!(b.has_asks());
     }
 
@@ -2509,16 +2692,20 @@ mod tests {
     #[test]
     fn test_ask_price_range_zero_when_single_level() {
         let mut b = book("X");
-        b.apply(delta("X", BookSide::Ask, dec!(100), dec!(1))).unwrap();
+        b.apply(delta("X", BookSide::Ask, dec!(100), dec!(1)))
+            .unwrap();
         assert_eq!(b.ask_price_range(), Some(dec!(0)));
     }
 
     #[test]
     fn test_ask_price_range_correct_with_multiple_levels() {
         let mut b = book("X");
-        b.apply(delta("X", BookSide::Ask, dec!(100), dec!(1))).unwrap();
-        b.apply(delta("X", BookSide::Ask, dec!(102), dec!(1))).unwrap();
-        b.apply(delta("X", BookSide::Ask, dec!(105), dec!(1))).unwrap();
+        b.apply(delta("X", BookSide::Ask, dec!(100), dec!(1)))
+            .unwrap();
+        b.apply(delta("X", BookSide::Ask, dec!(102), dec!(1)))
+            .unwrap();
+        b.apply(delta("X", BookSide::Ask, dec!(105), dec!(1)))
+            .unwrap();
         assert_eq!(b.ask_price_range(), Some(dec!(5)));
     }
 
@@ -2530,9 +2717,12 @@ mod tests {
     #[test]
     fn test_bid_price_range_correct_with_multiple_levels() {
         let mut b = book("X");
-        b.apply(delta("X", BookSide::Bid, dec!(98), dec!(1))).unwrap();
-        b.apply(delta("X", BookSide::Bid, dec!(96), dec!(1))).unwrap();
-        b.apply(delta("X", BookSide::Bid, dec!(94), dec!(1))).unwrap();
+        b.apply(delta("X", BookSide::Bid, dec!(98), dec!(1)))
+            .unwrap();
+        b.apply(delta("X", BookSide::Bid, dec!(96), dec!(1)))
+            .unwrap();
+        b.apply(delta("X", BookSide::Bid, dec!(94), dec!(1)))
+            .unwrap();
         // best = 98, worst = 94, range = 4
         assert_eq!(b.bid_price_range(), Some(dec!(4)));
     }
@@ -2547,8 +2737,10 @@ mod tests {
     #[test]
     fn test_mid_spread_ratio_correct() {
         let mut b = book("X");
-        b.apply(delta("X", BookSide::Bid, dec!(99), dec!(1))).unwrap();
-        b.apply(delta("X", BookSide::Ask, dec!(101), dec!(1))).unwrap();
+        b.apply(delta("X", BookSide::Bid, dec!(99), dec!(1)))
+            .unwrap();
+        b.apply(delta("X", BookSide::Ask, dec!(101), dec!(1)))
+            .unwrap();
         // spread = 2, mid = 100, ratio = 2/100 = 0.02
         let ratio = b.mid_spread_ratio().unwrap();
         assert!((ratio - 0.02).abs() < 1e-9);
@@ -2564,8 +2756,10 @@ mod tests {
     #[test]
     fn test_volume_imbalance_positive_when_more_bids() {
         let mut b = book("X");
-        b.apply(delta("X", BookSide::Bid, dec!(99), dec!(3))).unwrap();
-        b.apply(delta("X", BookSide::Ask, dec!(101), dec!(1))).unwrap();
+        b.apply(delta("X", BookSide::Bid, dec!(99), dec!(3)))
+            .unwrap();
+        b.apply(delta("X", BookSide::Ask, dec!(101), dec!(1)))
+            .unwrap();
         // (3 - 1) / (3 + 1) = 0.5
         let imb = b.volume_imbalance().unwrap();
         assert!((imb - 0.5).abs() < 1e-9);
@@ -2574,8 +2768,10 @@ mod tests {
     #[test]
     fn test_volume_imbalance_negative_when_more_asks() {
         let mut b = book("X");
-        b.apply(delta("X", BookSide::Bid, dec!(99), dec!(1))).unwrap();
-        b.apply(delta("X", BookSide::Ask, dec!(101), dec!(3))).unwrap();
+        b.apply(delta("X", BookSide::Bid, dec!(99), dec!(1)))
+            .unwrap();
+        b.apply(delta("X", BookSide::Ask, dec!(101), dec!(3)))
+            .unwrap();
         // (1 - 3) / (1 + 3) = -0.5
         let imb = b.volume_imbalance().unwrap();
         assert!((imb - (-0.5)).abs() < 1e-9);
@@ -2584,8 +2780,10 @@ mod tests {
     #[test]
     fn test_volume_imbalance_zero_when_equal() {
         let mut b = book("X");
-        b.apply(delta("X", BookSide::Bid, dec!(99), dec!(2))).unwrap();
-        b.apply(delta("X", BookSide::Ask, dec!(101), dec!(2))).unwrap();
+        b.apply(delta("X", BookSide::Bid, dec!(99), dec!(2)))
+            .unwrap();
+        b.apply(delta("X", BookSide::Ask, dec!(101), dec!(2)))
+            .unwrap();
         let imb = b.volume_imbalance().unwrap();
         assert!(imb.abs() < 1e-9);
     }
@@ -2595,9 +2793,12 @@ mod tests {
     #[test]
     fn test_ask_volume_within_sums_levels_in_range() {
         let mut b = book("X");
-        b.apply(delta("X", BookSide::Ask, dec!(100), dec!(2))).unwrap();
-        b.apply(delta("X", BookSide::Ask, dec!(101), dec!(3))).unwrap();
-        b.apply(delta("X", BookSide::Ask, dec!(105), dec!(10))).unwrap();
+        b.apply(delta("X", BookSide::Ask, dec!(100), dec!(2)))
+            .unwrap();
+        b.apply(delta("X", BookSide::Ask, dec!(101), dec!(3)))
+            .unwrap();
+        b.apply(delta("X", BookSide::Ask, dec!(105), dec!(10)))
+            .unwrap();
         // best ask = 100, range = 2 → include 100 and 101 (102 is limit, 105 outside)
         let vol = b.ask_volume_within(dec!(2));
         assert_eq!(vol, dec!(5)); // 2 + 3
@@ -2611,9 +2812,12 @@ mod tests {
     #[test]
     fn test_bid_volume_within_sums_levels_in_range() {
         let mut b = book("X");
-        b.apply(delta("X", BookSide::Bid, dec!(100), dec!(5))).unwrap();
-        b.apply(delta("X", BookSide::Bid, dec!(99), dec!(3))).unwrap();
-        b.apply(delta("X", BookSide::Bid, dec!(95), dec!(10))).unwrap();
+        b.apply(delta("X", BookSide::Bid, dec!(100), dec!(5)))
+            .unwrap();
+        b.apply(delta("X", BookSide::Bid, dec!(99), dec!(3)))
+            .unwrap();
+        b.apply(delta("X", BookSide::Bid, dec!(95), dec!(10)))
+            .unwrap();
         // best bid = 100, range = 2 → include 100 and 99 (floor=98, 95 outside)
         let vol = b.bid_volume_within(dec!(2));
         assert_eq!(vol, dec!(8)); // 5 + 3
@@ -2634,17 +2838,22 @@ mod tests {
     #[test]
     fn test_ask_level_count_correct() {
         let mut b = book("X");
-        b.apply(delta("X", BookSide::Ask, dec!(100), dec!(1))).unwrap();
-        b.apply(delta("X", BookSide::Ask, dec!(101), dec!(2))).unwrap();
-        b.apply(delta("X", BookSide::Ask, dec!(102), dec!(3))).unwrap();
+        b.apply(delta("X", BookSide::Ask, dec!(100), dec!(1)))
+            .unwrap();
+        b.apply(delta("X", BookSide::Ask, dec!(101), dec!(2)))
+            .unwrap();
+        b.apply(delta("X", BookSide::Ask, dec!(102), dec!(3)))
+            .unwrap();
         assert_eq!(b.ask_level_count(), 3);
     }
 
     #[test]
     fn test_bid_level_count_correct() {
         let mut b = book("X");
-        b.apply(delta("X", BookSide::Bid, dec!(99), dec!(1))).unwrap();
-        b.apply(delta("X", BookSide::Bid, dec!(98), dec!(2))).unwrap();
+        b.apply(delta("X", BookSide::Bid, dec!(99), dec!(1)))
+            .unwrap();
+        b.apply(delta("X", BookSide::Bid, dec!(98), dec!(2)))
+            .unwrap();
         assert_eq!(b.bid_level_count(), 2);
     }
 
@@ -2653,7 +2862,8 @@ mod tests {
     #[test]
     fn test_price_impact_buy_correct_single_level() {
         let mut b = book("X");
-        b.apply(delta("X", BookSide::Ask, dec!(100), dec!(10))).unwrap();
+        b.apply(delta("X", BookSide::Ask, dec!(100), dec!(10)))
+            .unwrap();
         // buy 5 units all at 100 → avg = 100
         assert_eq!(b.price_impact_buy(dec!(5)), Some(dec!(100)));
     }
@@ -2661,8 +2871,10 @@ mod tests {
     #[test]
     fn test_price_impact_buy_spans_levels() {
         let mut b = book("X");
-        b.apply(delta("X", BookSide::Ask, dec!(100), dec!(5))).unwrap();
-        b.apply(delta("X", BookSide::Ask, dec!(101), dec!(5))).unwrap();
+        b.apply(delta("X", BookSide::Ask, dec!(100), dec!(5)))
+            .unwrap();
+        b.apply(delta("X", BookSide::Ask, dec!(101), dec!(5)))
+            .unwrap();
         // buy 10: 5@100 + 5@101 → avg = 100.5
         assert_eq!(b.price_impact_buy(dec!(10)), Some(dec!(100.5)));
     }
@@ -2670,14 +2882,16 @@ mod tests {
     #[test]
     fn test_price_impact_buy_none_when_insufficient_liquidity() {
         let mut b = book("X");
-        b.apply(delta("X", BookSide::Ask, dec!(100), dec!(3))).unwrap();
+        b.apply(delta("X", BookSide::Ask, dec!(100), dec!(3)))
+            .unwrap();
         assert!(b.price_impact_buy(dec!(5)).is_none());
     }
 
     #[test]
     fn test_price_impact_sell_correct_single_level() {
         let mut b = book("X");
-        b.apply(delta("X", BookSide::Bid, dec!(99), dec!(10))).unwrap();
+        b.apply(delta("X", BookSide::Bid, dec!(99), dec!(10)))
+            .unwrap();
         assert_eq!(b.price_impact_sell(dec!(5)), Some(dec!(99)));
     }
 
@@ -2686,15 +2900,23 @@ mod tests {
     #[test]
     fn test_total_value_at_level_bid_returns_price_times_qty() {
         let mut b = book("X");
-        b.apply(delta("X", BookSide::Bid, dec!(100), dec!(5))).unwrap();
-        assert_eq!(b.total_value_at_level(BookSide::Bid, dec!(100)), Some(dec!(500)));
+        b.apply(delta("X", BookSide::Bid, dec!(100), dec!(5)))
+            .unwrap();
+        assert_eq!(
+            b.total_value_at_level(BookSide::Bid, dec!(100)),
+            Some(dec!(500))
+        );
     }
 
     #[test]
     fn test_total_value_at_level_ask_returns_price_times_qty() {
         let mut b = book("X");
-        b.apply(delta("X", BookSide::Ask, dec!(105), dec!(3))).unwrap();
-        assert_eq!(b.total_value_at_level(BookSide::Ask, dec!(105)), Some(dec!(315)));
+        b.apply(delta("X", BookSide::Ask, dec!(105), dec!(3)))
+            .unwrap();
+        assert_eq!(
+            b.total_value_at_level(BookSide::Ask, dec!(105)),
+            Some(dec!(315))
+        );
     }
 
     #[test]
@@ -2708,9 +2930,12 @@ mod tests {
     #[test]
     fn test_ask_volume_above_sums_asks_above_price() {
         let mut b = book("X");
-        b.apply(delta("X", BookSide::Ask, dec!(101), dec!(5))).unwrap();
-        b.apply(delta("X", BookSide::Ask, dec!(102), dec!(3))).unwrap();
-        b.apply(delta("X", BookSide::Ask, dec!(103), dec!(2))).unwrap();
+        b.apply(delta("X", BookSide::Ask, dec!(101), dec!(5)))
+            .unwrap();
+        b.apply(delta("X", BookSide::Ask, dec!(102), dec!(3)))
+            .unwrap();
+        b.apply(delta("X", BookSide::Ask, dec!(103), dec!(2)))
+            .unwrap();
         // volume above 101: 3+2=5
         assert_eq!(b.ask_volume_above(dec!(101)), dec!(5));
     }
@@ -2718,16 +2943,20 @@ mod tests {
     #[test]
     fn test_ask_volume_above_zero_when_no_asks_above() {
         let mut b = book("X");
-        b.apply(delta("X", BookSide::Ask, dec!(100), dec!(10))).unwrap();
+        b.apply(delta("X", BookSide::Ask, dec!(100), dec!(10)))
+            .unwrap();
         assert_eq!(b.ask_volume_above(dec!(100)), dec!(0));
     }
 
     #[test]
     fn test_bid_volume_below_sums_bids_below_price() {
         let mut b = book("X");
-        b.apply(delta("X", BookSide::Bid, dec!(98), dec!(4))).unwrap();
-        b.apply(delta("X", BookSide::Bid, dec!(99), dec!(6))).unwrap();
-        b.apply(delta("X", BookSide::Bid, dec!(100), dec!(2))).unwrap();
+        b.apply(delta("X", BookSide::Bid, dec!(98), dec!(4)))
+            .unwrap();
+        b.apply(delta("X", BookSide::Bid, dec!(99), dec!(6)))
+            .unwrap();
+        b.apply(delta("X", BookSide::Bid, dec!(100), dec!(2)))
+            .unwrap();
         // volume below 100: 4+6=10
         assert_eq!(b.bid_volume_below(dec!(100)), dec!(10));
     }
@@ -2735,7 +2964,8 @@ mod tests {
     #[test]
     fn test_bid_volume_below_zero_when_no_bids_below() {
         let mut b = book("X");
-        b.apply(delta("X", BookSide::Bid, dec!(100), dec!(5))).unwrap();
+        b.apply(delta("X", BookSide::Bid, dec!(100), dec!(5)))
+            .unwrap();
         assert_eq!(b.bid_volume_below(dec!(100)), dec!(0));
     }
 
@@ -2744,8 +2974,10 @@ mod tests {
     #[test]
     fn test_total_notional_both_sides_sums_both() {
         let mut b = book("X");
-        b.apply(delta("X", BookSide::Bid, dec!(100), dec!(2))).unwrap(); // 200
-        b.apply(delta("X", BookSide::Ask, dec!(105), dec!(3))).unwrap(); // 315
+        b.apply(delta("X", BookSide::Bid, dec!(100), dec!(2)))
+            .unwrap(); // 200
+        b.apply(delta("X", BookSide::Ask, dec!(105), dec!(3)))
+            .unwrap(); // 315
         assert_eq!(b.total_notional_both_sides(), dec!(515));
     }
 
@@ -2766,9 +2998,12 @@ mod tests {
     #[test]
     fn test_level_count_both_sides_counts_all_levels() {
         let mut b = book("X");
-        b.apply(delta("X", BookSide::Bid, dec!(99), dec!(1))).unwrap();
-        b.apply(delta("X", BookSide::Bid, dec!(98), dec!(1))).unwrap();
-        b.apply(delta("X", BookSide::Ask, dec!(101), dec!(1))).unwrap();
+        b.apply(delta("X", BookSide::Bid, dec!(99), dec!(1)))
+            .unwrap();
+        b.apply(delta("X", BookSide::Bid, dec!(98), dec!(1)))
+            .unwrap();
+        b.apply(delta("X", BookSide::Ask, dec!(101), dec!(1)))
+            .unwrap();
         assert_eq!(b.level_count_both_sides(), 3);
     }
 
@@ -2777,16 +3012,20 @@ mod tests {
     #[test]
     fn test_ask_price_at_rank_best_ask_at_zero() {
         let mut b = book("X");
-        b.apply(delta("X", BookSide::Ask, dec!(101), dec!(1))).unwrap();
-        b.apply(delta("X", BookSide::Ask, dec!(102), dec!(1))).unwrap();
+        b.apply(delta("X", BookSide::Ask, dec!(101), dec!(1)))
+            .unwrap();
+        b.apply(delta("X", BookSide::Ask, dec!(102), dec!(1)))
+            .unwrap();
         assert_eq!(b.ask_price_at_rank(0), Some(dec!(101)));
     }
 
     #[test]
     fn test_bid_price_at_rank_best_bid_at_zero() {
         let mut b = book("X");
-        b.apply(delta("X", BookSide::Bid, dec!(99), dec!(1))).unwrap();
-        b.apply(delta("X", BookSide::Bid, dec!(98), dec!(1))).unwrap();
+        b.apply(delta("X", BookSide::Bid, dec!(99), dec!(1)))
+            .unwrap();
+        b.apply(delta("X", BookSide::Bid, dec!(98), dec!(1)))
+            .unwrap();
         assert_eq!(b.bid_price_at_rank(0), Some(dec!(99)));
     }
 
@@ -2801,7 +3040,8 @@ mod tests {
     #[test]
     fn test_price_level_exists_true_when_present() {
         let mut b = book("X");
-        b.apply(delta("X", BookSide::Bid, dec!(100), dec!(1))).unwrap();
+        b.apply(delta("X", BookSide::Bid, dec!(100), dec!(1)))
+            .unwrap();
         assert!(b.price_level_exists(BookSide::Bid, dec!(100)));
     }
 
@@ -2814,7 +3054,8 @@ mod tests {
     #[test]
     fn test_price_level_exists_ask_side() {
         let mut b = book("X");
-        b.apply(delta("X", BookSide::Ask, dec!(101), dec!(5))).unwrap();
+        b.apply(delta("X", BookSide::Ask, dec!(101), dec!(5)))
+            .unwrap();
         assert!(b.price_level_exists(BookSide::Ask, dec!(101)));
         assert!(!b.price_level_exists(BookSide::Ask, dec!(102)));
     }

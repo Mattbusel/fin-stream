@@ -188,8 +188,6 @@ impl WsStats {
         }
         (self.total_bytes_received as f64 / total_ms as f64).min(1.0)
     }
-
-
 }
 
 /// Reconnection policy for a WebSocket feed.
@@ -226,9 +224,7 @@ impl ReconnectPolicy {
     ) -> Result<Self, StreamError> {
         if multiplier < 1.0 {
             return Err(StreamError::ConfigError {
-                reason: format!(
-                    "reconnect multiplier must be >= 1.0, got {multiplier}"
-                ),
+                reason: format!("reconnect multiplier must be >= 1.0, got {multiplier}"),
             });
         }
         if max_attempts == 0 {
@@ -976,7 +972,10 @@ mod tests {
         // With ratio=1.0 the backoff can range [0, 2×base] but must not exceed max_backoff.
         for attempt in 0..20 {
             let b = p.backoff_for_attempt(attempt);
-            assert!(b <= Duration::from_secs(30), "attempt {attempt} exceeded max_backoff");
+            assert!(
+                b <= Duration::from_secs(30),
+                "attempt {attempt} exceeded max_backoff"
+            );
         }
     }
 
@@ -1015,8 +1014,13 @@ mod tests {
     #[test]
     fn test_reconnect_policy_total_max_delay_capped_by_max_backoff() {
         // With small max_backoff, all delays are capped
-        let p = ReconnectPolicy::new(5, Duration::from_millis(1000), Duration::from_millis(500), 2.0)
-            .unwrap();
+        let p = ReconnectPolicy::new(
+            5,
+            Duration::from_millis(1000),
+            Duration::from_millis(500),
+            2.0,
+        )
+        .unwrap();
         // All 5 attempts capped at 500ms → total = 2500ms
         assert_eq!(p.total_max_delay(), Duration::from_millis(2500));
     }
@@ -1035,38 +1039,43 @@ mod tests {
 
     #[test]
     fn test_reconnect_policy_with_jitter_varies_across_attempts() {
-        let p = ReconnectPolicy::new(10, Duration::from_millis(1000), Duration::from_secs(30), 1.0)
-            .unwrap()
-            .with_jitter(0.5)
-            .unwrap();
+        let p = ReconnectPolicy::new(
+            10,
+            Duration::from_millis(1000),
+            Duration::from_secs(30),
+            1.0,
+        )
+        .unwrap()
+        .with_jitter(0.5)
+        .unwrap();
         // With constant multiplier=1.0 all base backoffs are 1000ms; jitter should
         // produce different values for different attempt indices.
         let values: Vec<Duration> = (0..10).map(|a| p.backoff_for_attempt(a)).collect();
         let unique: std::collections::HashSet<u64> =
             values.iter().map(|d| d.as_millis() as u64).collect();
-        assert!(unique.len() > 1, "jitter should produce variation across attempts");
+        assert!(
+            unique.len() > 1,
+            "jitter should produce variation across attempts"
+        );
     }
 
     // ── ReconnectPolicy::with_initial_backoff / with_max_backoff ──────────────
 
     #[test]
     fn test_with_initial_backoff_sets_value() {
-        let p = ReconnectPolicy::default()
-            .with_initial_backoff(Duration::from_secs(2));
+        let p = ReconnectPolicy::default().with_initial_backoff(Duration::from_secs(2));
         assert_eq!(p.initial_backoff, Duration::from_secs(2));
     }
 
     #[test]
     fn test_with_max_backoff_sets_value() {
-        let p = ReconnectPolicy::default()
-            .with_max_backoff(Duration::from_secs(60));
+        let p = ReconnectPolicy::default().with_max_backoff(Duration::from_secs(60));
         assert_eq!(p.max_backoff, Duration::from_secs(60));
     }
 
     #[test]
     fn test_with_initial_backoff_affects_first_attempt() {
-        let p = ReconnectPolicy::default()
-            .with_initial_backoff(Duration::from_millis(200));
+        let p = ReconnectPolicy::default().with_initial_backoff(Duration::from_millis(200));
         assert_eq!(p.backoff_for_attempt(0), Duration::from_millis(200));
     }
 
@@ -1252,19 +1261,28 @@ mod tests {
 
     #[test]
     fn test_is_high_volume_true_at_threshold() {
-        let stats = WsStats { total_messages_received: 1_000, total_bytes_received: 0 };
+        let stats = WsStats {
+            total_messages_received: 1_000,
+            total_bytes_received: 0,
+        };
         assert!(stats.is_high_volume(1_000));
     }
 
     #[test]
     fn test_is_high_volume_false_below_threshold() {
-        let stats = WsStats { total_messages_received: 500, total_bytes_received: 0 };
+        let stats = WsStats {
+            total_messages_received: 500,
+            total_bytes_received: 0,
+        };
         assert!(!stats.is_high_volume(1_000));
     }
 
     #[test]
     fn test_is_high_volume_true_above_threshold() {
-        let stats = WsStats { total_messages_received: 2_000, total_bytes_received: 0 };
+        let stats = WsStats {
+            total_messages_received: 2_000,
+            total_bytes_received: 0,
+        };
         assert!(stats.is_high_volume(1_000));
     }
 
@@ -1272,19 +1290,28 @@ mod tests {
 
     #[test]
     fn test_bytes_per_message_none_when_no_messages() {
-        let stats = WsStats { total_messages_received: 0, total_bytes_received: 0 };
+        let stats = WsStats {
+            total_messages_received: 0,
+            total_bytes_received: 0,
+        };
         assert!(stats.bytes_per_message().is_none());
     }
 
     #[test]
     fn test_bytes_per_message_correct_value() {
-        let stats = WsStats { total_messages_received: 4, total_bytes_received: 400 };
+        let stats = WsStats {
+            total_messages_received: 4,
+            total_bytes_received: 400,
+        };
         assert_eq!(stats.bytes_per_message(), Some(100.0));
     }
 
     #[test]
     fn test_bytes_per_message_fractional() {
-        let stats = WsStats { total_messages_received: 3, total_bytes_received: 10 };
+        let stats = WsStats {
+            total_messages_received: 3,
+            total_bytes_received: 10,
+        };
         let bpm = stats.bytes_per_message().unwrap();
         assert!((bpm - 10.0 / 3.0).abs() < 1e-10);
     }
@@ -1293,32 +1320,18 @@ mod tests {
 
     #[test]
     fn test_delay_for_next_is_backoff_for_attempt_plus_one() {
-        let policy = ReconnectPolicy::new(
-            10,
-            Duration::from_millis(100),
-            Duration::from_secs(60),
-            2.0,
-        )
-        .unwrap();
-        assert_eq!(
-            policy.delay_for_next(0),
-            policy.backoff_for_attempt(1)
-        );
-        assert_eq!(
-            policy.delay_for_next(3),
-            policy.backoff_for_attempt(4)
-        );
+        let policy =
+            ReconnectPolicy::new(10, Duration::from_millis(100), Duration::from_secs(60), 2.0)
+                .unwrap();
+        assert_eq!(policy.delay_for_next(0), policy.backoff_for_attempt(1));
+        assert_eq!(policy.delay_for_next(3), policy.backoff_for_attempt(4));
     }
 
     #[test]
     fn test_delay_for_next_saturates_at_max_backoff() {
-        let policy = ReconnectPolicy::new(
-            10,
-            Duration::from_millis(100),
-            Duration::from_secs(1),
-            2.0,
-        )
-        .unwrap();
+        let policy =
+            ReconnectPolicy::new(10, Duration::from_millis(100), Duration::from_secs(1), 2.0)
+                .unwrap();
         // After many attempts the delay is capped at max_backoff
         assert!(policy.delay_for_next(100) <= Duration::from_secs(1));
     }
@@ -1327,20 +1340,29 @@ mod tests {
 
     #[test]
     fn test_message_rate_zero_when_elapsed_is_zero() {
-        let stats = WsStats { total_messages_received: 1_000, total_bytes_received: 0 };
+        let stats = WsStats {
+            total_messages_received: 1_000,
+            total_bytes_received: 0,
+        };
         assert_eq!(stats.message_rate(0), 0.0);
     }
 
     #[test]
     fn test_message_rate_correct_value() {
-        let stats = WsStats { total_messages_received: 100, total_bytes_received: 0 };
+        let stats = WsStats {
+            total_messages_received: 100,
+            total_bytes_received: 0,
+        };
         // 100 messages in 10_000ms = 10 msg/s
         assert!((stats.message_rate(10_000) - 10.0).abs() < 1e-10);
     }
 
     #[test]
     fn test_message_rate_zero_messages() {
-        let stats = WsStats { total_messages_received: 0, total_bytes_received: 0 };
+        let stats = WsStats {
+            total_messages_received: 0,
+            total_bytes_received: 0,
+        };
         assert_eq!(stats.message_rate(5_000), 0.0);
     }
 
@@ -1348,13 +1370,19 @@ mod tests {
 
     #[test]
     fn test_total_data_mb_zero_when_no_bytes() {
-        let stats = WsStats { total_messages_received: 0, total_bytes_received: 0 };
+        let stats = WsStats {
+            total_messages_received: 0,
+            total_bytes_received: 0,
+        };
         assert_eq!(stats.total_data_mb(), 0.0);
     }
 
     #[test]
     fn test_total_data_mb_fractional() {
-        let stats = WsStats { total_messages_received: 1, total_bytes_received: 524_288 };
+        let stats = WsStats {
+            total_messages_received: 1,
+            total_bytes_received: 524_288,
+        };
         assert!((stats.total_data_mb() - 0.5).abs() < 1e-10);
     }
 
@@ -1362,19 +1390,25 @@ mod tests {
 
     #[test]
     fn test_is_exhausted_true_at_max_attempts() {
-        let policy = ReconnectPolicy::new(5, Duration::from_millis(100), Duration::from_secs(10), 2.0).unwrap();
+        let policy =
+            ReconnectPolicy::new(5, Duration::from_millis(100), Duration::from_secs(10), 2.0)
+                .unwrap();
         assert!(policy.is_exhausted(5));
     }
 
     #[test]
     fn test_is_exhausted_true_beyond_max_attempts() {
-        let policy = ReconnectPolicy::new(5, Duration::from_millis(100), Duration::from_secs(10), 2.0).unwrap();
+        let policy =
+            ReconnectPolicy::new(5, Duration::from_millis(100), Duration::from_secs(10), 2.0)
+                .unwrap();
         assert!(policy.is_exhausted(10));
     }
 
     #[test]
     fn test_is_exhausted_false_below_max_attempts() {
-        let policy = ReconnectPolicy::new(5, Duration::from_millis(100), Duration::from_secs(10), 2.0).unwrap();
+        let policy =
+            ReconnectPolicy::new(5, Duration::from_millis(100), Duration::from_secs(10), 2.0)
+                .unwrap();
         assert!(!policy.is_exhausted(4));
     }
 
@@ -1382,19 +1416,28 @@ mod tests {
 
     #[test]
     fn test_total_data_kb_zero_when_no_bytes() {
-        let stats = WsStats { total_messages_received: 0, total_bytes_received: 0 };
+        let stats = WsStats {
+            total_messages_received: 0,
+            total_bytes_received: 0,
+        };
         assert_eq!(stats.total_data_kb(), 0.0);
     }
 
     #[test]
     fn test_total_data_kb_one_kib() {
-        let stats = WsStats { total_messages_received: 1, total_bytes_received: 1_024 };
+        let stats = WsStats {
+            total_messages_received: 1,
+            total_bytes_received: 1_024,
+        };
         assert!((stats.total_data_kb() - 1.0).abs() < 1e-10);
     }
 
     #[test]
     fn test_total_data_kb_equals_1024_times_mb() {
-        let stats = WsStats { total_messages_received: 1, total_bytes_received: 2_097_152 };
+        let stats = WsStats {
+            total_messages_received: 1,
+            total_bytes_received: 2_097_152,
+        };
         assert!((stats.total_data_kb() - stats.total_data_mb() * 1_024.0).abs() < 1e-6);
     }
 
@@ -1402,20 +1445,29 @@ mod tests {
 
     #[test]
     fn test_bandwidth_bps_zero_when_elapsed_zero() {
-        let stats = WsStats { total_messages_received: 0, total_bytes_received: 1_000 };
+        let stats = WsStats {
+            total_messages_received: 0,
+            total_bytes_received: 1_000,
+        };
         assert_eq!(stats.bandwidth_bps(0), 0.0);
     }
 
     #[test]
     fn test_bandwidth_bps_correct_value() {
-        let stats = WsStats { total_messages_received: 1, total_bytes_received: 10_000 };
+        let stats = WsStats {
+            total_messages_received: 1,
+            total_bytes_received: 10_000,
+        };
         // 10_000 bytes / 1s = 10_000 bps
         assert!((stats.bandwidth_bps(1_000) - 10_000.0).abs() < 1e-6);
     }
 
     #[test]
     fn test_bandwidth_bps_zero_bytes() {
-        let stats = WsStats { total_messages_received: 5, total_bytes_received: 0 };
+        let stats = WsStats {
+            total_messages_received: 5,
+            total_bytes_received: 0,
+        };
         assert_eq!(stats.bandwidth_bps(5_000), 0.0);
     }
 
@@ -1423,20 +1475,29 @@ mod tests {
 
     #[test]
     fn test_messages_per_byte_none_when_no_bytes() {
-        let stats = WsStats { total_messages_received: 5, total_bytes_received: 0 };
+        let stats = WsStats {
+            total_messages_received: 5,
+            total_bytes_received: 0,
+        };
         assert!(stats.messages_per_byte().is_none());
     }
 
     #[test]
     fn test_messages_per_byte_correct_value() {
-        let stats = WsStats { total_messages_received: 100, total_bytes_received: 10_000 };
+        let stats = WsStats {
+            total_messages_received: 100,
+            total_bytes_received: 10_000,
+        };
         // 100 / 10_000 = 0.01
         assert!((stats.messages_per_byte().unwrap() - 0.01).abs() < 1e-12);
     }
 
     #[test]
     fn test_messages_per_byte_less_than_one_for_large_messages() {
-        let stats = WsStats { total_messages_received: 1, total_bytes_received: 500 };
+        let stats = WsStats {
+            total_messages_received: 1,
+            total_bytes_received: 500,
+        };
         let mpb = stats.messages_per_byte().unwrap();
         assert!(mpb < 1.0);
     }
@@ -1444,40 +1505,58 @@ mod tests {
     // --- WsStats::avg_message_size_bytes ---
     #[test]
     fn test_avg_message_size_bytes_none_when_no_messages() {
-        let stats = WsStats { total_messages_received: 0, total_bytes_received: 0 };
+        let stats = WsStats {
+            total_messages_received: 0,
+            total_bytes_received: 0,
+        };
         assert!(stats.avg_message_size_bytes().is_none());
     }
 
     #[test]
     fn test_avg_message_size_bytes_correct_value() {
-        let stats = WsStats { total_messages_received: 10, total_bytes_received: 5_000 };
+        let stats = WsStats {
+            total_messages_received: 10,
+            total_bytes_received: 5_000,
+        };
         assert!((stats.avg_message_size_bytes().unwrap() - 500.0).abs() < 1e-12);
     }
 
     #[test]
     fn test_avg_message_size_bytes_one_message() {
-        let stats = WsStats { total_messages_received: 1, total_bytes_received: 256 };
+        let stats = WsStats {
+            total_messages_received: 1,
+            total_bytes_received: 256,
+        };
         assert!((stats.avg_message_size_bytes().unwrap() - 256.0).abs() < 1e-12);
     }
 
     // --- WsStats::bandwidth_kbps ---
     #[test]
     fn test_bandwidth_kbps_zero_when_elapsed_zero() {
-        let stats = WsStats { total_messages_received: 10, total_bytes_received: 50_000 };
+        let stats = WsStats {
+            total_messages_received: 10,
+            total_bytes_received: 50_000,
+        };
         assert_eq!(stats.bandwidth_kbps(0), 0.0);
     }
 
     #[test]
     fn test_bandwidth_kbps_correct_value() {
         // 100_000 bytes in 1_000ms = 100KB/s = 100*8 = 800 kbps
-        let stats = WsStats { total_messages_received: 1, total_bytes_received: 100_000 };
+        let stats = WsStats {
+            total_messages_received: 1,
+            total_bytes_received: 100_000,
+        };
         let kbps = stats.bandwidth_kbps(1_000);
         assert!((kbps - 800.0).abs() < 1e-10, "got {kbps}");
     }
 
     #[test]
     fn test_bandwidth_kbps_zero_when_no_data() {
-        let stats = WsStats { total_messages_received: 0, total_bytes_received: 0 };
+        let stats = WsStats {
+            total_messages_received: 0,
+            total_bytes_received: 0,
+        };
         assert_eq!(stats.bandwidth_kbps(5_000), 0.0);
     }
 
@@ -1485,37 +1564,55 @@ mod tests {
 
     #[test]
     fn test_total_data_gb_zero_when_no_bytes() {
-        let stats = WsStats { total_messages_received: 0, total_bytes_received: 0 };
+        let stats = WsStats {
+            total_messages_received: 0,
+            total_bytes_received: 0,
+        };
         assert_eq!(stats.total_data_gb(), 0.0);
     }
 
     #[test]
     fn test_total_data_gb_one_gib() {
-        let stats = WsStats { total_messages_received: 1, total_bytes_received: 1_073_741_824 };
+        let stats = WsStats {
+            total_messages_received: 1,
+            total_bytes_received: 1_073_741_824,
+        };
         assert!((stats.total_data_gb() - 1.0).abs() < 1e-10);
     }
 
     #[test]
     fn test_total_data_gb_equals_1024_times_mb() {
-        let stats = WsStats { total_messages_received: 1, total_bytes_received: 2_147_483_648 };
+        let stats = WsStats {
+            total_messages_received: 1,
+            total_bytes_received: 2_147_483_648,
+        };
         assert!((stats.total_data_gb() - stats.total_data_mb() / 1_024.0).abs() < 1e-6);
     }
 
     #[test]
     fn test_is_active_false_when_no_messages() {
-        let stats = WsStats { total_messages_received: 0, total_bytes_received: 0 };
+        let stats = WsStats {
+            total_messages_received: 0,
+            total_bytes_received: 0,
+        };
         assert!(!stats.is_active(1));
     }
 
     #[test]
     fn test_is_active_true_at_threshold() {
-        let stats = WsStats { total_messages_received: 100, total_bytes_received: 0 };
+        let stats = WsStats {
+            total_messages_received: 100,
+            total_bytes_received: 0,
+        };
         assert!(stats.is_active(100));
     }
 
     #[test]
     fn test_is_active_false_below_threshold() {
-        let stats = WsStats { total_messages_received: 50, total_bytes_received: 0 };
+        let stats = WsStats {
+            total_messages_received: 50,
+            total_bytes_received: 0,
+        };
         assert!(!stats.is_active(100));
     }
 
@@ -1523,32 +1620,47 @@ mod tests {
 
     #[test]
     fn test_has_received_bytes_false_when_no_bytes() {
-        let stats = WsStats { total_messages_received: 5, total_bytes_received: 0 };
+        let stats = WsStats {
+            total_messages_received: 5,
+            total_bytes_received: 0,
+        };
         assert!(!stats.has_received_bytes());
     }
 
     #[test]
     fn test_has_received_bytes_true_when_bytes_present() {
-        let stats = WsStats { total_messages_received: 1, total_bytes_received: 100 };
+        let stats = WsStats {
+            total_messages_received: 1,
+            total_bytes_received: 100,
+        };
         assert!(stats.has_received_bytes());
     }
 
     #[test]
     fn test_efficiency_ratio_none_when_no_bytes() {
-        let stats = WsStats { total_messages_received: 10, total_bytes_received: 0 };
+        let stats = WsStats {
+            total_messages_received: 10,
+            total_bytes_received: 0,
+        };
         assert!(stats.efficiency_ratio().is_none());
     }
 
     #[test]
     fn test_efficiency_ratio_correct_value() {
-        let stats = WsStats { total_messages_received: 100, total_bytes_received: 10_000 };
+        let stats = WsStats {
+            total_messages_received: 100,
+            total_bytes_received: 10_000,
+        };
         // 100 / 10_000 = 0.01
         assert!((stats.efficiency_ratio().unwrap() - 0.01).abs() < 1e-12);
     }
 
     #[test]
     fn test_efficiency_ratio_less_than_one_for_large_messages() {
-        let stats = WsStats { total_messages_received: 1, total_bytes_received: 500 };
+        let stats = WsStats {
+            total_messages_received: 1,
+            total_bytes_received: 500,
+        };
         assert!(stats.efficiency_ratio().unwrap() < 1.0);
     }
 
@@ -1556,25 +1668,37 @@ mod tests {
 
     #[test]
     fn test_message_density_same_as_message_rate() {
-        let stats = WsStats { total_messages_received: 100, total_bytes_received: 0 };
+        let stats = WsStats {
+            total_messages_received: 100,
+            total_bytes_received: 0,
+        };
         assert!((stats.message_density(1_000) - stats.message_rate(1_000)).abs() < 1e-12);
     }
 
     #[test]
     fn test_message_density_zero_when_elapsed_zero() {
-        let stats = WsStats { total_messages_received: 100, total_bytes_received: 0 };
+        let stats = WsStats {
+            total_messages_received: 100,
+            total_bytes_received: 0,
+        };
         assert_eq!(stats.message_density(0), 0.0);
     }
 
     #[test]
     fn test_compression_ratio_none_when_no_bytes() {
-        let stats = WsStats { total_messages_received: 5, total_bytes_received: 0 };
+        let stats = WsStats {
+            total_messages_received: 5,
+            total_bytes_received: 0,
+        };
         assert!(stats.compression_ratio().is_none());
     }
 
     #[test]
     fn test_compression_ratio_same_as_efficiency_ratio() {
-        let stats = WsStats { total_messages_received: 100, total_bytes_received: 10_000 };
+        let stats = WsStats {
+            total_messages_received: 100,
+            total_bytes_received: 10_000,
+        };
         assert_eq!(stats.compression_ratio(), stats.efficiency_ratio());
     }
 
@@ -1582,19 +1706,28 @@ mod tests {
 
     #[test]
     fn test_uptime_fraction_zero_when_elapsed_zero() {
-        let stats = WsStats { total_messages_received: 100, total_bytes_received: 50_000 };
+        let stats = WsStats {
+            total_messages_received: 100,
+            total_bytes_received: 50_000,
+        };
         assert_eq!(stats.uptime_fraction(0), 0.0);
     }
 
     #[test]
     fn test_uptime_fraction_zero_when_no_bytes() {
-        let stats = WsStats { total_messages_received: 0, total_bytes_received: 0 };
+        let stats = WsStats {
+            total_messages_received: 0,
+            total_bytes_received: 0,
+        };
         assert_eq!(stats.uptime_fraction(60_000), 0.0);
     }
 
     #[test]
     fn test_uptime_fraction_nonzero_with_bytes() {
-        let stats = WsStats { total_messages_received: 100, total_bytes_received: 1_000 };
+        let stats = WsStats {
+            total_messages_received: 100,
+            total_bytes_received: 1_000,
+        };
         // bytes/ms = 1000/60000 ≈ 0.0167
         let f = stats.uptime_fraction(60_000);
         assert!(f > 0.0 && f <= 1.0);
@@ -1603,7 +1736,10 @@ mod tests {
     #[test]
     fn test_uptime_fraction_clamped_to_one() {
         // Very high byte count relative to elapsed → capped at 1.0
-        let stats = WsStats { total_messages_received: 0, total_bytes_received: 1_000_000 };
+        let stats = WsStats {
+            total_messages_received: 0,
+            total_bytes_received: 1_000_000,
+        };
         assert_eq!(stats.uptime_fraction(100), 1.0);
     }
 
@@ -1611,20 +1747,29 @@ mod tests {
 
     #[test]
     fn test_is_idle_true_when_no_messages() {
-        let stats = WsStats { total_messages_received: 0, total_bytes_received: 0 };
+        let stats = WsStats {
+            total_messages_received: 0,
+            total_bytes_received: 0,
+        };
         assert!(stats.is_idle(60_000, 1.0));
     }
 
     #[test]
     fn test_is_idle_false_when_high_message_rate() {
-        let stats = WsStats { total_messages_received: 1_000, total_bytes_received: 0 };
+        let stats = WsStats {
+            total_messages_received: 1_000,
+            total_bytes_received: 0,
+        };
         // rate = 1000 msg / 1s = 1000/s, threshold = 1.0
         assert!(!stats.is_idle(1_000, 1.0));
     }
 
     #[test]
     fn test_is_idle_true_when_elapsed_zero() {
-        let stats = WsStats { total_messages_received: 100, total_bytes_received: 0 };
+        let stats = WsStats {
+            total_messages_received: 100,
+            total_bytes_received: 0,
+        };
         // message_rate returns 0.0 when elapsed_ms=0 → always idle
         assert!(stats.is_idle(0, 1.0));
     }
@@ -1633,13 +1778,22 @@ mod tests {
 
     #[test]
     fn test_average_message_size_bytes_none_when_no_messages() {
-        let stats = WsStats { total_messages_received: 0, total_bytes_received: 0 };
+        let stats = WsStats {
+            total_messages_received: 0,
+            total_bytes_received: 0,
+        };
         assert!(stats.average_message_size_bytes().is_none());
     }
 
     #[test]
     fn test_average_message_size_bytes_same_as_bytes_per_message() {
-        let stats = WsStats { total_messages_received: 10, total_bytes_received: 1_000 };
-        assert_eq!(stats.average_message_size_bytes(), stats.bytes_per_message());
+        let stats = WsStats {
+            total_messages_received: 10,
+            total_bytes_received: 1_000,
+        };
+        assert_eq!(
+            stats.average_message_size_bytes(),
+            stats.bytes_per_message()
+        );
     }
 }

@@ -218,12 +218,7 @@ impl BacktestEngine {
     /// - **Limit Sell**: fills if `price >= limit_price`.
     /// - **StopLoss Buy**: fires if `price >= trigger`.
     /// - **StopLoss Sell**: fires if `price <= trigger`.
-    pub fn process_tick(
-        &mut self,
-        symbol: &str,
-        price: f64,
-        timestamp_ms: u64,
-    ) -> Vec<Fill> {
+    pub fn process_tick(&mut self, symbol: &str, price: f64, timestamp_ms: u64) -> Vec<Fill> {
         let slippage_factor = self.config.slippage_bps / 10_000.0;
         let commission_rate = self.config.commission_bps / 10_000.0;
 
@@ -264,9 +259,7 @@ impl BacktestEngine {
                 OrderType::StopLoss(trigger) => {
                     let trigger = *trigger;
                     match order.side {
-                        OrderSide::Buy if price >= trigger => {
-                            Some(price * (1.0 + slippage_factor))
-                        }
+                        OrderSide::Buy if price >= trigger => Some(price * (1.0 + slippage_factor)),
                         OrderSide::Sell if price <= trigger => {
                             Some(price * (1.0 - slippage_factor))
                         }
@@ -395,14 +388,22 @@ impl BacktestEngine {
                     .map(|w| {
                         let prev = w[0].1;
                         let curr = w[1].1;
-                        if prev != 0.0 { (curr - prev) / prev } else { 0.0 }
+                        if prev != 0.0 {
+                            (curr - prev) / prev
+                        } else {
+                            0.0
+                        }
                     })
                     .collect();
                 let n = returns.len() as f64;
                 let mean = returns.iter().sum::<f64>() / n;
                 let var = returns.iter().map(|&r| (r - mean).powi(2)).sum::<f64>() / n.max(1.0);
                 let std = var.sqrt();
-                if std > 0.0 { mean / std * (252.0_f64).sqrt() } else { 0.0 }
+                if std > 0.0 {
+                    mean / std * (252.0_f64).sqrt()
+                } else {
+                    0.0
+                }
             }
         };
 
@@ -433,7 +434,10 @@ fn compute_trade_stats(fills: &[Fill]) -> (f64, f64, usize) {
     for fill in fills {
         match fill.side {
             OrderSide::Buy => buy_fills.entry(fill.symbol.clone()).or_default().push(fill),
-            OrderSide::Sell => sell_fills.entry(fill.symbol.clone()).or_default().push(fill),
+            OrderSide::Sell => sell_fills
+                .entry(fill.symbol.clone())
+                .or_default()
+                .push(fill),
         }
     }
 
@@ -556,7 +560,11 @@ mod tests {
         // Limit buy at 100 — won't fill at 105
         engine.submit_limit_order("BTC", OrderSide::Buy, 1.0, 100.0);
         let fills = engine.process_tick("BTC", 105.0, 1_000);
-        assert_eq!(fills.len(), 0, "limit buy should not fill above limit price");
+        assert_eq!(
+            fills.len(),
+            0,
+            "limit buy should not fill above limit price"
+        );
 
         // Now price drops to 98 — should fill
         let fills = engine.process_tick("BTC", 98.0, 2_000);
@@ -600,7 +608,10 @@ mod tests {
         // Equity: 100 → 120 → 90 → 110 → drawdown = (120-90)/120 = 25%
         let equity = vec![(0, 100.0), (1, 120.0), (2, 90.0), (3, 110.0)];
         let dd = max_drawdown(&equity);
-        assert!((dd - 0.25).abs() < 1e-9, "max drawdown should be 25%, got {dd}");
+        assert!(
+            (dd - 0.25).abs() < 1e-9,
+            "max drawdown should be 25%, got {dd}"
+        );
     }
 
     #[test]

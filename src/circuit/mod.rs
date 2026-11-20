@@ -215,7 +215,10 @@ impl SymbolCircuitBreaker {
         if let Some(reason) = reason_opt {
             let until = Instant::now() + self.config.halt_duration;
             self.halt_started = Some(Instant::now());
-            self.state = BreakerState::Halted { until, reason: reason.clone() };
+            self.state = BreakerState::Halted {
+                until,
+                reason: reason.clone(),
+            };
             self.halt_count += 1;
             CircuitDecision::Halt(reason)
         } else {
@@ -261,7 +264,9 @@ impl SymbolCircuitBreaker {
 
         match (price_triggered, volume_triggered) {
             (true, true) => Some(HaltReason::Composite),
-            (true, false) => Some(HaltReason::PriceSpike { move_pct: price_move }),
+            (true, false) => Some(HaltReason::PriceSpike {
+                move_pct: price_move,
+            }),
             (false, true) => Some(HaltReason::VolumeSurge { factor: vol_factor }),
             (false, false) => None,
         }
@@ -375,9 +380,9 @@ pub type SharedCircuitBreakerHub = Arc<CircuitBreakerHub>;
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::tick::{Exchange, NormalizedTick};
     use rust_decimal::Decimal;
     use std::str::FromStr;
-    use crate::tick::{Exchange, NormalizedTick};
 
     fn make_tick(symbol: &str, price: f64, qty: f64) -> NormalizedTick {
         NormalizedTick {
@@ -434,7 +439,10 @@ mod tests {
         let spike = make_tick("BTC", 200.0, 1.0); // +100 % >> 5 %
         let decision = cb.process_tick(&spike);
         assert!(
-            matches!(decision, CircuitDecision::Halt(HaltReason::PriceSpike { .. })),
+            matches!(
+                decision,
+                CircuitDecision::Halt(HaltReason::PriceSpike { .. })
+            ),
             "expected PriceSpike, got {:?}",
             decision
         );
@@ -447,7 +455,10 @@ mod tests {
         let surge = make_tick("BTC", 100.0, 50.0); // 50× average
         let decision = cb.process_tick(&surge);
         assert!(
-            matches!(decision, CircuitDecision::Halt(HaltReason::VolumeSurge { .. })),
+            matches!(
+                decision,
+                CircuitDecision::Halt(HaltReason::VolumeSurge { .. })
+            ),
             "expected VolumeSurge, got {:?}",
             decision
         );

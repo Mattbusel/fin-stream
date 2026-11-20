@@ -61,9 +61,7 @@ impl Venue {
         if self.fee_bps <= 0.0 || self.latency_ms == 0 {
             return 0.0;
         }
-        self.fill_rate * 0.4
-            + (1.0 / self.fee_bps) * 0.3
-            + (1.0 / self.latency_ms as f64) * 0.3
+        self.fill_rate * 0.4 + (1.0 / self.fee_bps) * 0.3 + (1.0 / self.latency_ms as f64) * 0.3
     }
 }
 
@@ -129,8 +127,7 @@ impl PerformanceRecord {
 
     fn update(&mut self, fill_rate: f64, latency_ms: f64, decay: f64) {
         self.decayed_fill_rate = decay * fill_rate + (1.0 - decay) * self.decayed_fill_rate;
-        self.decayed_latency_ms =
-            decay * latency_ms + (1.0 - decay) * self.decayed_latency_ms;
+        self.decayed_latency_ms = decay * latency_ms + (1.0 - decay) * self.decayed_latency_ms;
         self.count += 1;
     }
 }
@@ -215,11 +212,7 @@ impl VenueSelector {
     ///
     /// # Errors
     /// [`StreamError::InvalidInput`] if `venues` is empty.
-    pub fn route(
-        &self,
-        order_size: f64,
-        venues: &[Venue],
-    ) -> Result<RoutingDecision, StreamError> {
+    pub fn route(&self, order_size: f64, venues: &[Venue]) -> Result<RoutingDecision, StreamError> {
         if venues.is_empty() {
             return Err(StreamError::InvalidInput(
                 "venue list must not be empty".into(),
@@ -234,10 +227,8 @@ impl VenueSelector {
             });
         }
         // Sort venues by adjusted score descending, take top N
-        let mut scored: Vec<(&Venue, f64)> = venues
-            .iter()
-            .map(|v| (v, self.adjusted_score(v)))
-            .collect();
+        let mut scored: Vec<(&Venue, f64)> =
+            venues.iter().map(|v| (v, self.adjusted_score(v))).collect();
         scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
         scored.truncate(self.max_split_venues);
 
@@ -260,10 +251,7 @@ impl VenueSelector {
             .map(|(v, s)| v.fee_bps * (s / total_score.max(f64::EPSILON)))
             .sum();
 
-        let primary_venue = splits
-            .first()
-            .map(|(id, _)| id.clone())
-            .unwrap_or_default();
+        let primary_venue = splits.first().map(|(id, _)| id.clone()).unwrap_or_default();
 
         Ok(RoutingDecision {
             primary_venue,

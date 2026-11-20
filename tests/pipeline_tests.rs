@@ -185,14 +185,23 @@ fn test_pipeline_ring_to_ohlcv_fifo_ordering() {
 /// Normalization of a sequence of close prices must produce values in [0, 1].
 #[test]
 fn test_pipeline_normalization_bounds() {
-    let closes = [dec!(50000), dec!(50100), dec!(49900), dec!(50050), dec!(50200)];
+    let closes = [
+        dec!(50000),
+        dec!(50100),
+        dec!(49900),
+        dec!(50050),
+        dec!(50200),
+    ];
     let mut norm = MinMaxNormalizer::new(closes.len()).unwrap();
     for &c in &closes {
         norm.update(c);
     }
     for &c in &closes {
         let v = norm.normalize(c).unwrap();
-        assert!((0.0..=1.0).contains(&v), "normalized value {v} out of [0, 1]");
+        assert!(
+            (0.0..=1.0).contains(&v),
+            "normalized value {v} out of [0, 1]"
+        );
     }
 }
 

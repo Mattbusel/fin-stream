@@ -60,7 +60,11 @@ impl BookFeatures {
             return None;
         }
         let spread_dec = (best_ask - best_bid).to_f64()? / mid;
-        let depth_ratio = if ask_f > 1e-12 { bid_f / ask_f } else { f64::MAX };
+        let depth_ratio = if ask_f > 1e-12 {
+            bid_f / ask_f
+        } else {
+            f64::MAX
+        };
 
         Some(Self {
             imbalance: (bid_f - ask_f) / total,
@@ -283,7 +287,10 @@ mod tests {
         assert!(f.is_some());
         let f = f.unwrap();
         // Bid-heavy book → positive imbalance.
-        assert!(f.imbalance > 0.0, "imbalance should be positive for bid-heavy book");
+        assert!(
+            f.imbalance > 0.0,
+            "imbalance should be positive for bid-heavy book"
+        );
     }
 
     #[test]
@@ -294,37 +301,65 @@ mod tests {
 
     #[test]
     fn model_returns_none_before_min_samples() {
-        let cfg = PredictiveBookConfig { min_samples: 100, ..Default::default() };
+        let cfg = PredictiveBookConfig {
+            min_samples: 100,
+            ..Default::default()
+        };
         let mut model = PredictiveOrderBook::new(cfg);
-        let f = BookFeatures { imbalance: 0.1, spread: 0.001, depth_ratio: 1.1 };
+        let f = BookFeatures {
+            imbalance: 0.1,
+            spread: 0.001,
+            depth_ratio: 1.1,
+        };
         let res = model.update(f, 100.0).unwrap();
         assert!(res.is_none());
     }
 
     #[test]
     fn model_trains_and_produces_prediction() {
-        let cfg = PredictiveBookConfig { min_samples: 5, ..Default::default() };
+        let cfg = PredictiveBookConfig {
+            min_samples: 5,
+            ..Default::default()
+        };
         let mut model = PredictiveOrderBook::new(cfg);
         // Simulate alternating up/down with a bullish imbalance signal.
         let mut price = 100.0_f64;
         for i in 0..30 {
-            let f = BookFeatures { imbalance: 0.3, spread: 0.001, depth_ratio: 1.5 };
+            let f = BookFeatures {
+                imbalance: 0.3,
+                spread: 0.001,
+                depth_ratio: 1.5,
+            };
             price += if i % 2 == 0 { 0.01 } else { 0.005 };
             let _ = model.update(f, price);
         }
         // After 30 samples the model should produce a prediction.
-        let f = BookFeatures { imbalance: 0.3, spread: 0.001, depth_ratio: 1.5 };
+        let f = BookFeatures {
+            imbalance: 0.3,
+            spread: 0.001,
+            depth_ratio: 1.5,
+        };
         let pred = model.update(f, price + 0.01).unwrap();
-        assert!(pred.is_some(), "expected prediction after sufficient training");
+        assert!(
+            pred.is_some(),
+            "expected prediction after sufficient training"
+        );
     }
 
     #[test]
     fn prob_up_in_unit_interval() {
-        let cfg = PredictiveBookConfig { min_samples: 2, ..Default::default() };
+        let cfg = PredictiveBookConfig {
+            min_samples: 2,
+            ..Default::default()
+        };
         let mut model = PredictiveOrderBook::new(cfg);
         let mut price = 100.0_f64;
         for _ in 0..10 {
-            let f = BookFeatures { imbalance: 0.5, spread: 0.001, depth_ratio: 2.0 };
+            let f = BookFeatures {
+                imbalance: 0.5,
+                spread: 0.001,
+                depth_ratio: 2.0,
+            };
             price += 0.01;
             if let Ok(Some(pred)) = model.update(f, price) {
                 assert!(pred.prob_up > 0.0 && pred.prob_up < 1.0);

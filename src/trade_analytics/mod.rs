@@ -124,11 +124,8 @@ impl ExecutionAnalyzer {
     ///
     /// Returns `None` if no trades for the symbol have been recorded.
     pub fn avg_slippage_bps(&self, symbol: &str) -> Option<f64> {
-        let symbol_trades: Vec<&ExecutedTrade> = self
-            .trades
-            .iter()
-            .filter(|t| t.symbol == symbol)
-            .collect();
+        let symbol_trades: Vec<&ExecutedTrade> =
+            self.trades.iter().filter(|t| t.symbol == symbol).collect();
         if symbol_trades.is_empty() {
             return None;
         }
@@ -144,11 +141,8 @@ impl ExecutionAnalyzer {
     /// A "positive fill" means the execution was at or better than the arrival price.
     /// Returns 0.0 if no trades recorded.
     pub fn fill_rate(&self, symbol: &str) -> f64 {
-        let symbol_trades: Vec<&ExecutedTrade> = self
-            .trades
-            .iter()
-            .filter(|t| t.symbol == symbol)
-            .collect();
+        let symbol_trades: Vec<&ExecutedTrade> =
+            self.trades.iter().filter(|t| t.symbol == symbol).collect();
         if symbol_trades.is_empty() {
             return 0.0;
         }
@@ -182,7 +176,8 @@ impl ExecutionAnalyzer {
     /// Generate a formatted trade cost analysis report covering all recorded trades.
     pub fn trade_cost_analysis_report(&self) -> String {
         if self.trades.is_empty() {
-            return "Trade Cost Analysis Report\n==========================\nNo trades recorded.\n".to_string();
+            return "Trade Cost Analysis Report\n==========================\nNo trades recorded.\n"
+                .to_string();
         }
 
         let total_trades = self.trades.len();
@@ -221,7 +216,12 @@ impl ExecutionAnalyzer {
             .map(|sym| {
                 let avg = self.avg_slippage_bps(sym).unwrap_or(0.0);
                 let fr = self.fill_rate(sym);
-                format!("  {:>10}: avg_slippage={:+.2} bps  fill_rate={:.1}%\n", sym, avg, fr * 100.0)
+                format!(
+                    "  {:>10}: avg_slippage={:+.2} bps  fill_rate={:.1}%\n",
+                    sym,
+                    avg,
+                    fr * 100.0
+                )
             })
             .collect();
 
@@ -248,7 +248,14 @@ impl ExecutionAnalyzer {
 mod tests {
     use super::*;
 
-    fn buy_trade(id: &str, sym: &str, arr: f64, exec: f64, bench: f64, venue: &str) -> ExecutedTrade {
+    fn buy_trade(
+        id: &str,
+        sym: &str,
+        arr: f64,
+        exec: f64,
+        bench: f64,
+        venue: &str,
+    ) -> ExecutedTrade {
         ExecutedTrade {
             trade_id: id.to_string(),
             symbol: sym.to_string(),
@@ -262,7 +269,14 @@ mod tests {
         }
     }
 
-    fn sell_trade(id: &str, sym: &str, arr: f64, exec: f64, bench: f64, venue: &str) -> ExecutedTrade {
+    fn sell_trade(
+        id: &str,
+        sym: &str,
+        arr: f64,
+        exec: f64,
+        bench: f64,
+        venue: &str,
+    ) -> ExecutedTrade {
         ExecutedTrade {
             trade_id: id.to_string(),
             symbol: sym.to_string(),

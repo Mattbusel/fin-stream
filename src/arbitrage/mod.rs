@@ -149,7 +149,8 @@ impl TriangularArbDetector {
         }
         if leg.bid > leg.ask {
             return Err(StreamError::InvalidInput(format!(
-                "Leg {name}: bid {:.6} > ask {:.6} (crossed)", leg.bid, leg.ask
+                "Leg {name}: bid {:.6} > ask {:.6} (crossed)",
+                leg.bid, leg.ask
             )));
         }
         Ok(())
@@ -213,7 +214,9 @@ impl StatisticalArbDetector {
         obs_noise: f64,
     ) -> Result<Self, StreamError> {
         if beta == 0.0 {
-            return Err(StreamError::InvalidInput("beta must be non-zero".to_owned()));
+            return Err(StreamError::InvalidInput(
+                "beta must be non-zero".to_owned(),
+            ));
         }
         if z_threshold <= 0.0 {
             return Err(StreamError::InvalidInput(
@@ -268,7 +271,8 @@ impl StatisticalArbDetector {
         self.n += 1;
         let alpha = 2.0 / (self.warmup as f64 + 1.0);
         let sq_err = innovation * innovation;
-        self.spread_std = (alpha * sq_err + (1.0 - alpha) * self.spread_std * self.spread_std).sqrt();
+        self.spread_std =
+            (alpha * sq_err + (1.0 - alpha) * self.spread_std * self.spread_std).sqrt();
 
         if self.n < self.warmup || self.spread_std < f64::EPSILON {
             return Ok(None);
@@ -314,9 +318,18 @@ mod tests {
         // Fair prices: BTC=50000, ETH=2000, ETH/BTC=0.04
         let result = det
             .check(
-                TriLeg { bid: 49999.0, ask: 50001.0 },
-                TriLeg { bid: 1999.0, ask: 2001.0 },
-                TriLeg { bid: 0.03999, ask: 0.04001 },
+                TriLeg {
+                    bid: 49999.0,
+                    ask: 50001.0,
+                },
+                TriLeg {
+                    bid: 1999.0,
+                    ask: 2001.0,
+                },
+                TriLeg {
+                    bid: 0.03999,
+                    ask: 0.04001,
+                },
             )
             .unwrap();
         assert!(result.is_none());
@@ -325,12 +338,21 @@ mod tests {
     #[test]
     fn test_triangular_detects_obvious_arb() {
         let det = TriangularArbDetector::new(0.1); // very low threshold
-        // Skew ETH/BTC price to create arb
+                                                   // Skew ETH/BTC price to create arb
         let result = det
             .check(
-                TriLeg { bid: 50000.0, ask: 50000.0 },
-                TriLeg { bid: 3000.0, ask: 3000.0 }, // ETH/USD unusually high
-                TriLeg { bid: 0.04, ask: 0.04 },     // ETH/BTC unchanged
+                TriLeg {
+                    bid: 50000.0,
+                    ask: 50000.0,
+                },
+                TriLeg {
+                    bid: 3000.0,
+                    ask: 3000.0,
+                }, // ETH/USD unusually high
+                TriLeg {
+                    bid: 0.04,
+                    ask: 0.04,
+                }, // ETH/BTC unchanged
             )
             .unwrap();
         // forward: 1/50000 / 0.04 * 3000 = 1.5 → 5000 bps profit
@@ -341,9 +363,18 @@ mod tests {
     fn test_triangular_invalid_leg_errors() {
         let det = TriangularArbDetector::new(1.0);
         let err = det.check(
-            TriLeg { bid: -1.0, ask: 50000.0 },
-            TriLeg { bid: 2000.0, ask: 2001.0 },
-            TriLeg { bid: 0.04, ask: 0.041 },
+            TriLeg {
+                bid: -1.0,
+                ask: 50000.0,
+            },
+            TriLeg {
+                bid: 2000.0,
+                ask: 2001.0,
+            },
+            TriLeg {
+                bid: 0.04,
+                ask: 0.041,
+            },
         );
         assert!(err.is_err());
     }

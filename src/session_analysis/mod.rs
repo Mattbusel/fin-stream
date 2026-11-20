@@ -98,7 +98,13 @@ impl SeasonalityAnalyzer {
     /// `day_of_week`: 0 = Sunday … 6 = Saturday (ISO: 1 = Monday … 7 = Sunday is also accepted;
     /// callers should be consistent).
     /// `date_epoch_days`: days since Unix epoch (1970-01-01 = 0).
-    pub fn record_session(&mut self, symbol: &str, stats: SessionStats, day_of_week: u8, date_epoch_days: u64) {
+    pub fn record_session(
+        &mut self,
+        symbol: &str,
+        stats: SessionStats,
+        day_of_week: u8,
+        date_epoch_days: u64,
+    ) {
         self.sessions
             .entry(symbol.to_string())
             .or_default()
@@ -195,11 +201,8 @@ impl SeasonalityAnalyzer {
             return SessionPattern::Uniform;
         }
         let third = n / 3;
-        let first_avg: f64 = buckets[..third]
-            .iter()
-            .map(|b| b.avg_volume)
-            .sum::<f64>()
-            / third as f64;
+        let first_avg: f64 =
+            buckets[..third].iter().map(|b| b.avg_volume).sum::<f64>() / third as f64;
         let mid_avg: f64 = buckets[third..2 * third]
             .iter()
             .map(|b| b.avg_volume)
@@ -304,44 +307,161 @@ mod tests {
     #[test]
     fn test_detect_ushape() {
         let buckets = vec![
-            IntradayBucket { hour: 9, minute: 30, avg_volume: 100.0, avg_return: 0.0, avg_volatility: 0.0, num_observations: 1 },
-            IntradayBucket { hour: 10, minute: 0, avg_volume: 30.0, avg_return: 0.0, avg_volatility: 0.0, num_observations: 1 },
-            IntradayBucket { hour: 10, minute: 30, avg_volume: 20.0, avg_return: 0.0, avg_volatility: 0.0, num_observations: 1 },
-            IntradayBucket { hour: 11, minute: 0, avg_volume: 25.0, avg_return: 0.0, avg_volatility: 0.0, num_observations: 1 },
-            IntradayBucket { hour: 11, minute: 30, avg_volume: 40.0, avg_return: 0.0, avg_volatility: 0.0, num_observations: 1 },
-            IntradayBucket { hour: 15, minute: 30, avg_volume: 120.0, avg_return: 0.0, avg_volatility: 0.0, num_observations: 1 },
+            IntradayBucket {
+                hour: 9,
+                minute: 30,
+                avg_volume: 100.0,
+                avg_return: 0.0,
+                avg_volatility: 0.0,
+                num_observations: 1,
+            },
+            IntradayBucket {
+                hour: 10,
+                minute: 0,
+                avg_volume: 30.0,
+                avg_return: 0.0,
+                avg_volatility: 0.0,
+                num_observations: 1,
+            },
+            IntradayBucket {
+                hour: 10,
+                minute: 30,
+                avg_volume: 20.0,
+                avg_return: 0.0,
+                avg_volatility: 0.0,
+                num_observations: 1,
+            },
+            IntradayBucket {
+                hour: 11,
+                minute: 0,
+                avg_volume: 25.0,
+                avg_return: 0.0,
+                avg_volatility: 0.0,
+                num_observations: 1,
+            },
+            IntradayBucket {
+                hour: 11,
+                minute: 30,
+                avg_volume: 40.0,
+                avg_return: 0.0,
+                avg_volatility: 0.0,
+                num_observations: 1,
+            },
+            IntradayBucket {
+                hour: 15,
+                minute: 30,
+                avg_volume: 120.0,
+                avg_return: 0.0,
+                avg_volatility: 0.0,
+                num_observations: 1,
+            },
         ];
-        assert_eq!(SeasonalityAnalyzer::detect_session_pattern(&buckets), SessionPattern::UShape);
+        assert_eq!(
+            SeasonalityAnalyzer::detect_session_pattern(&buckets),
+            SessionPattern::UShape
+        );
     }
 
     #[test]
     fn test_detect_lshape() {
         let buckets = vec![
-            IntradayBucket { hour: 9, minute: 30, avg_volume: 100.0, avg_return: 0.0, avg_volatility: 0.0, num_observations: 1 },
-            IntradayBucket { hour: 11, minute: 0, avg_volume: 60.0, avg_return: 0.0, avg_volatility: 0.0, num_observations: 1 },
-            IntradayBucket { hour: 13, minute: 0, avg_volume: 20.0, avg_return: 0.0, avg_volatility: 0.0, num_observations: 1 },
+            IntradayBucket {
+                hour: 9,
+                minute: 30,
+                avg_volume: 100.0,
+                avg_return: 0.0,
+                avg_volatility: 0.0,
+                num_observations: 1,
+            },
+            IntradayBucket {
+                hour: 11,
+                minute: 0,
+                avg_volume: 60.0,
+                avg_return: 0.0,
+                avg_volatility: 0.0,
+                num_observations: 1,
+            },
+            IntradayBucket {
+                hour: 13,
+                minute: 0,
+                avg_volume: 20.0,
+                avg_return: 0.0,
+                avg_volatility: 0.0,
+                num_observations: 1,
+            },
         ];
-        assert_eq!(SeasonalityAnalyzer::detect_session_pattern(&buckets), SessionPattern::LShape);
+        assert_eq!(
+            SeasonalityAnalyzer::detect_session_pattern(&buckets),
+            SessionPattern::LShape
+        );
     }
 
     #[test]
     fn test_detect_jshape() {
         let buckets = vec![
-            IntradayBucket { hour: 9, minute: 30, avg_volume: 20.0, avg_return: 0.0, avg_volatility: 0.0, num_observations: 1 },
-            IntradayBucket { hour: 12, minute: 0, avg_volume: 30.0, avg_return: 0.0, avg_volatility: 0.0, num_observations: 1 },
-            IntradayBucket { hour: 15, minute: 30, avg_volume: 100.0, avg_return: 0.0, avg_volatility: 0.0, num_observations: 1 },
+            IntradayBucket {
+                hour: 9,
+                minute: 30,
+                avg_volume: 20.0,
+                avg_return: 0.0,
+                avg_volatility: 0.0,
+                num_observations: 1,
+            },
+            IntradayBucket {
+                hour: 12,
+                minute: 0,
+                avg_volume: 30.0,
+                avg_return: 0.0,
+                avg_volatility: 0.0,
+                num_observations: 1,
+            },
+            IntradayBucket {
+                hour: 15,
+                minute: 30,
+                avg_volume: 100.0,
+                avg_return: 0.0,
+                avg_volatility: 0.0,
+                num_observations: 1,
+            },
         ];
-        assert_eq!(SeasonalityAnalyzer::detect_session_pattern(&buckets), SessionPattern::JShape);
+        assert_eq!(
+            SeasonalityAnalyzer::detect_session_pattern(&buckets),
+            SessionPattern::JShape
+        );
     }
 
     #[test]
     fn test_detect_uniform() {
         let buckets = vec![
-            IntradayBucket { hour: 9, minute: 30, avg_volume: 50.0, avg_return: 0.0, avg_volatility: 0.0, num_observations: 1 },
-            IntradayBucket { hour: 12, minute: 0, avg_volume: 52.0, avg_return: 0.0, avg_volatility: 0.0, num_observations: 1 },
-            IntradayBucket { hour: 15, minute: 30, avg_volume: 48.0, avg_return: 0.0, avg_volatility: 0.0, num_observations: 1 },
+            IntradayBucket {
+                hour: 9,
+                minute: 30,
+                avg_volume: 50.0,
+                avg_return: 0.0,
+                avg_volatility: 0.0,
+                num_observations: 1,
+            },
+            IntradayBucket {
+                hour: 12,
+                minute: 0,
+                avg_volume: 52.0,
+                avg_return: 0.0,
+                avg_volatility: 0.0,
+                num_observations: 1,
+            },
+            IntradayBucket {
+                hour: 15,
+                minute: 30,
+                avg_volume: 48.0,
+                avg_return: 0.0,
+                avg_volatility: 0.0,
+                num_observations: 1,
+            },
         ];
-        assert_eq!(SeasonalityAnalyzer::detect_session_pattern(&buckets), SessionPattern::Uniform);
+        assert_eq!(
+            SeasonalityAnalyzer::detect_session_pattern(&buckets),
+            SessionPattern::Uniform
+        );
     }
 
     #[test]
@@ -369,9 +489,26 @@ mod tests {
     #[test]
     fn test_detect_pattern_too_few_buckets() {
         let buckets = vec![
-            IntradayBucket { hour: 9, minute: 30, avg_volume: 100.0, avg_return: 0.0, avg_volatility: 0.0, num_observations: 1 },
-            IntradayBucket { hour: 10, minute: 0, avg_volume: 50.0, avg_return: 0.0, avg_volatility: 0.0, num_observations: 1 },
+            IntradayBucket {
+                hour: 9,
+                minute: 30,
+                avg_volume: 100.0,
+                avg_return: 0.0,
+                avg_volatility: 0.0,
+                num_observations: 1,
+            },
+            IntradayBucket {
+                hour: 10,
+                minute: 0,
+                avg_volume: 50.0,
+                avg_return: 0.0,
+                avg_volatility: 0.0,
+                num_observations: 1,
+            },
         ];
-        assert_eq!(SeasonalityAnalyzer::detect_session_pattern(&buckets), SessionPattern::Uniform);
+        assert_eq!(
+            SeasonalityAnalyzer::detect_session_pattern(&buckets),
+            SessionPattern::Uniform
+        );
     }
 }

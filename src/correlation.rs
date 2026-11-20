@@ -82,7 +82,11 @@ impl AssetState {
             self.m2 = 0.0;
         } else {
             let mean = self.window.iter().sum::<f64>() / n as f64;
-            let m2 = self.window.iter().map(|x| (x - mean) * (x - mean)).sum::<f64>();
+            let m2 = self
+                .window
+                .iter()
+                .map(|x| (x - mean) * (x - mean))
+                .sum::<f64>();
             self.mean = mean;
             self.m2 = m2;
         }
@@ -225,10 +229,7 @@ impl StreamingCorrelationMatrix {
                 .map(|(a, b)| (a - mean_a) * (b - mean_b))
                 .sum();
 
-            self.pairs
-                .entry(key)
-                .or_default()
-                .cross_sum = cross_sum;
+            self.pairs.entry(key).or_default().cross_sum = cross_sum;
         }
     }
 
@@ -415,7 +416,7 @@ mod tests {
         for i in 0..20u64 {
             let v = i as f64;
             m.update("BASE", v, i);
-            m.update("CORR", v * 2.0, i);         // r ≈ +1
+            m.update("CORR", v * 2.0, i); // r ≈ +1
             m.update("ANTI", 100.0 - v * 2.0, i); // r ≈ -1
             m.update("RAND", (v * 7.0) % 13.0, i); // partially correlated
         }

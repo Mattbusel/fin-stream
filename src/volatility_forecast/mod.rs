@@ -17,7 +17,12 @@ pub struct Garch11 {
 impl Garch11 {
     /// Construct a new GARCH(1,1) model.
     pub fn new(omega: f64, alpha: f64, beta: f64, initial_variance: f64) -> Self {
-        Garch11 { omega, alpha, beta, initial_variance }
+        Garch11 {
+            omega,
+            alpha,
+            beta,
+            initial_variance,
+        }
     }
 
     /// Returns true when alpha + beta < 1 (covariance-stationary process).
@@ -59,17 +64,22 @@ impl Garch11 {
 
     /// Estimate GARCH(1,1) parameters by quasi-MLE grid search over a coarse parameter grid.
     pub fn fit(returns: &[f64], initial_variance: f64) -> Self {
-        let best = (0..5).flat_map(|ai| (0..5).flat_map(move |bi| (0..5).map(move |oi| (ai, bi, oi))))
+        let best = (0..5)
+            .flat_map(|ai| (0..5).flat_map(move |bi| (0..5).map(move |oi| (ai, bi, oi))))
             .filter_map(|(ai, bi, oi)| {
                 let alpha = 0.05 + ai as f64 * 0.05;
                 let beta = 0.70 + bi as f64 * 0.05;
                 let omega = 0.000001 + oi as f64 * 0.000001;
-                if alpha + beta >= 1.0 { return None; }
+                if alpha + beta >= 1.0 {
+                    return None;
+                }
                 let g = Garch11::new(omega, alpha, beta, initial_variance);
                 let vars = g.filter(returns);
-                let ll: f64 = returns.iter().zip(vars.iter()).map(|(&r, &v)| {
-                    -0.5 * (v.ln() + r * r / v)
-                }).sum();
+                let ll: f64 = returns
+                    .iter()
+                    .zip(vars.iter())
+                    .map(|(&r, &v)| -0.5 * (v.ln() + r * r / v))
+                    .sum();
                 Some((ll, alpha, beta, omega))
             })
             .max_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
@@ -99,7 +109,12 @@ pub struct Egarch {
 impl Egarch {
     /// Construct a new EGARCH model.
     pub fn new(omega: f64, alpha: f64, gamma: f64, beta: f64) -> Self {
-        Egarch { omega, alpha, gamma, beta }
+        Egarch {
+            omega,
+            alpha,
+            gamma,
+            beta,
+        }
     }
 
     /// E[|z|] for a standard normal: sqrt(2/pi)
@@ -114,7 +129,10 @@ impl Egarch {
         for &r in returns {
             let sigma = log_var.exp().max(1e-10).sqrt();
             let z = r / sigma;
-            log_var = self.omega + self.alpha * (z.abs() - Self::EXPECTED_ABS_Z) + self.gamma * z + self.beta * log_var;
+            log_var = self.omega
+                + self.alpha * (z.abs() - Self::EXPECTED_ABS_Z)
+                + self.gamma * z
+                + self.beta * log_var;
             log_vars.push(log_var.exp().max(1e-20));
         }
         log_vars
@@ -140,7 +158,12 @@ pub struct RealizedVolEstimator {
 impl RealizedVolEstimator {
     /// Construct a new estimator with a given window and annualisation factor.
     pub fn new(window: usize, periods_per_year: f64) -> Self {
-        RealizedVolEstimator { window, buffer: VecDeque::new(), annualize: true, periods_per_year }
+        RealizedVolEstimator {
+            window,
+            buffer: VecDeque::new(),
+            annualize: true,
+            periods_per_year,
+        }
     }
 
     /// Push a new return observation into the rolling buffer.
@@ -171,9 +194,16 @@ impl RealizedVolEstimator {
     /// BV = (pi/2) * sum |r_t| * |r_{t-1}|
     pub fn bipower_variation(&self) -> f64 {
         let buf: Vec<f64> = self.buffer.iter().copied().collect();
-        if buf.len() < 2 { return 0.0; }
-        let bv: f64 = buf.windows(2).map(|w| w[0].abs() * w[1].abs()).sum::<f64>() * (std::f64::consts::PI / 2.0);
-        if self.annualize { bv * self.periods_per_year / (buf.len() - 1).max(1) as f64 } else { bv }
+        if buf.len() < 2 {
+            return 0.0;
+        }
+        let bv: f64 = buf.windows(2).map(|w| w[0].abs() * w[1].abs()).sum::<f64>()
+            * (std::f64::consts::PI / 2.0);
+        if self.annualize {
+            bv * self.periods_per_year / (buf.len() - 1).max(1) as f64
+        } else {
+            bv
+        }
     }
 
     /// Jump component of realized variance: max(RV - BPV, 0).

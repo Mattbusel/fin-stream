@@ -57,7 +57,8 @@ impl LatencyHistogram {
 
     /// Record a latency measurement in microseconds.
     pub fn record(&mut self, latency_us: u64) {
-        self.hist.saturating_record(latency_us.clamp(MIN_US, MAX_US));
+        self.hist
+            .saturating_record(latency_us.clamp(MIN_US, MAX_US));
         self.sum_us = self.sum_us.saturating_add(latency_us);
         self.max_us = self.max_us.max(latency_us);
         self.min_us = self.min_us.min(latency_us);
@@ -102,12 +103,20 @@ impl LatencyHistogram {
 
     /// Maximum recorded latency in microseconds.
     pub fn max_us(&self) -> u64 {
-        if self.count() == 0 { 0 } else { self.max_us }
+        if self.count() == 0 {
+            0
+        } else {
+            self.max_us
+        }
     }
 
     /// Minimum recorded latency in microseconds.
     pub fn min_us(&self) -> u64 {
-        if self.count() == 0 { 0 } else { self.min_us }
+        if self.count() == 0 {
+            0
+        } else {
+            self.min_us
+        }
     }
 
     /// Total number of recorded samples.
@@ -173,7 +182,9 @@ pub struct LatencyTracker {
 impl LatencyTracker {
     /// Create a new empty tracker.
     pub fn new() -> Self {
-        Self { histograms: HashMap::new() }
+        Self {
+            histograms: HashMap::new(),
+        }
     }
 
     /// Record a latency for the named operation (creates histogram on first call).
@@ -273,7 +284,11 @@ mod tests {
         h.record(200);
         h.record(5000);
         let p100 = h.percentile(100.0);
-        assert!(p100 >= h.max_us(), "p100 {p100} should >= max {}", h.max_us());
+        assert!(
+            p100 >= h.max_us(),
+            "p100 {p100} should >= max {}",
+            h.max_us()
+        );
     }
 
     #[test]
@@ -352,9 +367,17 @@ mod tests {
         for v in 1..=100_000u64 {
             h.record(v);
         }
-        for (p, exact) in [(50.0, 50_000.0), (90.0, 90_000.0), (99.0, 99_000.0), (99.9, 99_900.0)] {
+        for (p, exact) in [
+            (50.0, 50_000.0),
+            (90.0, 90_000.0),
+            (99.0, 99_000.0),
+            (99.9, 99_900.0),
+        ] {
             let got = h.percentile(p) as f64;
-            assert!((got - exact).abs() / exact < 0.01, "p{p}: got {got}, exact {exact}");
+            assert!(
+                (got - exact).abs() / exact < 0.01,
+                "p{p}: got {got}, exact {exact}"
+            );
         }
         assert_eq!(h.min_us(), 1);
         assert_eq!(h.max_us(), 100_000);
@@ -370,7 +393,10 @@ mod tests {
         }
         h.record(60_000_000); // one 60 s stall
         let p999 = h.percentile(99.9) as f64;
-        assert!((p999 - 60_000_000.0).abs() / 60_000_000.0 < 0.01, "p99.9 = {p999}");
+        assert!(
+            (p999 - 60_000_000.0).abs() / 60_000_000.0 < 0.01,
+            "p99.9 = {p999}"
+        );
     }
 
     #[test]

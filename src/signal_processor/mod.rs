@@ -103,14 +103,19 @@ impl SignalPipeline {
         let buf = self.buffers.entry(key).or_default();
 
         // Determine required buffer capacity
-        let required = self.stages.iter().map(|s| match s {
-            ProcessingStage::Smooth { window } => *window,
-            ProcessingStage::ZScore { window } => *window,
-            ProcessingStage::Rank { window } => *window,
-            ProcessingStage::Lag(n) => *n + 1,
-            ProcessingStage::Diff => 2,
-            _ => 1,
-        }).max().unwrap_or(1);
+        let required = self
+            .stages
+            .iter()
+            .map(|s| match s {
+                ProcessingStage::Smooth { window } => *window,
+                ProcessingStage::ZScore { window } => *window,
+                ProcessingStage::Rank { window } => *window,
+                ProcessingStage::Lag(n) => *n + 1,
+                ProcessingStage::Diff => 2,
+                _ => 1,
+            })
+            .max()
+            .unwrap_or(1);
 
         buf.push_back(signal.value);
         while buf.len() > required.max(1) * 2 + 10 {
@@ -181,7 +186,11 @@ impl SignalPipeline {
                 }
             }
             ProcessingStage::Log => {
-                if last > 0.0 { Some(last.ln()) } else { None }
+                if last > 0.0 {
+                    Some(last.ln())
+                } else {
+                    None
+                }
             }
             ProcessingStage::Exp => Some(last.exp()),
             ProcessingStage::Rank { window } => {
@@ -237,8 +246,8 @@ impl SignalPipeline {
         if values.is_empty() {
             return 0.0;
         }
-        let alpha = (2.0 * std::f64::consts::PI * cutoff)
-            / (2.0 * std::f64::consts::PI * cutoff + 1.0);
+        let alpha =
+            (2.0 * std::f64::consts::PI * cutoff) / (2.0 * std::f64::consts::PI * cutoff + 1.0);
         let alpha = alpha.clamp(0.0, 1.0);
         let mut filtered = values[0];
         for &v in &values[1..] {
@@ -275,10 +284,13 @@ impl SignalCombiner {
         let n = signals.len() as f64;
         let mean = signals.iter().map(|(_, v)| v).sum::<f64>() / n;
         let std = (signals.iter().map(|(_, v)| (v - mean).powi(2)).sum::<f64>() / n).sqrt();
-        signals.iter().map(|(sym, v)| {
-            let z = if std < 1e-12 { 0.0 } else { (v - mean) / std };
-            (sym.clone(), z)
-        }).collect()
+        signals
+            .iter()
+            .map(|(sym, v)| {
+                let z = if std < 1e-12 { 0.0 } else { (v - mean) / std };
+                (sym.clone(), z)
+            })
+            .collect()
     }
 
     /// Pearson information coefficient between predicted signals and realized returns.
@@ -289,11 +301,26 @@ impl SignalCombiner {
         }
         let mean_s = signals.iter().take(n as usize).sum::<f64>() / n;
         let mean_r = forward_returns.iter().take(n as usize).sum::<f64>() / n;
-        let cov: f64 = signals.iter().zip(forward_returns.iter()).take(n as usize)
+        let cov: f64 = signals
+            .iter()
+            .zip(forward_returns.iter())
+            .take(n as usize)
             .map(|(s, r)| (s - mean_s) * (r - mean_r))
             .sum();
-        let std_s = (signals.iter().take(n as usize).map(|s| (s - mean_s).powi(2)).sum::<f64>() / n).sqrt();
-        let std_r = (forward_returns.iter().take(n as usize).map(|r| (r - mean_r).powi(2)).sum::<f64>() / n).sqrt();
+        let std_s = (signals
+            .iter()
+            .take(n as usize)
+            .map(|s| (s - mean_s).powi(2))
+            .sum::<f64>()
+            / n)
+            .sqrt();
+        let std_r = (forward_returns
+            .iter()
+            .take(n as usize)
+            .map(|r| (r - mean_r).powi(2))
+            .sum::<f64>()
+            / n)
+            .sqrt();
         if std_s < 1e-12 || std_r < 1e-12 {
             return 0.0;
         }
@@ -331,7 +358,10 @@ mod tests {
     fn test_normalize_minmax() {
         let v = vec![1.0, 2.0, 3.0, 4.0, 5.0];
         let out = SignalPipeline::normalize_minmax(&v);
-        assert!((out - 1.0).abs() < 1e-9, "last value should normalize to 1.0, got {out}");
+        assert!(
+            (out - 1.0).abs() < 1e-9,
+            "last value should normalize to 1.0, got {out}"
+        );
     }
 
     #[test]

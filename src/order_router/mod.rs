@@ -314,8 +314,8 @@ impl SmartOrderRouter {
             .map(|v| v.avg_spread_bps + v.fee_bps)
             .sum::<f64>()
             / available.len().max(1) as f64;
-        let estimated_fill_rate = available.iter().map(|v| v.fill_rate).sum::<f64>()
-            / available.len().max(1) as f64;
+        let estimated_fill_rate =
+            available.iter().map(|v| v.fill_rate).sum::<f64>() / available.len().max(1) as f64;
 
         RoutingResult {
             order_id: order.id,
@@ -361,10 +361,7 @@ impl SmartOrderRouter {
         if total_score <= 0.0 {
             // Equal split as fallback.
             let per = quantity / n as f64;
-            return top_n
-                .iter()
-                .map(|v| (v.id.clone(), per))
-                .collect();
+            return top_n.iter().map(|v| (v.id.clone(), per)).collect();
         }
 
         top_n

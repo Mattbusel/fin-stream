@@ -34,7 +34,11 @@ impl Rsi {
         avg_gain /= self.period as f64;
         avg_loss /= self.period as f64;
 
-        let rs = if avg_loss == 0.0 { f64::INFINITY } else { avg_gain / avg_loss };
+        let rs = if avg_loss == 0.0 {
+            f64::INFINITY
+        } else {
+            avg_gain / avg_loss
+        };
         result[self.period] = 100.0 - 100.0 / (1.0 + rs);
 
         // Wilder's smoothing for remaining bars.
@@ -44,7 +48,11 @@ impl Rsi {
             let loss = (-change).max(0.0);
             avg_gain = (avg_gain * (self.period - 1) as f64 + gain) / self.period as f64;
             avg_loss = (avg_loss * (self.period - 1) as f64 + loss) / self.period as f64;
-            let rs = if avg_loss == 0.0 { f64::INFINITY } else { avg_gain / avg_loss };
+            let rs = if avg_loss == 0.0 {
+                f64::INFINITY
+            } else {
+                avg_gain / avg_loss
+            };
             result[i] = 100.0 - 100.0 / (1.0 + rs);
         }
 
@@ -191,7 +199,10 @@ impl BollingerBands {
     /// Values before the warm-up are `NAN`.
     pub fn compute(&self, prices: &[f64]) -> (Vec<f64>, Vec<f64>, Vec<f64>) {
         let n = prices.len();
-        let middle = Sma { period: self.period }.compute(prices);
+        let middle = Sma {
+            period: self.period,
+        }
+        .compute(prices);
 
         let mut upper = vec![f64::NAN; n];
         let mut lower = vec![f64::NAN; n];
@@ -202,8 +213,8 @@ impl BollingerBands {
             }
             let window = &prices[(i + 1 - self.period)..=i];
             let mean = middle[i];
-            let variance = window.iter().map(|x| (x - mean).powi(2)).sum::<f64>()
-                / self.period as f64;
+            let variance =
+                window.iter().map(|x| (x - mean).powi(2)).sum::<f64>() / self.period as f64;
             let std = variance.sqrt();
             upper[i] = mean + self.std_devs * std;
             lower[i] = mean - self.std_devs * std;
@@ -293,9 +304,15 @@ impl Stochastic {
         }
 
         // %D = SMA(d_period) of %K.
-        let d_line = Sma { period: self.d_period }.compute(&k_line.iter().map(|v| {
-            if v.is_nan() { 0.0 } else { *v }
-        }).collect::<Vec<_>>());
+        let d_line = Sma {
+            period: self.d_period,
+        }
+        .compute(
+            &k_line
+                .iter()
+                .map(|v| if v.is_nan() { 0.0 } else { *v })
+                .collect::<Vec<_>>(),
+        );
 
         // Re-NAN entries that were NAN in k_line or where d hasn't warmed up.
         let mut d_result = vec![f64::NAN; n];
@@ -316,9 +333,8 @@ mod tests {
 
     fn sample_prices() -> Vec<f64> {
         vec![
-            44.34, 44.09, 44.15, 43.61, 44.33, 44.83, 45.10, 45.15,
-            43.61, 44.33, 44.83, 45.10, 45.15, 43.61, 44.33, 44.83,
-            45.10, 45.15, 45.98, 45.41, 48.60, 47.60, 47.34, 46.99,
+            44.34, 44.09, 44.15, 43.61, 44.33, 44.83, 45.10, 45.15, 43.61, 44.33, 44.83, 45.10,
+            45.15, 43.61, 44.33, 44.83, 45.10, 45.15, 45.98, 45.41, 48.60, 47.60, 47.34, 46.99,
             46.32, 46.00, 45.43, 45.03, 44.32, 44.83,
         ]
     }
@@ -370,7 +386,11 @@ mod tests {
     #[test]
     fn test_macd_lengths() {
         let prices = sample_prices();
-        let macd = Macd { fast: 3, slow: 5, signal: 3 };
+        let macd = Macd {
+            fast: 3,
+            slow: 5,
+            signal: 3,
+        };
         let (m, s, h) = macd.compute(&prices);
         assert_eq!(m.len(), prices.len());
         assert_eq!(s.len(), prices.len());
@@ -380,7 +400,11 @@ mod tests {
     #[test]
     fn test_macd_nan_before_warmup() {
         let prices = sample_prices();
-        let macd = Macd { fast: 3, slow: 5, signal: 3 };
+        let macd = Macd {
+            fast: 3,
+            slow: 5,
+            signal: 3,
+        };
         let (m, s, _) = macd.compute(&prices);
         // slow period = 5, so macd starts at index 4
         assert!(m[3].is_nan());
@@ -393,7 +417,10 @@ mod tests {
     #[test]
     fn test_bollinger_bands_width() {
         let prices = sample_prices();
-        let bb = BollingerBands { period: 5, std_devs: 2.0 };
+        let bb = BollingerBands {
+            period: 5,
+            std_devs: 2.0,
+        };
         let (upper, middle, lower) = bb.compute(&prices);
         for i in 4..prices.len() {
             if !upper[i].is_nan() {
@@ -434,7 +461,10 @@ mod tests {
         let prices = sample_prices();
         let high: Vec<f64> = prices.iter().map(|p| p + 0.3).collect();
         let low: Vec<f64> = prices.iter().map(|p| p - 0.3).collect();
-        let stoch = Stochastic { k_period: 5, d_period: 3 };
+        let stoch = Stochastic {
+            k_period: 5,
+            d_period: 3,
+        };
         let (k, d) = stoch.compute(&high, &low, &prices);
         for v in k.iter().filter(|v| !v.is_nan()) {
             assert!(*v >= 0.0 && *v <= 100.0, "K out of range: {v}");
@@ -452,7 +482,12 @@ mod tests {
         let result = ema.compute(&prices);
         let valid: Vec<f64> = result.iter().filter(|v| !v.is_nan()).cloned().collect();
         for i in 1..valid.len() {
-            assert!(valid[i] >= valid[i - 1], "EMA should increase: {} < {}", valid[i], valid[i - 1]);
+            assert!(
+                valid[i] >= valid[i - 1],
+                "EMA should increase: {} < {}",
+                valid[i],
+                valid[i - 1]
+            );
         }
     }
 }

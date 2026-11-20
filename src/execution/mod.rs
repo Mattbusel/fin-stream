@@ -107,7 +107,12 @@ pub struct OrderRecord {
 
 impl OrderRecord {
     /// Construct an order record.
-    pub fn new(order_id: impl Into<String>, decision_price: f64, total_quantity: f64, side: Side) -> Self {
+    pub fn new(
+        order_id: impl Into<String>,
+        decision_price: f64,
+        total_quantity: f64,
+        side: Side,
+    ) -> Self {
         Self {
             order_id: order_id.into(),
             decision_price,
@@ -215,9 +220,10 @@ impl ExecutionMonitor {
     ///
     /// Requires at least one fill and a recorded decision price.
     pub fn compute_report(&self, order_id: &str) -> Result<ExecutionReport, StreamError> {
-        let order = self.orders.get(order_id).ok_or_else(|| {
-            StreamError::InvalidInput(format!("unknown order_id: {order_id}"))
-        })?;
+        let order = self
+            .orders
+            .get(order_id)
+            .ok_or_else(|| StreamError::InvalidInput(format!("unknown order_id: {order_id}")))?;
         let fills = self.fills.get(order_id).ok_or_else(|| {
             StreamError::InvalidInput(format!("no fills for order_id: {order_id}"))
         })?;
@@ -231,8 +237,11 @@ impl ExecutionMonitor {
         let total_qty: f64 = fills.iter().map(|f| f.quantity).sum();
         let avg_fill_price: f64 =
             fills.iter().map(|f| f.price * f.quantity).sum::<f64>() / total_qty;
-        let avg_vwap: f64 =
-            fills.iter().map(|f| f.vwap_at_fill * f.quantity).sum::<f64>() / total_qty;
+        let avg_vwap: f64 = fills
+            .iter()
+            .map(|f| f.vwap_at_fill * f.quantity)
+            .sum::<f64>()
+            / total_qty;
 
         let s = order.side.sign();
         let dp = order.decision_price;
@@ -241,10 +250,7 @@ impl ExecutionMonitor {
         let is = s * (avg_fill_price - dp) / dp;
 
         // Market impact (raw price units).
-        let market_impact = order
-            .arrival_price
-            .map(|ap| s * (ap - dp))
-            .unwrap_or(0.0);
+        let market_impact = order.arrival_price.map(|ap| s * (ap - dp)).unwrap_or(0.0);
 
         // Arrival vs VWAP.
         let arrival_vs_vwap = order
@@ -277,9 +283,9 @@ impl ExecutionMonitor {
     }
 
     fn order_mut(&mut self, order_id: &str) -> Result<&mut OrderRecord, StreamError> {
-        self.orders.get_mut(order_id).ok_or_else(|| {
-            StreamError::InvalidInput(format!("unknown order_id: {order_id}"))
-        })
+        self.orders
+            .get_mut(order_id)
+            .ok_or_else(|| StreamError::InvalidInput(format!("unknown order_id: {order_id}")))
     }
 }
 
@@ -296,10 +302,24 @@ mod tests {
     #[test]
     fn basic_report_computed() {
         let mut m = setup();
-        m.add_fill("ord-1", FillRecord { price: 100.05, quantity: 500.0, vwap_at_fill: 100.02 })
-            .unwrap();
-        m.add_fill("ord-1", FillRecord { price: 100.08, quantity: 500.0, vwap_at_fill: 100.04 })
-            .unwrap();
+        m.add_fill(
+            "ord-1",
+            FillRecord {
+                price: 100.05,
+                quantity: 500.0,
+                vwap_at_fill: 100.02,
+            },
+        )
+        .unwrap();
+        m.add_fill(
+            "ord-1",
+            FillRecord {
+                price: 100.08,
+                quantity: 500.0,
+                vwap_at_fill: 100.04,
+            },
+        )
+        .unwrap();
         m.set_arrival_price("ord-1", 100.01).unwrap();
         m.set_post_trade_mid("ord-1", 100.06).unwrap();
 
@@ -307,7 +327,10 @@ mod tests {
         assert_eq!(r.fill_count, 2);
         assert!((r.avg_fill_price - 100.065).abs() < 1e-9);
         // IS should be positive (bought above decision price).
-        assert!(r.implementation_shortfall > 0.0, "IS must be positive for above-decision buy");
+        assert!(
+            r.implementation_shortfall > 0.0,
+            "IS must be positive for above-decision buy"
+        );
     }
 
     #[test]
@@ -317,10 +340,21 @@ mod tests {
         // Sold below decision price: a cost for the seller. The field is documented
         // as "positive = worse than decision price for the direction", so IS is
         // +0.1% here, the same sign as the buy-above-decision case.
-        m.add_fill("ord-s", FillRecord { price: 99.9, quantity: 500.0, vwap_at_fill: 100.0 })
-            .unwrap();
+        m.add_fill(
+            "ord-s",
+            FillRecord {
+                price: 99.9,
+                quantity: 500.0,
+                vwap_at_fill: 100.0,
+            },
+        )
+        .unwrap();
         let r = m.compute_report("ord-s").unwrap();
-        assert!((r.implementation_shortfall - 0.001).abs() < 1e-12, "is={}", r.implementation_shortfall);
+        assert!(
+            (r.implementation_shortfall - 0.001).abs() < 1e-12,
+            "is={}",
+            r.implementation_shortfall
+        );
     }
 
     #[test]
@@ -340,7 +374,11 @@ mod tests {
         let mut m = setup();
         let result = m.add_fill(
             "ord-1",
-            FillRecord { price: 100.0, quantity: 0.0, vwap_at_fill: 100.0 },
+            FillRecord {
+                price: 100.0,
+                quantity: 0.0,
+                vwap_at_fill: 100.0,
+            },
         );
         assert!(result.is_err());
     }

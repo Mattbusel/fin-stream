@@ -289,11 +289,7 @@ impl PositionTracker {
         let largest_pct = if gross < f64::EPSILON {
             0.0
         } else {
-            market_values
-                .iter()
-                .cloned()
-                .fold(0.0_f64, f64::max)
-                / gross
+            market_values.iter().cloned().fold(0.0_f64, f64::max) / gross
         };
 
         let hhi = if gross < f64::EPSILON {
@@ -364,8 +360,11 @@ mod tests {
         tracker.update_prices(&prices);
 
         let pos = tracker.positions.get("BTC").unwrap();
-        assert!((pos.unrealized_pnl() - 10_000.0).abs() < 1e-6,
-            "unrealized_pnl = {}", pos.unrealized_pnl());
+        assert!(
+            (pos.unrealized_pnl() - 10_000.0).abs() < 1e-6,
+            "unrealized_pnl = {}",
+            pos.unrealized_pnl()
+        );
     }
 
     #[test]
@@ -377,8 +376,11 @@ mod tests {
         let pos = tracker.positions.get("ETH").unwrap();
         assert!((pos.quantity - 2.0).abs() < 1e-9);
         // avg entry = (3000 + 3200) / 2 = 3100
-        assert!((pos.avg_entry_price - 3_100.0).abs() < 1e-6,
-            "avg_entry = {}", pos.avg_entry_price);
+        assert!(
+            (pos.avg_entry_price - 3_100.0).abs() < 1e-6,
+            "avg_entry = {}",
+            pos.avg_entry_price
+        );
     }
 
     #[test]
@@ -408,7 +410,11 @@ mod tests {
         let pos = tracker.positions.get("SOL").unwrap();
         assert!((pos.quantity - 4.0).abs() < 1e-9, "qty = {}", pos.quantity);
         // realized PnL = (110 - 100) * 6 = 60
-        assert!((pos.realized_pnl - 60.0).abs() < 1e-6, "realized = {}", pos.realized_pnl);
+        assert!(
+            (pos.realized_pnl - 60.0).abs() < 1e-6,
+            "realized = {}",
+            pos.realized_pnl
+        );
     }
 
     #[test]
@@ -419,7 +425,11 @@ mod tests {
 
         let pos = tracker.positions.get("ADA").unwrap();
         // All closed: quantity = 0
-        assert!(pos.quantity.abs() < 1e-9, "qty after full close = {}", pos.quantity);
+        assert!(
+            pos.quantity.abs() < 1e-9,
+            "qty after full close = {}",
+            pos.quantity
+        );
         // realized = (1.5 - 1.0) * 5 = 2.5
         assert!((pos.realized_pnl - 2.5).abs() < 1e-9);
     }
@@ -433,7 +443,11 @@ mod tests {
 
         let pos = tracker.positions.get("BNB").unwrap();
         assert_eq!(pos.side, Side::Short);
-        assert!((pos.quantity - 2.0).abs() < 1e-9, "short qty = {}", pos.quantity);
+        assert!(
+            (pos.quantity - 2.0).abs() < 1e-9,
+            "short qty = {}",
+            pos.quantity
+        );
     }
 
     #[test]
@@ -452,7 +466,7 @@ mod tests {
         tracker.apply_trade(buy("B", 1.0, 100.0));
         let mut prices = HashMap::new();
         prices.insert("A".to_string(), 150.0); // +50
-        prices.insert("B".to_string(), 80.0);  // -20
+        prices.insert("B".to_string(), 80.0); // -20
         tracker.update_prices(&prices);
 
         let sorted = tracker.positions_by_pnl();
@@ -463,11 +477,15 @@ mod tests {
     #[test]
     fn risk_metrics_gross_net_exposure() {
         let tracker = PositionTracker::new();
-        tracker.apply_trade(buy("X", 10.0, 100.0));  // long 1000
-        tracker.apply_trade(sell("Y", 5.0, 200.0));  // short 1000
+        tracker.apply_trade(buy("X", 10.0, 100.0)); // long 1000
+        tracker.apply_trade(sell("Y", 5.0, 200.0)); // short 1000
         let metrics = tracker.risk_metrics();
         assert!((metrics.gross_exposure - 2_000.0).abs() < 1e-6);
-        assert!(metrics.net_exposure.abs() < 1e-6, "net = {}", metrics.net_exposure);
+        assert!(
+            metrics.net_exposure.abs() < 1e-6,
+            "net = {}",
+            metrics.net_exposure
+        );
     }
 
     #[test]

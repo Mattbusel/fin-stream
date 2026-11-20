@@ -144,17 +144,15 @@ pub struct CandleBuilder {
 impl CandleBuilder {
     /// Create a new builder for the given timeframe.
     pub fn new(timeframe: Timeframe) -> Self {
-        Self { timeframe, state: None }
+        Self {
+            timeframe,
+            state: None,
+        }
     }
 
     /// Add a tick. Returns a completed [`Candle`] when the current bar's
     /// timeframe window elapses (and the tick opens a new bar).
-    pub fn add_tick(
-        &mut self,
-        price: f64,
-        volume: f64,
-        timestamp_ms: u64,
-    ) -> Option<Candle> {
+    pub fn add_tick(&mut self, price: f64, volume: f64, timestamp_ms: u64) -> Option<Candle> {
         let dur = self.timeframe.duration_ms();
 
         match &mut self.state {
@@ -184,9 +182,7 @@ impl CandleBuilder {
 
     /// Return `true` if the current bar's window has elapsed as of `now_ms`.
     pub fn is_complete(&self, now_ms: u64) -> bool {
-        self.state
-            .as_ref()
-            .is_some_and(|s| now_ms >= s.bar_end_ms)
+        self.state.as_ref().is_some_and(|s| now_ms >= s.bar_end_ms)
     }
 }
 
@@ -227,10 +223,7 @@ impl MultiTimeframeCandler {
         for (tf, builder) in &mut self.builders {
             if let Some(candle) = builder.add_tick(price, volume, timestamp_ms) {
                 completed.push((tf.clone(), candle.clone()));
-                self.history
-                    .entry(tf.clone())
-                    .or_default()
-                    .push(candle);
+                self.history.entry(tf.clone()).or_default().push(candle);
             }
         }
         completed
@@ -296,20 +289,12 @@ impl CandleIndicators {
         let curr_bull = curr.close > curr.open;
 
         // Bullish engulfing: prev bearish, curr bullish, curr body engulfs prev body
-        if !prev_bull
-            && curr_bull
-            && curr.open < prev.close
-            && curr.close > prev.open
-        {
+        if !prev_bull && curr_bull && curr.open < prev.close && curr.close > prev.open {
             return Some(1);
         }
 
         // Bearish engulfing: prev bullish, curr bearish, curr body engulfs prev body
-        if prev_bull
-            && !curr_bull
-            && curr.open > prev.close
-            && curr.close < prev.open
-        {
+        if prev_bull && !curr_bull && curr.open > prev.close && curr.close < prev.open {
             return Some(-1);
         }
 
@@ -487,14 +472,14 @@ mod tests {
     #[test]
     fn engulfing_bullish() {
         let prev = simple_candle(105.0, 106.0, 99.0, 100.0); // bearish
-        let curr = simple_candle(98.0, 112.0, 98.0, 108.0);  // bullish, engulfs
+        let curr = simple_candle(98.0, 112.0, 98.0, 108.0); // bullish, engulfs
         assert_eq!(CandleIndicators::is_engulfing(&prev, &curr), Some(1));
     }
 
     #[test]
     fn engulfing_bearish() {
         let prev = simple_candle(100.0, 108.0, 100.0, 105.0); // bullish
-        let curr = simple_candle(107.0, 110.0, 95.0, 98.0);   // bearish, engulfs
+        let curr = simple_candle(107.0, 110.0, 95.0, 98.0); // bearish, engulfs
         assert_eq!(CandleIndicators::is_engulfing(&prev, &curr), Some(-1));
     }
 

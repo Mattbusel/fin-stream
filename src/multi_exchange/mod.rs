@@ -46,9 +46,7 @@ impl Nbbo {
     /// Mid-price `(bid + ask) / 2`, or `None` if either side is absent.
     pub fn mid_price(&self) -> Option<Decimal> {
         match (&self.best_bid, &self.best_ask) {
-            (Some((bid, _)), Some((ask, _))) => {
-                Some((*bid + *ask) / Decimal::from(2))
-            }
+            (Some((bid, _)), Some((ask, _))) => Some((*bid + *ask) / Decimal::from(2)),
             _ => None,
         }
     }
@@ -193,7 +191,11 @@ impl MultiExchangeAggregator {
     pub fn new(
         config: AggregatorConfig,
         channel_capacity: usize,
-    ) -> (Self, mpsc::Receiver<Nbbo>, mpsc::Receiver<ArbitrageOpportunity>) {
+    ) -> (
+        Self,
+        mpsc::Receiver<Nbbo>,
+        mpsc::Receiver<ArbitrageOpportunity>,
+    ) {
         let (nbbo_tx, nbbo_rx) = mpsc::channel(channel_capacity);
         let (arb_tx, arb_rx) = mpsc::channel(channel_capacity);
         let agg = Self {
@@ -271,17 +273,13 @@ impl MultiExchangeAggregator {
 
                 match best_bid {
                     None => best_bid = Some((price, exchange)),
-                    Some((current, _)) if price > current => {
-                        best_bid = Some((price, exchange))
-                    }
+                    Some((current, _)) if price > current => best_bid = Some((price, exchange)),
                     _ => {}
                 }
 
                 match best_ask {
                     None => best_ask = Some((price, exchange)),
-                    Some((current, _)) if price < current => {
-                        best_ask = Some((price, exchange))
-                    }
+                    Some((current, _)) if price < current => best_ask = Some((price, exchange)),
                     _ => {}
                 }
             }

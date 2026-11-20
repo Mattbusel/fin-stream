@@ -7,6 +7,11 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [2.15.1] - 2026-11-20
+
+### Changed
+- README opens with the problem (exchange prices parsed into `f64`), then why it exists, why this instead of a hand-written parser, why today, who it is for and the trade-offs; package descriptions sharpened. No code change.
+
 ## [2.15.0] - 2026-11-19
 
 ### Added

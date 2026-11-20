@@ -33,9 +33,9 @@
 use crate::error::StreamError;
 use crate::tick::NormalizedTick;
 use rust_decimal::Decimal;
+use std::cmp::Ordering;
 use std::collections::BinaryHeap;
 use std::collections::HashMap;
-use std::cmp::Ordering;
 use tokio::sync::mpsc;
 use tracing::{debug, info, warn};
 use uuid::Uuid;
@@ -305,8 +305,7 @@ impl FeedAggregator {
             };
             // Drain available ticks from this feed's channel.
             while let Ok(tick) = rx.try_recv() {
-                let compensated_ts =
-                    tick.received_at_ms.saturating_sub(feed.latency_offset_ms);
+                let compensated_ts = tick.received_at_ms.saturating_sub(feed.latency_offset_ms);
                 debug!(
                     feed = %feed.label,
                     ts = compensated_ts,
@@ -339,7 +338,9 @@ impl FeedAggregator {
             MergeStrategy::BestBid => self.next_best_bid(),
             MergeStrategy::BestAsk => self.next_best_ask(),
             MergeStrategy::VwapWeighted => self.next_vwap(),
-            MergeStrategy::PrimaryWithFallback { fallback_threshold_ms } => {
+            MergeStrategy::PrimaryWithFallback {
+                fallback_threshold_ms,
+            } => {
                 let threshold = *fallback_threshold_ms;
                 self.next_primary_with_fallback(threshold)
             }
@@ -365,9 +366,11 @@ impl FeedAggregator {
             self.heap.push(item);
         }
         // Pop the minimum timestamp item (which we just re-pushed) to advance.
-        self.heap.pop().map(|b| b.tick)
-        // Fallback: if best is None just return None.
-        .or(best)
+        self.heap
+            .pop()
+            .map(|b| b.tick)
+            // Fallback: if best is None just return None.
+            .or(best)
     }
 
     fn next_best_ask(&mut self) -> Option<NormalizedTick> {
@@ -436,20 +439,14 @@ impl FeedAggregator {
 
     fn next_primary_with_fallback(&mut self, fallback_threshold_ms: u64) -> Option<NormalizedTick> {
         // Find the primary feed ID, if any.
-        let primary_id = self
-            .feeds
-            .values()
-            .find(|f| f.is_primary)
-            .map(|f| f.id);
+        let primary_id = self.feeds.values().find(|f| f.is_primary).map(|f| f.id);
 
         let now_ms = now_ms();
 
         let primary_is_live = primary_id.map(|pid| {
             self.last_tick_ms
                 .get(&pid)
-                .map(|&last| {
-                    last > 0 && now_ms.saturating_sub(last) <= fallback_threshold_ms
-                })
+                .map(|&last| last > 0 && now_ms.saturating_sub(last) <= fallback_threshold_ms)
                 .unwrap_or(false)
         });
 
@@ -614,7 +611,11 @@ impl ArbDetector {
                         (Ok(s), Ok(b)) => {
                             let s: f64 = s;
                             let b: f64 = b;
-                            if b > 0.0 { (s / b) * 10_000.0 } else { 0.0 }
+                            if b > 0.0 {
+                                (s / b) * 10_000.0
+                            } else {
+                                0.0
+                            }
                         }
                         _ => 0.0,
                     };
@@ -676,7 +677,11 @@ mod tests {
     use crate::tick::{Exchange, NormalizedTick};
     use rust_decimal_macros::dec;
 
-    fn make_tick(price: rust_decimal::Decimal, qty: rust_decimal::Decimal, ts: u64) -> NormalizedTick {
+    fn make_tick(
+        price: rust_decimal::Decimal,
+        qty: rust_decimal::Decimal,
+        ts: u64,
+    ) -> NormalizedTick {
         NormalizedTick {
             exchange: Exchange::Binance,
             symbol: "BTC-USDT".into(),
@@ -712,7 +717,10 @@ mod tests {
         det.ingest("feed_a", &a);
         det.ingest("feed_b", &b);
         let opps = det.check();
-        assert!(opps.is_empty(), "spread below threshold, no opportunity expected");
+        assert!(
+            opps.is_empty(),
+            "spread below threshold, no opportunity expected"
+        );
     }
 
     #[tokio::test]

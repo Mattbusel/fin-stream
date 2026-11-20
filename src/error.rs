@@ -487,8 +487,9 @@ impl StreamError {
             StreamError::BookCrossed { symbol, .. }
             | StreamError::BookReconstructionFailed { symbol, .. }
             | StreamError::SequenceGap { symbol, .. } => Some(symbol.as_str()),
-            StreamError::StaleFeed { feed_id, .. }
-            | StreamError::UnknownFeed { feed_id } => Some(feed_id.as_str()),
+            StreamError::StaleFeed { feed_id, .. } | StreamError::UnknownFeed { feed_id } => {
+                Some(feed_id.as_str())
+            }
             _ => None,
         }
     }
@@ -621,7 +622,6 @@ impl StreamError {
             _ => 1,
         }
     }
-
 }
 
 #[cfg(test)]
@@ -934,7 +934,11 @@ mod tests {
     #[test]
     fn test_category_connection_errors() {
         assert_eq!(
-            StreamError::ConnectionFailed { url: "u".into(), reason: "r".into() }.category(),
+            StreamError::ConnectionFailed {
+                url: "u".into(),
+                reason: "r".into()
+            }
+            .category(),
             "connection"
         );
         assert_eq!(
@@ -946,25 +950,38 @@ mod tests {
     #[test]
     fn test_category_data_errors() {
         assert_eq!(
-            StreamError::ParseError { exchange: "B".into(), reason: "r".into() }.category(),
+            StreamError::ParseError {
+                exchange: "B".into(),
+                reason: "r".into()
+            }
+            .category(),
             "data"
         );
         assert_eq!(
-            StreamError::InvalidTick { reason: "neg price".into() }.category(),
+            StreamError::InvalidTick {
+                reason: "neg price".into()
+            }
+            .category(),
             "data"
         );
     }
 
     #[test]
     fn test_category_pipeline_errors() {
-        assert_eq!(StreamError::RingBufferFull { capacity: 8 }.category(), "pipeline");
+        assert_eq!(
+            StreamError::RingBufferFull { capacity: 8 }.category(),
+            "pipeline"
+        );
         assert_eq!(StreamError::RingBufferEmpty.category(), "pipeline");
     }
 
     #[test]
     fn test_category_config_errors() {
         assert_eq!(
-            StreamError::ConfigError { reason: "bad param".into() }.category(),
+            StreamError::ConfigError {
+                reason: "bad param".into()
+            }
+            .category(),
             "config"
         );
     }
@@ -973,7 +990,10 @@ mod tests {
 
     #[test]
     fn test_is_fatal_config_error() {
-        assert!(StreamError::ConfigError { reason: "bad".into() }.is_fatal());
+        assert!(StreamError::ConfigError {
+            reason: "bad".into()
+        }
+        .is_fatal());
     }
 
     #[test]
@@ -983,12 +1003,19 @@ mod tests {
 
     #[test]
     fn test_is_fatal_reconnect_exhausted() {
-        assert!(StreamError::ReconnectExhausted { url: "wss://x".into(), attempts: 5 }.is_fatal());
+        assert!(StreamError::ReconnectExhausted {
+            url: "wss://x".into(),
+            attempts: 5
+        }
+        .is_fatal());
     }
 
     #[test]
     fn test_is_fatal_lorentz_config() {
-        assert!(StreamError::LorentzConfigError { reason: "beta>=1".into() }.is_fatal());
+        assert!(StreamError::LorentzConfigError {
+            reason: "beta>=1".into()
+        }
+        .is_fatal());
     }
 
     #[test]
@@ -996,7 +1023,8 @@ mod tests {
         assert!(!StreamError::ParseError {
             exchange: "Binance".into(),
             reason: "bad json".into()
-        }.is_fatal());
+        }
+        .is_fatal());
     }
 
     #[test]
@@ -1008,7 +1036,9 @@ mod tests {
 
     #[test]
     fn test_is_recoverable_inverse_of_is_fatal() {
-        let fatal = StreamError::ConfigError { reason: "bad".into() };
+        let fatal = StreamError::ConfigError {
+            reason: "bad".into(),
+        };
         let transient = StreamError::RingBufferFull { capacity: 8 };
         assert!(fatal.is_fatal() && !fatal.is_recoverable());
         assert!(!transient.is_fatal() && transient.is_recoverable());
@@ -1019,7 +1049,8 @@ mod tests {
         assert!(StreamError::ConnectionFailed {
             url: "wss://x".into(),
             reason: "timeout".into()
-        }.is_recoverable());
+        }
+        .is_recoverable());
     }
 
     // ── StreamError::source_module ────────────────────────────────────────────
@@ -1028,7 +1059,11 @@ mod tests {
     fn test_source_module_ws_variants() {
         assert_eq!(StreamError::WebSocket("err".into()).source_module(), "ws");
         assert_eq!(
-            StreamError::ConnectionFailed { url: "u".into(), reason: "r".into() }.source_module(),
+            StreamError::ConnectionFailed {
+                url: "u".into(),
+                reason: "r".into()
+            }
+            .source_module(),
             "ws"
         );
         assert_eq!(
@@ -1049,25 +1084,39 @@ mod tests {
             "book"
         );
         assert_eq!(
-            StreamError::SequenceGap { symbol: "X".into(), expected: 1, got: 3 }.source_module(),
+            StreamError::SequenceGap {
+                symbol: "X".into(),
+                expected: 1,
+                got: 3
+            }
+            .source_module(),
             "book"
         );
     }
 
     #[test]
     fn test_source_module_ring_variants() {
-        assert_eq!(StreamError::RingBufferFull { capacity: 8 }.source_module(), "ring");
+        assert_eq!(
+            StreamError::RingBufferFull { capacity: 8 }.source_module(),
+            "ring"
+        );
         assert_eq!(StreamError::RingBufferEmpty.source_module(), "ring");
     }
 
     #[test]
     fn test_source_module_aggregator_variants() {
         assert_eq!(
-            StreamError::AggregationError { reason: "bad".into() }.source_module(),
+            StreamError::AggregationError {
+                reason: "bad".into()
+            }
+            .source_module(),
             "aggregator"
         );
         assert_eq!(
-            StreamError::NormalizationError { reason: "bad".into() }.source_module(),
+            StreamError::NormalizationError {
+                reason: "bad".into()
+            }
+            .source_module(),
             "aggregator"
         );
     }
@@ -1075,12 +1124,19 @@ mod tests {
     #[test]
     fn test_source_module_session_variants() {
         assert_eq!(
-            StreamError::StaleFeed { feed_id: "X".into(), elapsed_ms: 1, threshold_ms: 1 }
-                .source_module(),
+            StreamError::StaleFeed {
+                feed_id: "X".into(),
+                elapsed_ms: 1,
+                threshold_ms: 1
+            }
+            .source_module(),
             "session"
         );
         assert_eq!(
-            StreamError::UnknownFeed { feed_id: "X".into() }.source_module(),
+            StreamError::UnknownFeed {
+                feed_id: "X".into()
+            }
+            .source_module(),
             "session"
         );
     }
@@ -1088,16 +1144,25 @@ mod tests {
     #[test]
     fn test_source_module_lorentz_variant() {
         assert_eq!(
-            StreamError::LorentzConfigError { reason: "bad".into() }.source_module(),
+            StreamError::LorentzConfigError {
+                reason: "bad".into()
+            }
+            .source_module(),
             "lorentz"
         );
     }
 
     #[test]
     fn test_source_module_other_fallback() {
-        assert_eq!(StreamError::UnknownExchange("X".into()).source_module(), "other");
         assert_eq!(
-            StreamError::ConfigError { reason: "bad".into() }.source_module(),
+            StreamError::UnknownExchange("X".into()).source_module(),
+            "other"
+        );
+        assert_eq!(
+            StreamError::ConfigError {
+                reason: "bad".into()
+            }
+            .source_module(),
             "other"
         );
     }
@@ -1110,12 +1175,18 @@ mod tests {
             reason: "timeout".into()
         }
         .is_network_error());
-        assert!(StreamError::Disconnected { url: "wss://x".into() }.is_network_error());
+        assert!(StreamError::Disconnected {
+            url: "wss://x".into()
+        }
+        .is_network_error());
     }
 
     #[test]
     fn test_is_network_error_false_for_config() {
-        assert!(!StreamError::ConfigError { reason: "bad".into() }.is_network_error());
+        assert!(!StreamError::ConfigError {
+            reason: "bad".into()
+        }
+        .is_network_error());
         assert!(!StreamError::RingBufferFull { capacity: 8 }.is_network_error());
         assert!(!StreamError::BookCrossed {
             symbol: "BTC".into(),
@@ -1130,20 +1201,31 @@ mod tests {
     #[test]
     fn test_variant_name_connection_failed() {
         assert_eq!(
-            StreamError::ConnectionFailed { url: "u".into(), reason: "r".into() }.variant_name(),
+            StreamError::ConnectionFailed {
+                url: "u".into(),
+                reason: "r".into()
+            }
+            .variant_name(),
             "ConnectionFailed"
         );
     }
 
     #[test]
     fn test_variant_name_ring_buffer_empty() {
-        assert_eq!(StreamError::RingBufferEmpty.variant_name(), "RingBufferEmpty");
+        assert_eq!(
+            StreamError::RingBufferEmpty.variant_name(),
+            "RingBufferEmpty"
+        );
     }
 
     #[test]
     fn test_variant_name_parse_error() {
         assert_eq!(
-            StreamError::ParseError { exchange: "B".into(), reason: "bad".into() }.variant_name(),
+            StreamError::ParseError {
+                exchange: "B".into(),
+                reason: "bad".into()
+            }
+            .variant_name(),
             "ParseError"
         );
     }
@@ -1164,7 +1246,10 @@ mod tests {
     #[test]
     fn test_variant_name_lorentz_config_error() {
         assert_eq!(
-            StreamError::LorentzConfigError { reason: "bad".into() }.variant_name(),
+            StreamError::LorentzConfigError {
+                reason: "bad".into()
+            }
+            .variant_name(),
             "LorentzConfigError"
         );
     }
@@ -1173,13 +1258,18 @@ mod tests {
 
     #[test]
     fn test_is_config_error_true_for_config_error() {
-        let e = StreamError::ConfigError { reason: "bad config".into() };
+        let e = StreamError::ConfigError {
+            reason: "bad config".into(),
+        };
         assert!(e.is_config_error());
     }
 
     #[test]
     fn test_is_config_error_false_for_connection_failed() {
-        let e = StreamError::ConnectionFailed { url: "ws://x".into(), reason: "timeout".into() };
+        let e = StreamError::ConnectionFailed {
+            url: "ws://x".into(),
+            reason: "timeout".into(),
+        };
         assert!(!e.is_config_error());
     }
 
@@ -1202,7 +1292,9 @@ mod tests {
 
     #[test]
     fn test_is_feed_error_true_for_unknown_feed() {
-        let e = StreamError::UnknownFeed { feed_id: "xyz".into() };
+        let e = StreamError::UnknownFeed {
+            feed_id: "xyz".into(),
+        };
         assert!(e.is_feed_error());
     }
 
@@ -1224,13 +1316,20 @@ mod tests {
 
     #[test]
     fn test_is_parse_error_false_for_connection_failed() {
-        let e = StreamError::ConnectionFailed { url: "ws://x".into(), reason: "timeout".into() };
+        let e = StreamError::ConnectionFailed {
+            url: "ws://x".into(),
+            reason: "timeout".into(),
+        };
         assert!(!e.is_parse_error());
     }
 
     #[test]
     fn test_is_parse_error_false_for_stale_feed() {
-        let e = StreamError::StaleFeed { feed_id: "x".into(), elapsed_ms: 1, threshold_ms: 1 };
+        let e = StreamError::StaleFeed {
+            feed_id: "x".into(),
+            elapsed_ms: 1,
+            threshold_ms: 1,
+        };
         assert!(!e.is_parse_error());
     }
 
@@ -1294,7 +1393,9 @@ mod tests {
     #[test]
     fn test_affected_symbol_none_for_ring_buffer_errors() {
         assert!(StreamError::RingBufferEmpty.affected_symbol().is_none());
-        assert!(StreamError::RingBufferFull { capacity: 8 }.affected_symbol().is_none());
+        assert!(StreamError::RingBufferFull { capacity: 8 }
+            .affected_symbol()
+            .is_none());
     }
 
     // --- StreamError::is_sequence_gap ---
@@ -1353,7 +1454,10 @@ mod tests {
 
     #[test]
     fn test_is_symbol_error_false_for_config_error() {
-        assert!(!StreamError::ConfigError { reason: "bad".into() }.is_symbol_error());
+        assert!(!StreamError::ConfigError {
+            reason: "bad".into()
+        }
+        .is_symbol_error());
     }
 
     // ── StreamError::to_error_code ────────────────────────────────────────────
@@ -1384,7 +1488,9 @@ mod tests {
 
     #[test]
     fn test_to_error_code_lorentz_is_7001() {
-        let e = StreamError::LorentzConfigError { reason: "bad beta".into() };
+        let e = StreamError::LorentzConfigError {
+            reason: "bad beta".into(),
+        };
         assert_eq!(e.to_error_code(), 7001);
     }
 
@@ -1431,19 +1537,27 @@ mod tests {
     // --- StreamError::is_connection_error ---
     #[test]
     fn test_is_connection_error_true_for_connection_failed() {
-        let e = StreamError::ConnectionFailed { url: "ws://x".into(), reason: "refused".into() };
+        let e = StreamError::ConnectionFailed {
+            url: "ws://x".into(),
+            reason: "refused".into(),
+        };
         assert!(e.is_connection_error());
     }
 
     #[test]
     fn test_is_connection_error_true_for_disconnected() {
-        let e = StreamError::Disconnected { url: "ws://x".into() };
+        let e = StreamError::Disconnected {
+            url: "ws://x".into(),
+        };
         assert!(e.is_connection_error());
     }
 
     #[test]
     fn test_is_connection_error_true_for_reconnect_exhausted() {
-        let e = StreamError::ReconnectExhausted { url: "ws://x".into(), attempts: 5 };
+        let e = StreamError::ReconnectExhausted {
+            url: "ws://x".into(),
+            attempts: 5,
+        };
         assert!(e.is_connection_error());
     }
 
@@ -1460,13 +1574,18 @@ mod tests {
     // --- StreamError::is_computation_error / is_ring_error ---
     #[test]
     fn test_is_computation_error_true_for_lorentz() {
-        let e = StreamError::LorentzConfigError { reason: "beta >= 1".into() };
+        let e = StreamError::LorentzConfigError {
+            reason: "beta >= 1".into(),
+        };
         assert!(e.is_computation_error());
     }
 
     #[test]
     fn test_is_computation_error_false_for_connection() {
-        let e = StreamError::ConnectionFailed { url: "ws://x".into(), reason: "refused".into() };
+        let e = StreamError::ConnectionFailed {
+            url: "ws://x".into(),
+            reason: "refused".into(),
+        };
         assert!(!e.is_computation_error());
     }
 
@@ -1483,7 +1602,10 @@ mod tests {
 
     #[test]
     fn test_is_ring_error_false_for_other_errors() {
-        let e = StreamError::ConnectionFailed { url: "ws://x".into(), reason: "timeout".into() };
+        let e = StreamError::ConnectionFailed {
+            url: "ws://x".into(),
+            reason: "timeout".into(),
+        };
         assert!(!e.is_ring_error());
     }
 
@@ -1491,19 +1613,28 @@ mod tests {
 
     #[test]
     fn test_has_url_true_for_connection_failed() {
-        let e = StreamError::ConnectionFailed { url: "wss://x".into(), reason: "timeout".into() };
+        let e = StreamError::ConnectionFailed {
+            url: "wss://x".into(),
+            reason: "timeout".into(),
+        };
         assert!(e.has_url());
     }
 
     #[test]
     fn test_has_url_false_for_other_errors() {
         assert!(!StreamError::RingBufferEmpty.has_url());
-        assert!(!StreamError::ConfigError { reason: "bad".into() }.has_url());
+        assert!(!StreamError::ConfigError {
+            reason: "bad".into()
+        }
+        .has_url());
     }
 
     #[test]
     fn test_error_category_code_connection_is_1() {
-        let e = StreamError::ConnectionFailed { url: "wss://x".into(), reason: "x".into() };
+        let e = StreamError::ConnectionFailed {
+            url: "wss://x".into(),
+            reason: "x".into(),
+        };
         assert_eq!(e.error_category_code(), 1);
     }
 
@@ -1519,7 +1650,9 @@ mod tests {
 
     #[test]
     fn test_error_category_code_lorentz_is_7() {
-        let e = StreamError::LorentzConfigError { reason: "bad beta".into() };
+        let e = StreamError::LorentzConfigError {
+            reason: "bad beta".into(),
+        };
         assert_eq!(e.error_category_code(), 7);
     }
 
@@ -1532,7 +1665,12 @@ mod tests {
 
     #[test]
     fn test_is_buffer_error_true_for_backpressure() {
-        assert!(StreamError::Backpressure { channel: "x".into(), depth: 8, capacity: 8 }.is_buffer_error());
+        assert!(StreamError::Backpressure {
+            channel: "x".into(),
+            depth: 8,
+            capacity: 8
+        }
+        .is_buffer_error());
     }
 
     #[test]
@@ -1542,7 +1680,10 @@ mod tests {
 
     #[test]
     fn test_is_buffer_error_false_for_connection_failed() {
-        let e = StreamError::ConnectionFailed { url: "wss://x".into(), reason: "x".into() };
+        let e = StreamError::ConnectionFailed {
+            url: "wss://x".into(),
+            reason: "x".into(),
+        };
         assert!(!e.is_buffer_error());
     }
 
@@ -1550,19 +1691,26 @@ mod tests {
 
     #[test]
     fn test_is_normalization_error_true() {
-        let e = StreamError::NormalizationError { reason: "empty window".into() };
+        let e = StreamError::NormalizationError {
+            reason: "empty window".into(),
+        };
         assert!(e.is_normalization_error());
     }
 
     #[test]
     fn test_is_normalization_error_false_for_parse_error() {
-        let e = StreamError::ParseError { exchange: "binance".into(), reason: "bad json".into() };
+        let e = StreamError::ParseError {
+            exchange: "binance".into(),
+            reason: "bad json".into(),
+        };
         assert!(!e.is_normalization_error());
     }
 
     #[test]
     fn test_is_agg_error_true() {
-        let e = StreamError::AggregationError { reason: "mismatched symbol".into() };
+        let e = StreamError::AggregationError {
+            reason: "mismatched symbol".into(),
+        };
         assert!(e.is_agg_error());
     }
 
@@ -1575,31 +1723,49 @@ mod tests {
 
     #[test]
     fn test_is_book_error_true_for_reconstruction() {
-        let e = StreamError::BookReconstructionFailed { symbol: "BTC-USD".into(), reason: "missing snapshot".into() };
+        let e = StreamError::BookReconstructionFailed {
+            symbol: "BTC-USD".into(),
+            reason: "missing snapshot".into(),
+        };
         assert!(e.is_book_error());
     }
 
     #[test]
     fn test_is_book_error_true_for_sequence_gap() {
-        let e = StreamError::SequenceGap { symbol: "BTC-USD".into(), expected: 5, got: 7 };
+        let e = StreamError::SequenceGap {
+            symbol: "BTC-USD".into(),
+            expected: 5,
+            got: 7,
+        };
         assert!(e.is_book_error());
     }
 
     #[test]
     fn test_is_book_error_false_for_parse_error() {
-        let e = StreamError::ParseError { exchange: "binance".into(), reason: "bad json".into() };
+        let e = StreamError::ParseError {
+            exchange: "binance".into(),
+            reason: "bad json".into(),
+        };
         assert!(!e.is_book_error());
     }
 
     #[test]
     fn test_is_sequence_error_true() {
-        let e = StreamError::SequenceGap { symbol: "ETH-USD".into(), expected: 1, got: 3 };
+        let e = StreamError::SequenceGap {
+            symbol: "ETH-USD".into(),
+            expected: 1,
+            got: 3,
+        };
         assert!(e.is_sequence_error());
     }
 
     #[test]
     fn test_is_sequence_error_false_for_book_crossed() {
-        let e = StreamError::BookCrossed { symbol: "BTC-USD".into(), bid: rust_decimal_macros::dec!(101), ask: rust_decimal_macros::dec!(100) };
+        let e = StreamError::BookCrossed {
+            symbol: "BTC-USD".into(),
+            bid: rust_decimal_macros::dec!(101),
+            ask: rust_decimal_macros::dec!(100),
+        };
         assert!(!e.is_sequence_error());
         assert!(e.is_book_error());
     }
@@ -1608,25 +1774,38 @@ mod tests {
 
     #[test]
     fn test_severity_level_4_for_reconnect_exhausted() {
-        let e = StreamError::ReconnectExhausted { url: "wss://x".into(), attempts: 5 };
+        let e = StreamError::ReconnectExhausted {
+            url: "wss://x".into(),
+            attempts: 5,
+        };
         assert_eq!(e.severity_level(), 4);
     }
 
     #[test]
     fn test_severity_level_3_for_connection_failed() {
-        let e = StreamError::ConnectionFailed { url: "wss://x".into(), reason: "refused".into() };
+        let e = StreamError::ConnectionFailed {
+            url: "wss://x".into(),
+            reason: "refused".into(),
+        };
         assert_eq!(e.severity_level(), 3);
     }
 
     #[test]
     fn test_severity_level_2_for_stale_feed() {
-        let e = StreamError::StaleFeed { feed_id: "BTC".into(), elapsed_ms: 10_000, threshold_ms: 5_000 };
+        let e = StreamError::StaleFeed {
+            feed_id: "BTC".into(),
+            elapsed_ms: 10_000,
+            threshold_ms: 5_000,
+        };
         assert_eq!(e.severity_level(), 2);
     }
 
     #[test]
     fn test_severity_level_1_for_parse_error() {
-        let e = StreamError::ParseError { exchange: "binance".into(), reason: "bad".into() };
+        let e = StreamError::ParseError {
+            exchange: "binance".into(),
+            reason: "bad".into(),
+        };
         assert_eq!(e.severity_level(), 1);
     }
 

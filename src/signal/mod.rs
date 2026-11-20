@@ -142,7 +142,10 @@ impl SignalAggregator {
         let ws = WeightedSignal { signal, weight };
         let mut entry = self.signals.entry(symbol).or_default();
         // Prune stale signals
-        while entry.front().is_some_and(|s| s.signal.timestamp_ms < cutoff_ms) {
+        while entry
+            .front()
+            .is_some_and(|s| s.signal.timestamp_ms < cutoff_ms)
+        {
             entry.pop_front();
         }
         entry.push_back(ws);
@@ -171,7 +174,11 @@ impl SignalAggregator {
         for ws in entry.iter() {
             let age_ms = now_ms.saturating_sub(ws.signal.timestamp_ms) as f64;
             let decay_weight = (-age_ms / decay_ms_f).exp();
-            let type_weight = self.weights.get(&ws.signal.signal_type).copied().unwrap_or(1.0);
+            let type_weight = self
+                .weights
+                .get(&ws.signal.signal_type)
+                .copied()
+                .unwrap_or(1.0);
             let eff_weight = ws.weight * type_weight * decay_weight;
 
             dir_sum += ws.signal.direction * eff_weight;
@@ -291,7 +298,11 @@ mod tests {
         agg.record(make_signal("AAPL", 0.2, 0.5, now), 3.0);
         let result = agg.aggregate("AAPL", now).unwrap();
         // weighted dir = (0.6*1 + 0.2*3) / (1+3) = (0.6+0.6)/4 = 0.3
-        assert!((result.net_direction - 0.3).abs() < 1e-9, "dir = {}", result.net_direction);
+        assert!(
+            (result.net_direction - 0.3).abs() < 1e-9,
+            "dir = {}",
+            result.net_direction
+        );
     }
 
     #[test]
@@ -307,7 +318,11 @@ mod tests {
 
         let result = agg.aggregate("ETH", now).unwrap();
         // Old signal decayed strongly → net_direction should be close to -1 (new signal dominates)
-        assert!(result.net_direction < 0.0, "new signal should dominate, dir = {}", result.net_direction);
+        assert!(
+            result.net_direction < 0.0,
+            "new signal should dominate, dir = {}",
+            result.net_direction
+        );
     }
 
     #[test]
@@ -336,10 +351,7 @@ mod tests {
             min_strength: 0.0,
             allowed_types: vec![],
         };
-        let signals = vec![
-            make_signal("A", 0.5, 0.9, 0),
-            make_signal("B", 0.5, 0.5, 0),
-        ];
+        let signals = vec![make_signal("A", 0.5, 0.9, 0), make_signal("B", 0.5, 0.5, 0)];
         let filtered = filter.filter(&signals);
         assert_eq!(filtered.len(), 1);
         assert_eq!(filtered[0].symbol, "A");

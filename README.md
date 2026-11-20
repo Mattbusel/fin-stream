@@ -10,6 +10,17 @@ Every exchange sends the same trade in a different shape: Binance and Coinbase s
 
 About 1.2 billion ring buffer push/pops a second on one thread.
 
+**Why it exists.** Every Rust trading bot writes its own parser for each venue's trade message, and most of them land the price in `f64` on the first line. Even barter-data, the best-known Rust market-data crate, carries `PublicTrade { price: f64, amount: f64 }` (barter-rs `barter-data/src/subscription/trade.rs`, Nov 20 2026). fin-stream takes the other side: **a price is a `Decimal` from the byte the exchange sent to the bar your strategy reads.**
+
+**Why this instead of your own parser.** Seven venues (Binance, Coinbase, Kraken, OKX, Bybit, Alpaca, Polygon) into one tick type; a missing or malformed field, or a zero-size print, is a typed `StreamError`, never a panic and never a silent zero; each tick records whether its timestamp is the exchange's or your machine's.
+
+**Why today.** `cargo add fin-stream`, or `default-features = false, features = ["net"]` for just the WebSocket client and the normalizer. market-maker-rs users get it through [market-maker-fin-stream](https://crates.io/crates/market-maker-fin-stream).
+
+**Who it is for:** Rust trading, market-making and recording code that reads live exchange trades.
+
+**Trade-offs, on purpose:** `Decimal` costs more than `f64` per operation; we pay it at the edge so nothing downstream has to guess what the exchange meant.
+
+
 - Reads Binance, Coinbase, Alpaca and Polygon.
 - Gives exact decimal prices.
 - Reconnects on its own.

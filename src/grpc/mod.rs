@@ -128,9 +128,7 @@ mod grpc_impl {
 
         /// Build the tonic service and return it for use with
         /// `tonic::transport::Server::add_service`.
-        pub fn clone_service(
-            &self,
-        ) -> TickStreamServiceServer<TickStreamServer> {
+        pub fn clone_service(&self) -> TickStreamServiceServer<TickStreamServer> {
             TickStreamServiceServer::new(self.clone())
         }
     }

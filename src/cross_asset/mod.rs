@@ -26,7 +26,10 @@ pub struct AssetPair {
 impl AssetPair {
     /// Create a new asset pair.
     pub fn new(a: impl Into<String>, b: impl Into<String>) -> Self {
-        Self { asset_a: a.into(), asset_b: b.into() }
+        Self {
+            asset_a: a.into(),
+            asset_b: b.into(),
+        }
     }
 }
 
@@ -58,7 +61,7 @@ pub struct OnlineCorrelation {
     mean_y: f64,
     m2_x: f64,
     m2_y: f64,
-    c_xy: f64,  // co-moment: Σ(xᵢ - x̄ₙ)(yᵢ - ȳₙ)
+    c_xy: f64, // co-moment: Σ(xᵢ - x̄ₙ)(yᵢ - ȳₙ)
 }
 
 impl OnlineCorrelation {
@@ -164,11 +167,12 @@ impl CorrelationMatrix {
             // Keep x = first symbol of the key and y = second, whichever side
             // ticked. Feeding (new, other) flipped x and y from tick to tick and
             // mixed the two series inside one accumulator.
-            let (x, y) = if key.0 == symbol { (value, other_val) } else { (other_val, value) };
-            self.pairs
-                .entry(key)
-                .or_default()
-                .update(x, y);
+            let (x, y) = if key.0 == symbol {
+                (value, other_val)
+            } else {
+                (other_val, value)
+            };
+            self.pairs.entry(key).or_default().update(x, y);
         }
 
         self.latest.insert(symbol.to_owned(), value);
@@ -204,9 +208,7 @@ impl CorrelationMatrix {
     pub fn max_correlation_pair(&self) -> Option<(AssetPair, f64)> {
         self.pairs
             .iter()
-            .filter_map(|((a, b), oc)| {
-                oc.correlation().map(|c| (AssetPair::new(a, b), c))
-            })
+            .filter_map(|((a, b), oc)| oc.correlation().map(|c| (AssetPair::new(a, b), c)))
             .max_by(|(_, c1), (_, c2)| c1.partial_cmp(c2).unwrap_or(std::cmp::Ordering::Equal))
     }
 
@@ -214,9 +216,7 @@ impl CorrelationMatrix {
     pub fn min_correlation_pair(&self) -> Option<(AssetPair, f64)> {
         self.pairs
             .iter()
-            .filter_map(|((a, b), oc)| {
-                oc.correlation().map(|c| (AssetPair::new(a, b), c))
-            })
+            .filter_map(|((a, b), oc)| oc.correlation().map(|c| (AssetPair::new(a, b), c)))
             .min_by(|(_, c1), (_, c2)| c1.partial_cmp(c2).unwrap_or(std::cmp::Ordering::Equal))
     }
 
@@ -394,7 +394,10 @@ mod tests {
         // Those staggered pairs give exactly 179/182 = 0.98352 for two series that
         // are perfectly correlated tick for tick; 1.0 is not reachable here.
         // (Before the x/y orientation fix this came out as 0.99525.)
-        assert!((c - 179.0 / 182.0).abs() < 1e-9, "as-of joined correlation: cor={c}");
+        assert!(
+            (c - 179.0 / 182.0).abs() < 1e-9,
+            "as-of joined correlation: cor={c}"
+        );
     }
 
     #[test]
@@ -436,9 +439,9 @@ mod tests {
         let mut cm = CorrelationMatrix::new();
         for i in 0..10u64 {
             let x = i as f64;
-            cm.add_observation("A", x, i);       // trending up
+            cm.add_observation("A", x, i); // trending up
             cm.add_observation("B", x * 2.0, i); // trending up faster (high cor with A)
-            cm.add_observation("C", -x, i);      // trending down (neg cor with A)
+            cm.add_observation("C", -x, i); // trending down (neg cor with A)
         }
         let max = cm.max_correlation_pair();
         let min = cm.min_correlation_pair();
@@ -463,7 +466,10 @@ mod tests {
         for _ in 0..20 {
             cb.update(0.80);
         }
-        assert!(!cb.is_breakdown(), "stable series should not trigger breakdown");
+        assert!(
+            !cb.is_breakdown(),
+            "stable series should not trigger breakdown"
+        );
     }
 
     #[test]
@@ -473,7 +479,10 @@ mod tests {
             cb.update(0.80);
         }
         cb.update(-0.80); // extreme deviation
-        assert!(cb.is_breakdown(), "large deviation should trigger breakdown");
+        assert!(
+            cb.is_breakdown(),
+            "large deviation should trigger breakdown"
+        );
     }
 
     #[test]

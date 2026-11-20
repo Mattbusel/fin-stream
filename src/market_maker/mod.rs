@@ -91,25 +91,37 @@ impl MarketMaker {
         };
         let bid = mid - base_half - skew;
         let ask = mid + base_half - skew;
-        Spread { bid, ask, mid, half_spread: base_half }
+        Spread {
+            bid,
+            ask,
+            mid,
+            half_spread: base_half,
+        }
     }
 
     /// Generate a quote for `symbol` at the given mid-price.
     pub fn quote(&self, symbol: &str, mid: f64) -> Spread {
-        let qty = self.inventory.get(symbol).map(|p| p.quantity).unwrap_or(0.0);
+        let qty = self
+            .inventory
+            .get(symbol)
+            .map(|p| p.quantity)
+            .unwrap_or(0.0);
         Self::compute_spread(mid, &self.params, qty)
     }
 
     /// Process a bid fill: we bought `qty` at `price` (inventory increases).
     pub fn fill_bid(&mut self, symbol: &str, price: f64, qty: f64) {
         self.total_trades += 1;
-        let pos = self.inventory.entry(symbol.to_string()).or_insert_with(|| InventoryPosition {
-            symbol: symbol.to_string(),
-            quantity: 0.0,
-            avg_cost: 0.0,
-            market_value: 0.0,
-            unrealized_pnl: 0.0,
-        });
+        let pos = self
+            .inventory
+            .entry(symbol.to_string())
+            .or_insert_with(|| InventoryPosition {
+                symbol: symbol.to_string(),
+                quantity: 0.0,
+                avg_cost: 0.0,
+                market_value: 0.0,
+                unrealized_pnl: 0.0,
+            });
         // Weighted average cost for long side
         // Realize before checking for a flat result: an exact round trip closes
         // the whole position and must book its P&L (checking `new_qty == 0` first
@@ -140,20 +152,22 @@ impl MarketMaker {
     /// Process an ask fill: we sold `qty` at `price` (inventory decreases).
     pub fn fill_ask(&mut self, symbol: &str, price: f64, qty: f64) {
         self.total_trades += 1;
-        let pos = self.inventory.entry(symbol.to_string()).or_insert_with(|| InventoryPosition {
-            symbol: symbol.to_string(),
-            quantity: 0.0,
-            avg_cost: 0.0,
-            market_value: 0.0,
-            unrealized_pnl: 0.0,
-        });
+        let pos = self
+            .inventory
+            .entry(symbol.to_string())
+            .or_insert_with(|| InventoryPosition {
+                symbol: symbol.to_string(),
+                quantity: 0.0,
+                avg_cost: 0.0,
+                market_value: 0.0,
+                unrealized_pnl: 0.0,
+            });
         // Realize before checking for a flat result (see fill_bid).
         let new_qty = pos.quantity - qty;
         if pos.quantity <= 0.0 {
             // Adding to existing short or opening from zero
             let total_short = pos.quantity.abs() + qty;
-            pos.avg_cost =
-                (pos.avg_cost * pos.quantity.abs() + price * qty) / total_short;
+            pos.avg_cost = (pos.avg_cost * pos.quantity.abs() + price * qty) / total_short;
         } else {
             // Reducing a long: realize P&L on the closed portion
             let closed = qty.min(pos.quantity);
@@ -189,7 +203,10 @@ impl MarketMaker {
 
     /// Inventory risk = Σ |quantity × avg_cost| across all positions.
     pub fn inventory_risk(&self) -> f64 {
-        self.inventory.values().map(|p| (p.quantity * p.avg_cost).abs()).sum()
+        self.inventory
+            .values()
+            .map(|p| (p.quantity * p.avg_cost).abs())
+            .sum()
     }
 
     /// Aggregate statistics snapshot.
@@ -207,7 +224,11 @@ impl MarketMaker {
                     let qty = self.inventory.get(sym).map(|p| p.quantity).unwrap_or(0.0);
                     let s = Self::compute_spread(mid, &self.params, qty);
                     // Full spread in bps = (ask - bid) / mid * 10_000
-                    if mid == 0.0 { 0.0 } else { (s.ask - s.bid) / mid * 10_000.0 }
+                    if mid == 0.0 {
+                        0.0
+                    } else {
+                        (s.ask - s.bid) / mid * 10_000.0
+                    }
                 })
                 .sum();
             total_bps / current_mid.len() as f64
@@ -293,7 +314,11 @@ mod tests {
         mm.fill_bid("AAPL", 99.95, 10.0);
         mm.fill_ask("AAPL", 100.05, 10.0);
         // Realized PnL = 10 * (100.05 - 99.95) = 1.0
-        assert!((mm.realized_pnl - 1.0).abs() < 1e-8, "realized={}", mm.realized_pnl);
+        assert!(
+            (mm.realized_pnl - 1.0).abs() < 1e-8,
+            "realized={}",
+            mm.realized_pnl
+        );
         // After selling all, unrealized should be ~0
         let pos = &mm.inventory["AAPL"];
         assert!(pos.quantity.abs() < 1e-10, "qty={}", pos.quantity);
@@ -317,6 +342,10 @@ mod tests {
         mids.insert("AAPL".to_string(), 100.0);
         let stats = mm.stats(&mids);
         // At 0 inventory: spread = 10 bps
-        assert!((stats.avg_spread_bps - 10.0).abs() < 1e-8, "bps={}", stats.avg_spread_bps);
+        assert!(
+            (stats.avg_spread_bps - 10.0).abs() < 1e-8,
+            "bps={}",
+            stats.avg_spread_bps
+        );
     }
 }

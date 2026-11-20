@@ -70,10 +70,7 @@ pub trait TickSource: Send + Sync {
     ///
     /// Returns a [`StreamError`] if the source cannot be initialised or
     /// encounters a fatal error during operation.
-    async fn run(
-        &mut self,
-        tx: mpsc::Sender<NormalizedTick>,
-    ) -> Result<(), StreamError>;
+    async fn run(&mut self, tx: mpsc::Sender<NormalizedTick>) -> Result<(), StreamError>;
 
     /// Human-readable description of this source (e.g. file path or URL).
     fn description(&self) -> &str;
@@ -387,10 +384,7 @@ impl TickSource for TickReplayer {
     ///
     /// Returns when the file is exhausted (or looping is disabled and the end
     /// is reached), when `max_ticks` is exceeded, or when `tx` is closed.
-    async fn run(
-        &mut self,
-        tx: mpsc::Sender<NormalizedTick>,
-    ) -> Result<(), StreamError> {
+    async fn run(&mut self, tx: mpsc::Sender<NormalizedTick>) -> Result<(), StreamError> {
         let start = std::time::Instant::now();
         info!(
             file = %self.session.source_file.display(),
@@ -494,9 +488,7 @@ mod tests {
             .map(|i| make_tick(dec!(50000) + rust_decimal::Decimal::from(i * 100), i * 10))
             .collect();
         let path = write_ndjson(&ticks, "fin_stream_replay_max.ndjson");
-        let session = ReplaySession::new(&path)
-            .with_speed(0.0)
-            .with_max_ticks(3);
+        let session = ReplaySession::new(&path).with_speed(0.0).with_max_ticks(3);
 
         let mut replayer = TickReplayer::with_session(session);
         let (tx, mut rx) = mpsc::channel(16);
@@ -519,9 +511,19 @@ mod tests {
         {
             let mut f = std::fs::File::create(&path).expect("create");
             writeln!(f, "# this is a comment").expect("write");
-            writeln!(f, "{}", serde_json::to_string(&make_tick(dec!(100), 1)).expect("ser")).expect("write");
+            writeln!(
+                f,
+                "{}",
+                serde_json::to_string(&make_tick(dec!(100), 1)).expect("ser")
+            )
+            .expect("write");
             writeln!(f, "# another comment").expect("write");
-            writeln!(f, "{}", serde_json::to_string(&make_tick(dec!(200), 2)).expect("ser")).expect("write");
+            writeln!(
+                f,
+                "{}",
+                serde_json::to_string(&make_tick(dec!(200), 2)).expect("ser")
+            )
+            .expect("write");
         }
 
         let session = ReplaySession::new(&path).with_speed(0.0);
@@ -747,9 +749,8 @@ impl MemoryReplayer {
                     if config.speed_multiplier > f64::EPSILON {
                         if let Some(prev) = prev_time {
                             if let Ok(gap) = record.recorded_at.duration_since(prev) {
-                                let scaled_nanos = (gap.as_nanos() as f64
-                                    / config.speed_multiplier)
-                                    as u64;
+                                let scaled_nanos =
+                                    (gap.as_nanos() as f64 / config.speed_multiplier) as u64;
                                 if scaled_nanos > 0 {
                                     tokio::time::sleep(std::time::Duration::from_nanos(
                                         scaled_nanos,
@@ -761,7 +762,11 @@ impl MemoryReplayer {
                     }
                     prev_time = Some(record.recorded_at);
 
-                    if tx.send((record.symbol.clone(), record.tick.clone())).await.is_err() {
+                    if tx
+                        .send((record.symbol.clone(), record.tick.clone()))
+                        .await
+                        .is_err()
+                    {
                         return; // receiver dropped
                     }
                     sent.fetch_add(1, Ordering::Relaxed);
@@ -795,7 +800,11 @@ impl MemoryReplayer {
 
             loop {
                 for record in &filtered {
-                    if tx.send((record.symbol.clone(), record.tick.clone())).await.is_err() {
+                    if tx
+                        .send((record.symbol.clone(), record.tick.clone()))
+                        .await
+                        .is_err()
+                    {
                         return;
                     }
                     sent.fetch_add(1, Ordering::Relaxed);
@@ -859,7 +868,10 @@ mod memory_replay_tests {
         // Verify ordering by price.
         let prices: Vec<_> = received.iter().map(|(_, t)| t.price).collect();
         for i in 0..4 {
-            assert!(prices[i] <= prices[i + 1], "ticks should be in insertion order");
+            assert!(
+                prices[i] <= prices[i + 1],
+                "ticks should be in insertion order"
+            );
         }
     }
 
@@ -896,7 +908,10 @@ mod memory_replay_tests {
         let mut rx = replayer.replay_instant();
         tokio::task::yield_now().await;
         // Channel should be closed immediately.
-        assert!(rx.recv().await.is_none(), "empty replay should close channel");
+        assert!(
+            rx.recv().await.is_none(),
+            "empty replay should close channel"
+        );
     }
 }
 
@@ -948,10 +963,8 @@ impl SpeedReplayer {
     /// `ticks` is a `Vec<(symbol, NormalizedTick)>`.  Ticks are stored
     /// internally as `(NormalizedTick, symbol)` for cache efficiency.
     pub fn new(config: ReplayConfig, ticks: Vec<(String, NormalizedTick)>) -> Self {
-        let stored: Vec<(NormalizedTick, String)> = ticks
-            .into_iter()
-            .map(|(sym, tick)| (tick, sym))
-            .collect();
+        let stored: Vec<(NormalizedTick, String)> =
+            ticks.into_iter().map(|(sym, tick)| (tick, sym)).collect();
         Self {
             config,
             source: ReplaySource::InMemory(stored),
@@ -989,9 +1002,9 @@ impl SpeedReplayer {
     /// Retrieve the tick at the current position without advancing.
     fn current_tick(&self) -> Option<(String, NormalizedTick)> {
         match &self.source {
-            ReplaySource::InMemory(v) => {
-                v.get(self.position).map(|(tick, sym)| (sym.clone(), tick.clone()))
-            }
+            ReplaySource::InMemory(v) => v
+                .get(self.position)
+                .map(|(tick, sym)| (sym.clone(), tick.clone())),
         }
     }
 
@@ -1053,7 +1066,10 @@ impl SpeedReplayer {
     }
 
     /// Replay all ticks into a channel, looping if configured.
-    pub async fn replay_to_channel(&mut self, tx: tokio::sync::mpsc::Sender<(String, NormalizedTick)>) {
+    pub async fn replay_to_channel(
+        &mut self,
+        tx: tokio::sync::mpsc::Sender<(String, NormalizedTick)>,
+    ) {
         loop {
             while let Some(item) = self.next_tick().await {
                 if tx.send(item).await.is_err() {
@@ -1123,7 +1139,10 @@ mod speed_replayer_tests {
         }
         // One more tick triggers loop: position resets and emits tick 0 again
         let tick = replayer.next_tick().await.expect("should loop");
-        assert_eq!(tick.1.received_at_ms, 0, "after loop, first tick should be ts=0");
+        assert_eq!(
+            tick.1.received_at_ms, 0,
+            "after loop, first tick should be ts=0"
+        );
         assert_eq!(replayer.stats().loops_completed, 1);
     }
 

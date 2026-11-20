@@ -188,7 +188,10 @@ pub struct JsonStreamAdapter {
 impl JsonStreamAdapter {
     /// Creates a new adapter for the given source and exchange labels.
     pub fn new(source: impl Into<String>, exchange: impl Into<String>) -> Self {
-        Self { source: source.into(), exchange: exchange.into() }
+        Self {
+            source: source.into(),
+            exchange: exchange.into(),
+        }
     }
 
     /// Attempts to parse `json` into a [`MarketEvent`].
@@ -241,9 +244,7 @@ impl JsonStreamAdapter {
             return self.parse_book(&v);
         }
 
-        if type_hint == "status"
-            || (type_hint.is_empty() && v.get("status").is_some())
-        {
+        if type_hint == "status" || (type_hint.is_empty() && v.get("status").is_some()) {
             return self.parse_status(&v);
         }
 
@@ -405,7 +406,12 @@ impl JsonStreamAdapter {
 
         let timestamp_ns = extract_timestamp_ns(v);
 
-        Some(MarketEvent::Status(StatusEvent { symbol, status, message, timestamp_ns }))
+        Some(MarketEvent::Status(StatusEvent {
+            symbol,
+            status,
+            message,
+            timestamp_ns,
+        }))
     }
 }
 
@@ -443,7 +449,11 @@ fn extract_f64(v: &serde_json::Value, keys: &[&str]) -> Option<f64> {
 /// Extracts a nanosecond timestamp, falling back to millisecond or second epochs.
 fn extract_timestamp_ns(v: &serde_json::Value) -> u64 {
     // Prefer explicit nanosecond fields
-    if let Some(ns) = v.get("timestamp_ns").or_else(|| v.get("ts_ns")).and_then(|t| t.as_u64()) {
+    if let Some(ns) = v
+        .get("timestamp_ns")
+        .or_else(|| v.get("ts_ns"))
+        .and_then(|t| t.as_u64())
+    {
         return ns;
     }
     // Millisecond epoch
@@ -471,7 +481,9 @@ fn extract_timestamp_ns(v: &serde_json::Value) -> u64 {
 /// - `[[price, size], …]`
 /// - `[{"price": …, "size": …}, …]`
 fn parse_price_levels(arr: &serde_json::Value) -> Vec<(f64, f64)> {
-    let Some(arr) = arr.as_array() else { return Vec::new() };
+    let Some(arr) = arr.as_array() else {
+        return Vec::new();
+    };
     let mut levels = Vec::with_capacity(arr.len());
     for entry in arr {
         if let Some(tuple) = entry.as_array() {
@@ -513,7 +525,9 @@ mod tests {
     fn parse_trade_explicit_type() {
         let json = r#"{"type":"trade","symbol":"BTCUSDT","price":"30000.5","size":"0.1","side":"buy","t":1700000000000}"#;
         let ev = adapter().parse_event(json).expect("should parse trade");
-        let MarketEvent::Trade(t) = ev else { panic!("expected Trade") };
+        let MarketEvent::Trade(t) = ev else {
+            panic!("expected Trade")
+        };
         assert_eq!(t.symbol, "BTCUSDT");
         assert!((t.price - 30000.5).abs() < 1e-9);
         assert_eq!(t.side, Some(TradeSide::Buy));
@@ -522,7 +536,9 @@ mod tests {
     #[test]
     fn parse_trade_heuristic() {
         let json = r#"{"symbol":"ETHUSDT","price":1800.0,"size":2.5}"#;
-        let ev = adapter().parse_event(json).expect("should parse trade heuristic");
+        let ev = adapter()
+            .parse_event(json)
+            .expect("should parse trade heuristic");
         assert!(matches!(ev, MarketEvent::Trade(_)));
     }
 
@@ -530,7 +546,9 @@ mod tests {
     fn parse_quote_explicit_type() {
         let json = r#"{"type":"quote","symbol":"AAPL","bid":175.10,"ask":175.12,"bid_size":100,"ask_size":200,"ts":1700000000000}"#;
         let ev = adapter().parse_event(json).expect("should parse quote");
-        let MarketEvent::Quote(q) = ev else { panic!("expected Quote") };
+        let MarketEvent::Quote(q) = ev else {
+            panic!("expected Quote")
+        };
         assert!((q.bid - 175.10).abs() < 1e-9);
         assert!((q.ask - 175.12).abs() < 1e-9);
     }
@@ -539,7 +557,9 @@ mod tests {
     fn parse_bar_explicit_type() {
         let json = r#"{"type":"bar","symbol":"SPY","open":440.0,"high":445.0,"low":438.0,"close":443.0,"volume":1000000,"period_secs":60}"#;
         let ev = adapter().parse_event(json).expect("should parse bar");
-        let MarketEvent::Bar(b) = ev else { panic!("expected Bar") };
+        let MarketEvent::Bar(b) = ev else {
+            panic!("expected Bar")
+        };
         assert_eq!(b.period_secs, 60);
         assert!((b.close - 443.0).abs() < 1e-9);
     }
@@ -548,7 +568,9 @@ mod tests {
     fn parse_orderbook_explicit_type() {
         let json = r#"{"type":"book","symbol":"BTCUSDT","bids":[[30000.0,1.5],[29999.0,2.0]],"asks":[[30001.0,1.0]],"sequence":12345,"is_snapshot":true}"#;
         let ev = adapter().parse_event(json).expect("should parse book");
-        let MarketEvent::OrderBook(ob) = ev else { panic!("expected OrderBook") };
+        let MarketEvent::OrderBook(ob) = ev else {
+            panic!("expected OrderBook")
+        };
         assert_eq!(ob.bids.len(), 2);
         assert!(ob.is_snapshot);
         assert_eq!(ob.sequence, 12345);
@@ -558,7 +580,9 @@ mod tests {
     fn parse_status_event() {
         let json = r#"{"type":"status","status":"subscribed","symbol":"BTCUSDT","message":"subscription confirmed"}"#;
         let ev = adapter().parse_event(json).expect("should parse status");
-        let MarketEvent::Status(s) = ev else { panic!("expected Status") };
+        let MarketEvent::Status(s) = ev else {
+            panic!("expected Status")
+        };
         assert_eq!(s.status, FeedStatus::Subscribed);
         assert_eq!(s.symbol.as_deref(), Some("BTCUSDT"));
     }
@@ -591,8 +615,7 @@ mod tests {
             message: "ok".to_owned(),
             timestamp_ns: 0,
         })];
-        let stream: EventStream =
-            Box::pin(futures_util::stream::iter(items));
+        let stream: EventStream = Box::pin(futures_util::stream::iter(items));
         drop(stream);
     }
 }

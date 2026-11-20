@@ -97,7 +97,8 @@ impl LiquidityMonitor {
         if self.quote_history.is_empty() {
             self.spread_ema = spread;
         } else {
-            self.spread_ema = self.spread_alpha * spread + (1.0 - self.spread_alpha) * self.spread_ema;
+            self.spread_ema =
+                self.spread_alpha * spread + (1.0 - self.spread_alpha) * self.spread_ema;
         }
         if self.quote_history.len() == self.max_history {
             self.quote_history.pop_front();
@@ -128,8 +129,12 @@ impl LiquidityMonitor {
         let mut min_s = f64::INFINITY;
         for q in &self.quote_history {
             let s = q.ask - q.bid;
-            if s > max_s { max_s = s; }
-            if s < min_s { min_s = s; }
+            if s > max_s {
+                max_s = s;
+            }
+            if s < min_s {
+                min_s = s;
+            }
         }
 
         SpreadMetrics {

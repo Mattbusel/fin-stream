@@ -82,15 +82,27 @@ impl CointegrationTester {
         }
         let mean_x = x.iter().take(n as usize).sum::<f64>() / n;
         let mean_y = y.iter().take(n as usize).sum::<f64>() / n;
-        let cov_xy: f64 = x.iter().zip(y.iter()).take(n as usize)
+        let cov_xy: f64 = x
+            .iter()
+            .zip(y.iter())
+            .take(n as usize)
             .map(|(xi, yi)| (xi - mean_x) * (yi - mean_y))
             .sum();
-        let var_x: f64 = x.iter().take(n as usize)
+        let var_x: f64 = x
+            .iter()
+            .take(n as usize)
             .map(|xi| (xi - mean_x).powi(2))
             .sum();
-        let beta = if var_x.abs() < 1e-12 { 0.0 } else { cov_xy / var_x };
+        let beta = if var_x.abs() < 1e-12 {
+            0.0
+        } else {
+            cov_xy / var_x
+        };
         let alpha = mean_y - beta * mean_x;
-        let residuals: Vec<f64> = y.iter().zip(x.iter()).take(n as usize)
+        let residuals: Vec<f64> = y
+            .iter()
+            .zip(x.iter())
+            .take(n as usize)
             .map(|(yi, xi)| yi - beta * xi - alpha)
             .collect();
         (beta, alpha, residuals)
@@ -107,7 +119,9 @@ impl CointegrationTester {
 
         let n = dy.len() as f64;
         let mean_lag = y_lag.iter().sum::<f64>() / n;
-        let cov: f64 = y_lag.iter().zip(dy.iter())
+        let cov: f64 = y_lag
+            .iter()
+            .zip(dy.iter())
             .map(|(l, d)| (l - mean_lag) * d)
             .sum();
         let var_lag: f64 = y_lag.iter().map(|l| (l - mean_lag).powi(2)).sum();
@@ -119,7 +133,9 @@ impl CointegrationTester {
 
         // Residuals of this regression
         let mean_dy = dy.iter().sum::<f64>() / n;
-        let resid_var: f64 = y_lag.iter().zip(dy.iter())
+        let resid_var: f64 = y_lag
+            .iter()
+            .zip(dy.iter())
             .map(|(l, d)| {
                 let fitted = gamma * (l - mean_lag) + mean_dy;
                 (d - fitted).powi(2)
@@ -127,7 +143,11 @@ impl CointegrationTester {
             .sum::<f64>()
             / (n - 2.0).max(1.0);
 
-        let se = if var_lag.abs() < 1e-12 { f64::INFINITY } else { (resid_var / var_lag).sqrt() };
+        let se = if var_lag.abs() < 1e-12 {
+            f64::INFINITY
+        } else {
+            (resid_var / var_lag).sqrt()
+        };
         gamma / se
     }
 
@@ -260,7 +280,9 @@ impl PairsTrader {
                 // Compute mean of recent spread history
                 let a_vec: Vec<f64> = self.history_a.iter().copied().collect();
                 let b_vec: Vec<f64> = self.history_b.iter().copied().collect();
-                let spreads: Vec<f64> = a_vec.iter().zip(b_vec.iter())
+                let spreads: Vec<f64> = a_vec
+                    .iter()
+                    .zip(b_vec.iter())
                     .map(|(a, b)| a - coint.beta * b - coint.alpha)
                     .collect();
                 Self::compute_zscore_from_slice(&spreads)
@@ -274,10 +296,14 @@ impl PairsTrader {
         match pos {
             PairsPosition::Flat => {
                 if zscore < -self.config.entry_zscore {
-                    self.current_state.position = PairsPosition::LongA_ShortB { entry_zscore: zscore };
+                    self.current_state.position = PairsPosition::LongA_ShortB {
+                        entry_zscore: zscore,
+                    };
                     PairsSignal::EnterLongSpread
                 } else if zscore > self.config.entry_zscore {
-                    self.current_state.position = PairsPosition::LongB_ShortA { entry_zscore: zscore };
+                    self.current_state.position = PairsPosition::LongB_ShortA {
+                        entry_zscore: zscore,
+                    };
                     PairsSignal::EnterShortSpread
                 } else {
                     PairsSignal::Hold
@@ -348,7 +374,10 @@ impl PairsTrader {
 
     /// Whether the pair is currently considered cointegrated.
     pub fn is_cointegrated(&self) -> bool {
-        self.cointegration.as_ref().map(|c| c.is_cointegrated).unwrap_or(false)
+        self.cointegration
+            .as_ref()
+            .map(|c| c.is_cointegrated)
+            .unwrap_or(false)
     }
 }
 
@@ -368,7 +397,10 @@ mod tests {
 
     #[test]
     fn test_pairs_trader_hold_before_lookback() {
-        let config = PairsConfig { lookback: 10, ..Default::default() };
+        let config = PairsConfig {
+            lookback: 10,
+            ..Default::default()
+        };
         let mut trader = PairsTrader::new("A".into(), "B".into(), config);
         let sig = trader.update(100.0, 50.0);
         assert_eq!(sig, PairsSignal::Hold);

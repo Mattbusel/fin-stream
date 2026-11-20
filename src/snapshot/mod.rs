@@ -61,7 +61,8 @@ impl TickRecorder {
     /// Returns [`StreamError::Io`] if the file cannot be created.
     pub fn open(path: impl AsRef<Path>) -> Result<Self, StreamError> {
         let path_str = path.as_ref().to_string_lossy().into_owned();
-        let file = std::fs::File::create(path.as_ref()).map_err(|e| StreamError::Io(e.to_string()))?;
+        let file =
+            std::fs::File::create(path.as_ref()).map_err(|e| StreamError::Io(e.to_string()))?;
         info!(path = %path_str, "tick recorder opened");
         Ok(Self {
             writer: BufWriter::new(file),
@@ -104,8 +105,7 @@ impl TickRecorder {
     ///
     /// Returns [`StreamError::Io`] on any I/O failure.
     pub fn record(&mut self, tick: &NormalizedTick) -> Result<(), StreamError> {
-        let payload =
-            serde_json::to_vec(tick).map_err(|e| StreamError::Io(e.to_string()))?;
+        let payload = serde_json::to_vec(tick).map_err(|e| StreamError::Io(e.to_string()))?;
         let len = payload.len() as u32;
         self.writer
             .write_all(&len.to_le_bytes())
@@ -132,7 +132,9 @@ impl TickRecorder {
     ///
     /// Returns [`StreamError::Io`] on flush failure.
     pub fn flush(&mut self) -> Result<(), StreamError> {
-        self.writer.flush().map_err(|e| StreamError::Io(e.to_string()))
+        self.writer
+            .flush()
+            .map_err(|e| StreamError::Io(e.to_string()))
     }
 
     /// Total number of ticks written in this session.
@@ -201,8 +203,7 @@ impl TickReplayer {
     /// [`StreamError::ParseError`] if any record is malformed.
     pub fn open(path: impl AsRef<Path>, speed_multiplier: f64) -> Result<Self, StreamError> {
         let path_ref = path.as_ref();
-        let file =
-            std::fs::File::open(path_ref).map_err(|e| StreamError::Io(e.to_string()))?;
+        let file = std::fs::File::open(path_ref).map_err(|e| StreamError::Io(e.to_string()))?;
         let mut reader = BufReader::new(file);
         let mut ticks = Vec::new();
         let mut len_buf = [0u8; 4];
@@ -218,12 +219,11 @@ impl TickReplayer {
             reader
                 .read_exact(&mut payload)
                 .map_err(|e| StreamError::Io(e.to_string()))?;
-            let tick: NormalizedTick = serde_json::from_slice(&payload).map_err(|e| {
-                StreamError::ParseError {
+            let tick: NormalizedTick =
+                serde_json::from_slice(&payload).map_err(|e| StreamError::ParseError {
                     exchange: "TickReplayer".into(),
                     reason: e.to_string(),
-                }
-            })?;
+                })?;
             ticks.push(tick);
         }
 
@@ -262,7 +262,10 @@ impl TickReplayer {
     /// is dropped and `tick_rx` returns `None`.
     ///
     /// `channel_capacity` is the mpsc buffer depth.
-    pub fn start(self, channel_capacity: usize) -> (tokio::task::JoinHandle<()>, mpsc::Receiver<NormalizedTick>) {
+    pub fn start(
+        self,
+        channel_capacity: usize,
+    ) -> (tokio::task::JoinHandle<()>, mpsc::Receiver<NormalizedTick>) {
         let (tx, rx) = mpsc::channel(channel_capacity);
         let handle = tokio::spawn(async move {
             replay_task(self.ticks, self.speed_multiplier, tx).await;

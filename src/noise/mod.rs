@@ -165,7 +165,11 @@ impl NoiseFilter {
         let mut rk = 0.0_f64;
         for lag in 0..=h {
             let gamma = realised_autocovariance(&returns, lag, n);
-            let weight = if lag == 0 { 1.0 } else { 2.0 * parzen_kernel(lag as f64 / (h as f64 + 1.0)) };
+            let weight = if lag == 0 {
+                1.0
+            } else {
+                2.0 * parzen_kernel(lag as f64 / (h as f64 + 1.0))
+            };
             rk += weight * gamma;
         }
         rk.max(0.0)
@@ -273,22 +277,33 @@ mod tests {
     #[test]
     fn roll_spread_positive_for_bouncing_price() {
         // Classic bid-ask bounce: price alternates between bid and ask.
-        let prices: Vec<f64> = (0..50).map(|i| if i % 2 == 0 { 100.0 } else { 100.1 }).collect();
+        let prices: Vec<f64> = (0..50)
+            .map(|i| if i % 2 == 0 { 100.0 } else { 100.1 })
+            .collect();
         let f = build_filter_with_prices(&prices);
         let spread = f.roll_spread();
-        assert!(spread > 0.0, "bid-ask bounce should yield positive Roll spread, got {spread}");
+        assert!(
+            spread > 0.0,
+            "bid-ask bounce should yield positive Roll spread, got {spread}"
+        );
     }
 
     #[test]
     fn efficient_price_converges_toward_true_price() {
         // A flat "true" price of 100 with noise.
-        let mut f = NoiseFilter::new(NoiseConfig { ema_alpha: 0.3, ..Default::default() });
+        let mut f = NoiseFilter::new(NoiseConfig {
+            ema_alpha: 0.3,
+            ..Default::default()
+        });
         for i in 0..100 {
             let noise = if i % 2 == 0 { 0.1 } else { -0.1 };
             f.push(100.0 + noise);
         }
         let ep = f.efficient_price().unwrap();
-        assert!((ep - 100.0).abs() < 0.5, "efficient price should be near 100.0, got {ep}");
+        assert!(
+            (ep - 100.0).abs() < 0.5,
+            "efficient price should be near 100.0, got {ep}"
+        );
     }
 
     #[test]

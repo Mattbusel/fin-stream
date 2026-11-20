@@ -64,10 +64,7 @@ impl RollSpreadEstimator {
         }
 
         // Compute first differences ΔP_t = P_t - P_{t-1}.
-        let diffs: Vec<f64> = trades
-            .windows(2)
-            .map(|w| w[1].price - w[0].price)
-            .collect();
+        let diffs: Vec<f64> = trades.windows(2).map(|w| w[1].price - w[0].price).collect();
 
         // Compute serial covariance: Cov(ΔP_t, ΔP_{t-1}) over lagged pairs.
         // We need at least 2 differences → at least 3 trades.
@@ -258,7 +255,11 @@ mod tests {
     use super::*;
 
     fn make_trade(price: f64, ts: u64) -> TradeData {
-        TradeData { price, volume: 100.0, timestamp_ms: ts }
+        TradeData {
+            price,
+            volume: 100.0,
+            timestamp_ms: ts,
+        }
     }
 
     // -- Roll's model --
@@ -267,7 +268,9 @@ mod tests {
     fn roll_requires_at_least_3_trades() {
         assert!(RollSpreadEstimator::estimate(&[]).is_none());
         assert!(RollSpreadEstimator::estimate(&[make_trade(100.0, 0)]).is_none());
-        assert!(RollSpreadEstimator::estimate(&[make_trade(100.0, 0), make_trade(101.0, 1)]).is_none());
+        assert!(
+            RollSpreadEstimator::estimate(&[make_trade(100.0, 0), make_trade(101.0, 1)]).is_none()
+        );
     }
 
     #[test]
@@ -282,9 +285,16 @@ mod tests {
         // Simulate perfect bid-ask bounce: alternating 99.5 / 100.5.
         // Price changes alternate between +1 and -1 → strong negative serial cov.
         let prices = [99.5, 100.5, 99.5, 100.5, 99.5, 100.5, 99.5, 100.5];
-        let trades: Vec<_> = prices.iter().enumerate().map(|(i, &p)| make_trade(p, i as u64)).collect();
+        let trades: Vec<_> = prices
+            .iter()
+            .enumerate()
+            .map(|(i, &p)| make_trade(p, i as u64))
+            .collect();
         let spread = RollSpreadEstimator::estimate(&trades);
-        assert!(spread.is_some(), "alternating prices should yield a spread estimate");
+        assert!(
+            spread.is_some(),
+            "alternating prices should yield a spread estimate"
+        );
         let s = spread.unwrap();
         assert!(s > 0.0, "spread should be positive, got {s}");
     }
@@ -294,7 +304,11 @@ mod tests {
         // Construct a series with known serial covariance.
         // ΔP = [+1, -1, +1, -1] → Cov(ΔP_t, ΔP_{t-1}) should be negative.
         let prices = [100.0, 101.0, 100.0, 101.0, 100.0];
-        let trades: Vec<_> = prices.iter().enumerate().map(|(i, &p)| make_trade(p, i as u64)).collect();
+        let trades: Vec<_> = prices
+            .iter()
+            .enumerate()
+            .map(|(i, &p)| make_trade(p, i as u64))
+            .collect();
         let spread = RollSpreadEstimator::estimate(&trades);
         assert!(spread.is_some());
         // Spread should approximate 2 * sqrt(cov magnitude).
@@ -327,7 +341,7 @@ mod tests {
     fn corwin_schultz_narrow_ranges_small_spread() {
         // Narrow H/L ranges → small spread estimate.
         let high = [100.01, 100.02, 100.01];
-        let low  = [99.99,  100.00, 99.99];
+        let low = [99.99, 100.00, 99.99];
         let spread = CorwinSchultzSpread::estimate(&high, &low);
         assert!(spread.is_some(), "should return a spread for narrow ranges");
         let s = spread.unwrap();
@@ -337,24 +351,30 @@ mod tests {
     #[test]
     fn corwin_schultz_wide_ranges_larger_spread() {
         let narrow_high = [100.01, 100.02];
-        let narrow_low  = [99.99,  100.00];
+        let narrow_low = [99.99, 100.00];
         let wide_high = [105.0, 106.0];
-        let wide_low  = [95.0,  94.0];
+        let wide_low = [95.0, 94.0];
 
         let s_narrow = CorwinSchultzSpread::estimate(&narrow_high, &narrow_low).unwrap();
-        let s_wide   = CorwinSchultzSpread::estimate(&wide_high, &wide_low).unwrap();
-        assert!(s_wide > s_narrow, "wider ranges should yield a larger spread estimate");
+        let s_wide = CorwinSchultzSpread::estimate(&wide_high, &wide_low).unwrap();
+        assert!(
+            s_wide > s_narrow,
+            "wider ranges should yield a larger spread estimate"
+        );
     }
 
     #[test]
     fn corwin_schultz_clamped_to_zero() {
         // Equal H and L → no range → β=0, γ=0 → α could be ±, clamp to 0.
         let high = [100.0, 100.0];
-        let low  = [100.0, 100.0];
+        let low = [100.0, 100.0];
         // H == L would fail the H >= L > 0 check since ln(100/100) = 0 → valid.
         let spread = CorwinSchultzSpread::estimate(&high, &low);
         assert!(spread.is_some());
-        assert!((spread.unwrap()).abs() < 1e-10, "zero-range spread should be ~0");
+        assert!(
+            (spread.unwrap()).abs() < 1e-10,
+            "zero-range spread should be ~0"
+        );
     }
 
     // -- SpreadAnalyzer --
@@ -400,7 +420,10 @@ mod tests {
         }
         // Alternating prices → Roll should detect bid-ask bounce.
         let est = analyzer.roll_estimate();
-        assert!(est.is_some(), "should get a Roll estimate from bouncing prices");
+        assert!(
+            est.is_some(),
+            "should get a Roll estimate from bouncing prices"
+        );
     }
 
     #[test]

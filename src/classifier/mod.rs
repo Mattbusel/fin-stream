@@ -9,10 +9,10 @@
 //! The [`TradeFlowAccumulator`] maintains a rolling window of classified ticks
 //! and exposes aggregate [`TradeFlowMetrics`].
 
-use std::collections::VecDeque;
 use crate::tick::NormalizedTick;
-use rust_decimal::Decimal;
 use rust_decimal::prelude::ToPrimitive;
+use rust_decimal::Decimal;
+use std::collections::VecDeque;
 
 /// A bid-ask quote snapshot at the time of a trade.
 #[derive(Debug, Clone, PartialEq)]
@@ -383,7 +383,11 @@ mod tests {
         }
         let m = acc.metrics();
         assert!(m.buy_count >= 4, "expected >=4 buys, got {}", m.buy_count);
-        assert!(m.sell_count >= 2, "expected >=2 sells, got {}", m.sell_count);
+        assert!(
+            m.sell_count >= 2,
+            "expected >=2 sells, got {}",
+            m.sell_count
+        );
     }
 
     #[test]
@@ -396,8 +400,11 @@ mod tests {
             acc.push(clf.classify(&t, None));
         }
         let m = acc.metrics();
-        assert!(m.order_imbalance >= -1.0 && m.order_imbalance <= 1.0,
-            "imbalance out of range: {}", m.order_imbalance);
+        assert!(
+            m.order_imbalance >= -1.0 && m.order_imbalance <= 1.0,
+            "imbalance out of range: {}",
+            m.order_imbalance
+        );
     }
 
     #[test]
@@ -411,7 +418,11 @@ mod tests {
         let m = acc.metrics();
         // All trades are buy-initiated (monotone rising) except the first (Unknown)
         // After first tick sets prev, rest are buys
-        assert!(m.order_imbalance > 0.5, "expected strong buy imbalance, got {}", m.order_imbalance);
+        assert!(
+            m.order_imbalance > 0.5,
+            "expected strong buy imbalance, got {}",
+            m.order_imbalance
+        );
     }
 
     #[test]
@@ -447,6 +458,10 @@ mod tests {
         }
         let m = acc.metrics();
         // First tick is Unknown (no prev), so 3 buys × 2.0 = 6.0
-        assert!((m.buy_volume - 6.0).abs() < 1e-6, "buy_volume = {}", m.buy_volume);
+        assert!(
+            (m.buy_volume - 6.0).abs() < 1e-6,
+            "buy_volume = {}",
+            m.buy_volume
+        );
     }
 }

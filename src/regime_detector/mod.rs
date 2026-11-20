@@ -140,11 +140,31 @@ impl RegimeDetector {
     /// Construct a detector with reasonable default priors.
     pub fn new() -> Self {
         let states = vec![
-            HmmState { mean_return:  0.0005, vol: 0.008, regime: MarketRegime::LowVolBull  },
-            HmmState { mean_return:  0.0010, vol: 0.020, regime: MarketRegime::HighVolBull },
-            HmmState { mean_return: -0.0003, vol: 0.007, regime: MarketRegime::LowVolBear  },
-            HmmState { mean_return: -0.0010, vol: 0.022, regime: MarketRegime::HighVolBear },
-            HmmState { mean_return: -0.0030, vol: 0.040, regime: MarketRegime::Crisis      },
+            HmmState {
+                mean_return: 0.0005,
+                vol: 0.008,
+                regime: MarketRegime::LowVolBull,
+            },
+            HmmState {
+                mean_return: 0.0010,
+                vol: 0.020,
+                regime: MarketRegime::HighVolBull,
+            },
+            HmmState {
+                mean_return: -0.0003,
+                vol: 0.007,
+                regime: MarketRegime::LowVolBear,
+            },
+            HmmState {
+                mean_return: -0.0010,
+                vol: 0.022,
+                regime: MarketRegime::HighVolBear,
+            },
+            HmmState {
+                mean_return: -0.0030,
+                vol: 0.040,
+                regime: MarketRegime::Crisis,
+            },
         ];
 
         // Transition matrix — high self-transition probability (persistence)

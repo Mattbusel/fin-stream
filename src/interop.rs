@@ -114,7 +114,12 @@ impl TryFrom<&NormalizedTick> for fin_primitives::tick::Tick {
         let nanos = i64::try_from(t.best_timestamp_ms())
             .ok()
             .and_then(|ms| ms.checked_mul(1_000_000))
-            .ok_or_else(|| StreamError::InvalidInput(format!("timestamp {} ms is out of range", t.best_timestamp_ms())))?;
+            .ok_or_else(|| {
+                StreamError::InvalidInput(format!(
+                    "timestamp {} ms is out of range",
+                    t.best_timestamp_ms()
+                ))
+            })?;
         Ok(fin_primitives::tick::Tick::new(
             Symbol::new(&t.symbol)?,
             Price::new(t.price)?,
@@ -142,7 +147,8 @@ impl TryFrom<&NormalizedTick> for barter_data::subscription::trade::PublicTrade 
             TradeSide::Sell => barter_instrument::Side::Sell,
         };
         let f = |d: rust_decimal::Decimal| {
-            d.to_f64().ok_or_else(|| StreamError::InvalidInput(format!("{d} does not fit f64")))
+            d.to_f64()
+                .ok_or_else(|| StreamError::InvalidInput(format!("{d} does not fit f64")))
         };
         Ok(Self {
             id: t.trade_id.clone().unwrap_or_default(),
@@ -220,7 +226,9 @@ impl NormalizedTick {
         let exchange = exchange_from_barter(event.exchange)?;
         let decimal = |v: f64, what: &str| {
             Decimal::from_f64(v).ok_or_else(|| {
-                StreamError::InvalidInput(format!("barter trade {what} {v} is not a finite decimal"))
+                StreamError::InvalidInput(format!(
+                    "barter trade {what} {v} is not a finite decimal"
+                ))
             })
         };
         let price = decimal(trade.price, "price")?;
@@ -291,8 +299,16 @@ mod tests {
 
     #[test]
     fn side_default_only_fills_missing_sides() {
-        assert_eq!(tick(None).with_side_if_unknown(TradeSide::Sell).side, Some(TradeSide::Sell));
-        assert_eq!(tick(Some(TradeSide::Buy)).with_side_if_unknown(TradeSide::Sell).side, Some(TradeSide::Buy));
+        assert_eq!(
+            tick(None).with_side_if_unknown(TradeSide::Sell).side,
+            Some(TradeSide::Sell)
+        );
+        assert_eq!(
+            tick(Some(TradeSide::Buy))
+                .with_side_if_unknown(TradeSide::Sell)
+                .side,
+            Some(TradeSide::Buy)
+        );
     }
 
     #[cfg(feature = "fin-primitives")]
@@ -304,14 +320,21 @@ mod tests {
         assert_eq!(t.side, Side::Bid);
         assert_eq!(t.price.value(), dec!(227.53));
         assert_eq!(t.timestamp.nanos(), 1_767_625_200_123_000_000);
-        let mut agg = OhlcvAggregator::new(Symbol::new("AAPL").unwrap(), Timeframe::Minutes(1)).unwrap();
+        let mut agg =
+            OhlcvAggregator::new(Symbol::new("AAPL").unwrap(), Timeframe::Minutes(1)).unwrap();
         assert!(agg.push_tick(&t).unwrap().is_empty());
         assert_eq!(agg.current_bar().unwrap().close.value(), dec!(227.53));
 
-        assert!(matches!(fin_primitives::tick::Tick::try_from(&tick(None)), Err(StreamError::InvalidInput(_))));
+        assert!(matches!(
+            fin_primitives::tick::Tick::try_from(&tick(None)),
+            Err(StreamError::InvalidInput(_))
+        ));
         let mut zero = tick(Some(TradeSide::Sell));
         zero.price = dec!(0);
-        assert!(matches!(fin_primitives::tick::Tick::try_from(&zero), Err(StreamError::FinPrimitives(_))));
+        assert!(matches!(
+            fin_primitives::tick::Tick::try_from(&zero),
+            Err(StreamError::FinPrimitives(_))
+        ));
     }
 
     #[cfg(feature = "barter")]
@@ -377,7 +400,10 @@ mod tests {
         let mut no_id = barter_event(ExchangeId::Coinbase, 227.53, 1.0);
         no_id.kind.id.clear();
         let t = NormalizedTick::try_from(&no_id).unwrap();
-        assert_eq!((t.exchange, t.price, t.trade_id), (Exchange::Coinbase, dec!(227.53), None));
+        assert_eq!(
+            (t.exchange, t.price, t.trade_id),
+            (Exchange::Coinbase, dec!(227.53), None)
+        );
     }
 
     #[cfg(feature = "barter")]
@@ -385,10 +411,14 @@ mod tests {
     fn converts_barter_data_kind_events_by_reference() {
         use barter_data::event::DataKind;
         use barter_instrument::exchange::ExchangeId;
-        let e = barter_event(ExchangeId::BinanceFuturesUsd, 64_000.5, 0.25).map_kind(DataKind::Trade);
+        let e =
+            barter_event(ExchangeId::BinanceFuturesUsd, 64_000.5, 0.25).map_kind(DataKind::Trade);
         let trade = e.as_public_trade().unwrap();
         let t = NormalizedTick::try_from(&trade).unwrap();
-        assert_eq!((t.exchange, t.price, t.quantity), (Exchange::Binance, dec!(64000.5), dec!(0.25)));
+        assert_eq!(
+            (t.exchange, t.price, t.quantity),
+            (Exchange::Binance, dec!(64000.5), dec!(0.25))
+        );
     }
 
     #[cfg(feature = "barter")]
@@ -396,7 +426,9 @@ mod tests {
     fn rejects_barter_trades_it_cannot_represent() {
         use barter_instrument::exchange::ExchangeId;
         let unknown = NormalizedTick::try_from(&barter_event(ExchangeId::Bitfinex, 1.0, 1.0));
-        assert!(matches!(unknown, Err(StreamError::UnknownExchange(ref m)) if m.contains("bitfinex")));
+        assert!(
+            matches!(unknown, Err(StreamError::UnknownExchange(ref m)) if m.contains("bitfinex"))
+        );
         for (id, want) in [
             (ExchangeId::Kraken, Exchange::Kraken),
             (ExchangeId::Okx, Exchange::Okx),
@@ -417,11 +449,17 @@ mod tests {
         ];
         for (price, amount) in bad {
             let r = NormalizedTick::try_from(&barter_event(ExchangeId::BinanceSpot, price, amount));
-            assert!(matches!(r, Err(StreamError::InvalidInput(_))), "{price} {amount} gave {r:?}");
+            assert!(
+                matches!(r, Err(StreamError::InvalidInput(_))),
+                "{price} {amount} gave {r:?}"
+            );
         }
         let mut before_epoch = barter_event(ExchangeId::BinanceSpot, 1.0, 1.0);
         before_epoch.time_received = chrono::DateTime::<chrono::Utc>::MIN_UTC;
-        assert!(matches!(NormalizedTick::try_from(&before_epoch), Err(StreamError::InvalidInput(_))));
+        assert!(matches!(
+            NormalizedTick::try_from(&before_epoch),
+            Err(StreamError::InvalidInput(_))
+        ));
         // A zero amount passes (some venues report one); only negative amounts fail.
         assert!(NormalizedTick::try_from(&barter_event(ExchangeId::BinanceSpot, 1.0, 0.0)).is_ok());
     }

@@ -31,7 +31,10 @@ fn counter(snap: &Snap, name: &str, label: (&str, &str)) -> u64 {
     snap.iter()
         .find(|(key, _, _, _)| {
             key.key().name() == name
-                && key.key().labels().any(|l| l.key() == label.0 && l.value() == label.1)
+                && key
+                    .key()
+                    .labels()
+                    .any(|l| l.key() == label.0 && l.value() == label.1)
         })
         .map(|(_, _, _, v)| match v {
             DebugValue::Counter(c) => *c,
@@ -67,8 +70,18 @@ async fn ws_and_bar_counters_are_emitted() {
     let _ = agg.feed(&tick(2_000, dec!(1))).unwrap(); // late
     let _ = agg.flush(); // closes minute 1
     let s1 = take(&snap);
-    assert_eq!(counter(&s1, "fin_stream_ohlcv_bars_total", ("symbol", "BTC-USD")), 2);
-    assert_eq!(counter(&s1, "fin_stream_ohlcv_late_ticks_total", ("symbol", "BTC-USD")), 1);
+    assert_eq!(
+        counter(&s1, "fin_stream_ohlcv_bars_total", ("symbol", "BTC-USD")),
+        2
+    );
+    assert_eq!(
+        counter(
+            &s1,
+            "fin_stream_ohlcv_late_ticks_total",
+            ("symbol", "BTC-USD")
+        ),
+        1
+    );
 
     // WebSocket: two sessions of two messages each, closed by the server.
     let l = TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -83,13 +96,19 @@ async fn ws_and_bar_counters_are_emitted() {
             while ws.next().await.is_some() {}
         }
     });
-    let policy = ReconnectPolicy::new(3, Duration::from_millis(5), Duration::from_millis(5), 1.0).unwrap();
-    let cfg = ConnectionConfig::new(url.clone(), 16).unwrap().with_reconnect(policy);
+    let policy =
+        ReconnectPolicy::new(3, Duration::from_millis(5), Duration::from_millis(5), 1.0).unwrap();
+    let cfg = ConnectionConfig::new(url.clone(), 16)
+        .unwrap()
+        .with_reconnect(policy);
     let (tx, mut rx) = mpsc::channel(16);
     let mut mgr = WsManager::new(cfg);
     let task = tokio::spawn(async move { mgr.run(tx, None).await });
     for _ in 0..4 {
-        timeout(Duration::from_secs(5), rx.recv()).await.unwrap().unwrap();
+        timeout(Duration::from_secs(5), rx.recv())
+            .await
+            .unwrap()
+            .unwrap();
     }
     // Let the second close be processed and the third connect fail.
     tokio::time::sleep(Duration::from_millis(300)).await;

@@ -181,13 +181,10 @@
 #[cfg(feature = "net")]
 #[cfg_attr(docsrs, doc(cfg(feature = "net")))]
 pub mod agg;
+pub mod aggregator;
 pub mod interop;
 pub mod telemetry;
-pub mod aggregator;
 
-#[cfg(feature = "shared-state")]
-#[cfg_attr(docsrs, doc(cfg(feature = "shared-state")))]
-pub mod orderbook;
 #[cfg(feature = "net")]
 #[cfg_attr(docsrs, doc(cfg(feature = "net")))]
 pub mod anomaly;
@@ -199,6 +196,7 @@ pub mod circuit_breaker;
 #[cfg_attr(docsrs, doc(cfg(feature = "shared-state")))]
 pub mod correlation;
 pub mod error;
+pub mod execution;
 pub mod fix;
 #[cfg(feature = "net")]
 #[cfg_attr(docsrs, doc(cfg(feature = "net")))]
@@ -213,9 +211,13 @@ pub mod mev;
 pub mod multi_exchange;
 pub mod norm;
 pub mod ohlcv;
+#[cfg(feature = "shared-state")]
+#[cfg_attr(docsrs, doc(cfg(feature = "shared-state")))]
+pub mod orderbook;
 #[cfg(all(feature = "net", feature = "shared-state"))]
 #[cfg_attr(docsrs, doc(cfg(all(feature = "net", feature = "shared-state"))))]
 pub mod portfolio_feed;
+pub mod predictive_book;
 pub mod protocol;
 #[cfg(feature = "net")]
 #[cfg_attr(docsrs, doc(cfg(feature = "net")))]
@@ -229,16 +231,14 @@ pub mod tick;
 #[cfg(feature = "net")]
 #[cfg_attr(docsrs, doc(cfg(feature = "net")))]
 pub mod ws;
-pub mod predictive_book;
-pub mod execution;
 
+pub mod noise;
 #[cfg(feature = "shared-state")]
 #[cfg_attr(docsrs, doc(cfg(feature = "shared-state")))]
 pub mod portfolio_risk;
 pub mod regime;
 pub mod synthetic;
 pub mod toxicity;
-pub mod noise;
 
 pub mod ofi;
 
@@ -277,12 +277,10 @@ pub mod volatility_forecast;
 pub mod portfolio_optimizer;
 
 #[cfg(feature = "net")]
-pub use agg::{AggregatorConfig, ArbDetector, ArbOpportunity, FeedAggregator, FeedHandle, MergeStrategy};
-pub use aggregator::{AggregationMode, BarAggregator, BarBuilder};
-pub use protocol::{
-    BarEvent as ProtocolBarEvent, EventStream, FeedStatus, JsonStreamAdapter, MarketEvent,
-    OrderBookEvent, QuoteEvent, StatusEvent, TradeSide, TradeEvent as ProtocolTradeEvent,
+pub use agg::{
+    AggregatorConfig, ArbDetector, ArbOpportunity, FeedAggregator, FeedHandle, MergeStrategy,
 };
+pub use aggregator::{AggregationMode, BarAggregator, BarBuilder};
 #[cfg(feature = "net")]
 pub use anomaly::{AnomalyDetectorConfig, AnomalyEvent, AnomalyKind, TickAnomalyDetector};
 pub use book::{BookDelta, BookSide, OrderBook, PriceLevel};
@@ -291,39 +289,45 @@ pub use circuit_breaker::{CircuitBreakerConfig, CircuitState, WsCircuitBreaker};
 #[cfg(feature = "shared-state")]
 pub use correlation::{CorrelationPair, StreamingCorrelationMatrix};
 pub use error::StreamError;
-pub use fix::{FixError, FixMessage, FixParser};
 #[cfg(feature = "net")]
 pub use fix::FixSession;
+pub use fix::{FixError, FixMessage, FixParser};
 #[cfg(feature = "shared-state")]
 pub use health::{FeedHealth, HealthMonitor, HealthStatus};
 pub use lorentz::{LorentzTransform, SpacetimePoint};
 pub use mev::{MevCandidate, MevDetector, MevPattern};
+pub use microstructure::{
+    AmihudIlliquidity, BidAskBounce, KyleImpact, MicroTick, MicrostructureMonitor,
+    MicrostructureReport, RollSpread,
+};
 #[cfg(all(feature = "net", feature = "shared-state"))]
 pub use multi_exchange::{
-    AggregatorConfig as MultiExchangeAggregatorConfig, ArbitrageOpportunity,
-    ExchangeLatencyStats, MultiExchangeAggregator, Nbbo,
+    AggregatorConfig as MultiExchangeAggregatorConfig, ArbitrageOpportunity, ExchangeLatencyStats,
+    MultiExchangeAggregator, Nbbo,
 };
 pub use norm::{MinMaxNormalizer, ZScoreNormalizer};
+pub use ofi::{
+    NanoTimestamp as OfiNanoTimestamp, OfiAccumulator, OfiMetrics, OfiMetricsComputer, OfiSignal,
+    OrderFlowImbalance, Side as OfiSide, TopOfBook, ToxicityEstimator, VpinResult,
+};
 pub use ohlcv::{OhlcvAggregator, OhlcvBar, Timeframe};
 #[cfg(all(feature = "net", feature = "shared-state"))]
 pub use portfolio_feed::{AssetFeedConfig, AssetFeedStats, PortfolioFeed};
+pub use protocol::{
+    BarEvent as ProtocolBarEvent, EventStream, FeedStatus, JsonStreamAdapter, MarketEvent,
+    OrderBookEvent, QuoteEvent, StatusEvent, TradeEvent as ProtocolTradeEvent, TradeSide,
+};
 #[cfg(feature = "net")]
 pub use replay::{ReplaySession, ReplayStats, TickReplayer, TickSource};
 pub use ring::{SpscConsumer, SpscProducer, SpscRing};
 pub use session::{MarketSession, SessionAwareness, TradingStatus};
 #[cfg(feature = "net")]
 pub use snapshot::{TickRecorder, TickReplayer as SnapshotReplayer};
-pub use tick::{Exchange, NormalizedQuote, NormalizedTick, RawTick, TickNormalizer, TimestampSource};
+pub use tick::{
+    Exchange, NormalizedQuote, NormalizedTick, RawTick, TickNormalizer, TimestampSource,
+};
 #[cfg(feature = "net")]
 pub use ws::{ConnectionConfig, ReconnectPolicy, WsManager};
-pub use ofi::{
-    NanoTimestamp as OfiNanoTimestamp, OfiAccumulator, OfiMetrics, OfiMetricsComputer,
-    OfiSignal, OrderFlowImbalance, Side as OfiSide, TopOfBook, ToxicityEstimator, VpinResult,
-};
-pub use microstructure::{
-    AmihudIlliquidity, BidAskBounce, KyleImpact, MicroTick, MicrostructureMonitor,
-    MicrostructureReport, RollSpread,
-};
 
 #[cfg(feature = "shared-state")]
 #[cfg_attr(docsrs, doc(cfg(feature = "shared-state")))]

@@ -4,9 +4,9 @@
 //! filters, maintains per-symbol statistics, and routes processed ticks to
 //! named sinks — all concurrently using [`dashmap::DashMap`] and atomics.
 
+use dashmap::DashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
-use dashmap::DashMap;
 
 // Re-export RawTick from data_pipeline so callers can use a single type.
 pub use crate::data_pipeline::RawTick;
@@ -84,7 +84,9 @@ impl TickFilter {
             TickFilter::MinSize(min) => tick.size >= *min,
             TickFilter::MaxPrice(max) => tick.price <= *max,
             TickFilter::MinPrice(min) => tick.price >= *min,
-            TickFilter::SymbolSet(syms) => syms.iter().any(|s| s.eq_ignore_ascii_case(&tick.symbol)),
+            TickFilter::SymbolSet(syms) => {
+                syms.iter().any(|s| s.eq_ignore_ascii_case(&tick.symbol))
+            }
             TickFilter::ExchangeSet(exs) => {
                 exs.iter().any(|e| e.eq_ignore_ascii_case(&tick.exchange))
             }
@@ -144,9 +146,17 @@ impl TickStats {
         self.total_volume += tick.size;
         self.pv_sum += tick.price * tick.size;
         self.vol_sum += tick.size;
-        self.vwap = if self.vol_sum > 0.0 { self.pv_sum / self.vol_sum } else { 0.0 };
-        if tick.price < self.min_price { self.min_price = tick.price; }
-        if tick.price > self.max_price { self.max_price = tick.price; }
+        self.vwap = if self.vol_sum > 0.0 {
+            self.pv_sum / self.vol_sum
+        } else {
+            0.0
+        };
+        if tick.price < self.min_price {
+            self.min_price = tick.price;
+        }
+        if tick.price > self.max_price {
+            self.max_price = tick.price;
+        }
         self.last_price = tick.price;
         self.last_timestamp_ns = tick.timestamp_ns;
     }
@@ -282,7 +292,9 @@ impl TickProcessor {
 
     /// Ticks processed per second over `elapsed_secs`.
     pub fn throughput_rps(&self, elapsed_secs: f64) -> f64 {
-        if elapsed_secs <= 0.0 { return 0.0; }
+        if elapsed_secs <= 0.0 {
+            return 0.0;
+        }
         self.processed_count.load(Ordering::Relaxed) as f64 / elapsed_secs
     }
 
@@ -353,7 +365,10 @@ mod tests {
     #[test]
     fn test_filter_symbol_set() {
         let mut proc = TickProcessor::new();
-        proc.add_filter(TickFilter::SymbolSet(vec!["AAPL".to_string(), "MSFT".to_string()]));
+        proc.add_filter(TickFilter::SymbolSet(vec![
+            "AAPL".to_string(),
+            "MSFT".to_string(),
+        ]));
         let allowed = make_tick("AAPL", 150.0, 100.0, 1);
         let blocked = make_tick("GOOG", 2800.0, 10.0, 2);
         assert!(proc.process(allowed).is_some());
@@ -435,7 +450,10 @@ mod tests {
     #[test]
     fn test_time_range_filter() {
         let mut proc = TickProcessor::new();
-        proc.add_filter(TickFilter::TimeRange { start_ns: 1000, end_ns: 2000 });
+        proc.add_filter(TickFilter::TimeRange {
+            start_ns: 1000,
+            end_ns: 2000,
+        });
         assert!(proc.process(make_tick("X", 100.0, 1.0, 1500)).is_some());
         assert!(proc.process(make_tick("X", 100.0, 1.0, 500)).is_none());
         assert!(proc.process(make_tick("X", 100.0, 1.0, 3000)).is_none());

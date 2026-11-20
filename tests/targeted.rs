@@ -21,7 +21,12 @@ use std::time::Duration;
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-fn make_tick(symbol: &str, price_val: rust_decimal::Decimal, qty: rust_decimal::Decimal, ts_ms: u64) -> NormalizedTick {
+fn make_tick(
+    symbol: &str,
+    price_val: rust_decimal::Decimal,
+    qty: rust_decimal::Decimal,
+    ts_ms: u64,
+) -> NormalizedTick {
     NormalizedTick {
         exchange: Exchange::Binance,
         symbol: symbol.to_string(),
@@ -146,17 +151,38 @@ fn ohlcv_bar_boundary_last_tick_of_bar_and_first_of_next() {
     assert!(r1.is_empty(), "first tick must not complete a bar");
 
     let r2 = agg.feed(&second_tick_of_bar_0).unwrap();
-    assert!(r2.is_empty(), "last tick of current bar must not complete it yet");
+    assert!(
+        r2.is_empty(),
+        "last tick of current bar must not complete it yet"
+    );
 
     // The first tick of bar 1 triggers completion of bar 0.
     let mut r3 = agg.feed(&first_tick_of_bar_1).unwrap();
-    assert_eq!(r3.len(), 1, "bar boundary tick must emit exactly one completed bar");
+    assert_eq!(
+        r3.len(),
+        1,
+        "bar boundary tick must emit exactly one completed bar"
+    );
 
     let completed_bar = r3.remove(0);
-    assert!(completed_bar.is_complete, "emitted bar must be marked complete");
-    assert_eq!(completed_bar.bar_start_ms, 0, "completed bar must start at 0ms");
-    assert_eq!(completed_bar.open, dec!(50_000), "open must be first tick price");
-    assert_eq!(completed_bar.close, dec!(50_500), "close must be last tick of that bar");
+    assert!(
+        completed_bar.is_complete,
+        "emitted bar must be marked complete"
+    );
+    assert_eq!(
+        completed_bar.bar_start_ms, 0,
+        "completed bar must start at 0ms"
+    );
+    assert_eq!(
+        completed_bar.open,
+        dec!(50_000),
+        "open must be first tick price"
+    );
+    assert_eq!(
+        completed_bar.close,
+        dec!(50_500),
+        "close must be last tick of that bar"
+    );
     assert_eq!(completed_bar.high, dec!(50_500));
     assert_eq!(completed_bar.low, dec!(50_000));
     assert_eq!(completed_bar.volume, dec!(3));
@@ -164,8 +190,15 @@ fn ohlcv_bar_boundary_last_tick_of_bar_and_first_of_next() {
 
     // The new current bar must start with the boundary tick's price.
     let current = agg.current_bar().unwrap();
-    assert_eq!(current.bar_start_ms, 60_000, "new bar must start at 60_000ms");
-    assert_eq!(current.open, dec!(51_000), "new bar open must be boundary tick price");
+    assert_eq!(
+        current.bar_start_ms, 60_000,
+        "new bar must start at 60_000ms"
+    );
+    assert_eq!(
+        current.open,
+        dec!(51_000),
+        "new bar open must be boundary tick price"
+    );
     assert_eq!(current.trade_count, 1);
 }
 
@@ -185,8 +218,10 @@ fn ohlcv_single_tick_at_bar_boundary_starts_new_bar() {
 #[test]
 fn ohlcv_two_ticks_same_bar_window_accumulate() {
     let mut agg = OhlcvAggregator::new("BTC-USD", Timeframe::Seconds(30)).unwrap();
-    agg.feed(&make_tick("BTC-USD", dec!(65_000), dec!(1), 30_000)).unwrap();
-    agg.feed(&make_tick("BTC-USD", dec!(66_000), dec!(2), 59_999)).unwrap();
+    agg.feed(&make_tick("BTC-USD", dec!(65_000), dec!(1), 30_000))
+        .unwrap();
+    agg.feed(&make_tick("BTC-USD", dec!(66_000), dec!(2), 59_999))
+        .unwrap();
     let bar = agg.current_bar().unwrap();
     assert_eq!(bar.trade_count, 2);
     assert_eq!(bar.volume, dec!(3));
@@ -203,26 +238,48 @@ fn feed_health_transitions_unknown_healthy_stale_healthy() {
 
     // Initial state: Unknown.
     let h = monitor.get("BTC-USD").unwrap();
-    assert_eq!(h.status, HealthStatus::Unknown, "newly registered feed must be Unknown");
+    assert_eq!(
+        h.status,
+        HealthStatus::Unknown,
+        "newly registered feed must be Unknown"
+    );
     assert!(h.last_tick_ms.is_none());
 
     // Heartbeat -> Healthy.
     monitor.heartbeat("BTC-USD", 1_000_000).unwrap();
     let h = monitor.get("BTC-USD").unwrap();
-    assert_eq!(h.status, HealthStatus::Healthy, "heartbeat must transition to Healthy");
+    assert_eq!(
+        h.status,
+        HealthStatus::Healthy,
+        "heartbeat must transition to Healthy"
+    );
 
     // 6 seconds elapsed, check -> Stale.
     let errors = monitor.check_all(1_006_000);
-    assert!(!errors.is_empty(), "feed should be stale after threshold exceeded");
+    assert!(
+        !errors.is_empty(),
+        "feed should be stale after threshold exceeded"
+    );
     let h = monitor.get("BTC-USD").unwrap();
-    assert_eq!(h.status, HealthStatus::Stale, "feed must be Stale after threshold exceeded");
+    assert_eq!(
+        h.status,
+        HealthStatus::Stale,
+        "feed must be Stale after threshold exceeded"
+    );
     assert_eq!(h.consecutive_stale, 1);
 
     // Recovery heartbeat -> Healthy again.
     monitor.heartbeat("BTC-USD", 1_007_000).unwrap();
     let h = monitor.get("BTC-USD").unwrap();
-    assert_eq!(h.status, HealthStatus::Healthy, "recovery heartbeat must restore Healthy status");
-    assert_eq!(h.consecutive_stale, 0, "consecutive_stale must reset on heartbeat");
+    assert_eq!(
+        h.status,
+        HealthStatus::Healthy,
+        "recovery heartbeat must restore Healthy status"
+    );
+    assert_eq!(
+        h.consecutive_stale, 0,
+        "consecutive_stale must reset on heartbeat"
+    );
 }
 
 /// A feed that receives no heartbeat ever remains Unknown through all checks.
@@ -233,7 +290,10 @@ fn feed_health_unknown_feed_never_transitions_to_stale_without_heartbeat() {
     // Check many times without any heartbeat.
     for i in 0..5 {
         let errors = monitor.check_all(1_000_000 + i * 10_000);
-        assert!(errors.is_empty(), "feed with no heartbeat must not be flagged stale");
+        assert!(
+            errors.is_empty(),
+            "feed with no heartbeat must not be flagged stale"
+        );
     }
     let h = monitor.get("ETH-USD").unwrap();
     assert_eq!(h.status, HealthStatus::Unknown);
@@ -248,15 +308,24 @@ fn feed_health_circuit_breaker_opens_and_closes() {
 
     // First stale check.
     monitor.check_all(1_002_000);
-    assert!(!monitor.is_circuit_open("FEED-X"), "circuit must not open after 1 stale check");
+    assert!(
+        !monitor.is_circuit_open("FEED-X"),
+        "circuit must not open after 1 stale check"
+    );
 
     // Second stale check -- circuit opens.
     monitor.check_all(1_004_000);
-    assert!(monitor.is_circuit_open("FEED-X"), "circuit must open at threshold = 2");
+    assert!(
+        monitor.is_circuit_open("FEED-X"),
+        "circuit must open at threshold = 2"
+    );
 
     // Heartbeat closes the circuit.
     monitor.heartbeat("FEED-X", 1_005_000).unwrap();
-    assert!(!monitor.is_circuit_open("FEED-X"), "heartbeat must close the circuit");
+    assert!(
+        !monitor.is_circuit_open("FEED-X"),
+        "heartbeat must close the circuit"
+    );
 }
 
 /// Multiple feeds: stale detection does not affect healthy feeds.
@@ -302,7 +371,8 @@ fn session_us_equity_full_day_lifecycle() {
     let status = sa.status(overnight).unwrap();
     assert!(
         status == TradingStatus::Extended || status == TradingStatus::Closed,
-        "Mon 00:00 UTC (Sun 19:00 ET) must be Extended or Closed, got {:?}", status
+        "Mon 00:00 UTC (Sun 19:00 ET) must be Extended or Closed, got {:?}",
+        status
     );
 
     // Mon Jan 08 2024 09:00 UTC = 04:00 ET -- pre-market (Extended).
@@ -310,7 +380,8 @@ fn session_us_equity_full_day_lifecycle() {
     let status = sa.status(pre_market).unwrap();
     assert!(
         status == TradingStatus::Extended || status == TradingStatus::Open,
-        "04:00 ET must be Extended or Open, got {:?}", status
+        "04:00 ET must be Extended or Open, got {:?}",
+        status
     );
 
     // Mon Jan 08 2024 14:30 UTC = 09:30 ET -- regular trading hours (Open).
@@ -322,7 +393,8 @@ fn session_us_equity_full_day_lifecycle() {
     let status = sa.status(market_close).unwrap();
     assert!(
         status == TradingStatus::Extended || status == TradingStatus::Closed,
-        "16:00 ET should be Extended or Closed, got {:?}", status
+        "16:00 ET should be Extended or Closed, got {:?}",
+        status
     );
 }
 
@@ -379,12 +451,8 @@ fn session_forex_closed_on_weekend_open_on_weekday() {
 /// must correctly compute backoff durations in exponential sequence.
 #[test]
 fn ws_reconnect_after_disconnect_produces_exponential_backoff() {
-    let policy = ReconnectPolicy::new(
-        5,
-        Duration::from_millis(100),
-        Duration::from_secs(30),
-        2.0,
-    ).unwrap();
+    let policy =
+        ReconnectPolicy::new(5, Duration::from_millis(100), Duration::from_secs(30), 2.0).unwrap();
     let config = ConnectionConfig::new("wss://feed.example.com/ws", 512)
         .unwrap()
         .with_reconnect(policy);
@@ -405,11 +473,16 @@ fn ws_reconnect_after_disconnect_produces_exponential_backoff() {
     while mgr.can_reconnect() {
         backoffs.push(mgr.next_reconnect_backoff().unwrap());
     }
-    assert!(!backoffs.is_empty(), "should have consumed at least one reconnect slot");
+    assert!(
+        !backoffs.is_empty(),
+        "should have consumed at least one reconnect slot"
+    );
     for w in backoffs.windows(2) {
         assert!(
             w[1] >= w[0],
-            "backoff must be non-decreasing; got {:?} then {:?}", w[0], w[1]
+            "backoff must be non-decreasing; got {:?} then {:?}",
+            w[0],
+            w[1]
         );
     }
 
@@ -421,7 +494,8 @@ fn ws_reconnect_after_disconnect_produces_exponential_backoff() {
 /// After reconnect slots are exhausted, can_reconnect() returns false.
 #[test]
 fn ws_reconnect_exhausted_can_reconnect_is_false() {
-    let policy = ReconnectPolicy::new(2, Duration::from_millis(50), Duration::from_secs(5), 2.0).unwrap();
+    let policy =
+        ReconnectPolicy::new(2, Duration::from_millis(50), Duration::from_secs(5), 2.0).unwrap();
     let config = ConnectionConfig::new("wss://feed.io/ws", 256)
         .unwrap()
         .with_reconnect(policy);
@@ -462,7 +536,10 @@ fn ws_reconnect_first_attempt_backoff_equals_initial() {
         .with_reconnect(policy);
     let mut mgr = WsManager::new(config);
     let backoff = mgr.next_reconnect_backoff().unwrap();
-    assert_eq!(backoff, initial, "first reconnect backoff must equal initial_backoff");
+    assert_eq!(
+        backoff, initial,
+        "first reconnect backoff must equal initial_backoff"
+    );
 }
 
 /// The backoff is capped at `max_backoff` regardless of attempt number.

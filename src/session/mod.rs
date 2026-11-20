@@ -44,7 +44,7 @@ impl MarketSession {
     pub fn session_duration_ms(self) -> u64 {
         match self {
             MarketSession::UsEquity => 6 * 3_600_000 + 30 * 60_000, // 6.5 hours
-            MarketSession::Forex => 5 * 24 * 3_600_000,              // 120 hours
+            MarketSession::Forex => 5 * 24 * 3_600_000,             // 120 hours
             MarketSession::Crypto => u64::MAX,
         }
     }
@@ -91,7 +91,9 @@ impl std::str::FromStr for MarketSession {
             "crypto" => Ok(MarketSession::Crypto),
             "forex" => Ok(MarketSession::Forex),
             _ => Err(StreamError::ConfigError {
-                reason: format!("unknown market session '{s}'; expected usequity, crypto, or forex"),
+                reason: format!(
+                    "unknown market session '{s}'; expected usequity, crypto, or forex"
+                ),
             }),
         }
     }
@@ -109,9 +111,7 @@ impl std::str::FromStr for TradingStatus {
             "extended" => Ok(TradingStatus::Extended),
             "closed" => Ok(TradingStatus::Closed),
             _ => Err(StreamError::ConfigError {
-                reason: format!(
-                    "unknown trading status '{s}'; expected open, extended, or closed"
-                ),
+                reason: format!("unknown trading status '{s}'; expected open, extended, or closed"),
             }),
         }
     }
@@ -180,7 +180,8 @@ impl SessionAwareness {
     /// Shorthand for `self.status(utc_ms) == Ok(TradingStatus::Closed)`.
     /// For [`MarketSession::Crypto`] this always returns `false`.
     pub fn is_closed(&self, utc_ms: u64) -> bool {
-        self.status(utc_ms).is_ok_and(|s| s == TradingStatus::Closed)
+        self.status(utc_ms)
+            .is_ok_and(|s| s == TradingStatus::Closed)
     }
 
     /// Returns `true` if the session is currently in [`TradingStatus::Extended`] status.
@@ -189,7 +190,8 @@ impl SessionAwareness {
     /// `Open`). For equity, `Extended` covers pre-market (4:00–9:30 ET) and
     /// after-hours (16:00–20:00 ET).
     pub fn is_extended(&self, utc_ms: u64) -> bool {
-        self.status(utc_ms).is_ok_and(|s| s == TradingStatus::Extended)
+        self.status(utc_ms)
+            .is_ok_and(|s| s == TradingStatus::Extended)
     }
 
     /// Returns `true` if the session is currently in [`TradingStatus::Open`] status.
@@ -279,7 +281,9 @@ impl SessionAwareness {
         if self.session != MarketSession::UsEquity {
             return false;
         }
-        let Some(t) = self.et_trading_secs_of_day(utc_ms) else { return false; };
+        let Some(t) = self.et_trading_secs_of_day(utc_ms) else {
+            return false;
+        };
         let pre_open = 4 * 3600_u64;
         let market_open = 9 * 3600 + 30 * 60_u64;
         t >= pre_open && t < market_open
@@ -293,7 +297,9 @@ impl SessionAwareness {
         if self.session != MarketSession::UsEquity {
             return false;
         }
-        let Some(t) = self.et_trading_secs_of_day(utc_ms) else { return false; };
+        let Some(t) = self.et_trading_secs_of_day(utc_ms) else {
+            return false;
+        };
         let market_close = 16 * 3600_u64;
         let post_close = 20 * 3600_u64;
         t >= market_close && t < post_close
@@ -304,7 +310,11 @@ impl SessionAwareness {
         let secs = (utc_ms / 1000) as i64;
         let dt = chrono::DateTime::<chrono::Utc>::from_timestamp(secs, 0)
             .unwrap_or_else(chrono::Utc::now);
-        let et_offset_secs: i64 = if is_us_dst(utc_ms) { -4 * 3600 } else { -5 * 3600 };
+        let et_offset_secs: i64 = if is_us_dst(utc_ms) {
+            -4 * 3600
+        } else {
+            -5 * 3600
+        };
         let et_dt = dt + chrono::Duration::seconds(et_offset_secs);
         let dow = et_dt.weekday();
         if dow == chrono::Weekday::Sat || dow == chrono::Weekday::Sun {
@@ -324,7 +334,10 @@ impl SessionAwareness {
 
     /// Returns `true` if the session is active: either `Open` or `Extended` (not `Closed`).
     pub fn is_active(&self, utc_ms: u64) -> bool {
-        matches!(self.status(utc_ms), Ok(TradingStatus::Open) | Ok(TradingStatus::Extended))
+        matches!(
+            self.status(utc_ms),
+            Ok(TradingStatus::Open) | Ok(TradingStatus::Extended)
+        )
     }
 
     /// Return the UTC millisecond timestamp of the next time this session
@@ -348,7 +361,11 @@ impl SessionAwareness {
         match self.session {
             MarketSession::Crypto => "open",
             MarketSession::Forex => {
-                if self.is_open(utc_ms) { "open" } else { "closed" }
+                if self.is_open(utc_ms) {
+                    "open"
+                } else {
+                    "closed"
+                }
             }
             MarketSession::UsEquity => {
                 if self.is_open(utc_ms) {
@@ -494,7 +511,8 @@ impl SessionAwareness {
     /// Returns `true` if the current time is within the final 60 minutes of
     /// the regular session.
     pub fn is_last_trading_hour(&self, utc_ms: u64) -> bool {
-        self.remaining_session_ms(utc_ms).is_some_and(|r| r <= 3_600_000)
+        self.remaining_session_ms(utc_ms)
+            .is_some_and(|r| r <= 3_600_000)
     }
 
     /// Returns `true` if the session is open and `utc_ms` is within
@@ -504,7 +522,8 @@ impl SessionAwareness {
     /// etc.).  Uses the same remaining-time calculation as
     /// [`remaining_session_ms`](Self::remaining_session_ms).
     pub fn is_near_close(&self, utc_ms: u64, margin_ms: u64) -> bool {
-        self.remaining_session_ms(utc_ms).is_some_and(|r| r <= margin_ms)
+        self.remaining_session_ms(utc_ms)
+            .is_some_and(|r| r <= margin_ms)
     }
 
     /// Duration of the regular (non-extended) session in milliseconds.
@@ -521,7 +540,8 @@ impl SessionAwareness {
     /// The opening range is a commonly watched period for establishing the
     /// day's initial price range. Returns `false` outside the session.
     pub fn is_opening_range(&self, utc_ms: u64) -> bool {
-        self.time_in_session_ms(utc_ms).is_some_and(|e| e < 30 * 60 * 1_000)
+        self.time_in_session_ms(utc_ms)
+            .is_some_and(|e| e < 30 * 60 * 1_000)
     }
 
     /// Returns `true` if the session is between 25 % and 75 % complete.
@@ -530,7 +550,8 @@ impl SessionAwareness {
     /// Returns `false` outside the session or when session progress is
     /// unavailable (e.g. `Crypto`).
     pub fn is_mid_session(&self, utc_ms: u64) -> bool {
-        self.session_progress(utc_ms).is_some_and(|p| (0.25..=0.75).contains(&p))
+        self.session_progress(utc_ms)
+            .is_some_and(|p| (0.25..=0.75).contains(&p))
     }
 
     /// Returns `true` if the session is in the first half (< 50%) of its duration.
@@ -543,7 +564,8 @@ impl SessionAwareness {
     /// Returns which half of the trading session we are in: `1` for the first half,
     /// `2` for the second half. Returns `0` if outside the session.
     pub fn session_half(&self, utc_ms: u64) -> u8 {
-        self.session_progress(utc_ms).map_or(0, |p| if p < 0.5 { 1 } else { 2 })
+        self.session_progress(utc_ms)
+            .map_or(0, |p| if p < 0.5 { 1 } else { 2 })
     }
 
     /// Returns `true` if both `self` and `other` are simultaneously open at `utc_ms`.
@@ -573,7 +595,9 @@ impl SessionAwareness {
     pub fn remaining_ms(&self, utc_ms: u64) -> u64 {
         let elapsed = self.time_in_session_ms(utc_ms).unwrap_or(0);
         let duration = self.session.session_duration_ms();
-        if duration == u64::MAX { return u64::MAX; }
+        if duration == u64::MAX {
+            return u64::MAX;
+        }
         duration.saturating_sub(elapsed)
     }
 
@@ -602,7 +626,8 @@ impl SessionAwareness {
     ///
     /// Returns `false` outside the session.
     pub fn is_power_hour(&self, utc_ms: u64) -> bool {
-        self.session_progress(utc_ms).is_some_and(|p| p > (5.5 / 6.5))
+        self.session_progress(utc_ms)
+            .is_some_and(|p| p > (5.5 / 6.5))
     }
 
     /// Returns `true` if the session is overnight: the market is closed
@@ -638,7 +663,8 @@ impl SessionAwareness {
     /// Returns `true` if the session is open and within the last 60 seconds of
     /// the regular trading session.
     pub fn is_last_minute(&self, utc_ms: u64) -> bool {
-        self.remaining_session_ms(utc_ms).is_some_and(|r| r <= 60_000)
+        self.remaining_session_ms(utc_ms)
+            .is_some_and(|r| r <= 60_000)
     }
 
     /// Returns the week of the month (1–5) for `date`.
@@ -698,7 +724,8 @@ impl SessionAwareness {
         if self.session != MarketSession::UsEquity {
             return false;
         }
-        self.time_in_session_ms(utc_ms).is_some_and(|e| (150 * 60 * 1_000..210 * 60 * 1_000).contains(&e))
+        self.time_in_session_ms(utc_ms)
+            .is_some_and(|e| (150 * 60 * 1_000..210 * 60 * 1_000).contains(&e))
     }
 
     /// Returns `true` if `date` is a triple witching day (third Friday of March, June,
@@ -770,7 +797,8 @@ impl SessionAwareness {
             return false;
         }
         const SESSION_LENGTH_MS: u64 = 6 * 3_600_000 + 30 * 60_000; // 6.5h
-        self.time_in_session_ms(utc_ms).is_some_and(|e| e + 60_000 >= SESSION_LENGTH_MS)
+        self.time_in_session_ms(utc_ms)
+            .is_some_and(|e| e + 60_000 >= SESSION_LENGTH_MS)
     }
 
     /// Returns `true` if `date` is the day immediately before or after a major
@@ -848,7 +876,11 @@ impl SessionAwareness {
         // 20:00 ET = 00:00 UTC next calendar day (EDT) or 01:00 UTC next day (EST).
         let secs = (utc_ms / 1000) as i64;
         let dt = Utc.timestamp_opt(secs, 0).single().unwrap_or_else(Utc::now);
-        let et_offset_secs: i64 = if is_us_dst(utc_ms) { -4 * 3600 } else { -5 * 3600 };
+        let et_offset_secs: i64 = if is_us_dst(utc_ms) {
+            -4 * 3600
+        } else {
+            -5 * 3600
+        };
         let et_dt = dt + Duration::seconds(et_offset_secs);
         let et_date = et_dt.date_naive();
 
@@ -886,7 +918,11 @@ impl SessionAwareness {
         }
         let secs = (utc_ms / 1000) as i64;
         let dt = Utc.timestamp_opt(secs, 0).single().unwrap_or_else(Utc::now);
-        let et_offset_secs: i64 = if is_us_dst(utc_ms) { -4 * 3600 } else { -5 * 3600 };
+        let et_offset_secs: i64 = if is_us_dst(utc_ms) {
+            -4 * 3600
+        } else {
+            -5 * 3600
+        };
         let et_dt = dt + Duration::seconds(et_offset_secs);
 
         let dow = et_dt.weekday();
@@ -946,7 +982,11 @@ impl SessionAwareness {
         let dt = Utc.timestamp_opt(secs, 0).single().unwrap_or_else(Utc::now);
 
         // Determine ET offset: EDT = UTC-4 during DST, EST = UTC-5 otherwise.
-        let et_offset_secs: i64 = if is_us_dst(utc_ms) { -4 * 3600 } else { -5 * 3600 };
+        let et_offset_secs: i64 = if is_us_dst(utc_ms) {
+            -4 * 3600
+        } else {
+            -5 * 3600
+        };
         let et_dt = dt + Duration::seconds(et_offset_secs);
 
         // Closed on weekends.
@@ -1253,7 +1293,7 @@ mod tests {
         // 2024 DST starts: March 10 at 07:00 UTC (2:00 AM EST → 3:00 AM EDT)
         // Just before: 06:59 UTC → EST (UTC-5) → 01:59 ET → Closed
         let just_before_dst_ms = 1710053940000_u64; // 2024-03-10 06:59 UTC
-        // Just after: 07:01 UTC → EDT (UTC-4) → 03:01 ET → Closed (pre-market)
+                                                    // Just after: 07:01 UTC → EDT (UTC-4) → 03:01 ET → Closed (pre-market)
         let just_after_dst_ms = 1710054060000_u64; // 2024-03-10 07:01 UTC
         assert!(!is_us_dst(just_before_dst_ms));
         assert!(is_us_dst(just_after_dst_ms));
@@ -1264,7 +1304,7 @@ mod tests {
         // 2024 DST ends: November 3 at 06:00 UTC (2:00 AM EDT → 1:00 AM EST)
         // Just before: 05:59 UTC → DST still active
         let just_before_end_ms = 1730613540000_u64; // 2024-11-03 05:59 UTC
-        // Just after: 06:01 UTC → DST ended
+                                                    // Just after: 06:01 UTC → DST ended
         let just_after_end_ms = 1730613660000_u64; // 2024-11-03 06:01 UTC
         assert!(is_us_dst(just_before_end_ms));
         assert!(!is_us_dst(just_after_end_ms));
@@ -1412,16 +1452,25 @@ mod tests {
     fn test_holiday_new_years_day_2024() {
         // 2024-01-01 is a Monday — New Year's Day, market closed.
         let date = NaiveDate::from_ymd_opt(2024, 1, 1).unwrap();
-        assert!(is_us_market_holiday(date), "New Year's Day should be a holiday");
+        assert!(
+            is_us_market_holiday(date),
+            "New Year's Day should be a holiday"
+        );
     }
 
     #[test]
     fn test_holiday_new_years_observed_when_on_sunday() {
         // 2023-01-01 is a Sunday — observed Monday 2023-01-02.
         let observed = NaiveDate::from_ymd_opt(2023, 1, 2).unwrap();
-        assert!(is_us_market_holiday(observed), "Observed New Year's should be a holiday");
+        assert!(
+            is_us_market_holiday(observed),
+            "Observed New Year's should be a holiday"
+        );
         let actual = NaiveDate::from_ymd_opt(2023, 1, 1).unwrap();
-        assert!(!is_us_market_holiday(actual), "Sunday itself is not the observed holiday");
+        assert!(
+            !is_us_market_holiday(actual),
+            "Sunday itself is not the observed holiday"
+        );
     }
 
     #[test]
@@ -1435,21 +1484,30 @@ mod tests {
     fn test_holiday_good_friday_2024() {
         // Easter 2024 = March 31; Good Friday = March 29.
         let date = NaiveDate::from_ymd_opt(2024, 3, 29).unwrap();
-        assert!(is_us_market_holiday(date), "Good Friday 2024 should be a holiday");
+        assert!(
+            is_us_market_holiday(date),
+            "Good Friday 2024 should be a holiday"
+        );
     }
 
     #[test]
     fn test_holiday_memorial_day_2024() {
         // Last Monday of May 2024 = May 27.
         let date = NaiveDate::from_ymd_opt(2024, 5, 27).unwrap();
-        assert!(is_us_market_holiday(date), "Memorial Day should be a holiday");
+        assert!(
+            is_us_market_holiday(date),
+            "Memorial Day should be a holiday"
+        );
     }
 
     #[test]
     fn test_holiday_independence_day_2024() {
         // July 4, 2024 is a Thursday.
         let date = NaiveDate::from_ymd_opt(2024, 7, 4).unwrap();
-        assert!(is_us_market_holiday(date), "Independence Day should be a holiday");
+        assert!(
+            is_us_market_holiday(date),
+            "Independence Day should be a holiday"
+        );
     }
 
     #[test]
@@ -1463,7 +1521,10 @@ mod tests {
     fn test_holiday_thanksgiving_2024() {
         // 4th Thursday of November 2024 = November 28.
         let date = NaiveDate::from_ymd_opt(2024, 11, 28).unwrap();
-        assert!(is_us_market_holiday(date), "Thanksgiving should be a holiday");
+        assert!(
+            is_us_market_holiday(date),
+            "Thanksgiving should be a holiday"
+        );
     }
 
     #[test]
@@ -1477,18 +1538,18 @@ mod tests {
     fn test_holiday_regular_monday_is_not_holiday() {
         // 2024-01-08 is a regular Monday (not a holiday).
         let date = NaiveDate::from_ymd_opt(2024, 1, 8).unwrap();
-        assert!(!is_us_market_holiday(date), "Regular Monday should not be a holiday");
+        assert!(
+            !is_us_market_holiday(date),
+            "Regular Monday should not be a holiday"
+        );
     }
 
     #[test]
     fn test_holiday_market_closed_on_christmas_2024() {
         // Dec 25, 2024 = Christmas; 14:30 UTC (09:30 ET) should be Closed.
         // date_to_utc_ms(2024-12-25, 14, 30) = some ms value
-        let christmas_open_utc_ms = date_to_utc_ms(
-            NaiveDate::from_ymd_opt(2024, 12, 25).unwrap(),
-            14,
-            30,
-        );
+        let christmas_open_utc_ms =
+            date_to_utc_ms(NaiveDate::from_ymd_opt(2024, 12, 25).unwrap(), 14, 30);
         let sa = sa(MarketSession::UsEquity);
         assert_eq!(
             sa.status(christmas_open_utc_ms).unwrap(),
@@ -1499,12 +1560,18 @@ mod tests {
 
     #[test]
     fn test_easter_sunday_2024() {
-        assert_eq!(easter_sunday(2024), NaiveDate::from_ymd_opt(2024, 3, 31).unwrap());
+        assert_eq!(
+            easter_sunday(2024),
+            NaiveDate::from_ymd_opt(2024, 3, 31).unwrap()
+        );
     }
 
     #[test]
     fn test_easter_sunday_2025() {
-        assert_eq!(easter_sunday(2025), NaiveDate::from_ymd_opt(2025, 4, 20).unwrap());
+        assert_eq!(
+            easter_sunday(2025),
+            NaiveDate::from_ymd_opt(2025, 4, 20).unwrap()
+        );
     }
 
     // ── time_until_open_ms / time_until_close_ms ──────────────────────────────
@@ -1661,7 +1728,10 @@ mod tests {
 
     #[test]
     fn test_session_duration_forex_is_120_hours() {
-        assert_eq!(MarketSession::Forex.session_duration_ms(), 5 * 24 * 3_600_000);
+        assert_eq!(
+            MarketSession::Forex.session_duration_ms(),
+            5 * 24 * 3_600_000
+        );
     }
 
     #[test]
@@ -1726,7 +1796,10 @@ mod tests {
         // Midway = open + 11_700_000 ms
         let mid_ms = MON_OPEN_UTC_MS + 11_700_000;
         let progress = sa.session_progress(mid_ms).unwrap();
-        assert!((progress - 0.5).abs() < 1e-6, "expected ~0.5 got {progress}");
+        assert!(
+            (progress - 0.5).abs() < 1e-6,
+            "expected ~0.5 got {progress}"
+        );
     }
 
     #[test]
@@ -1735,7 +1808,10 @@ mod tests {
         // One hour into the session
         let one_hour_in = MON_OPEN_UTC_MS + 3_600_000;
         let progress = sa.session_progress(one_hour_in).unwrap();
-        assert!(progress > 0.0 && progress < 1.0, "expected (0,1) got {progress}");
+        assert!(
+            progress > 0.0 && progress < 1.0,
+            "expected (0,1) got {progress}"
+        );
     }
 
     // ── SessionAwareness::is_closed ───────────────────────────────────────────
@@ -1978,8 +2054,14 @@ mod tests {
         let sa = sa(MarketSession::UsEquity);
         // Market is open; there is a finite close time ahead
         let remaining = sa.remaining_until_close_ms(MON_OPEN_UTC_MS).unwrap();
-        assert!(remaining > 0, "remaining should be positive when session is open");
-        assert!(remaining < 24 * 60 * 60 * 1000, "remaining should be less than 24h");
+        assert!(
+            remaining > 0,
+            "remaining should be positive when session is open"
+        );
+        assert!(
+            remaining < 24 * 60 * 60 * 1000,
+            "remaining should be less than 24h"
+        );
     }
 
     #[test]
@@ -1992,7 +2074,9 @@ mod tests {
     fn test_remaining_until_close_ms_decreases_as_time_advances() {
         let sa = sa(MarketSession::UsEquity);
         let t1 = sa.remaining_until_close_ms(MON_OPEN_UTC_MS).unwrap();
-        let t2 = sa.remaining_until_close_ms(MON_OPEN_UTC_MS + 60_000).unwrap();
+        let t2 = sa
+            .remaining_until_close_ms(MON_OPEN_UTC_MS + 60_000)
+            .unwrap();
         assert!(t1 > t2);
     }
 
@@ -2104,7 +2188,9 @@ mod tests {
         // Wed = MON_OPEN_UTC_MS + 2*24*3600*1000 - 9.5*3600*1000 + 5*3600*1000
         // Actually let's just use a known overnight time: Saturday would be weekend.
         // Tuesday at 07:00 UTC = 02:00 ET = not pre-market (4am ET), not after-hours.
-        let _tue_07h_utc = MON_OPEN_UTC_MS + 24 * 3_600_000 - 7 * 3_600_000 + 7 * 3_600_000 - (14 * 3_600_000 + 30 * 60_000) + 7 * 3_600_000;
+        let _tue_07h_utc = MON_OPEN_UTC_MS + 24 * 3_600_000 - 7 * 3_600_000 + 7 * 3_600_000
+            - (14 * 3_600_000 + 30 * 60_000)
+            + 7 * 3_600_000;
         // Simpler: find a time that is_closed AND not_extended AND not_weekend
         // Just test the is_closed && not_extended && not_weekend contract
         // and that crypto returns false
@@ -2469,23 +2555,23 @@ mod tests {
 
     #[test]
     fn test_trading_days_elapsed_full_week() {
-        let from = NaiveDate::from_ymd_opt(2024, 1, 8).unwrap();  // Monday
-        let to   = NaiveDate::from_ymd_opt(2024, 1, 12).unwrap(); // Friday
+        let from = NaiveDate::from_ymd_opt(2024, 1, 8).unwrap(); // Monday
+        let to = NaiveDate::from_ymd_opt(2024, 1, 12).unwrap(); // Friday
         assert_eq!(SessionAwareness::trading_days_elapsed(from, to), 5);
     }
 
     #[test]
     fn test_trading_days_elapsed_excludes_weekends() {
-        let from = NaiveDate::from_ymd_opt(2024, 1, 8).unwrap();  // Monday
-        let to   = NaiveDate::from_ymd_opt(2024, 1, 14).unwrap(); // Sunday
-        // Mon-Fri = 5 trading days, Sat+Sun = 0
+        let from = NaiveDate::from_ymd_opt(2024, 1, 8).unwrap(); // Monday
+        let to = NaiveDate::from_ymd_opt(2024, 1, 14).unwrap(); // Sunday
+                                                                // Mon-Fri = 5 trading days, Sat+Sun = 0
         assert_eq!(SessionAwareness::trading_days_elapsed(from, to), 5);
     }
 
     #[test]
     fn test_trading_days_elapsed_zero_when_reversed() {
         let from = NaiveDate::from_ymd_opt(2024, 1, 12).unwrap();
-        let to   = NaiveDate::from_ymd_opt(2024, 1, 8).unwrap();
+        let to = NaiveDate::from_ymd_opt(2024, 1, 8).unwrap();
         assert_eq!(SessionAwareness::trading_days_elapsed(from, to), 0);
     }
 

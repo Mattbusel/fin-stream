@@ -253,31 +253,40 @@ impl AlertManager {
 
                 AlertCondition::PriceBelow { threshold } => price < *threshold,
 
-                AlertCondition::PriceChangePct { pct, direction, window_ms } => {
-                    match state.price_change_pct(timestamp_ms, *window_ms) {
-                        None => false,
-                        Some(change) => {
-                            let magnitude_ok = change.abs() >= *pct;
-                            let dir_ok = match direction {
-                                1 => change > 0.0,
-                                -1 => change < 0.0,
-                                _ => true,
-                            };
-                            magnitude_ok && dir_ok
-                        }
+                AlertCondition::PriceChangePct {
+                    pct,
+                    direction,
+                    window_ms,
+                } => match state.price_change_pct(timestamp_ms, *window_ms) {
+                    None => false,
+                    Some(change) => {
+                        let magnitude_ok = change.abs() >= *pct;
+                        let dir_ok = match direction {
+                            1 => change > 0.0,
+                            -1 => change < 0.0,
+                            _ => true,
+                        };
+                        magnitude_ok && dir_ok
                     }
-                }
+                },
 
-                AlertCondition::VolumeSpike { multiple, window_ms } => {
+                AlertCondition::VolumeSpike {
+                    multiple,
+                    window_ms,
+                } => {
                     let avg = state.avg_volume_in_window(timestamp_ms, *window_ms);
                     avg > 0.0 && volume > avg * multiple
                 }
 
-                AlertCondition::BollingerBreakout { std_threshold, window } => {
-                    state.bollinger_breakout(*std_threshold, *window)
-                }
+                AlertCondition::BollingerBreakout {
+                    std_threshold,
+                    window,
+                } => state.bollinger_breakout(*std_threshold, *window),
 
-                AlertCondition::CrossOver { fast_window, slow_window } => {
+                AlertCondition::CrossOver {
+                    fast_window,
+                    slow_window,
+                } => {
                     let prices = &state.prices;
                     let n = prices.len();
                     if n < *slow_window + 1 {
@@ -287,20 +296,12 @@ impl AlertManager {
                         let sma_fast_now = state.sma(*fast_window).unwrap_or(0.0);
                         let sma_slow_now = state.sma(*slow_window).unwrap_or(0.0);
                         // Previous: compute from prices[..n-1].
-                        let prev_fast: f64 = prices
-                            .iter()
-                            .rev()
-                            .skip(1)
-                            .take(*fast_window)
-                            .sum::<f64>()
-                            / *fast_window as f64;
-                        let prev_slow: f64 = prices
-                            .iter()
-                            .rev()
-                            .skip(1)
-                            .take(*slow_window)
-                            .sum::<f64>()
-                            / *slow_window as f64;
+                        let prev_fast: f64 =
+                            prices.iter().rev().skip(1).take(*fast_window).sum::<f64>()
+                                / *fast_window as f64;
+                        let prev_slow: f64 =
+                            prices.iter().rev().skip(1).take(*slow_window).sum::<f64>()
+                                / *slow_window as f64;
                         // Crossover: fast was below slow, now above (or vice versa).
                         (prev_fast <= prev_slow && sma_fast_now > sma_slow_now)
                             || (prev_fast >= prev_slow && sma_fast_now < sma_slow_now)
@@ -380,15 +381,27 @@ mod tests {
     #[test]
     fn add_and_count() {
         let mut mgr = AlertManager::new();
-        mgr.add_alert(make_alert("a1", "AAPL", AlertCondition::PriceAbove { threshold: 200.0 }));
-        mgr.add_alert(make_alert("a2", "GOOG", AlertCondition::PriceBelow { threshold: 100.0 }));
+        mgr.add_alert(make_alert(
+            "a1",
+            "AAPL",
+            AlertCondition::PriceAbove { threshold: 200.0 },
+        ));
+        mgr.add_alert(make_alert(
+            "a2",
+            "GOOG",
+            AlertCondition::PriceBelow { threshold: 100.0 },
+        ));
         assert_eq!(mgr.alert_count(), 2);
     }
 
     #[test]
     fn remove_existing() {
         let mut mgr = AlertManager::new();
-        mgr.add_alert(make_alert("a1", "AAPL", AlertCondition::PriceAbove { threshold: 200.0 }));
+        mgr.add_alert(make_alert(
+            "a1",
+            "AAPL",
+            AlertCondition::PriceAbove { threshold: 200.0 },
+        ));
         assert!(mgr.remove_alert("a1"));
         assert_eq!(mgr.alert_count(), 0);
     }
@@ -404,7 +417,11 @@ mod tests {
     #[test]
     fn price_above_fires() {
         let mut mgr = AlertManager::new();
-        mgr.add_alert(make_alert("a1", "AAPL", AlertCondition::PriceAbove { threshold: 150.0 }));
+        mgr.add_alert(make_alert(
+            "a1",
+            "AAPL",
+            AlertCondition::PriceAbove { threshold: 150.0 },
+        ));
         let fired = mgr.update_price("AAPL", 151.0, 100.0, 1_000);
         assert_eq!(fired.len(), 1);
         assert_eq!(fired[0].id, "a1");
@@ -413,7 +430,11 @@ mod tests {
     #[test]
     fn price_above_no_fire_below_threshold() {
         let mut mgr = AlertManager::new();
-        mgr.add_alert(make_alert("a1", "AAPL", AlertCondition::PriceAbove { threshold: 150.0 }));
+        mgr.add_alert(make_alert(
+            "a1",
+            "AAPL",
+            AlertCondition::PriceAbove { threshold: 150.0 },
+        ));
         let fired = mgr.update_price("AAPL", 149.0, 100.0, 1_000);
         assert!(fired.is_empty());
     }
@@ -423,7 +444,11 @@ mod tests {
     #[test]
     fn price_below_fires() {
         let mut mgr = AlertManager::new();
-        mgr.add_alert(make_alert("a1", "TSLA", AlertCondition::PriceBelow { threshold: 200.0 }));
+        mgr.add_alert(make_alert(
+            "a1",
+            "TSLA",
+            AlertCondition::PriceBelow { threshold: 200.0 },
+        ));
         let fired = mgr.update_price("TSLA", 199.0, 50.0, 1_000);
         assert_eq!(fired.len(), 1);
     }
@@ -436,7 +461,11 @@ mod tests {
         mgr.add_alert(make_alert(
             "a1",
             "AAPL",
-            AlertCondition::PriceChangePct { pct: 5.0, direction: 1, window_ms: 60_000 },
+            AlertCondition::PriceChangePct {
+                pct: 5.0,
+                direction: 1,
+                window_ms: 60_000,
+            },
         ));
         mgr.update_price("AAPL", 100.0, 10.0, 0);
         let fired = mgr.update_price("AAPL", 106.0, 10.0, 30_000);
@@ -449,7 +478,11 @@ mod tests {
         mgr.add_alert(make_alert(
             "a1",
             "AAPL",
-            AlertCondition::PriceChangePct { pct: 5.0, direction: -1, window_ms: 60_000 },
+            AlertCondition::PriceChangePct {
+                pct: 5.0,
+                direction: -1,
+                window_ms: 60_000,
+            },
         ));
         mgr.update_price("AAPL", 100.0, 10.0, 0);
         let fired = mgr.update_price("AAPL", 106.0, 10.0, 30_000);
@@ -464,7 +497,10 @@ mod tests {
         mgr.add_alert(make_alert(
             "a1",
             "AAPL",
-            AlertCondition::VolumeSpike { multiple: 3.0, window_ms: 60_000 },
+            AlertCondition::VolumeSpike {
+                multiple: 3.0,
+                window_ms: 60_000,
+            },
         ));
         // Baseline ticks
         for i in 0..5u64 {
@@ -483,7 +519,10 @@ mod tests {
         mgr.add_alert(make_alert(
             "a1",
             "AAPL",
-            AlertCondition::BollingerBreakout { std_threshold: 1.0, window: 5 },
+            AlertCondition::BollingerBreakout {
+                std_threshold: 1.0,
+                window: 5,
+            },
         ));
         // Feed stable prices then a big outlier.
         for _ in 0..5 {
@@ -502,7 +541,10 @@ mod tests {
         mgr.add_alert(make_alert(
             "a1",
             "AAPL",
-            AlertCondition::CrossOver { fast_window: 2, slow_window: 4 },
+            AlertCondition::CrossOver {
+                fast_window: 2,
+                slow_window: 4,
+            },
         ));
         // Start low: fast below slow
         for _ in 0..4 {
@@ -514,7 +556,10 @@ mod tests {
         // Next tick fast (200) was already above slow (150): no new cross.
         // (This test used to expect the alert on this tick, one bar late.)
         let fired = mgr.update_price("AAPL", 200.0, 1.0, 2_000);
-        assert!(fired.is_empty(), "no second cross while fast stays above slow");
+        assert!(
+            fired.is_empty(),
+            "no second cross while fast stays above slow"
+        );
     }
 
     // ── active_alerts / triggered_alerts ──────────────────────────────────
@@ -522,8 +567,16 @@ mod tests {
     #[test]
     fn active_alerts_by_symbol() {
         let mut mgr = AlertManager::new();
-        mgr.add_alert(make_alert("a1", "AAPL", AlertCondition::PriceAbove { threshold: 50.0 }));
-        mgr.add_alert(make_alert("a2", "GOOG", AlertCondition::PriceAbove { threshold: 50.0 }));
+        mgr.add_alert(make_alert(
+            "a1",
+            "AAPL",
+            AlertCondition::PriceAbove { threshold: 50.0 },
+        ));
+        mgr.add_alert(make_alert(
+            "a2",
+            "GOOG",
+            AlertCondition::PriceAbove { threshold: 50.0 },
+        ));
         assert_eq!(mgr.active_alerts("AAPL").len(), 1);
         assert_eq!(mgr.active_alerts("GOOG").len(), 1);
         assert_eq!(mgr.active_alerts("TSLA").len(), 0);
@@ -532,7 +585,11 @@ mod tests {
     #[test]
     fn triggered_alerts_populated() {
         let mut mgr = AlertManager::new();
-        mgr.add_alert(make_alert("a1", "AAPL", AlertCondition::PriceAbove { threshold: 100.0 }));
+        mgr.add_alert(make_alert(
+            "a1",
+            "AAPL",
+            AlertCondition::PriceAbove { threshold: 100.0 },
+        ));
         assert!(mgr.triggered_alerts().is_empty());
         mgr.update_price("AAPL", 101.0, 10.0, 1_000);
         assert_eq!(mgr.triggered_alerts().len(), 1);

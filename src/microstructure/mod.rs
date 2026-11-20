@@ -85,7 +85,12 @@ impl MicroTick {
                 reason: format!("MicroTick volume must be non-negative, got {volume}"),
             });
         }
-        Ok(Self { price, volume, signed_volume, timestamp_ns })
+        Ok(Self {
+            price,
+            volume,
+            signed_volume,
+            timestamp_ns,
+        })
     }
 }
 
@@ -131,7 +136,11 @@ impl AmihudIlliquidity {
                 reason: "AmihudIlliquidity window_size must be > 0".to_owned(),
             });
         }
-        Ok(Self { window: VecDeque::with_capacity(window_size + 1), window_size, prev_price: None })
+        Ok(Self {
+            window: VecDeque::with_capacity(window_size + 1),
+            window_size,
+            prev_price: None,
+        })
     }
 
     /// Updates with a new tick and returns the rolling mean Amihud ratio.
@@ -258,7 +267,10 @@ impl KyleImpact {
         }
 
         // OLS: lambda = Cov(dp, Q) / Var(Q)
-        Some(ols_slope(self.dp_window.iter().copied(), self.q_window.iter().copied()))
+        Some(ols_slope(
+            self.dp_window.iter().copied(),
+            self.q_window.iter().copied(),
+        ))
     }
 
     /// Returns the current lambda estimate without consuming a new tick.
@@ -266,7 +278,10 @@ impl KyleImpact {
         if self.dp_window.len() < 2 {
             return None;
         }
-        Some(ols_slope(self.dp_window.iter().copied(), self.q_window.iter().copied()))
+        Some(ols_slope(
+            self.dp_window.iter().copied(),
+            self.q_window.iter().copied(),
+        ))
     }
 
     /// Returns `true` when at least `window_size` observations are available.
@@ -283,10 +298,7 @@ impl KyleImpact {
 }
 
 /// OLS slope: `Cov(y, x) / Var(x)`.
-fn ols_slope(
-    y: impl Iterator<Item = f64> + Clone,
-    x: impl Iterator<Item = f64> + Clone,
-) -> f64 {
+fn ols_slope(y: impl Iterator<Item = f64> + Clone, x: impl Iterator<Item = f64> + Clone) -> f64 {
     let y_vec: Vec<f64> = y.collect();
     let x_vec: Vec<f64> = x.collect();
     let n = y_vec.len().min(x_vec.len());
@@ -809,7 +821,10 @@ mod tests {
             k.update(&tick(price, q, q, i as i64));
         }
         if let Some(lambda) = k.current() {
-            assert!(lambda > 0.0, "positive flow + rising prices → positive lambda, got {lambda}");
+            assert!(
+                lambda > 0.0,
+                "positive flow + rising prices → positive lambda, got {lambda}"
+            );
         }
     }
 
@@ -864,7 +879,10 @@ mod tests {
         let prices = [100.0, 100.1, 100.0, 100.2, 100.0, 100.1, 100.0];
         for (i, &p) in prices.iter().enumerate() {
             if let Some(spread) = r.update(&tick(p, 100.0, 50.0, i as i64)) {
-                assert!(spread >= 0.0, "Roll spread must be non-negative, got {spread}");
+                assert!(
+                    spread >= 0.0,
+                    "Roll spread must be non-negative, got {spread}"
+                );
             }
         }
     }
@@ -882,7 +900,10 @@ mod tests {
                 }
             }
         }
-        assert!(nonzero_seen, "oscillating prices should produce non-zero Roll spread");
+        assert!(
+            nonzero_seen,
+            "oscillating prices should produce non-zero Roll spread"
+        );
     }
 
     #[test]
@@ -916,8 +937,16 @@ mod tests {
         let mut b = BidAskBounce::new(10).unwrap();
         for i in 0..20 {
             let price = if i % 2 == 0 { 100.0 } else { 100.1 };
-            if let Some(frac) = b.update(&tick(price, 100.0, if i % 2 == 0 { -60.0 } else { 60.0 }, i as i64)) {
-                assert!((0.0..=1.0).contains(&frac), "bounce fraction must be in [0,1], got {frac}");
+            if let Some(frac) = b.update(&tick(
+                price,
+                100.0,
+                if i % 2 == 0 { -60.0 } else { 60.0 },
+                i as i64,
+            )) {
+                assert!(
+                    (0.0..=1.0).contains(&frac),
+                    "bounce fraction must be in [0,1], got {frac}"
+                );
             }
         }
     }
@@ -935,7 +964,10 @@ mod tests {
                 }
             }
         }
-        assert!(high_bounce_seen, "perfect bid-ask bounce should produce fraction > 0.5");
+        assert!(
+            high_bounce_seen,
+            "perfect bid-ask bounce should produce fraction > 0.5"
+        );
     }
 
     #[test]
@@ -1019,7 +1051,8 @@ mod tests {
     fn test_monitor_reset() {
         let mut m = MicrostructureMonitor::new(5).unwrap();
         for i in 0..20 {
-            m.update(&tick(100.0 + i as f64 * 0.1, 1000.0, 600.0, i as i64)).unwrap();
+            m.update(&tick(100.0 + i as f64 * 0.1, 1000.0, 600.0, i as i64))
+                .unwrap();
         }
         m.reset();
         assert!(!m.is_ready());
@@ -1031,7 +1064,11 @@ mod tests {
         let mut last = None;
         for i in 0..30 {
             // Use oscillating prices to trigger Roll spread
-            let p = if i % 2 == 0 { 100.0 + i as f64 * 0.01 } else { 100.0 + i as f64 * 0.01 - 0.05 };
+            let p = if i % 2 == 0 {
+                100.0 + i as f64 * 0.01
+            } else {
+                100.0 + i as f64 * 0.01 - 0.05
+            };
             let t = tick(p, 1000.0 + i as f64 * 10.0, 600.0, i as i64 * 1_000_000);
             last = Some(m.update(&t).unwrap());
         }

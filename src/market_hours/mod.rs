@@ -93,9 +93,9 @@ impl MarketHoursChecker {
         if cal.holidays.contains(&(year, month, day)) {
             return false;
         }
-        cal.sessions.iter().any(|s| {
-            minutes_today >= s.open_minutes_utc() && minutes_today < s.close_minutes_utc()
-        })
+        cal.sessions
+            .iter()
+            .any(|s| minutes_today >= s.open_minutes_utc() && minutes_today < s.close_minutes_utc())
     }
 
     /// Return the next open time (ms) for the exchange, starting from `timestamp_ms`.
@@ -119,8 +119,7 @@ impl MarketHoursChecker {
                 continue;
             }
             for session in &cal.sessions {
-                let open_ms =
-                    day_start_ms + session.open_minutes_utc() as u64 * 60_000;
+                let open_ms = day_start_ms + session.open_minutes_utc() as u64 * 60_000;
                 if open_ms > timestamp_ms {
                     return open_ms;
                 }
@@ -157,7 +156,9 @@ impl MarketHoursChecker {
         }
         cal.sessions
             .iter()
-            .find(|s| minutes_today >= s.open_minutes_utc() && minutes_today < s.close_minutes_utc())
+            .find(|s| {
+                minutes_today >= s.open_minutes_utc() && minutes_today < s.close_minutes_utc()
+            })
             .cloned()
     }
 }
@@ -357,7 +358,10 @@ mod tests {
         // Closed at NYSE_CLOSED_MS (22:00 UTC).  Next open should be the following
         // day's 14:30 UTC.
         let next = c.next_open("NYSE", NYSE_CLOSED_MS);
-        assert!(next > NYSE_CLOSED_MS, "next_open must be after the closed timestamp");
+        assert!(
+            next > NYSE_CLOSED_MS,
+            "next_open must be after the closed timestamp"
+        );
     }
 
     #[test]

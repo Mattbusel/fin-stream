@@ -95,16 +95,17 @@ impl CorrelationGraph {
     ///
     /// # Errors
     /// `StreamError::InvalidInput` if fewer than 2 assets are provided.
-    pub fn new(
-        assets: Vec<String>,
-        min_correlation: f64,
-    ) -> Result<Self, StreamError> {
+    pub fn new(assets: Vec<String>, min_correlation: f64) -> Result<Self, StreamError> {
         if assets.len() < 2 {
             return Err(StreamError::InvalidInput(
                 "CorrelationGraph requires at least 2 assets".to_owned(),
             ));
         }
-        Ok(Self { assets, pairs: HashMap::new(), min_correlation })
+        Ok(Self {
+            assets,
+            pairs: HashMap::new(),
+            min_correlation,
+        })
     }
 
     /// Update all pairwise correlations with a new price snapshot.
@@ -219,7 +220,11 @@ impl CentralityScores {
 
         let leader = scores
             .iter()
-            .max_by(|a, b| a.1.1.partial_cmp(&b.1.1).unwrap_or(std::cmp::Ordering::Equal))
+            .max_by(|a, b| {
+                a.1 .1
+                    .partial_cmp(&b.1 .1)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
             .map(|(k, _)| k.clone())
             .unwrap_or_default();
 
@@ -263,13 +268,21 @@ impl RegimeChangeDetector {
     /// `StreamError::InvalidInput` if threshold ≤ 0 or span < 2.
     pub fn new(threshold: f64, ema_span: usize) -> Result<Self, StreamError> {
         if threshold <= 0.0 {
-            return Err(StreamError::InvalidInput("threshold must be positive".to_owned()));
+            return Err(StreamError::InvalidInput(
+                "threshold must be positive".to_owned(),
+            ));
         }
         if ema_span < 2 {
-            return Err(StreamError::InvalidInput("ema_span must be at least 2".to_owned()));
+            return Err(StreamError::InvalidInput(
+                "ema_span must be at least 2".to_owned(),
+            ));
         }
         let alpha = 2.0 / (ema_span as f64 + 1.0);
-        Ok(Self { threshold, alpha, ema_corr: None })
+        Ok(Self {
+            threshold,
+            alpha,
+            ema_corr: None,
+        })
     }
 
     /// Check for a regime change given the current graph edges.
@@ -279,8 +292,7 @@ impl RegimeChangeDetector {
         if edges.is_empty() {
             return None;
         }
-        let mean_abs =
-            edges.iter().map(|e| e.correlation.abs()).sum::<f64>() / edges.len() as f64;
+        let mean_abs = edges.iter().map(|e| e.correlation.abs()).sum::<f64>() / edges.len() as f64;
 
         let ema = match self.ema_corr {
             None => {
@@ -344,7 +356,10 @@ impl ContagionDetector {
                 "shock_threshold and min_correlation must be positive".to_owned(),
             ));
         }
-        Ok(Self { shock_threshold, min_correlation })
+        Ok(Self {
+            shock_threshold,
+            min_correlation,
+        })
     }
 
     /// Check for contagion given current log-returns and the correlation graph.
@@ -399,24 +414,27 @@ impl ContagionDetector {
             let trigger = cluster
                 .iter()
                 .max_by(|a, b| {
-                    returns.get(*a).unwrap_or(&0.0).abs()
+                    returns
+                        .get(*a)
+                        .unwrap_or(&0.0)
+                        .abs()
                         .partial_cmp(&returns.get(*b).unwrap_or(&0.0).abs())
                         .unwrap_or(std::cmp::Ordering::Equal)
                 })
                 .cloned()
                 .unwrap_or_default();
 
-            let mean_shock =
-                cluster.iter().map(|a| returns.get(a).unwrap_or(&0.0).abs()).sum::<f64>()
-                    / cluster.len() as f64;
+            let mean_shock = cluster
+                .iter()
+                .map(|a| returns.get(a).unwrap_or(&0.0).abs())
+                .sum::<f64>()
+                / cluster.len() as f64;
 
             // Mean correlation within cluster
             let edges = graph.edges();
             let cluster_corrs: Vec<f64> = edges
                 .iter()
-                .filter(|e| {
-                    cluster.contains(&e.asset_a) && cluster.contains(&e.asset_b)
-                })
+                .filter(|e| cluster.contains(&e.asset_a) && cluster.contains(&e.asset_b))
                 .map(|e| e.correlation.abs())
                 .collect();
             let mean_corr = if cluster_corrs.is_empty() {
@@ -470,7 +488,10 @@ mod tests {
             g.update(&p).unwrap();
         }
         let corr = g.get_correlation("BTC", "ETH").unwrap();
-        assert!(corr > 0.9, "expected high positive correlation, got {corr:.4}");
+        assert!(
+            corr > 0.9,
+            "expected high positive correlation, got {corr:.4}"
+        );
     }
 
     #[test]
@@ -495,9 +516,24 @@ mod tests {
     fn test_centrality_leader_identified() {
         let assets = asset_list();
         let edges = vec![
-            CorrelationEdge { asset_a: "BTC".to_owned(), asset_b: "ETH".to_owned(), correlation: 0.95, n: 50 },
-            CorrelationEdge { asset_a: "BTC".to_owned(), asset_b: "SOL".to_owned(), correlation: 0.90, n: 50 },
-            CorrelationEdge { asset_a: "ETH".to_owned(), asset_b: "SOL".to_owned(), correlation: 0.70, n: 50 },
+            CorrelationEdge {
+                asset_a: "BTC".to_owned(),
+                asset_b: "ETH".to_owned(),
+                correlation: 0.95,
+                n: 50,
+            },
+            CorrelationEdge {
+                asset_a: "BTC".to_owned(),
+                asset_b: "SOL".to_owned(),
+                correlation: 0.90,
+                n: 50,
+            },
+            CorrelationEdge {
+                asset_a: "ETH".to_owned(),
+                asset_b: "SOL".to_owned(),
+                correlation: 0.70,
+                n: 50,
+            },
         ];
         let centrality = CentralityScores::compute(&assets, &edges);
         // BTC has highest total weighted correlation
@@ -507,9 +543,12 @@ mod tests {
     #[test]
     fn test_regime_detector_no_change_stable_correlations() {
         let mut det = RegimeChangeDetector::new(0.3, 10).unwrap();
-        let edges = vec![
-            CorrelationEdge { asset_a: "A".to_owned(), asset_b: "B".to_owned(), correlation: 0.8, n: 50 },
-        ];
+        let edges = vec![CorrelationEdge {
+            asset_a: "A".to_owned(),
+            asset_b: "B".to_owned(),
+            correlation: 0.8,
+            n: 50,
+        }];
         let mut last = None;
         for _ in 0..20 {
             last = det.check(&edges);

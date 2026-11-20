@@ -73,10 +73,7 @@ impl NewsStore {
     /// Ingest a news item, adding it to the queue for every mentioned symbol.
     pub fn ingest(&self, item: NewsItem) {
         for symbol in &item.symbols {
-            let mut queue = self
-                .data
-                .entry(symbol.clone())
-                .or_default();
+            let mut queue = self.data.entry(symbol.clone()).or_default();
             if queue.len() == MAX_ITEMS_PER_SYMBOL {
                 queue.pop_front();
             }
@@ -142,12 +139,7 @@ impl NewsStore {
     ///
     /// Returns a `Vec` of `(bucket_start_ms, avg_sentiment)` pairs.  Empty
     /// buckets are included with a score of 0.0.
-    pub fn sentiment_trend(
-        &self,
-        symbol: &str,
-        buckets: usize,
-        bucket_ms: u64,
-    ) -> Vec<(u64, f64)> {
+    pub fn sentiment_trend(&self, symbol: &str, buckets: usize, bucket_ms: u64) -> Vec<(u64, f64)> {
         if buckets == 0 || bucket_ms == 0 {
             return Vec::new();
         }
@@ -275,7 +267,10 @@ pub struct NewsMonitor {
 impl NewsMonitor {
     /// Create a new monitor wrapping the provided store.
     pub fn new(store: Arc<NewsStore>, alert_threshold: f64) -> Self {
-        Self { store, alert_threshold }
+        Self {
+            store,
+            alert_threshold,
+        }
     }
 
     /// Compare sentiment over the most recent half-window vs the prior half-window
@@ -287,9 +282,9 @@ impl NewsMonitor {
         let hour_ms: u64 = 3_600_000;
 
         // Recent window: last hour.
-        let recent = self
-            .store
-            .aggregate_sentiment_at(symbol, now_ms.saturating_sub(hour_ms), now_ms);
+        let recent =
+            self.store
+                .aggregate_sentiment_at(symbol, now_ms.saturating_sub(hour_ms), now_ms);
         // Prior window: the hour before that.
         let prior = self.store.aggregate_sentiment_at(
             symbol,
@@ -322,17 +317,9 @@ impl NewsMonitor {
 
 // Internal helper: bounded-window raw sentiment average (not exported).
 impl NewsStore {
-    fn aggregate_sentiment_at(
-        &self,
-        symbol: &str,
-        from_ms: u64,
-        to_ms: u64,
-    ) -> Option<f64> {
+    fn aggregate_sentiment_at(&self, symbol: &str, from_ms: u64, to_ms: u64) -> Option<f64> {
         let items = self.recent_for(symbol, from_ms);
-        let window: Vec<&NewsItem> = items
-            .iter()
-            .filter(|i| i.published_at <= to_ms)
-            .collect();
+        let window: Vec<&NewsItem> = items.iter().filter(|i| i.published_at <= to_ms).collect();
         if window.is_empty() {
             return None;
         }
@@ -379,8 +366,7 @@ mod tests {
 
     fn uuid_stub() -> String {
         // Minimal unique string without pulling in uuid crate.
-        static COUNTER: std::sync::atomic::AtomicU64 =
-            std::sync::atomic::AtomicU64::new(1);
+        static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
         COUNTER
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
             .to_string()
@@ -404,7 +390,11 @@ mod tests {
         let score = store.aggregate_sentiment("TSLA", 3_600_000);
         assert!(score.is_some());
         let s = score.unwrap();
-        assert!(s.score > 0.0, "expected positive sentiment, got {}", s.score);
+        assert!(
+            s.score > 0.0,
+            "expected positive sentiment, got {}",
+            s.score
+        );
         assert!(s.confidence > 0.0);
         assert_eq!(s.item_count, 5);
     }

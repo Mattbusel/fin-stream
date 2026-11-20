@@ -148,7 +148,14 @@ pub fn compute_imbalance(snapshot: &DepthSnapshot, levels: usize) -> DepthImbala
 pub fn compute_weighted(snapshot: &DepthSnapshot, levels: usize) -> DepthImbalance {
     let _mid = match snapshot.mid_price() {
         Some(m) => m,
-        None => return DepthImbalance { bid_volume: 0.0, ask_volume: 0.0, imbalance: 0.0, pressure: DepthPressure::Neutral },
+        None => {
+            return DepthImbalance {
+                bid_volume: 0.0,
+                ask_volume: 0.0,
+                imbalance: 0.0,
+                pressure: DepthPressure::Neutral,
+            }
+        }
     };
 
     let mut bid_volume = 0.0_f64;
@@ -310,7 +317,10 @@ impl DepthTracker {
     /// Process a new depth snapshot for `symbol`, updating the rolling window.
     pub fn update(&self, symbol: &str, snapshot: DepthSnapshot, levels: usize) {
         let imb = compute_imbalance(&snapshot, levels);
-        let mut entry = self.history.entry(symbol.to_owned()).or_insert_with(|| VecDeque::with_capacity(ROLLING_WINDOW));
+        let mut entry = self
+            .history
+            .entry(symbol.to_owned())
+            .or_insert_with(|| VecDeque::with_capacity(ROLLING_WINDOW));
         if entry.len() >= ROLLING_WINDOW {
             entry.pop_front();
         }
@@ -356,7 +366,11 @@ fn ols_slope(y: &[f64]) -> f64 {
         num += dx * (yi - mean_y);
         den += dx * dx;
     }
-    if den == 0.0 { 0.0 } else { num / den }
+    if den == 0.0 {
+        0.0
+    } else {
+        num / den
+    }
 }
 
 // ─────────────────────────────────────────
@@ -369,8 +383,20 @@ mod tests {
 
     fn make_book(bids: &[(f64, f64)], asks: &[(f64, f64)]) -> DepthSnapshot {
         DepthSnapshot {
-            bids: bids.iter().map(|&(p, q)| DepthLevel { price: p, quantity: q }).collect(),
-            asks: asks.iter().map(|&(p, q)| DepthLevel { price: p, quantity: q }).collect(),
+            bids: bids
+                .iter()
+                .map(|&(p, q)| DepthLevel {
+                    price: p,
+                    quantity: q,
+                })
+                .collect(),
+            asks: asks
+                .iter()
+                .map(|&(p, q)| DepthLevel {
+                    price: p,
+                    quantity: q,
+                })
+                .collect(),
             timestamp_ms: 0,
         }
     }
@@ -444,10 +470,7 @@ mod tests {
     fn depth_tracker_trend_increasing() {
         let tracker = DepthTracker::new();
         for i in 1..=10_u64 {
-            let snap = make_book(
-                &[(100.0, i as f64 * 10.0)],
-                &[(101.0, 100.0)],
-            );
+            let snap = make_book(&[(100.0, i as f64 * 10.0)], &[(101.0, 100.0)]);
             tracker.update("BTC", snap, 5);
         }
         let trend = tracker.imbalance_trend("BTC").expect("should have trend");

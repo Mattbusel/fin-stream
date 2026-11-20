@@ -181,7 +181,7 @@ impl MevDetector {
             let lookahead = (i + 2)..(i + win + 2).min(n);
             for j in lookahead {
                 let p_peak = prices[j - 1]; // highest point
-                let p_final = prices[j];    // price after sell
+                let p_final = prices[j]; // price after sell
 
                 let buy_impact = (p_peak - p0) / p0;
                 let sell_impact = (p_peak - p_final) / p_peak;
@@ -316,8 +316,9 @@ impl MevDetector {
                 if sell_diff >= 0.0 && sell_diff < buy_move {
                     let qty = quantities[j];
                     let estimated_profit = sell_diff * qty * p_next;
-                    let confidence = Self::confidence_from_impact(buy_move, self.price_impact_threshold)
-                        * (1.0 - sell_diff / buy_move);
+                    let confidence =
+                        Self::confidence_from_impact(buy_move, self.price_impact_threshold)
+                            * (1.0 - sell_diff / buy_move);
 
                     let tx_hash = ticks[j]
                         .trade_id
@@ -382,7 +383,7 @@ mod tests {
         let ticks = vec![
             make_tick("100.00", "10", Some("tx1")),
             make_tick("101.50", "10", Some("tx2")), // large buy → victim
-            make_tick("101.45", "1",  Some("tx3")), // victim tx
+            make_tick("101.45", "1", Some("tx3")),  // victim tx
             make_tick("100.20", "10", Some("tx4")), // sell
         ];
         let candidates = det.analyze_block(&ticks);
@@ -402,9 +403,9 @@ mod tests {
         let det = MevDetector::new(0.005);
         // Small tick immediately before a 5× larger tick at same price.
         let ticks = vec![
-            make_tick("200.00", "1",  Some("front")), // small frontrun
+            make_tick("200.00", "1", Some("front")),   // small frontrun
             make_tick("200.00", "10", Some("victim")), // large victim
-            make_tick("200.00", "1",  None),
+            make_tick("200.00", "1", None),
         ];
         let candidates = det.analyze_block(&ticks);
         let frontruns: Vec<_> = candidates
@@ -424,9 +425,9 @@ mod tests {
         let det = MevDetector::new(0.005);
         // Large upward move, then immediate sell at slightly lower elevated price.
         let ticks = vec![
-            make_tick("300.00", "1",  None),
+            make_tick("300.00", "1", None),
             make_tick("303.00", "10", None), // big buy (+1%)
-            make_tick("302.80", "5",  Some("backrun")), // sell at elevated price
+            make_tick("302.80", "5", Some("backrun")), // sell at elevated price
         ];
         let candidates = det.analyze_block(&ticks);
         let backruns: Vec<_> = candidates
@@ -443,9 +444,7 @@ mod tests {
     #[test]
     fn no_false_positive_on_flat_prices() {
         let det = MevDetector::new(0.005);
-        let ticks: Vec<NormalizedTick> = (0..10)
-            .map(|_| make_tick("100.00", "1", None))
-            .collect();
+        let ticks: Vec<NormalizedTick> = (0..10).map(|_| make_tick("100.00", "1", None)).collect();
         assert!(
             det.analyze_block(&ticks).is_empty(),
             "flat price series should produce no candidates"

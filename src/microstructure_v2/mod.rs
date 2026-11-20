@@ -108,7 +108,11 @@ pub fn estimate_pin(buys: &[f64], sells: &[f64]) -> AdverseSelectionMetrics {
     let alpha = alpha.clamp(0.0, 1.0);
 
     // Delta: probability of good news
-    let delta = if mean_buy > mean_sell { 0.5 + 0.5 * alpha } else { 0.5 - 0.5 * alpha };
+    let delta = if mean_buy > mean_sell {
+        0.5 + 0.5 * alpha
+    } else {
+        0.5 - 0.5 * alpha
+    };
     let delta = delta.clamp(0.0, 1.0);
 
     // PIN = alpha * mu / (alpha * mu + epsilon_b + epsilon_s)
@@ -119,7 +123,12 @@ pub fn estimate_pin(buys: &[f64], sells: &[f64]) -> AdverseSelectionMetrics {
         0.0
     };
 
-    AdverseSelectionMetrics { pin, alpha, delta, mu }
+    AdverseSelectionMetrics {
+        pin,
+        alpha,
+        delta,
+        mu,
+    }
 }
 
 /// Limit order book depth imbalance metrics.
@@ -319,9 +328,18 @@ mod tests {
         let buys = vec![150.0, 130.0, 180.0, 120.0, 160.0];
         let sells = vec![80.0, 90.0, 70.0, 100.0, 85.0];
         let metrics = estimate_pin(&buys, &sells);
-        assert!(metrics.pin >= 0.0 && metrics.pin <= 1.0, "PIN must be in [0,1]");
-        assert!(metrics.alpha >= 0.0 && metrics.alpha <= 1.0, "Alpha must be in [0,1]");
-        assert!(metrics.delta >= 0.0 && metrics.delta <= 1.0, "Delta must be in [0,1]");
+        assert!(
+            metrics.pin >= 0.0 && metrics.pin <= 1.0,
+            "PIN must be in [0,1]"
+        );
+        assert!(
+            metrics.alpha >= 0.0 && metrics.alpha <= 1.0,
+            "Alpha must be in [0,1]"
+        );
+        assert!(
+            metrics.delta >= 0.0 && metrics.delta <= 1.0,
+            "Delta must be in [0,1]"
+        );
     }
 
     #[test]
@@ -341,7 +359,10 @@ mod tests {
         let depths = vec![100.0, 50.0];
         let weights = vec![1.0, 1.0];
         let imb = compute_lob_imbalance(&depths, &depths, &weights);
-        assert!((imb.imbalance).abs() < 1e-10, "Equal sides should give zero imbalance");
+        assert!(
+            (imb.imbalance).abs() < 1e-10,
+            "Equal sides should give zero imbalance"
+        );
         assert!((imb.pressure - 0.5).abs() < 1e-10);
     }
 
@@ -355,7 +376,10 @@ mod tests {
     fn test_price_impact_scales_with_size() {
         let small = price_impact_model(100.0, 0.01, 1_000_000.0);
         let large = price_impact_model(10_000.0, 0.01, 1_000_000.0);
-        assert!(large > small, "Larger trade should have larger price impact");
+        assert!(
+            large > small,
+            "Larger trade should have larger price impact"
+        );
     }
 
     #[test]
@@ -369,6 +393,9 @@ mod tests {
     #[test]
     fn test_information_share_bounds() {
         let is = information_share(0.001, 0.0008, 0.0002);
-        assert!((0.0..=1.0).contains(&is), "Information share must be in [0,1]");
+        assert!(
+            (0.0..=1.0).contains(&is),
+            "Information share must be in [0,1]"
+        );
     }
 }

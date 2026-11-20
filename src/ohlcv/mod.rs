@@ -114,9 +114,11 @@ impl std::str::FromStr for Timeframe {
             });
         }
         let (digits, suffix) = s.split_at(s.len() - 1);
-        let n: u64 = digits.parse().map_err(|_| crate::error::StreamError::ConfigError {
-            reason: format!("invalid timeframe numeric part '{digits}' in '{s}'"),
-        })?;
+        let n: u64 = digits
+            .parse()
+            .map_err(|_| crate::error::StreamError::ConfigError {
+                reason: format!("invalid timeframe numeric part '{digits}' in '{s}'"),
+            })?;
         if n == 0 {
             return Err(crate::error::StreamError::ConfigError {
                 reason: format!("timeframe value must be > 0, got '{s}'"),
@@ -127,9 +129,7 @@ impl std::str::FromStr for Timeframe {
             "m" => Ok(Timeframe::Minutes(n)),
             "h" => Ok(Timeframe::Hours(n)),
             other => Err(crate::error::StreamError::ConfigError {
-                reason: format!(
-                    "unknown timeframe suffix '{other}' in '{s}'; expected s, m, or h"
-                ),
+                reason: format!("unknown timeframe suffix '{other}' in '{s}'; expected s, m, or h"),
             }),
         }
     }
@@ -398,9 +398,7 @@ impl OhlcvBar {
         // body ≤ 30%: body*10 ≤ range*3
         // lower wick ≥ 60%: wick_lo*10 ≥ range*6
         // upper wick ≤ 10%: wick_hi*10 ≤ range
-        body * ten <= range * three
-            && wick_lo * ten >= range * six
-            && wick_hi * ten <= range
+        body * ten <= range * three && wick_lo * ten >= range * six && wick_hi * ten <= range
     }
 
     /// Returns `true` if this bar has a classic shooting-star shape.
@@ -426,9 +424,7 @@ impl OhlcvBar {
         // body ≤ 30%: body*10 ≤ range*3
         // upper wick ≥ 60%: wick_hi*10 ≥ range*6
         // lower wick ≤ 10%: wick_lo*10 ≤ range
-        body * ten <= range * three
-            && wick_hi * ten >= range * six
-            && wick_lo * ten <= range
+        body * ten <= range * three && wick_hi * ten >= range * six && wick_lo * ten <= range
     }
 
     /// Gap from the previous bar: `self.open − prev.close`.
@@ -1138,8 +1134,16 @@ impl OhlcvBar {
         let n_f = expected_n as f64;
         let x_mean = (n_f - 1.0) / 2.0;
         let y_mean = ys.iter().sum::<f64>() / n_f;
-        let numerator: f64 = ys.iter().enumerate().map(|(i, y)| (i as f64 - x_mean) * (y - y_mean)).sum();
-        let denominator: f64 = ys.iter().enumerate().map(|(i, _)| (i as f64 - x_mean).powi(2)).sum();
+        let numerator: f64 = ys
+            .iter()
+            .enumerate()
+            .map(|(i, y)| (i as f64 - x_mean) * (y - y_mean))
+            .sum();
+        let denominator: f64 = ys
+            .iter()
+            .enumerate()
+            .map(|(i, _)| (i as f64 - x_mean).powi(2))
+            .sum();
         if denominator == 0.0 {
             return None;
         }
@@ -1168,10 +1172,12 @@ impl OhlcvBar {
             return None;
         }
         let mean = Self::mean_close(bars)?.to_f64()?;
-        let variance: f64 = bars.iter()
+        let variance: f64 = bars
+            .iter()
             .filter_map(|b| b.close.to_f64())
             .map(|c| (c - mean).powi(2))
-            .sum::<f64>() / n as f64;
+            .sum::<f64>()
+            / n as f64;
         Some(variance.sqrt())
     }
 
@@ -1200,7 +1206,10 @@ impl OhlcvBar {
         if bars.is_empty() {
             return None;
         }
-        let clvs: Vec<f64> = bars.iter().filter_map(|b| b.close_location_value()).collect();
+        let clvs: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| b.close_location_value())
+            .collect();
         if clvs.is_empty() {
             return None;
         }
@@ -1342,9 +1351,7 @@ impl OhlcvBar {
         if bars.len() < 2 {
             return 0;
         }
-        bars.windows(2)
-            .filter(|w| w[1].close > w[0].high)
-            .count()
+        bars.windows(2).filter(|w| w[1].close > w[0].high).count()
     }
 
     /// Count of doji bars (|close − open| ≤ epsilon) in the slice.
@@ -1387,17 +1394,25 @@ impl OhlcvBar {
 
     /// Total volume of all bullish (close ≥ open) bars in the slice.
     pub fn bullish_volume(bars: &[OhlcvBar]) -> Decimal {
-        bars.iter().filter(|b| b.is_bullish()).map(|b| b.volume).sum()
+        bars.iter()
+            .filter(|b| b.is_bullish())
+            .map(|b| b.volume)
+            .sum()
     }
 
     /// Total volume of all bearish (close < open) bars in the slice.
     pub fn bearish_volume(bars: &[OhlcvBar]) -> Decimal {
-        bars.iter().filter(|b| b.is_bearish()).map(|b| b.volume).sum()
+        bars.iter()
+            .filter(|b| b.is_bearish())
+            .map(|b| b.volume)
+            .sum()
     }
 
     /// Count of bars where close is strictly above the bar midpoint ((high + low) / 2).
     pub fn close_above_mid_count(bars: &[OhlcvBar]) -> usize {
-        bars.iter().filter(|b| b.close > b.high_low_midpoint()).count()
+        bars.iter()
+            .filter(|b| b.close > b.high_low_midpoint())
+            .count()
     }
 
     /// Exponential moving average of close prices over the slice.
@@ -1466,7 +1481,8 @@ impl OhlcvBar {
             return None;
         }
         let mean = vols.iter().sum::<f64>() / vols.len() as f64;
-        let variance = vols.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / (vols.len() - 1) as f64;
+        let variance =
+            vols.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / (vols.len() - 1) as f64;
         Some(variance.sqrt())
     }
 
@@ -1729,7 +1745,9 @@ impl OhlcvBar {
         if n < 2 || bars.len() < n {
             return false;
         }
-        bars[bars.len() - n..].windows(2).all(|w| w[1].close > w[0].close)
+        bars[bars.len() - n..]
+            .windows(2)
+            .all(|w| w[1].close > w[0].close)
     }
 
     /// Returns `true` if the last `n` closes form a strict downtrend.
@@ -1740,7 +1758,9 @@ impl OhlcvBar {
         if n < 2 || bars.len() < n {
             return false;
         }
-        bars[bars.len() - n..].windows(2).all(|w| w[1].close < w[0].close)
+        bars[bars.len() - n..]
+            .windows(2)
+            .all(|w| w[1].close < w[0].close)
     }
 
     /// Percentage change in volume between the last two bars.
@@ -1766,14 +1786,17 @@ impl OhlcvBar {
     /// are skipped. Returns `None` if no valid bars exist.
     pub fn wick_body_ratio(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        let valid: Vec<f64> = bars.iter().filter_map(|b| {
-            let body = b.body();
-            if body.is_zero() {
-                return None;
-            }
-            let wicks = b.wick_upper() + b.wick_lower();
-            (wicks / body).to_f64()
-        }).collect();
+        let valid: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let body = b.body();
+                if body.is_zero() {
+                    return None;
+                }
+                let wicks = b.wick_upper() + b.wick_lower();
+                (wicks / body).to_f64()
+            })
+            .collect();
         if valid.is_empty() {
             return None;
         }
@@ -1803,7 +1826,12 @@ impl OhlcvBar {
         let nf = n as f64;
         let mean_v = vols.iter().sum::<f64>() / nf;
         let mean_c = closes.iter().sum::<f64>() / nf;
-        let cov: f64 = vols.iter().zip(closes.iter()).map(|(v, c)| (v - mean_v) * (c - mean_c)).sum::<f64>() / nf;
+        let cov: f64 = vols
+            .iter()
+            .zip(closes.iter())
+            .map(|(v, c)| (v - mean_v) * (c - mean_c))
+            .sum::<f64>()
+            / nf;
         let std_v = (vols.iter().map(|v| (v - mean_v).powi(2)).sum::<f64>() / nf).sqrt();
         let std_c = (closes.iter().map(|c| (c - mean_c).powi(2)).sum::<f64>() / nf).sqrt();
         if std_v == 0.0 || std_c == 0.0 {
@@ -1823,9 +1851,10 @@ impl OhlcvBar {
         if valid.is_empty() {
             return None;
         }
-        let consistent = valid.iter().filter(|b| {
-            b.body() * Decimal::TWO > b.range()
-        }).count();
+        let consistent = valid
+            .iter()
+            .filter(|b| b.body() * Decimal::TWO > b.range())
+            .count();
         Some(consistent as f64 / valid.len() as f64)
     }
 
@@ -1862,7 +1891,9 @@ impl OhlcvBar {
         if bars.len() < 2 {
             return 0;
         }
-        bars.windows(2).filter(|w| w[1].range() > w[0].range()).count()
+        bars.windows(2)
+            .filter(|w| w[1].range() > w[0].range())
+            .count()
     }
 
     /// Count of bars where the open gaps away from the previous bar's close
@@ -1882,7 +1913,8 @@ impl OhlcvBar {
         if bars.is_empty() {
             return None;
         }
-        let total: f64 = bars.iter()
+        let total: f64 = bars
+            .iter()
             .filter_map(|b| (b.wick_upper() + b.wick_lower()).to_f64())
             .sum();
         Some(total / bars.len() as f64)
@@ -1912,8 +1944,8 @@ impl OhlcvBar {
         if n < 1 || bars.len() < n {
             return 0;
         }
-        let high_ma: Decimal = bars.iter().take(n).map(|b| b.high).sum::<Decimal>()
-            / Decimal::from(n as u32);
+        let high_ma: Decimal =
+            bars.iter().take(n).map(|b| b.high).sum::<Decimal>() / Decimal::from(n as u32);
         bars[n - 1..].iter().filter(|b| b.close > high_ma).count()
     }
 
@@ -1940,7 +1972,8 @@ impl OhlcvBar {
         if bars.is_empty() {
             return None;
         }
-        let total: f64 = bars.iter()
+        let total: f64 = bars
+            .iter()
             .filter_map(|b| (b.close - b.open).abs().to_f64())
             .sum();
         Some(total / bars.len() as f64)
@@ -1990,7 +2023,8 @@ impl OhlcvBar {
         if bars.len() < 2 {
             return None;
         }
-        let total: f64 = bars.windows(2)
+        let total: f64 = bars
+            .windows(2)
             .filter_map(|w| (w[1].close - w[0].close).abs().to_f64())
             .sum();
         Some(total)
@@ -2008,16 +2042,18 @@ impl OhlcvBar {
         if bars.len() < 2 {
             return 0;
         }
-        bars.windows(2).filter(|w| {
-            let prev = w[0].close;
-            let curr = w[1].close;
-            // Reverts if the current close is between prev and mean
-            if prev < mean {
-                curr > prev && curr <= mean
-            } else {
-                curr < prev && curr >= mean
-            }
-        }).count()
+        bars.windows(2)
+            .filter(|w| {
+                let prev = w[0].close;
+                let curr = w[1].close;
+                // Reverts if the current close is between prev and mean
+                if prev < mean {
+                    curr > prev && curr <= mean
+                } else {
+                    curr < prev && curr >= mean
+                }
+            })
+            .count()
     }
 
     /// ATR as a fraction of the mean close price.
@@ -2052,7 +2088,12 @@ impl OhlcvBar {
         }
         let mean_i = indices.iter().sum::<f64>() / nf;
         let mean_v = vols.iter().sum::<f64>() / nf;
-        let cov: f64 = indices.iter().zip(vols.iter()).map(|(i, v)| (i - mean_i) * (v - mean_v)).sum::<f64>() / nf;
+        let cov: f64 = indices
+            .iter()
+            .zip(vols.iter())
+            .map(|(i, v)| (i - mean_i) * (v - mean_v))
+            .sum::<f64>()
+            / nf;
         let std_i = (indices.iter().map(|i| (i - mean_i).powi(2)).sum::<f64>() / nf).sqrt();
         let std_v = (vols.iter().map(|v| (v - mean_v).powi(2)).sum::<f64>() / nf).sqrt();
         if std_i == 0.0 || std_v == 0.0 {
@@ -2070,7 +2111,10 @@ impl OhlcvBar {
         if bars.is_empty() {
             return None;
         }
-        let total: f64 = bars.iter().filter_map(|b| (b.high - b.close).to_f64()).sum();
+        let total: f64 = bars
+            .iter()
+            .filter_map(|b| (b.high - b.close).to_f64())
+            .sum();
         Some(total / bars.len() as f64)
     }
 
@@ -2084,7 +2128,10 @@ impl OhlcvBar {
         if bars.is_empty() {
             return None;
         }
-        let total: f64 = bars.iter().filter_map(|b| (b.close - b.open).abs().to_f64()).sum();
+        let total: f64 = bars
+            .iter()
+            .filter_map(|b| (b.close - b.open).abs().to_f64())
+            .sum();
         Some(total / bars.len() as f64)
     }
 
@@ -2121,12 +2168,15 @@ impl OhlcvBar {
         if bars.is_empty() {
             return None;
         }
-        let strong = bars.iter().filter(|b| {
-            b.is_bullish()
-                && !b.range().is_zero()
-                && b.body() * Decimal::TWO > b.range()
-                && b.close_above_midpoint()
-        }).count();
+        let strong = bars
+            .iter()
+            .filter(|b| {
+                b.is_bullish()
+                    && !b.range().is_zero()
+                    && b.body() * Decimal::TWO > b.range()
+                    && b.close_above_midpoint()
+            })
+            .count();
         Some(strong as f64 / bars.len() as f64)
     }
 
@@ -2171,10 +2221,15 @@ impl OhlcvBar {
     /// Bars with zero open are skipped. Returns `None` if no valid bars.
     pub fn close_minus_open_pct(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        let values: Vec<f64> = bars.iter().filter_map(|b| {
-            if b.open.is_zero() { return None; }
-            ((b.close - b.open) / b.open * Decimal::ONE_HUNDRED).to_f64()
-        }).collect();
+        let values: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                if b.open.is_zero() {
+                    return None;
+                }
+                ((b.close - b.open) / b.open * Decimal::ONE_HUNDRED).to_f64()
+            })
+            .collect();
         if values.is_empty() {
             return None;
         }
@@ -2187,11 +2242,16 @@ impl OhlcvBar {
     /// `None` if the slice is empty or all bars have zero range.
     pub fn volume_per_range(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        let values: Vec<f64> = bars.iter().filter_map(|b| {
-            let r = b.range();
-            if r.is_zero() { return None; }
-            (b.volume / r).to_f64()
-        }).collect();
+        let values: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let r = b.range();
+                if r.is_zero() {
+                    return None;
+                }
+                (b.volume / r).to_f64()
+            })
+            .collect();
         if values.is_empty() {
             return None;
         }
@@ -2203,12 +2263,17 @@ impl OhlcvBar {
     /// Returns `None` if all bars have zero range or the slice is empty.
     pub fn body_fraction(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        let fracs: Vec<f64> = bars.iter().filter_map(|b| {
-            let range = b.range();
-            if range.is_zero() { return None; }
-            let body = (b.close - b.open).abs();
-            (body / range).to_f64()
-        }).collect();
+        let fracs: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let range = b.range();
+                if range.is_zero() {
+                    return None;
+                }
+                let body = (b.close - b.open).abs();
+                (body / range).to_f64()
+            })
+            .collect();
         if fracs.is_empty() {
             return None;
         }
@@ -2252,7 +2317,8 @@ impl OhlcvBar {
         if total.is_zero() {
             return None;
         }
-        let up_vol: Decimal = bars.iter()
+        let up_vol: Decimal = bars
+            .iter()
             .filter(|b| b.close > b.open)
             .map(|b| b.volume)
             .sum();
@@ -2265,13 +2331,18 @@ impl OhlcvBar {
     /// zero range or the slice is empty.
     pub fn tail_upper_fraction(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        let fracs: Vec<f64> = bars.iter().filter_map(|b| {
-            let range = b.range();
-            if range.is_zero() { return None; }
-            let body_top = b.open.max(b.close);
-            let upper_wick = b.high - body_top;
-            (upper_wick / range).to_f64()
-        }).collect();
+        let fracs: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let range = b.range();
+                if range.is_zero() {
+                    return None;
+                }
+                let body_top = b.open.max(b.close);
+                let upper_wick = b.high - body_top;
+                (upper_wick / range).to_f64()
+            })
+            .collect();
         if fracs.is_empty() {
             return None;
         }
@@ -2284,13 +2355,18 @@ impl OhlcvBar {
     /// zero range or the slice is empty.
     pub fn tail_lower_fraction(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        let fracs: Vec<f64> = bars.iter().filter_map(|b| {
-            let range = b.range();
-            if range.is_zero() { return None; }
-            let body_bot = b.open.min(b.close);
-            let lower_wick = body_bot - b.low;
-            (lower_wick / range).to_f64()
-        }).collect();
+        let fracs: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let range = b.range();
+                if range.is_zero() {
+                    return None;
+                }
+                let body_bot = b.open.min(b.close);
+                let lower_wick = body_bot - b.low;
+                (lower_wick / range).to_f64()
+            })
+            .collect();
         if fracs.is_empty() {
             return None;
         }
@@ -2359,7 +2435,10 @@ impl OhlcvBar {
         let long_slice = &bars[bars.len() - long_n..];
         let short_avg: f64 =
             recent.iter().filter_map(|b| b.volume.to_f64()).sum::<f64>() / short_n as f64;
-        let long_sum: Vec<f64> = long_slice.iter().filter_map(|b| b.volume.to_f64()).collect();
+        let long_sum: Vec<f64> = long_slice
+            .iter()
+            .filter_map(|b| b.volume.to_f64())
+            .collect();
         if long_sum.is_empty() {
             return None;
         }
@@ -2401,7 +2480,10 @@ impl OhlcvBar {
         if bars.is_empty() {
             return None;
         }
-        let count = bars.iter().filter(|b| b.wick_upper() > b.wick_lower()).count();
+        let count = bars
+            .iter()
+            .filter(|b| b.wick_upper() > b.wick_lower())
+            .count();
         Some(count as f64 / bars.len() as f64)
     }
 
@@ -2457,8 +2539,10 @@ impl OhlcvBar {
     ///
     /// Returns `None` when no bars have non-zero range.
     pub fn bar_strength_index(bars: &[OhlcvBar]) -> Option<f64> {
-        let vals: Vec<f64> =
-            bars.iter().filter_map(|b| b.close_location_value()).collect();
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| b.close_location_value())
+            .collect();
         if vals.is_empty() {
             return None;
         }
@@ -2604,7 +2688,10 @@ impl OhlcvBar {
         if bars.len() < 2 {
             return None;
         }
-        let inside = bars.windows(2).filter(|w| w[1].is_inside_bar(&w[0])).count();
+        let inside = bars
+            .windows(2)
+            .filter(|w| w[1].is_inside_bar(&w[0]))
+            .count();
         Some(inside as f64 / (bars.len() - 1) as f64)
     }
 
@@ -2614,9 +2701,7 @@ impl OhlcvBar {
     /// `−(open − close)`; flat bars contribute `0`. A positive total
     /// indicates the bars collectively closed higher than they opened.
     pub fn body_momentum(bars: &[OhlcvBar]) -> Decimal {
-        bars.iter()
-            .map(|b| b.close - b.open)
-            .sum()
+        bars.iter().map(|b| b.close - b.open).sum()
     }
 
     /// Mean `trade_count` (ticks per bar) across the slice.
@@ -2648,7 +2733,10 @@ impl OhlcvBar {
         if bars.len() < 2 {
             return None;
         }
-        let vals: Vec<f64> = bars.iter().filter_map(|b| (b.high - b.close).to_f64()).collect();
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| (b.high - b.close).to_f64())
+            .collect();
         if vals.len() < 2 {
             return None;
         }
@@ -2688,7 +2776,10 @@ impl OhlcvBar {
         if bars.len() < 2 {
             return None;
         }
-        let vals: Vec<f64> = bars.iter().filter_map(|b| b.typical_price().to_f64()).collect();
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| b.typical_price().to_f64())
+            .collect();
         if vals.len() < 2 {
             return None;
         }
@@ -2705,10 +2796,7 @@ impl OhlcvBar {
     /// Returns `None` if fewer than 1 bar has a VWAP.
     pub fn vwap_deviation_avg(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        let vwaps: Vec<f64> = bars
-            .iter()
-            .filter_map(|b| b.vwap?.to_f64())
-            .collect();
+        let vwaps: Vec<f64> = bars.iter().filter_map(|b| b.vwap?.to_f64()).collect();
         if vwaps.is_empty() {
             return None;
         }
@@ -2774,12 +2862,16 @@ impl OhlcvBar {
 
     /// Largest single-bar upward body (`max(close − open, 0)`).
     pub fn max_up_move(bars: &[OhlcvBar]) -> Option<Decimal> {
-        bars.iter().map(|b| (b.close - b.open).max(Decimal::ZERO)).max()
+        bars.iter()
+            .map(|b| (b.close - b.open).max(Decimal::ZERO))
+            .max()
     }
 
     /// Largest single-bar downward body (`max(open − close, 0)`).
     pub fn max_down_move(bars: &[OhlcvBar]) -> Option<Decimal> {
-        bars.iter().map(|b| (b.open - b.close).max(Decimal::ZERO)).max()
+        bars.iter()
+            .map(|b| (b.open - b.close).max(Decimal::ZERO))
+            .max()
     }
 
     /// Mean of `(close − low) / range` where range > 0; position of close within each bar's range.
@@ -2890,7 +2982,10 @@ impl OhlcvBar {
         if bars.is_empty() {
             return None;
         }
-        let above = bars.iter().filter(|b| b.close > b.high_low_midpoint()).count();
+        let above = bars
+            .iter()
+            .filter(|b| b.close > b.high_low_midpoint())
+            .count();
         Some(above as f64 / bars.len() as f64)
     }
 
@@ -2903,7 +2998,9 @@ impl OhlcvBar {
         let vals: Vec<f64> = bars
             .iter()
             .filter_map(|b| {
-                if b.open.is_zero() { return None; }
+                if b.open.is_zero() {
+                    return None;
+                }
                 ((b.high - b.low) / b.open).to_f64()
             })
             .collect();
@@ -2970,7 +3067,9 @@ impl OhlcvBar {
             .iter()
             .filter_map(|b| {
                 let r = b.range();
-                if r.is_zero() { return None; }
+                if r.is_zero() {
+                    return None;
+                }
                 (b.body() / r).to_f64()
             })
             .collect();
@@ -3009,9 +3108,17 @@ impl OhlcvBar {
             return None;
         }
         let y_mean = y.iter().sum::<f64>() / y.len() as f64;
-        let num: f64 = y.iter().enumerate().map(|(i, &v)| (i as f64 - x_mean) * (v - y_mean)).sum();
+        let num: f64 = y
+            .iter()
+            .enumerate()
+            .map(|(i, &v)| (i as f64 - x_mean) * (v - y_mean))
+            .sum();
         let den: f64 = (0..n).map(|i| (i as f64 - x_mean).powi(2)).sum();
-        if den == 0.0 { None } else { Some(num / den) }
+        if den == 0.0 {
+            None
+        } else {
+            Some(num / den)
+        }
     }
 
     /// Fraction of bars where close > previous close (i.e., up-close bars).
@@ -3035,7 +3142,9 @@ impl OhlcvBar {
             .iter()
             .filter_map(|b| {
                 let r = b.range();
-                if r.is_zero() { return None; }
+                if r.is_zero() {
+                    return None;
+                }
                 (b.upper_shadow() / r).to_f64()
             })
             .collect();
@@ -3054,7 +3163,9 @@ impl OhlcvBar {
             .iter()
             .filter_map(|b| {
                 let r = b.range();
-                if r.is_zero() { return None; }
+                if r.is_zero() {
+                    return None;
+                }
                 (b.lower_shadow() / r).to_f64()
             })
             .collect();
@@ -3071,7 +3182,9 @@ impl OhlcvBar {
             .iter()
             .filter_map(|b| {
                 let r = b.range();
-                if r.is_zero() { return None; }
+                if r.is_zero() {
+                    return None;
+                }
                 ((b.close - b.open) / r).to_f64()
             })
             .collect();
@@ -3098,7 +3211,9 @@ impl OhlcvBar {
             .iter()
             .filter_map(|b| {
                 let r = b.range();
-                if r.is_zero() { return None; }
+                if r.is_zero() {
+                    return None;
+                }
                 ((b.close - b.open).abs() / r).to_f64()
             })
             .collect();
@@ -3244,9 +3359,7 @@ impl OhlcvBar {
         if bars.len() < 2 {
             return 0;
         }
-        bars.windows(2)
-            .filter(|w| w[1].open == w[0].close)
-            .count()
+        bars.windows(2).filter(|w| w[1].open == w[0].close).count()
     }
 
     /// Sum of bar volumes where the bar was a down-close.
@@ -3411,7 +3524,9 @@ impl OhlcvBar {
         let vals: Vec<f64> = bars
             .iter()
             .filter_map(|b| {
-                if b.open.is_zero() { return None; }
+                if b.open.is_zero() {
+                    return None;
+                }
                 ((b.high - b.low) / b.open).to_f64()
             })
             .collect();
@@ -3774,8 +3889,7 @@ impl OhlcvBar {
             return None;
         }
         let n = bars.len() as u32;
-        let mean_vol: Decimal =
-            bars.iter().map(|b| b.volume).sum::<Decimal>() / Decimal::from(n);
+        let mean_vol: Decimal = bars.iter().map(|b| b.volume).sum::<Decimal>() / Decimal::from(n);
         let count = bars.iter().filter(|b| b.volume > mean_vol).count();
         Some(count as f64 / bars.len() as f64)
     }
@@ -3846,9 +3960,9 @@ impl OhlcvBar {
     /// Returns `None` if there are no up-bars or no down-bars.
     pub fn up_down_volume_ratio(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        let (up_vol, dn_vol) = bars.iter().fold(
-            (Decimal::ZERO, Decimal::ZERO),
-            |(up, dn), b| {
+        let (up_vol, dn_vol) = bars
+            .iter()
+            .fold((Decimal::ZERO, Decimal::ZERO), |(up, dn), b| {
                 if b.close > b.open {
                     (up + b.volume, dn)
                 } else if b.close < b.open {
@@ -3856,8 +3970,7 @@ impl OhlcvBar {
                 } else {
                     (up, dn)
                 }
-            },
-        );
+            });
         if up_vol.is_zero() || dn_vol.is_zero() {
             return None;
         }
@@ -3942,7 +4055,10 @@ impl OhlcvBar {
         }
         use rust_decimal::prelude::ToPrimitive;
         let n = bars.len() as f64;
-        let vols: Vec<f64> = bars.iter().map(|b| b.volume.to_f64().unwrap_or(0.0)).collect();
+        let vols: Vec<f64> = bars
+            .iter()
+            .map(|b| b.volume.to_f64().unwrap_or(0.0))
+            .collect();
         let mean = vols.iter().sum::<f64>() / n;
         if mean == 0.0 {
             return None;
@@ -4011,7 +4127,11 @@ impl OhlcvBar {
                 if w[0].close.is_zero() {
                     None
                 } else {
-                    Some(((w[1].open - w[0].close) / w[0].close).to_f64().unwrap_or(0.0))
+                    Some(
+                        ((w[1].open - w[0].close) / w[0].close)
+                            .to_f64()
+                            .unwrap_or(0.0),
+                    )
                 }
             })
             .collect();
@@ -4101,9 +4221,7 @@ impl OhlcvBar {
                 if range.is_zero() {
                     return true; // zero-range is doji by convention
                 }
-                let body_ratio = ((b.close - b.open).abs() / range)
-                    .to_f64()
-                    .unwrap_or(1.0);
+                let body_ratio = ((b.close - b.open).abs() / range).to_f64().unwrap_or(1.0);
                 body_ratio < 0.1
             })
             .count();
@@ -4154,10 +4272,7 @@ impl OhlcvBar {
         if bars.len() < 2 {
             return None;
         }
-        let count = bars
-            .windows(2)
-            .filter(|w| w[1].open < w[0].close)
-            .count();
+        let count = bars.windows(2).filter(|w| w[1].open < w[0].close).count();
         Some(count)
     }
 
@@ -4229,7 +4344,11 @@ impl OhlcvBar {
         if first_mean.is_zero() {
             return None;
         }
-        Some(((second_mean - first_mean) / first_mean).to_f64().unwrap_or(0.0))
+        Some(
+            ((second_mean - first_mean) / first_mean)
+                .to_f64()
+                .unwrap_or(0.0),
+        )
     }
 
     // ── round-100 ────────────────────────────────────────────────────────────
@@ -4302,10 +4421,7 @@ impl OhlcvBar {
             return None;
         }
         let vwap = bars.iter().map(|b| b.close * b.volume).sum::<Decimal>() / total_vol;
-        let mean_dev = bars
-            .iter()
-            .map(|b| (b.close - vwap).abs())
-            .sum::<Decimal>()
+        let mean_dev = bars.iter().map(|b| (b.close - vwap).abs()).sum::<Decimal>()
             / Decimal::from(bars.len());
         Some(mean_dev.to_f64().unwrap_or(0.0))
     }
@@ -4373,10 +4489,7 @@ impl OhlcvBar {
             let flat = if range.is_zero() {
                 true
             } else {
-                ((b.close - b.open).abs() / range)
-                    .to_f64()
-                    .unwrap_or(1.0)
-                    < 0.05
+                ((b.close - b.open).abs() / range).to_f64().unwrap_or(1.0) < 0.05
             };
             if flat {
                 count += 1;
@@ -4484,7 +4597,11 @@ impl OhlcvBar {
             return None;
         }
         let second_mean = bodies_second.iter().copied().sum::<Decimal>() / n2;
-        Some(((second_mean - first_mean) / first_mean).to_f64().unwrap_or(0.0))
+        Some(
+            ((second_mean - first_mean) / first_mean)
+                .to_f64()
+                .unwrap_or(0.0),
+        )
     }
 
     // ── round-103 ────────────────────────────────────────────────────────────
@@ -4527,15 +4644,18 @@ impl OhlcvBar {
         if bars.len() < 2 {
             return None;
         }
-        let count = bars.windows(2).filter(|w| {
-            let prev = &w[0];
-            let curr = &w[1];
-            // Prior bar: bearish (open > close), Current bar: bullish (close > open)
-            prev.open > prev.close
-                && curr.close > curr.open
-                && curr.open <= prev.close
-                && curr.close >= prev.open
-        }).count();
+        let count = bars
+            .windows(2)
+            .filter(|w| {
+                let prev = &w[0];
+                let curr = &w[1];
+                // Prior bar: bearish (open > close), Current bar: bullish (close > open)
+                prev.open > prev.close
+                    && curr.close > curr.open
+                    && curr.open <= prev.close
+                    && curr.close >= prev.open
+            })
+            .count();
         Some(count)
     }
 
@@ -4572,15 +4692,18 @@ impl OhlcvBar {
         if bars.len() < 2 {
             return None;
         }
-        let count = bars.windows(2).filter(|w| {
-            let prev = &w[0];
-            let curr = &w[1];
-            // Gap up then close comes back inside prior range
-            let gap_up = curr.open > prev.high && curr.close <= prev.high;
-            // Gap down then close comes back inside prior range
-            let gap_dn = curr.open < prev.low && curr.close >= prev.low;
-            gap_up || gap_dn
-        }).count();
+        let count = bars
+            .windows(2)
+            .filter(|w| {
+                let prev = &w[0];
+                let curr = &w[1];
+                // Gap up then close comes back inside prior range
+                let gap_up = curr.open > prev.high && curr.close <= prev.high;
+                // Gap down then close comes back inside prior range
+                let gap_dn = curr.open < prev.low && curr.close >= prev.low;
+                gap_up || gap_dn
+            })
+            .count();
         Some(count)
     }
 
@@ -4594,7 +4717,11 @@ impl OhlcvBar {
                 if b.volume.is_zero() {
                     None
                 } else {
-                    Some(((b.close - b.open).abs() / b.volume).to_f64().unwrap_or(0.0))
+                    Some(
+                        ((b.close - b.open).abs() / b.volume)
+                            .to_f64()
+                            .unwrap_or(0.0),
+                    )
                 }
             })
             .collect();
@@ -4611,9 +4738,11 @@ impl OhlcvBar {
         if bars.len() < 2 {
             return None;
         }
-        let bullish_count = bars[1..].iter().zip(bars.iter()).filter(|(curr, prev)| {
-            curr.close > curr.open && curr.close > prev.close
-        }).count();
+        let bullish_count = bars[1..]
+            .iter()
+            .zip(bars.iter())
+            .filter(|(curr, prev)| curr.close > curr.open && curr.close > prev.close)
+            .count();
         let total = bars.len() - 1;
         Some(bullish_count as f64 / total as f64)
     }
@@ -4633,7 +4762,12 @@ impl OhlcvBar {
         }
         let mean_o = opens.iter().sum::<f64>() / n;
         let mean_c = closes.iter().sum::<f64>() / n;
-        let cov: f64 = opens.iter().zip(closes.iter()).map(|(o, c)| (o - mean_o) * (c - mean_c)).sum::<f64>() / n;
+        let cov: f64 = opens
+            .iter()
+            .zip(closes.iter())
+            .map(|(o, c)| (o - mean_o) * (c - mean_c))
+            .sum::<f64>()
+            / n;
         let std_o = (opens.iter().map(|o| (o - mean_o).powi(2)).sum::<f64>() / n).sqrt();
         let std_c = (closes.iter().map(|c| (c - mean_c).powi(2)).sum::<f64>() / n).sqrt();
         if std_o == 0.0 || std_c == 0.0 {
@@ -4649,12 +4783,20 @@ impl OhlcvBar {
     /// Returns `None` for an empty slice or no bars with non-zero range.
     pub fn close_to_high_mean(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        let ratios: Vec<f64> = bars.iter().filter_map(|b| {
-            let range = b.high - b.low;
-            if range.is_zero() { None }
-            else { Some(((b.high - b.close) / range).to_f64().unwrap_or(0.0)) }
-        }).collect();
-        if ratios.is_empty() { return None; }
+        let ratios: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let range = b.high - b.low;
+                if range.is_zero() {
+                    None
+                } else {
+                    Some(((b.high - b.close) / range).to_f64().unwrap_or(0.0))
+                }
+            })
+            .collect();
+        if ratios.is_empty() {
+            return None;
+        }
         Some(ratios.iter().sum::<f64>() / ratios.len() as f64)
     }
 
@@ -4665,26 +4807,33 @@ impl OhlcvBar {
         if bars.len() < 2 {
             return None;
         }
-        let true_ranges: Vec<Decimal> = bars.windows(2).map(|w| {
-            let prev = &w[0];
-            let curr = &w[1];
-            let hl = curr.high - curr.low;
-            let hpc = (curr.high - prev.close).abs();
-            let lpc = (curr.low - prev.close).abs();
-            hl.max(hpc).max(lpc)
-        }).collect();
-        let mean_tr: Decimal = true_ranges.iter().copied().sum::<Decimal>()
-            / Decimal::from(true_ranges.len());
-        let mean_close: Decimal = bars.iter().map(|b| b.close).sum::<Decimal>()
-            / Decimal::from(bars.len());
-        if mean_close.is_zero() { return None; }
+        let true_ranges: Vec<Decimal> = bars
+            .windows(2)
+            .map(|w| {
+                let prev = &w[0];
+                let curr = &w[1];
+                let hl = curr.high - curr.low;
+                let hpc = (curr.high - prev.close).abs();
+                let lpc = (curr.low - prev.close).abs();
+                hl.max(hpc).max(lpc)
+            })
+            .collect();
+        let mean_tr: Decimal =
+            true_ranges.iter().copied().sum::<Decimal>() / Decimal::from(true_ranges.len());
+        let mean_close: Decimal =
+            bars.iter().map(|b| b.close).sum::<Decimal>() / Decimal::from(bars.len());
+        if mean_close.is_zero() {
+            return None;
+        }
         Some((mean_tr / mean_close).to_f64().unwrap_or(0.0))
     }
 
     /// Fraction of bars that close below their open (bearish candles).
     /// Returns `None` for an empty slice.
     pub fn bearish_close_fraction(bars: &[OhlcvBar]) -> Option<f64> {
-        if bars.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
         let bearish = bars.iter().filter(|b| b.close < b.open).count();
         Some(bearish as f64 / bars.len() as f64)
     }
@@ -4693,7 +4842,9 @@ impl OhlcvBar {
     /// Returns `None` for an empty slice.
     pub fn high_minus_open_mean(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
         let sum: Decimal = bars.iter().map(|b| b.high - b.open).sum();
         Some((sum / Decimal::from(bars.len())).to_f64().unwrap_or(0.0))
     }
@@ -4704,22 +4855,35 @@ impl OhlcvBar {
     /// Returns `None` for an empty slice or any bar with zero close.
     pub fn avg_true_range_pct(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let ratios: Vec<f64> = bars.iter().filter_map(|b| {
-            if b.close.is_zero() { None }
-            else { Some(((b.high - b.low) / b.close).to_f64().unwrap_or(0.0)) }
-        }).collect();
-        if ratios.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
+        let ratios: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                if b.close.is_zero() {
+                    None
+                } else {
+                    Some(((b.high - b.low) / b.close).to_f64().unwrap_or(0.0))
+                }
+            })
+            .collect();
+        if ratios.is_empty() {
+            return None;
+        }
         Some(ratios.iter().sum::<f64>() / ratios.len() as f64)
     }
 
     /// Count of bars where close is above the bar's own midpoint `(high + low) / 2`.
     /// Returns `None` for an empty slice.
     pub fn close_above_midpoint_count(bars: &[OhlcvBar]) -> Option<usize> {
-        if bars.is_empty() { return None; }
-        let count = bars.iter().filter(|b| {
-            b.close > (b.high + b.low) / Decimal::TWO
-        }).count();
+        if bars.is_empty() {
+            return None;
+        }
+        let count = bars
+            .iter()
+            .filter(|b| b.close > (b.high + b.low) / Decimal::TWO)
+            .count();
         Some(count)
     }
 
@@ -4727,9 +4891,13 @@ impl OhlcvBar {
     /// Returns `None` for an empty slice or zero total volume.
     pub fn volume_weighted_high(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
         let total_vol: Decimal = bars.iter().map(|b| b.volume).sum();
-        if total_vol.is_zero() { return None; }
+        if total_vol.is_zero() {
+            return None;
+        }
         let wsum: Decimal = bars.iter().map(|b| b.high * b.volume).sum();
         Some((wsum / total_vol).to_f64().unwrap_or(0.0))
     }
@@ -4738,7 +4906,9 @@ impl OhlcvBar {
     /// Returns `None` for an empty slice.
     pub fn low_minus_close_mean(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
         let sum: Decimal = bars.iter().map(|b| b.open.min(b.close) - b.low).sum();
         Some((sum / Decimal::from(bars.len())).to_f64().unwrap_or(0.0))
     }
@@ -4749,11 +4919,19 @@ impl OhlcvBar {
     /// Returns `None` for an empty slice.
     pub fn open_to_high_ratio(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        let ratios: Vec<f64> = bars.iter().filter_map(|b| {
-            if b.high.is_zero() { None }
-            else { Some(((b.high - b.open) / b.high).to_f64().unwrap_or(0.0)) }
-        }).collect();
-        if ratios.is_empty() { return None; }
+        let ratios: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                if b.high.is_zero() {
+                    None
+                } else {
+                    Some(((b.high - b.open) / b.high).to_f64().unwrap_or(0.0))
+                }
+            })
+            .collect();
+        if ratios.is_empty() {
+            return None;
+        }
         Some(ratios.iter().sum::<f64>() / ratios.len() as f64)
     }
 
@@ -4761,19 +4939,29 @@ impl OhlcvBar {
     /// Returns `None` for an empty slice or no bars with non-zero range.
     pub fn close_range_position(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        let vals: Vec<f64> = bars.iter().filter_map(|b| {
-            let range = b.high - b.low;
-            if range.is_zero() { None }
-            else { Some(((b.close - b.low) / range).to_f64().unwrap_or(0.0)) }
-        }).collect();
-        if vals.is_empty() { return None; }
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let range = b.high - b.low;
+                if range.is_zero() {
+                    None
+                } else {
+                    Some(((b.close - b.low) / range).to_f64().unwrap_or(0.0))
+                }
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
     /// Count of bars that gap up from the prior bar (open > prior high).
     /// Returns `None` for fewer than 2 bars.
     pub fn up_gap_count(bars: &[OhlcvBar]) -> Option<usize> {
-        if bars.len() < 2 { return None; }
+        if bars.len() < 2 {
+            return None;
+        }
         let count = bars.windows(2).filter(|w| w[1].open > w[0].high).count();
         Some(count)
     }
@@ -4782,12 +4970,26 @@ impl OhlcvBar {
     /// Returns `None` for fewer than 2 bars or zero prior close.
     pub fn high_to_prev_close(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 2 { return None; }
-        let ratios: Vec<f64> = bars.windows(2).filter_map(|w| {
-            if w[0].close.is_zero() { None }
-            else { Some(((w[1].high - w[0].close) / w[0].close).to_f64().unwrap_or(0.0)) }
-        }).collect();
-        if ratios.is_empty() { return None; }
+        if bars.len() < 2 {
+            return None;
+        }
+        let ratios: Vec<f64> = bars
+            .windows(2)
+            .filter_map(|w| {
+                if w[0].close.is_zero() {
+                    None
+                } else {
+                    Some(
+                        ((w[1].high - w[0].close) / w[0].close)
+                            .to_f64()
+                            .unwrap_or(0.0),
+                    )
+                }
+            })
+            .collect();
+        if ratios.is_empty() {
+            return None;
+        }
         Some(ratios.iter().sum::<f64>() / ratios.len() as f64)
     }
 
@@ -4797,11 +4999,16 @@ impl OhlcvBar {
     /// Returns `None` for fewer than 2 bars.
     pub fn close_to_prev_open(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 2 { return None; }
-        let diffs: Vec<f64> = bars.windows(2)
+        if bars.len() < 2 {
+            return None;
+        }
+        let diffs: Vec<f64> = bars
+            .windows(2)
             .filter_map(|w| (w[1].close - w[0].open).to_f64())
             .collect();
-        if diffs.is_empty() { return None; }
+        if diffs.is_empty() {
+            return None;
+        }
         Some(diffs.iter().sum::<f64>() / diffs.len() as f64)
     }
 
@@ -4809,12 +5016,26 @@ impl OhlcvBar {
     /// Returns `None` for fewer than 2 bars or zero prior close.
     pub fn momentum_ratio(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 2 { return None; }
-        let ratios: Vec<f64> = bars.windows(2).filter_map(|w| {
-            if w[0].close.is_zero() { None }
-            else { Some(((w[1].close - w[0].close).abs() / w[0].close).to_f64().unwrap_or(0.0)) }
-        }).collect();
-        if ratios.is_empty() { return None; }
+        if bars.len() < 2 {
+            return None;
+        }
+        let ratios: Vec<f64> = bars
+            .windows(2)
+            .filter_map(|w| {
+                if w[0].close.is_zero() {
+                    None
+                } else {
+                    Some(
+                        ((w[1].close - w[0].close).abs() / w[0].close)
+                            .to_f64()
+                            .unwrap_or(0.0),
+                    )
+                }
+            })
+            .collect();
+        if ratios.is_empty() {
+            return None;
+        }
         Some(ratios.iter().sum::<f64>() / ratios.len() as f64)
     }
 
@@ -4822,12 +5043,16 @@ impl OhlcvBar {
     /// Returns `None` for an empty slice or zero mean volume.
     pub fn volume_range_ratio(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
         let max_v = bars.iter().map(|b| b.volume).max()?;
         let min_v = bars.iter().map(|b| b.volume).min()?;
         let total: Decimal = bars.iter().map(|b| b.volume).sum();
         let mean = total / Decimal::from(bars.len());
-        if mean.is_zero() { return None; }
+        if mean.is_zero() {
+            return None;
+        }
         Some(((max_v - min_v) / mean).to_f64().unwrap_or(0.0))
     }
 
@@ -4836,14 +5061,21 @@ impl OhlcvBar {
     /// Returns `None` for an empty slice or no bars with non-zero range.
     pub fn body_upper_fraction(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        let vals: Vec<f64> = bars.iter().filter_map(|b| {
-            let range = b.high - b.low;
-            if range.is_zero() { return None; }
-            let midpoint = (b.high + b.low) / Decimal::TWO;
-            let body_upper = (b.open.max(b.close) - midpoint).max(Decimal::ZERO);
-            Some((body_upper / range).to_f64().unwrap_or(0.0))
-        }).collect();
-        if vals.is_empty() { return None; }
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let range = b.high - b.low;
+                if range.is_zero() {
+                    return None;
+                }
+                let midpoint = (b.high + b.low) / Decimal::TWO;
+                let body_upper = (b.open.max(b.close) - midpoint).max(Decimal::ZERO);
+                Some((body_upper / range).to_f64().unwrap_or(0.0))
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
@@ -4852,7 +5084,9 @@ impl OhlcvBar {
     /// Fraction of bars where open != close of the prior bar (open gap).
     /// Returns `None` for fewer than 2 bars.
     pub fn open_gap_frequency(bars: &[OhlcvBar]) -> Option<f64> {
-        if bars.len() < 2 { return None; }
+        if bars.len() < 2 {
+            return None;
+        }
         let gapped = bars.windows(2).filter(|w| w[1].open != w[0].close).count();
         Some(gapped as f64 / (bars.len() - 1) as f64)
     }
@@ -4861,24 +5095,37 @@ impl OhlcvBar {
     /// Returns `None` for an empty slice.
     pub fn avg_close_to_open(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        let vals: Vec<f64> = bars.iter().filter_map(|b| {
-            if b.open.is_zero() { None }
-            else { Some(((b.close - b.open) / b.open).to_f64().unwrap_or(0.0)) }
-        }).collect();
-        if vals.is_empty() { return None; }
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                if b.open.is_zero() {
+                    None
+                } else {
+                    Some(((b.close - b.open) / b.open).to_f64().unwrap_or(0.0))
+                }
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
     /// Count of bars where close crossed through the prior bar's open price.
     /// Returns `None` for fewer than 2 bars.
     pub fn close_cross_open_count(bars: &[OhlcvBar]) -> Option<usize> {
-        if bars.len() < 2 { return None; }
-        let count = bars.windows(2).filter(|w| {
-            let prev_open = w[0].open;
-            // current close crosses prev bar's open
-            (w[0].close < prev_open && w[1].close >= prev_open)
-                || (w[0].close > prev_open && w[1].close <= prev_open)
-        }).count();
+        if bars.len() < 2 {
+            return None;
+        }
+        let count = bars
+            .windows(2)
+            .filter(|w| {
+                let prev_open = w[0].open;
+                // current close crosses prev bar's open
+                (w[0].close < prev_open && w[1].close >= prev_open)
+                    || (w[0].close > prev_open && w[1].close <= prev_open)
+            })
+            .count();
         Some(count)
     }
 
@@ -4886,13 +5133,20 @@ impl OhlcvBar {
     /// Returns `None` for fewer than 3 bars.
     pub fn trailing_stop_distance(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 3 { return None; }
-        let distances: Vec<f64> = bars.windows(3).filter_map(|w| {
-            let min_low = w.iter().map(|b| b.low).min()?;
-            let last_close = w[2].close;
-            Some((last_close - min_low).to_f64().unwrap_or(0.0))
-        }).collect();
-        if distances.is_empty() { return None; }
+        if bars.len() < 3 {
+            return None;
+        }
+        let distances: Vec<f64> = bars
+            .windows(3)
+            .filter_map(|w| {
+                let min_low = w.iter().map(|b| b.low).min()?;
+                let last_close = w[2].close;
+                Some((last_close - min_low).to_f64().unwrap_or(0.0))
+            })
+            .collect();
+        if distances.is_empty() {
+            return None;
+        }
         Some(distances.iter().sum::<f64>() / distances.len() as f64)
     }
 
@@ -4902,8 +5156,11 @@ impl OhlcvBar {
     /// Returns `None` for an empty slice.
     pub fn avg_shadow_total(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let sum: Decimal = bars.iter()
+        if bars.is_empty() {
+            return None;
+        }
+        let sum: Decimal = bars
+            .iter()
             .map(|b| (b.high - b.low) - (b.close - b.open).abs())
             .sum();
         Some((sum / Decimal::from(bars.len())).to_f64().unwrap_or(0.0))
@@ -4912,7 +5169,9 @@ impl OhlcvBar {
     /// Count of bars where open is above the prior bar's close (bullish gap-up open).
     /// Returns `None` for fewer than 2 bars.
     pub fn open_above_prev_close(bars: &[OhlcvBar]) -> Option<usize> {
-        if bars.len() < 2 { return None; }
+        if bars.len() < 2 {
+            return None;
+        }
         let count = bars.windows(2).filter(|w| w[1].open > w[0].close).count();
         Some(count)
     }
@@ -4920,7 +5179,9 @@ impl OhlcvBar {
     /// Count of bars where close is below the prior bar's open.
     /// Returns `None` for fewer than 2 bars.
     pub fn close_below_prev_open(bars: &[OhlcvBar]) -> Option<usize> {
-        if bars.len() < 2 { return None; }
+        if bars.len() < 2 {
+            return None;
+        }
         let count = bars.windows(2).filter(|w| w[1].close < w[0].open).count();
         Some(count)
     }
@@ -4929,12 +5190,20 @@ impl OhlcvBar {
     /// Returns `None` for an empty slice or no qualifying bars.
     pub fn candle_range_efficiency(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        let vals: Vec<f64> = bars.iter().filter_map(|b| {
-            let range = b.high - b.low;
-            if range.is_zero() { None }
-            else { Some(((b.close - b.open).abs() / range).to_f64().unwrap_or(0.0)) }
-        }).collect();
-        if vals.is_empty() { return None; }
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let range = b.high - b.low;
+                if range.is_zero() {
+                    None
+                } else {
+                    Some(((b.close - b.open).abs() / range).to_f64().unwrap_or(0.0))
+                }
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
@@ -4944,7 +5213,9 @@ impl OhlcvBar {
     /// Returns `None` for an empty slice.
     pub fn open_close_range(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
         let sum: Decimal = bars.iter().map(|b| (b.close - b.open).abs()).sum();
         Some((sum / Decimal::from(bars.len())).to_f64().unwrap_or(0.0))
     }
@@ -4953,7 +5224,9 @@ impl OhlcvBar {
     /// Returns `None` for an empty slice.
     pub fn volume_per_bar(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
         let total: Decimal = bars.iter().map(|b| b.volume).sum();
         Some((total / Decimal::from(bars.len())).to_f64().unwrap_or(0.0))
     }
@@ -4962,12 +5235,26 @@ impl OhlcvBar {
     /// Returns `None` for fewer than 2 bars.
     pub fn price_momentum_mean(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 2 { return None; }
-        let vals: Vec<f64> = bars.windows(2).filter_map(|w| {
-            if w[0].close.is_zero() { None }
-            else { Some(((w[1].close - w[0].close) / w[0].close).to_f64().unwrap_or(0.0)) }
-        }).collect();
-        if vals.is_empty() { return None; }
+        if bars.len() < 2 {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .windows(2)
+            .filter_map(|w| {
+                if w[0].close.is_zero() {
+                    None
+                } else {
+                    Some(
+                        ((w[1].close - w[0].close) / w[0].close)
+                            .to_f64()
+                            .unwrap_or(0.0),
+                    )
+                }
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
@@ -4975,12 +5262,20 @@ impl OhlcvBar {
     /// Returns `None` for an empty slice or no bars with non-zero range.
     pub fn avg_intrabar_efficiency(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        let vals: Vec<f64> = bars.iter().filter_map(|b| {
-            let range = b.high - b.low;
-            if range.is_zero() { None }
-            else { Some(((b.close - b.open) / range).to_f64().unwrap_or(0.0)) }
-        }).collect();
-        if vals.is_empty() { return None; }
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let range = b.high - b.low;
+                if range.is_zero() {
+                    None
+                } else {
+                    Some(((b.close - b.open) / range).to_f64().unwrap_or(0.0))
+                }
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
@@ -4994,7 +5289,9 @@ impl OhlcvBar {
         let mut cnt = 0usize;
         for b in bars {
             let body = (b.close - b.open).abs();
-            if body.is_zero() { continue; }
+            if body.is_zero() {
+                continue;
+            }
             let upper = b.high - b.open.max(b.close);
             let lower = b.open.min(b.close) - b.low;
             let wicks = upper + lower;
@@ -5002,17 +5299,31 @@ impl OhlcvBar {
             sum += ratio;
             cnt += 1;
         }
-        if cnt == 0 { None } else { Some(sum / cnt as f64) }
+        if cnt == 0 {
+            None
+        } else {
+            Some(sum / cnt as f64)
+        }
     }
 
     /// Mean absolute deviation of each bar's close from the overall close mean.
     /// Returns `None` for empty input.
     pub fn avg_close_deviation(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
         let n = bars.len() as f64;
-        let mean: f64 = bars.iter().map(|b| b.close.to_f64().unwrap_or(0.0)).sum::<f64>() / n;
-        let mad = bars.iter().map(|b| (b.close.to_f64().unwrap_or(0.0) - mean).abs()).sum::<f64>() / n;
+        let mean: f64 = bars
+            .iter()
+            .map(|b| b.close.to_f64().unwrap_or(0.0))
+            .sum::<f64>()
+            / n;
+        let mad = bars
+            .iter()
+            .map(|b| (b.close.to_f64().unwrap_or(0.0) - mean).abs())
+            .sum::<f64>()
+            / n;
         Some(mad)
     }
 
@@ -5020,12 +5331,20 @@ impl OhlcvBar {
     /// Returns `None` for empty input.
     pub fn open_midpoint_ratio(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let sum: f64 = bars.iter().map(|b| {
-            let mid = (b.high + b.low) / Decimal::TWO;
-            if mid.is_zero() { 1.0 }
-            else { b.open.to_f64().unwrap_or(0.0) / mid.to_f64().unwrap_or(1.0) }
-        }).sum();
+        if bars.is_empty() {
+            return None;
+        }
+        let sum: f64 = bars
+            .iter()
+            .map(|b| {
+                let mid = (b.high + b.low) / Decimal::TWO;
+                if mid.is_zero() {
+                    1.0
+                } else {
+                    b.open.to_f64().unwrap_or(0.0) / mid.to_f64().unwrap_or(1.0)
+                }
+            })
+            .sum();
         Some(sum / bars.len() as f64)
     }
 
@@ -5033,7 +5352,9 @@ impl OhlcvBar {
     /// Returns `None` for fewer than 2 bars or zero total volume.
     pub fn volume_weighted_close_change(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 2 { return None; }
+        if bars.len() < 2 {
+            return None;
+        }
         let mut num = 0f64;
         let mut denom = 0f64;
         for w in bars.windows(2) {
@@ -5042,7 +5363,11 @@ impl OhlcvBar {
             num += chg * vol;
             denom += vol;
         }
-        if denom == 0.0 { None } else { Some(num / denom) }
+        if denom == 0.0 {
+            None
+        } else {
+            Some(num / denom)
+        }
     }
 
     // ── round-113 ────────────────────────────────────────────────────────────
@@ -5054,49 +5379,83 @@ impl OhlcvBar {
         let mut sum = 0f64;
         let mut cnt = 0usize;
         for b in bars {
-            if b.volume.is_zero() { continue; }
+            if b.volume.is_zero() {
+                continue;
+            }
             let range = (b.high - b.low).to_f64().unwrap_or(0.0);
             let vol = b.volume.to_f64().unwrap_or(1.0);
             sum += range / vol;
             cnt += 1;
         }
-        if cnt == 0 { None } else { Some(sum / cnt as f64) }
+        if cnt == 0 {
+            None
+        } else {
+            Some(sum / cnt as f64)
+        }
     }
 
     /// Mean of `(high - low)` (the high-low spread) across bars.
     /// Returns `None` for empty input.
     pub fn avg_high_low_spread(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let sum: f64 = bars.iter().map(|b| (b.high - b.low).to_f64().unwrap_or(0.0)).sum();
+        if bars.is_empty() {
+            return None;
+        }
+        let sum: f64 = bars
+            .iter()
+            .map(|b| (b.high - b.low).to_f64().unwrap_or(0.0))
+            .sum();
         Some(sum / bars.len() as f64)
     }
 
     /// Candle persistence: fraction of bars where the close direction matches
     /// the prior bar's close direction. Returns `None` for fewer than 3 bars.
     pub fn candle_persistence(bars: &[OhlcvBar]) -> Option<f64> {
-        if bars.len() < 3 { return None; }
-        let dirs: Vec<i8> = bars.windows(2).map(|w| {
-            if w[1].close > w[0].close { 1i8 }
-            else if w[1].close < w[0].close { -1i8 }
-            else { 0i8 }
-        }).collect();
-        let same = dirs.windows(2).filter(|w| w[0] != 0 && w[0] == w[1]).count();
+        if bars.len() < 3 {
+            return None;
+        }
+        let dirs: Vec<i8> = bars
+            .windows(2)
+            .map(|w| {
+                if w[1].close > w[0].close {
+                    1i8
+                } else if w[1].close < w[0].close {
+                    -1i8
+                } else {
+                    0i8
+                }
+            })
+            .collect();
+        let same = dirs
+            .windows(2)
+            .filter(|w| w[0] != 0 && w[0] == w[1])
+            .count();
         let eligible = dirs.windows(2).filter(|w| w[0] != 0 && w[1] != 0).count();
-        if eligible == 0 { None } else { Some(same as f64 / eligible as f64) }
+        if eligible == 0 {
+            None
+        } else {
+            Some(same as f64 / eligible as f64)
+        }
     }
 
     /// Z-score of each bar's range relative to the mean and std of all bar ranges.
     /// Returns the mean of all bar range z-scores. Returns `None` for fewer than 2 bars.
     pub fn bar_range_zscore(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 2 { return None; }
-        let ranges: Vec<f64> = bars.iter().map(|b| (b.high - b.low).to_f64().unwrap_or(0.0)).collect();
+        if bars.len() < 2 {
+            return None;
+        }
+        let ranges: Vec<f64> = bars
+            .iter()
+            .map(|b| (b.high - b.low).to_f64().unwrap_or(0.0))
+            .collect();
         let n = ranges.len() as f64;
         let mean = ranges.iter().sum::<f64>() / n;
         let var = ranges.iter().map(|&r| (r - mean).powi(2)).sum::<f64>() / (n - 1.0);
         let std = var.sqrt();
-        if std == 0.0 { return Some(0.0); }
+        if std == 0.0 {
+            return Some(0.0);
+        }
         let z_mean = ranges.iter().map(|&r| (r - mean) / std).sum::<f64>() / n;
         Some(z_mean)
     }
@@ -5106,17 +5465,31 @@ impl OhlcvBar {
     /// Fraction of bars where the close direction reverses relative to the prior bar.
     /// Returns `None` for fewer than 3 bars.
     pub fn close_reversal_rate(bars: &[OhlcvBar]) -> Option<f64> {
-        if bars.len() < 3 { return None; }
-        let dirs: Vec<i8> = bars.windows(2).map(|w| {
-            if w[1].close > w[0].close { 1i8 }
-            else if w[1].close < w[0].close { -1i8 }
-            else { 0i8 }
-        }).collect();
-        let reversals = dirs.windows(2)
+        if bars.len() < 3 {
+            return None;
+        }
+        let dirs: Vec<i8> = bars
+            .windows(2)
+            .map(|w| {
+                if w[1].close > w[0].close {
+                    1i8
+                } else if w[1].close < w[0].close {
+                    -1i8
+                } else {
+                    0i8
+                }
+            })
+            .collect();
+        let reversals = dirs
+            .windows(2)
             .filter(|w| w[0] != 0 && w[1] != 0 && w[0] != w[1])
             .count();
         let eligible = dirs.windows(2).filter(|w| w[0] != 0 && w[1] != 0).count();
-        if eligible == 0 { None } else { Some(reversals as f64 / eligible as f64) }
+        if eligible == 0 {
+            None
+        } else {
+            Some(reversals as f64 / eligible as f64)
+        }
     }
 
     /// Mean ratio of bar body size to bar range. Bars with zero range are skipped.
@@ -5127,25 +5500,38 @@ impl OhlcvBar {
         let mut cnt = 0usize;
         for b in bars {
             let range = b.high - b.low;
-            if range.is_zero() { continue; }
+            if range.is_zero() {
+                continue;
+            }
             let body = (b.close - b.open).abs();
             sum += (body / range).to_f64().unwrap_or(0.0);
             cnt += 1;
         }
-        if cnt == 0 { None } else { Some(sum / cnt as f64) }
+        if cnt == 0 {
+            None
+        } else {
+            Some(sum / cnt as f64)
+        }
     }
 
     /// Z-score of the last bar's volume relative to the slice.
     /// Returns `None` for fewer than 2 bars or zero volume std dev.
     pub fn volume_zscore(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 2 { return None; }
-        let vols: Vec<f64> = bars.iter().map(|b| b.volume.to_f64().unwrap_or(0.0)).collect();
+        if bars.len() < 2 {
+            return None;
+        }
+        let vols: Vec<f64> = bars
+            .iter()
+            .map(|b| b.volume.to_f64().unwrap_or(0.0))
+            .collect();
         let n = vols.len() as f64;
         let mean = vols.iter().sum::<f64>() / n;
         let var = vols.iter().map(|&v| (v - mean).powi(2)).sum::<f64>() / (n - 1.0);
         let std = var.sqrt();
-        if std == 0.0 { return None; }
+        if std == 0.0 {
+            return None;
+        }
         let last = *vols.last()?;
         Some((last - mean) / std)
     }
@@ -5154,14 +5540,25 @@ impl OhlcvBar {
     /// Returns `None` for fewer than 3 bars or zero std dev.
     pub fn body_skew(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 3 { return None; }
-        let bodies: Vec<f64> = bars.iter().map(|b| (b.close - b.open).abs().to_f64().unwrap_or(0.0)).collect();
+        if bars.len() < 3 {
+            return None;
+        }
+        let bodies: Vec<f64> = bars
+            .iter()
+            .map(|b| (b.close - b.open).abs().to_f64().unwrap_or(0.0))
+            .collect();
         let n = bodies.len() as f64;
         let mean = bodies.iter().sum::<f64>() / n;
         let var = bodies.iter().map(|&x| (x - mean).powi(2)).sum::<f64>() / n;
         let std = var.sqrt();
-        if std == 0.0 { return None; }
-        let skew = bodies.iter().map(|&x| ((x - mean) / std).powi(3)).sum::<f64>() / n;
+        if std == 0.0 {
+            return None;
+        }
+        let skew = bodies
+            .iter()
+            .map(|&x| ((x - mean) / std).powi(3))
+            .sum::<f64>()
+            / n;
         Some(skew)
     }
 
@@ -5171,8 +5568,11 @@ impl OhlcvBar {
     /// Returns `None` for fewer than 2 bars.
     pub fn avg_open_gap(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 2 { return None; }
-        let sum: f64 = bars.windows(2)
+        if bars.len() < 2 {
+            return None;
+        }
+        let sum: f64 = bars
+            .windows(2)
             .map(|w| (w[1].open - w[0].close).abs().to_f64().unwrap_or(0.0))
             .sum();
         Some(sum / (bars.len() - 1) as f64)
@@ -5185,11 +5585,17 @@ impl OhlcvBar {
         let mut sum = 0f64;
         let mut cnt = 0usize;
         for b in bars {
-            if b.low.is_zero() { continue; }
+            if b.low.is_zero() {
+                continue;
+            }
             sum += b.high.to_f64().unwrap_or(0.0) / b.low.to_f64().unwrap_or(1.0);
             cnt += 1;
         }
-        if cnt == 0 { None } else { Some(sum / cnt as f64) }
+        if cnt == 0 {
+            None
+        } else {
+            Some(sum / cnt as f64)
+        }
     }
 
     /// Mean ratio of total shadow `(high - max(open,close)) + (min(open,close) - low)`
@@ -5201,21 +5607,32 @@ impl OhlcvBar {
         let mut cnt = 0usize;
         for b in bars {
             let range = b.high - b.low;
-            if range.is_zero() { continue; }
+            if range.is_zero() {
+                continue;
+            }
             let upper = b.high - b.open.max(b.close);
             let lower = b.open.min(b.close) - b.low;
             let shadow = upper + lower;
             sum += (shadow / range).to_f64().unwrap_or(0.0);
             cnt += 1;
         }
-        if cnt == 0 { None } else { Some(sum / cnt as f64) }
+        if cnt == 0 {
+            None
+        } else {
+            Some(sum / cnt as f64)
+        }
     }
 
     /// Mean of `close - low` across bars. Returns `None` for empty input.
     pub fn avg_close_to_low(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let sum: f64 = bars.iter().map(|b| (b.close - b.low).to_f64().unwrap_or(0.0)).sum();
+        if bars.is_empty() {
+            return None;
+        }
+        let sum: f64 = bars
+            .iter()
+            .map(|b| (b.close - b.low).to_f64().unwrap_or(0.0))
+            .sum();
         Some(sum / bars.len() as f64)
     }
 
@@ -5224,8 +5641,13 @@ impl OhlcvBar {
     /// Mean of `high - close` across bars. Returns `None` for empty input.
     pub fn avg_high_to_close(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let sum: f64 = bars.iter().map(|b| (b.high - b.close).to_f64().unwrap_or(0.0)).sum();
+        if bars.is_empty() {
+            return None;
+        }
+        let sum: f64 = bars
+            .iter()
+            .map(|b| (b.high - b.close).to_f64().unwrap_or(0.0))
+            .sum();
         Some(sum / bars.len() as f64)
     }
 
@@ -5233,8 +5655,13 @@ impl OhlcvBar {
     /// Returns `None` for fewer than 2 bars.
     pub fn bar_size_entropy(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 2 { return None; }
-        let sizes: Vec<f64> = bars.iter().map(|b| (b.close - b.open).abs().to_f64().unwrap_or(0.0)).collect();
+        if bars.len() < 2 {
+            return None;
+        }
+        let sizes: Vec<f64> = bars
+            .iter()
+            .map(|b| (b.close - b.open).abs().to_f64().unwrap_or(0.0))
+            .collect();
         let max = sizes.iter().cloned().fold(0f64, f64::max);
         let min = sizes.iter().cloned().fold(f64::INFINITY, f64::min);
         let range = max - min;
@@ -5249,9 +5676,17 @@ impl OhlcvBar {
             }
         }
         let n = sizes.len() as f64;
-        let entropy = counts.iter().map(|&c| {
-            if c == 0 { 0.0 } else { let p = c as f64 / n; -p * p.ln() }
-        }).sum();
+        let entropy = counts
+            .iter()
+            .map(|&c| {
+                if c == 0 {
+                    0.0
+                } else {
+                    let p = c as f64 / n;
+                    -p * p.ln()
+                }
+            })
+            .sum();
         Some(entropy)
     }
 
@@ -5262,16 +5697,24 @@ impl OhlcvBar {
         let mut sum = 0f64;
         let mut cnt = 0usize;
         for b in bars {
-            if b.open.is_zero() { continue; }
+            if b.open.is_zero() {
+                continue;
+            }
             sum += ((b.close - b.open) / b.open).to_f64().unwrap_or(0.0);
             cnt += 1;
         }
-        if cnt == 0 { None } else { Some(sum / cnt as f64) }
+        if cnt == 0 {
+            None
+        } else {
+            Some(sum / cnt as f64)
+        }
     }
 
     /// Fraction of bars where close > open (bullish). Returns `None` for empty input.
     pub fn body_direction_score(bars: &[OhlcvBar]) -> Option<f64> {
-        if bars.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
         let bullish = bars.iter().filter(|b| b.close > b.open).count();
         Some(bullish as f64 / bars.len() as f64)
     }
@@ -5281,7 +5724,9 @@ impl OhlcvBar {
     /// Fraction of bars where close > open. Alias providing explicit naming.
     /// Returns `None` for empty input.
     pub fn close_above_open_pct(bars: &[OhlcvBar]) -> Option<f64> {
-        if bars.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
         let count = bars.iter().filter(|b| b.close > b.open).count();
         Some(count as f64 / bars.len() as f64)
     }
@@ -5289,15 +5734,22 @@ impl OhlcvBar {
     /// Mean of `low - close` (negative when close > low). Returns `None` for empty input.
     pub fn avg_low_to_close(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let sum: f64 = bars.iter().map(|b| (b.low - b.close).to_f64().unwrap_or(0.0)).sum();
+        if bars.is_empty() {
+            return None;
+        }
+        let sum: f64 = bars
+            .iter()
+            .map(|b| (b.low - b.close).to_f64().unwrap_or(0.0))
+            .sum();
         Some(sum / bars.len() as f64)
     }
 
     /// Bar trend score: fraction of consecutive close-to-close pairs that are rising.
     /// Returns `None` for fewer than 2 bars.
     pub fn bar_trend_score(bars: &[OhlcvBar]) -> Option<f64> {
-        if bars.len() < 2 { return None; }
+        if bars.len() < 2 {
+            return None;
+        }
         let rising = bars.windows(2).filter(|w| w[1].close > w[0].close).count();
         Some(rising as f64 / (bars.len() - 1) as f64)
     }
@@ -5306,10 +5758,20 @@ impl OhlcvBar {
     /// Returns `None` for empty input.
     pub fn volume_above_avg_count(bars: &[OhlcvBar]) -> Option<usize> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
         let n = bars.len() as f64;
-        let mean_vol = bars.iter().map(|b| b.volume.to_f64().unwrap_or(0.0)).sum::<f64>() / n;
-        Some(bars.iter().filter(|b| b.volume.to_f64().unwrap_or(0.0) > mean_vol).count())
+        let mean_vol = bars
+            .iter()
+            .map(|b| b.volume.to_f64().unwrap_or(0.0))
+            .sum::<f64>()
+            / n;
+        Some(
+            bars.iter()
+                .filter(|b| b.volume.to_f64().unwrap_or(0.0) > mean_vol)
+                .count(),
+        )
     }
 
     // ── round-118 ────────────────────────────────────────────────────────────
@@ -5322,21 +5784,37 @@ impl OhlcvBar {
         let mut cnt = 0usize;
         for b in bars {
             let range = b.high - b.low;
-            if range.is_zero() { continue; }
+            if range.is_zero() {
+                continue;
+            }
             sum += ((b.close - b.low) / range).to_f64().unwrap_or(0.0);
             cnt += 1;
         }
-        if cnt == 0 { None } else { Some(sum / cnt as f64) }
+        if cnt == 0 {
+            None
+        } else {
+            Some(sum / cnt as f64)
+        }
     }
 
     /// Mean ratio of each bar's volume to the maximum volume in the slice.
     /// Returns `None` for empty input or zero max volume.
     pub fn volume_ratio_to_max(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let max_vol = bars.iter().map(|b| b.volume).fold(bars[0].volume, |a, b| a.max(b));
-        if max_vol.is_zero() { return None; }
-        let sum: f64 = bars.iter().map(|b| (b.volume / max_vol).to_f64().unwrap_or(0.0)).sum();
+        if bars.is_empty() {
+            return None;
+        }
+        let max_vol = bars
+            .iter()
+            .map(|b| b.volume)
+            .fold(bars[0].volume, |a, b| a.max(b));
+        if max_vol.is_zero() {
+            return None;
+        }
+        let sum: f64 = bars
+            .iter()
+            .map(|b| (b.volume / max_vol).to_f64().unwrap_or(0.0))
+            .sum();
         Some(sum / bars.len() as f64)
     }
 
@@ -5349,12 +5827,18 @@ impl OhlcvBar {
         let mut cnt = 0usize;
         for b in bars {
             let range = b.high - b.low;
-            if range.is_zero() { continue; }
+            if range.is_zero() {
+                continue;
+            }
             let body = (b.close - b.open).abs();
             sum += (body / range).to_f64().unwrap_or(0.0);
             cnt += 1;
         }
-        if cnt == 0 { None } else { Some(1.0 - sum / cnt as f64) }
+        if cnt == 0 {
+            None
+        } else {
+            Some(1.0 - sum / cnt as f64)
+        }
     }
 
     /// Shadow asymmetry: mean of `(upper_shadow - lower_shadow) / range`.
@@ -5366,13 +5850,19 @@ impl OhlcvBar {
         let mut cnt = 0usize;
         for b in bars {
             let range = b.high - b.low;
-            if range.is_zero() { continue; }
+            if range.is_zero() {
+                continue;
+            }
             let upper = b.high - b.open.max(b.close);
             let lower = b.open.min(b.close) - b.low;
             sum += ((upper - lower) / range).to_f64().unwrap_or(0.0);
             cnt += 1;
         }
-        if cnt == 0 { None } else { Some(sum / cnt as f64) }
+        if cnt == 0 {
+            None
+        } else {
+            Some(sum / cnt as f64)
+        }
     }
 
     // ── round-119 ────────────────────────────────────────────────────────────
@@ -5380,10 +5870,13 @@ impl OhlcvBar {
     /// Mean of `(open + close) / 2` across bars. Returns `None` for empty input.
     pub fn open_close_midpoint(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let sum: f64 = bars.iter().map(|b| {
-            ((b.open + b.close) / Decimal::TWO).to_f64().unwrap_or(0.0)
-        }).sum();
+        if bars.is_empty() {
+            return None;
+        }
+        let sum: f64 = bars
+            .iter()
+            .map(|b| ((b.open + b.close) / Decimal::TWO).to_f64().unwrap_or(0.0))
+            .sum();
         Some(sum / bars.len() as f64)
     }
 
@@ -5391,10 +5884,17 @@ impl OhlcvBar {
     /// when sorted by volume (descending). Returns `None` for empty input or zero volume.
     pub fn volume_concentration_ratio(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
         let total_vol: f64 = bars.iter().map(|b| b.volume.to_f64().unwrap_or(0.0)).sum();
-        if total_vol == 0.0 { return None; }
-        let mut vols: Vec<f64> = bars.iter().map(|b| b.volume.to_f64().unwrap_or(0.0)).collect();
+        if total_vol == 0.0 {
+            return None;
+        }
+        let mut vols: Vec<f64> = bars
+            .iter()
+            .map(|b| b.volume.to_f64().unwrap_or(0.0))
+            .collect();
         vols.sort_by(|a, b| b.partial_cmp(a).unwrap_or(std::cmp::Ordering::Equal));
         let top_n = (bars.len() / 3).max(1);
         let top_vol: f64 = vols[..top_n].iter().sum();
@@ -5404,12 +5904,17 @@ impl OhlcvBar {
     /// Fraction of bars where open is between the prior bar's open and close
     /// (partial gap fill). Returns `None` for fewer than 2 bars.
     pub fn bar_gap_fill_ratio(bars: &[OhlcvBar]) -> Option<f64> {
-        if bars.len() < 2 { return None; }
-        let fills = bars.windows(2).filter(|w| {
-            let lo = w[0].open.min(w[0].close);
-            let hi = w[0].open.max(w[0].close);
-            w[1].open >= lo && w[1].open <= hi
-        }).count();
+        if bars.len() < 2 {
+            return None;
+        }
+        let fills = bars
+            .windows(2)
+            .filter(|w| {
+                let lo = w[0].open.min(w[0].close);
+                let hi = w[0].open.max(w[0].close);
+                w[1].open >= lo && w[1].open <= hi
+            })
+            .count();
         Some(fills as f64 / (bars.len() - 1) as f64)
     }
 
@@ -5417,14 +5922,19 @@ impl OhlcvBar {
     /// fraction with longer lower shadow. Range `[-1, 1]`.
     /// Returns `None` for empty input.
     pub fn net_shadow_direction(bars: &[OhlcvBar]) -> Option<f64> {
-        if bars.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
         let mut upper_dom = 0usize;
         let mut lower_dom = 0usize;
         for b in bars {
             let upper = b.high - b.open.max(b.close);
             let lower = b.open.min(b.close) - b.low;
-            if upper > lower { upper_dom += 1; }
-            else if lower > upper { lower_dom += 1; }
+            if upper > lower {
+                upper_dom += 1;
+            } else if lower > upper {
+                lower_dom += 1;
+            }
         }
         let n = bars.len() as f64;
         Some((upper_dom as f64 - lower_dom as f64) / n)
@@ -5435,11 +5945,20 @@ impl OhlcvBar {
     /// Stability of close relative to bar range: 1 - std(close_pct) over bars.
     pub fn close_range_stability(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let vals: Vec<f64> = bars.iter().map(|b| {
-            let r = (b.high - b.low).to_f64().unwrap_or(0.0);
-            if r == 0.0 { 0.5 } else { (b.close - b.low).to_f64().unwrap_or(0.0) / r }
-        }).collect();
+        if bars.is_empty() {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .iter()
+            .map(|b| {
+                let r = (b.high - b.low).to_f64().unwrap_or(0.0);
+                if r == 0.0 {
+                    0.5
+                } else {
+                    (b.close - b.low).to_f64().unwrap_or(0.0) / r
+                }
+            })
+            .collect();
         let n = vals.len() as f64;
         let mean = vals.iter().sum::<f64>() / n;
         let std = (vals.iter().map(|&x| (x - mean).powi(2)).sum::<f64>() / n).sqrt();
@@ -5449,29 +5968,46 @@ impl OhlcvBar {
     /// Average bar volatility: mean of (high - low) as a fraction of open.
     pub fn avg_bar_volatility(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let sum: f64 = bars.iter().map(|b| {
-            let o = b.open.to_f64().unwrap_or(0.0);
-            if o == 0.0 { 0.0 } else { (b.high - b.low).to_f64().unwrap_or(0.0) / o }
-        }).sum();
+        if bars.is_empty() {
+            return None;
+        }
+        let sum: f64 = bars
+            .iter()
+            .map(|b| {
+                let o = b.open.to_f64().unwrap_or(0.0);
+                if o == 0.0 {
+                    0.0
+                } else {
+                    (b.high - b.low).to_f64().unwrap_or(0.0) / o
+                }
+            })
+            .sum();
         Some(sum / bars.len() as f64)
     }
 
     /// Open range bias: fraction of bars where open is above bar midpoint.
     pub fn open_range_bias(bars: &[OhlcvBar]) -> Option<f64> {
-        if bars.is_empty() { return None; }
-        let above = bars.iter().filter(|b| {
-            let mid = (b.high + b.low) / rust_decimal::Decimal::TWO;
-            b.open > mid
-        }).count();
+        if bars.is_empty() {
+            return None;
+        }
+        let above = bars
+            .iter()
+            .filter(|b| {
+                let mid = (b.high + b.low) / rust_decimal::Decimal::TWO;
+                b.open > mid
+            })
+            .count();
         Some(above as f64 / bars.len() as f64)
     }
 
     /// Body volatility: standard deviation of body sizes (|close - open|).
     pub fn body_volatility(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let vals: Vec<f64> = bars.iter()
+        if bars.is_empty() {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .iter()
             .map(|b| (b.close - b.open).abs().to_f64().unwrap_or(0.0))
             .collect();
         let n = vals.len() as f64;
@@ -5484,41 +6020,60 @@ impl OhlcvBar {
 
     /// Fraction of bars where open falls within the prior bar's range (gap fill).
     pub fn close_gap_ratio(bars: &[OhlcvBar]) -> Option<f64> {
-        if bars.len() < 2 { return None; }
-        let fills = bars.windows(2).filter(|w| {
-            w[1].open >= w[0].low && w[1].open <= w[0].high
-        }).count();
+        if bars.len() < 2 {
+            return None;
+        }
+        let fills = bars
+            .windows(2)
+            .filter(|w| w[1].open >= w[0].low && w[1].open <= w[0].high)
+            .count();
         Some(fills as f64 / (bars.len() - 1) as f64)
     }
 
     /// Volume deceleration: mean of (vol\[i\] - vol[i-1]) for decreasing pairs.
     pub fn volume_deceleration(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 2 { return None; }
-        let decs: Vec<f64> = bars.windows(2).filter_map(|w| {
-            if w[1].volume < w[0].volume {
-                Some((w[1].volume - w[0].volume).to_f64().unwrap_or(0.0))
-            } else { None }
-        }).collect();
-        if decs.is_empty() { return Some(0.0); }
+        if bars.len() < 2 {
+            return None;
+        }
+        let decs: Vec<f64> = bars
+            .windows(2)
+            .filter_map(|w| {
+                if w[1].volume < w[0].volume {
+                    Some((w[1].volume - w[0].volume).to_f64().unwrap_or(0.0))
+                } else {
+                    None
+                }
+            })
+            .collect();
+        if decs.is_empty() {
+            return Some(0.0);
+        }
         Some(decs.iter().sum::<f64>() / decs.len() as f64)
     }
 
     /// Bar trend persistence: fraction of bars that continue the prior bar's direction.
     pub fn bar_trend_persistence(bars: &[OhlcvBar]) -> Option<f64> {
-        if bars.len() < 2 { return None; }
-        let persist = bars.windows(2).filter(|w| {
-            let prev_bull = w[0].close >= w[0].open;
-            let curr_bull = w[1].close >= w[1].open;
-            prev_bull == curr_bull
-        }).count();
+        if bars.len() < 2 {
+            return None;
+        }
+        let persist = bars
+            .windows(2)
+            .filter(|w| {
+                let prev_bull = w[0].close >= w[0].open;
+                let curr_bull = w[1].close >= w[1].open;
+                prev_bull == curr_bull
+            })
+            .count();
         Some(persist as f64 / (bars.len() - 1) as f64)
     }
 
     /// Ratio of total shadow length to body length across bars.
     pub fn shadow_body_ratio(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
         let mut total_shadow = 0f64;
         let mut total_body = 0f64;
         for b in bars {
@@ -5528,7 +6083,11 @@ impl OhlcvBar {
             total_shadow += upper + lower;
             total_body += body;
         }
-        if total_body == 0.0 { None } else { Some(total_shadow / total_body) }
+        if total_body == 0.0 {
+            None
+        } else {
+            Some(total_shadow / total_body)
+        }
     }
 
     // ── round-122 ────────────────────────────────────────────────────────────
@@ -5536,19 +6095,31 @@ impl OhlcvBar {
     /// Mean of body size as fraction of range: |close-open| / (high-low) per bar.
     pub fn body_to_range_pct(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let sum: f64 = bars.iter().map(|b| {
-            let range = (b.high - b.low).to_f64().unwrap_or(0.0);
-            if range == 0.0 { 0.0 } else { (b.close - b.open).abs().to_f64().unwrap_or(0.0) / range }
-        }).sum();
+        if bars.is_empty() {
+            return None;
+        }
+        let sum: f64 = bars
+            .iter()
+            .map(|b| {
+                let range = (b.high - b.low).to_f64().unwrap_or(0.0);
+                if range == 0.0 {
+                    0.0
+                } else {
+                    (b.close - b.open).abs().to_f64().unwrap_or(0.0) / range
+                }
+            })
+            .sum();
         Some(sum / bars.len() as f64)
     }
 
     /// Mean absolute gap between consecutive bars: |open\[i\] - close[i-1]|.
     pub fn avg_open_close_gap(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 2 { return None; }
-        let sum: f64 = bars.windows(2)
+        if bars.len() < 2 {
+            return None;
+        }
+        let sum: f64 = bars
+            .windows(2)
             .map(|w| (w[1].open - w[0].close).abs().to_f64().unwrap_or(0.0))
             .sum();
         Some(sum / (bars.len() - 1) as f64)
@@ -5557,19 +6128,28 @@ impl OhlcvBar {
     /// Mean of high / (high - low) per bar (high position within range).
     pub fn high_low_body_ratio(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let sum: f64 = bars.iter().map(|b| {
-            let range = (b.high - b.low).to_f64().unwrap_or(0.0);
-            if range == 0.0 { 0.5 } else {
-                (b.high - b.open.min(b.close)).to_f64().unwrap_or(0.0) / range
-            }
-        }).sum();
+        if bars.is_empty() {
+            return None;
+        }
+        let sum: f64 = bars
+            .iter()
+            .map(|b| {
+                let range = (b.high - b.low).to_f64().unwrap_or(0.0);
+                if range == 0.0 {
+                    0.5
+                } else {
+                    (b.high - b.open.min(b.close)).to_f64().unwrap_or(0.0) / range
+                }
+            })
+            .sum();
         Some(sum / bars.len() as f64)
     }
 
     /// Fraction of bars where close exceeds the prior bar's high.
     pub fn close_above_prior_high(bars: &[OhlcvBar]) -> Option<f64> {
-        if bars.len() < 2 { return None; }
+        if bars.len() < 2 {
+            return None;
+        }
         let count = bars.windows(2).filter(|w| w[1].close > w[0].high).count();
         Some(count as f64 / (bars.len() - 1) as f64)
     }
@@ -5579,44 +6159,79 @@ impl OhlcvBar {
     /// Mean of (close - low) / (high - low) per bar (close position within range).
     pub fn close_range_pct(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let sum: f64 = bars.iter().map(|b| {
-            let r = (b.high - b.low).to_f64().unwrap_or(0.0);
-            if r == 0.0 { 0.5 } else { (b.close - b.low).to_f64().unwrap_or(0.0) / r }
-        }).sum();
+        if bars.is_empty() {
+            return None;
+        }
+        let sum: f64 = bars
+            .iter()
+            .map(|b| {
+                let r = (b.high - b.low).to_f64().unwrap_or(0.0);
+                if r == 0.0 {
+                    0.5
+                } else {
+                    (b.close - b.low).to_f64().unwrap_or(0.0) / r
+                }
+            })
+            .sum();
         Some(sum / bars.len() as f64)
     }
 
     /// Mean of (high - low) / open as a fraction across bars.
     pub fn avg_bar_range_pct(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let sum: f64 = bars.iter().map(|b| {
-            let o = b.open.to_f64().unwrap_or(0.0);
-            if o == 0.0 { 0.0 } else { (b.high - b.low).to_f64().unwrap_or(0.0) / o }
-        }).sum();
+        if bars.is_empty() {
+            return None;
+        }
+        let sum: f64 = bars
+            .iter()
+            .map(|b| {
+                let o = b.open.to_f64().unwrap_or(0.0);
+                if o == 0.0 {
+                    0.0
+                } else {
+                    (b.high - b.low).to_f64().unwrap_or(0.0) / o
+                }
+            })
+            .sum();
         Some(sum / bars.len() as f64)
     }
 
     /// Mean of (open - low) / (high - low): open proximity to the low.
     pub fn open_to_low_ratio(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let sum: f64 = bars.iter().map(|b| {
-            let r = (b.high - b.low).to_f64().unwrap_or(0.0);
-            if r == 0.0 { 0.5 } else { (b.open - b.low).to_f64().unwrap_or(0.0) / r }
-        }).sum();
+        if bars.is_empty() {
+            return None;
+        }
+        let sum: f64 = bars
+            .iter()
+            .map(|b| {
+                let r = (b.high - b.low).to_f64().unwrap_or(0.0);
+                if r == 0.0 {
+                    0.5
+                } else {
+                    (b.open - b.low).to_f64().unwrap_or(0.0) / r
+                }
+            })
+            .sum();
         Some(sum / bars.len() as f64)
     }
 
     /// Rank of last close among all closes (0.0 = lowest, 1.0 = highest).
     pub fn bar_close_rank(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
         let last_close = bars.last()?.close.to_f64()?;
-        let mut closes: Vec<f64> = bars.iter().map(|b| b.close.to_f64().unwrap_or(0.0)).collect();
+        let mut closes: Vec<f64> = bars
+            .iter()
+            .map(|b| b.close.to_f64().unwrap_or(0.0))
+            .collect();
         closes.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-        let pos = closes.iter().position(|&c| (c - last_close).abs() < 1e-12).unwrap_or(0);
+        let pos = closes
+            .iter()
+            .position(|&c| (c - last_close).abs() < 1e-12)
+            .unwrap_or(0);
         Some(pos as f64 / (closes.len() - 1).max(1) as f64)
     }
 
@@ -5624,32 +6239,58 @@ impl OhlcvBar {
 
     /// Count of times close oscillates (changes direction) across bars.
     pub fn close_oscillation_count(bars: &[OhlcvBar]) -> Option<usize> {
-        if bars.len() < 3 { return None; }
-        let diffs: Vec<i8> = bars.windows(2).map(|w| {
-            if w[1].close > w[0].close { 1i8 } else if w[1].close < w[0].close { -1i8 } else { 0i8 }
-        }).collect();
-        Some(diffs.windows(2).filter(|w| w[0] != 0 && w[1] != 0 && w[0] != w[1]).count())
+        if bars.len() < 3 {
+            return None;
+        }
+        let diffs: Vec<i8> = bars
+            .windows(2)
+            .map(|w| {
+                if w[1].close > w[0].close {
+                    1i8
+                } else if w[1].close < w[0].close {
+                    -1i8
+                } else {
+                    0i8
+                }
+            })
+            .collect();
+        Some(
+            diffs
+                .windows(2)
+                .filter(|w| w[0] != 0 && w[1] != 0 && w[0] != w[1])
+                .count(),
+        )
     }
 
     /// Fraction of bars with range below the median range (consolidating bars).
     pub fn bar_consolidation_ratio(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let mut ranges: Vec<f64> = bars.iter()
+        if bars.is_empty() {
+            return None;
+        }
+        let mut ranges: Vec<f64> = bars
+            .iter()
             .map(|b| (b.high - b.low).to_f64().unwrap_or(0.0))
             .collect();
         ranges.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
         let n = ranges.len();
-        let median = if n % 2 == 0 { (ranges[n/2-1] + ranges[n/2]) / 2.0 } else { ranges[n/2] };
-        let below = bars.iter().filter(|b| {
-            (b.high - b.low).to_f64().unwrap_or(0.0) < median
-        }).count();
+        let median = if n % 2 == 0 {
+            (ranges[n / 2 - 1] + ranges[n / 2]) / 2.0
+        } else {
+            ranges[n / 2]
+        };
+        let below = bars
+            .iter()
+            .filter(|b| (b.high - b.low).to_f64().unwrap_or(0.0) < median)
+            .count();
         Some(below as f64 / n as f64)
     }
 
     /// Momentum of open prices: fraction of bars where open\[i\] > open[i-1].
     pub fn open_momentum_score(bars: &[OhlcvBar]) -> Option<f64> {
-        if bars.len() < 2 { return None; }
+        if bars.len() < 2 {
+            return None;
+        }
         let rising = bars.windows(2).filter(|w| w[1].open > w[0].open).count();
         Some(rising as f64 / (bars.len() - 1) as f64)
     }
@@ -5657,8 +6298,11 @@ impl OhlcvBar {
     /// Mean of absolute volume changes between consecutive bars.
     pub fn avg_volume_change(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 2 { return None; }
-        let sum: f64 = bars.windows(2)
+        if bars.len() < 2 {
+            return None;
+        }
+        let sum: f64 = bars
+            .windows(2)
             .map(|w| (w[1].volume - w[0].volume).abs().to_f64().unwrap_or(0.0))
             .sum();
         Some(sum / (bars.len() - 1) as f64)
@@ -5669,45 +6313,76 @@ impl OhlcvBar {
     /// Lag-1 autocorrelation of close prices.
     pub fn close_lag1_autocorr(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 3 { return None; }
-        let closes: Vec<f64> = bars.iter().map(|b| b.close.to_f64().unwrap_or(0.0)).collect();
+        if bars.len() < 3 {
+            return None;
+        }
+        let closes: Vec<f64> = bars
+            .iter()
+            .map(|b| b.close.to_f64().unwrap_or(0.0))
+            .collect();
         let n = closes.len() as f64;
         let mean = closes.iter().sum::<f64>() / n;
         let var = closes.iter().map(|&c| (c - mean).powi(2)).sum::<f64>() / n;
-        if var == 0.0 { return None; }
-        let cov: f64 = closes.windows(2).map(|w| (w[0] - mean) * (w[1] - mean)).sum::<f64>() / (n - 1.0);
+        if var == 0.0 {
+            return None;
+        }
+        let cov: f64 = closes
+            .windows(2)
+            .map(|w| (w[0] - mean) * (w[1] - mean))
+            .sum::<f64>()
+            / (n - 1.0);
         Some(cov / var)
     }
 
     /// Skewness of volume distribution across bars.
     pub fn volume_skewness(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 3 { return None; }
-        let vols: Vec<f64> = bars.iter().map(|b| b.volume.to_f64().unwrap_or(0.0)).collect();
+        if bars.len() < 3 {
+            return None;
+        }
+        let vols: Vec<f64> = bars
+            .iter()
+            .map(|b| b.volume.to_f64().unwrap_or(0.0))
+            .collect();
         let n = vols.len() as f64;
         let mean = vols.iter().sum::<f64>() / n;
         let var = vols.iter().map(|&v| (v - mean).powi(2)).sum::<f64>() / n;
         let std = var.sqrt();
-        if std == 0.0 { return None; }
-        Some(vols.iter().map(|&v| ((v - mean) / std).powi(3)).sum::<f64>() / n)
+        if std == 0.0 {
+            return None;
+        }
+        Some(
+            vols.iter()
+                .map(|&v| ((v - mean) / std).powi(3))
+                .sum::<f64>()
+                / n,
+        )
     }
 
     /// Rank of last bar's range (high-low) among all bar ranges (0.0=min, 1.0=max).
     pub fn bar_height_rank(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
         let last_range = (bars.last()?.high - bars.last()?.low).to_f64()?;
-        let mut ranges: Vec<f64> = bars.iter()
+        let mut ranges: Vec<f64> = bars
+            .iter()
             .map(|b| (b.high - b.low).to_f64().unwrap_or(0.0))
             .collect();
         ranges.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-        let pos = ranges.iter().position(|&r| (r - last_range).abs() < 1e-12).unwrap_or(0);
+        let pos = ranges
+            .iter()
+            .position(|&r| (r - last_range).abs() < 1e-12)
+            .unwrap_or(0);
         Some(pos as f64 / (ranges.len() - 1).max(1) as f64)
     }
 
     /// Fraction of bars where high\[i\] > high[i-1].
     pub fn high_persistence(bars: &[OhlcvBar]) -> Option<f64> {
-        if bars.len() < 2 { return None; }
+        if bars.len() < 2 {
+            return None;
+        }
         let count = bars.windows(2).filter(|w| w[1].high > w[0].high).count();
         Some(count as f64 / (bars.len() - 1) as f64)
     }
@@ -5717,7 +6392,9 @@ impl OhlcvBar {
     /// EMA (α=0.2) of body sizes |close - open| across bars.
     pub fn body_ema(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
         let alpha = 0.2f64;
         let mut ema = (bars[0].close - bars[0].open).abs().to_f64().unwrap_or(0.0);
         for b in &bars[1..] {
@@ -5729,31 +6406,57 @@ impl OhlcvBar {
     /// Mean of (high - low) / prior close across bars (range as fraction of prior close).
     pub fn avg_true_range_ratio(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 2 { return None; }
-        let sum: f64 = bars.windows(2).map(|w| {
-            let pc = w[0].close.to_f64().unwrap_or(0.0);
-            if pc == 0.0 { 0.0 } else { (w[1].high - w[1].low).to_f64().unwrap_or(0.0) / pc }
-        }).sum();
+        if bars.len() < 2 {
+            return None;
+        }
+        let sum: f64 = bars
+            .windows(2)
+            .map(|w| {
+                let pc = w[0].close.to_f64().unwrap_or(0.0);
+                if pc == 0.0 {
+                    0.0
+                } else {
+                    (w[1].high - w[1].low).to_f64().unwrap_or(0.0) / pc
+                }
+            })
+            .sum();
         Some(sum / (bars.len() - 1) as f64)
     }
 
     /// Mean fraction of bar range that is body: |close-open| / (high-low).
     pub fn close_body_fraction(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let sum: f64 = bars.iter().map(|b| {
-            let r = (b.high - b.low).to_f64().unwrap_or(0.0);
-            if r == 0.0 { 0.0 } else { (b.close - b.open).abs().to_f64().unwrap_or(0.0) / r }
-        }).sum();
+        if bars.is_empty() {
+            return None;
+        }
+        let sum: f64 = bars
+            .iter()
+            .map(|b| {
+                let r = (b.high - b.low).to_f64().unwrap_or(0.0);
+                if r == 0.0 {
+                    0.0
+                } else {
+                    (b.close - b.open).abs().to_f64().unwrap_or(0.0) / r
+                }
+            })
+            .sum();
         Some(sum / bars.len() as f64)
     }
 
     /// Mean second-order close change (close acceleration).
     pub fn bar_momentum_accel(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 3 { return None; }
-        let closes: Vec<f64> = bars.iter().map(|b| b.close.to_f64().unwrap_or(0.0)).collect();
-        let acc: Vec<f64> = closes.windows(3).map(|w| w[2] - 2.0 * w[1] + w[0]).collect();
+        if bars.len() < 3 {
+            return None;
+        }
+        let closes: Vec<f64> = bars
+            .iter()
+            .map(|b| b.close.to_f64().unwrap_or(0.0))
+            .collect();
+        let acc: Vec<f64> = closes
+            .windows(3)
+            .map(|w| w[2] - 2.0 * w[1] + w[0])
+            .collect();
         Some(acc.iter().sum::<f64>() / acc.len() as f64)
     }
 
@@ -5762,8 +6465,11 @@ impl OhlcvBar {
     /// Mean absolute close change per bar (close velocity).
     pub fn close_velocity(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 2 { return None; }
-        let sum: f64 = bars.windows(2)
+        if bars.len() < 2 {
+            return None;
+        }
+        let sum: f64 = bars
+            .windows(2)
             .map(|w| (w[1].close - w[0].close).abs().to_f64().unwrap_or(0.0))
             .sum();
         Some(sum / (bars.len() - 1) as f64)
@@ -5772,17 +6478,28 @@ impl OhlcvBar {
     /// Mean of (open - low) / (high - low): how high in the range the open is.
     pub fn open_range_score(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let sum: f64 = bars.iter().map(|b| {
-            let r = (b.high - b.low).to_f64().unwrap_or(0.0);
-            if r == 0.0 { 0.5 } else { (b.open - b.low).to_f64().unwrap_or(0.0) / r }
-        }).sum();
+        if bars.is_empty() {
+            return None;
+        }
+        let sum: f64 = bars
+            .iter()
+            .map(|b| {
+                let r = (b.high - b.low).to_f64().unwrap_or(0.0);
+                if r == 0.0 {
+                    0.5
+                } else {
+                    (b.open - b.low).to_f64().unwrap_or(0.0) / r
+                }
+            })
+            .sum();
         Some(sum / bars.len() as f64)
     }
 
     /// Net fraction of bars that are bullish minus bearish.
     pub fn body_trend_direction(bars: &[OhlcvBar]) -> Option<f64> {
-        if bars.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
         let bull = bars.iter().filter(|b| b.close > b.open).count();
         let bear = bars.iter().filter(|b| b.close < b.open).count();
         Some((bull as f64 - bear as f64) / bars.len() as f64)
@@ -5791,11 +6508,22 @@ impl OhlcvBar {
     /// Mean of (high - low) relative to the bar midpoint (open+close)/2.
     pub fn bar_tightness(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let sum: f64 = bars.iter().map(|b| {
-            let mid = ((b.open + b.close) / rust_decimal::Decimal::TWO).to_f64().unwrap_or(0.0);
-            if mid == 0.0 { 0.0 } else { (b.high - b.low).to_f64().unwrap_or(0.0) / mid }
-        }).sum();
+        if bars.is_empty() {
+            return None;
+        }
+        let sum: f64 = bars
+            .iter()
+            .map(|b| {
+                let mid = ((b.open + b.close) / rust_decimal::Decimal::TWO)
+                    .to_f64()
+                    .unwrap_or(0.0);
+                if mid == 0.0 {
+                    0.0
+                } else {
+                    (b.high - b.low).to_f64().unwrap_or(0.0) / mid
+                }
+            })
+            .sum();
         Some(sum / bars.len() as f64)
     }
 
@@ -5804,8 +6532,11 @@ impl OhlcvBar {
     /// Average close slope: mean of (close\[i\] - close[i-1]) across bars.
     pub fn avg_close_slope(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 2 { return None; }
-        let sum: f64 = bars.windows(2)
+        if bars.len() < 2 {
+            return None;
+        }
+        let sum: f64 = bars
+            .windows(2)
             .map(|w| (w[1].close - w[0].close).to_f64().unwrap_or(0.0))
             .sum();
         Some(sum / (bars.len() - 1) as f64)
@@ -5814,14 +6545,19 @@ impl OhlcvBar {
     /// Z-score of last body size relative to all body sizes.
     pub fn body_range_zscore(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 2 { return None; }
-        let bodies: Vec<f64> = bars.iter()
+        if bars.len() < 2 {
+            return None;
+        }
+        let bodies: Vec<f64> = bars
+            .iter()
             .map(|b| (b.close - b.open).abs().to_f64().unwrap_or(0.0))
             .collect();
         let n = bodies.len() as f64;
         let mean = bodies.iter().sum::<f64>() / n;
         let std = (bodies.iter().map(|&x| (x - mean).powi(2)).sum::<f64>() / n).sqrt();
-        if std == 0.0 { return None; }
+        if std == 0.0 {
+            return None;
+        }
         let last = *bodies.last()?;
         Some((last - mean) / std)
     }
@@ -5829,19 +6565,36 @@ impl OhlcvBar {
     /// Shannon entropy of volume distribution across bars.
     pub fn volume_entropy(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let vols: Vec<f64> = bars.iter().map(|b| b.volume.to_f64().unwrap_or(0.0)).collect();
+        if bars.is_empty() {
+            return None;
+        }
+        let vols: Vec<f64> = bars
+            .iter()
+            .map(|b| b.volume.to_f64().unwrap_or(0.0))
+            .collect();
         let total: f64 = vols.iter().sum();
-        if total == 0.0 { return Some(0.0); }
-        let entropy: f64 = vols.iter()
-            .map(|&v| { let p = v / total; if p > 0.0 { -p * p.ln() } else { 0.0 } })
+        if total == 0.0 {
+            return Some(0.0);
+        }
+        let entropy: f64 = vols
+            .iter()
+            .map(|&v| {
+                let p = v / total;
+                if p > 0.0 {
+                    -p * p.ln()
+                } else {
+                    0.0
+                }
+            })
             .sum();
         Some(entropy)
     }
 
     /// Fraction of bars where low\[i\] < low[i-1] (new lows).
     pub fn low_persistence(bars: &[OhlcvBar]) -> Option<f64> {
-        if bars.len() < 2 { return None; }
+        if bars.len() < 2 {
+            return None;
+        }
         let count = bars.windows(2).filter(|w| w[1].low < w[0].low).count();
         Some(count as f64 / (bars.len() - 1) as f64)
     }
@@ -5851,28 +6604,36 @@ impl OhlcvBar {
     /// Bar energy: mean of (high - low)^2 across bars.
     pub fn bar_energy(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let sum: f64 = bars.iter().map(|b| {
-            let r = (b.high - b.low).to_f64().unwrap_or(0.0);
-            r * r
-        }).sum();
+        if bars.is_empty() {
+            return None;
+        }
+        let sum: f64 = bars
+            .iter()
+            .map(|b| {
+                let r = (b.high - b.low).to_f64().unwrap_or(0.0);
+                r * r
+            })
+            .sum();
         Some(sum / bars.len() as f64)
     }
 
     /// Open-close persistence: fraction of bars where open equals previous close.
     pub fn open_close_persistence(bars: &[OhlcvBar]) -> Option<f64> {
-        if bars.len() < 2 { return None; }
-        let count = bars.windows(2)
-            .filter(|w| w[1].open == w[0].close)
-            .count();
+        if bars.len() < 2 {
+            return None;
+        }
+        let count = bars.windows(2).filter(|w| w[1].open == w[0].close).count();
         Some(count as f64 / (bars.len() - 1) as f64)
     }
 
     /// Bar range trend: mean of (range\[i\] - range[i-1]) across consecutive bars.
     pub fn bar_range_trend(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 2 { return None; }
-        let ranges: Vec<f64> = bars.iter()
+        if bars.len() < 2 {
+            return None;
+        }
+        let ranges: Vec<f64> = bars
+            .iter()
             .map(|b| (b.high - b.low).to_f64().unwrap_or(0.0))
             .collect();
         let diffs: Vec<f64> = ranges.windows(2).map(|w| w[1] - w[0]).collect();
@@ -5882,14 +6643,23 @@ impl OhlcvBar {
     /// Open-high spread: mean of (high - open) / open across bars.
     pub fn open_high_spread(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let vals: Vec<f64> = bars.iter().filter_map(|b| {
-            let o = b.open.to_f64()?;
-            let h = b.high.to_f64()?;
-            if o == 0.0 { return None; }
-            Some((h - o) / o)
-        }).collect();
-        if vals.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let o = b.open.to_f64()?;
+                let h = b.high.to_f64()?;
+                if o == 0.0 {
+                    return None;
+                }
+                Some((h - o) / o)
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
@@ -5898,58 +6668,85 @@ impl OhlcvBar {
     /// Close-body-range ratio: mean of body size / (high - low) per bar.
     pub fn close_body_range_ratio(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let vals: Vec<f64> = bars.iter().filter_map(|b| {
-            let body = (b.close - b.open).abs().to_f64()?;
-            let range = (b.high - b.low).to_f64()?;
-            if range == 0.0 { return None; }
-            Some(body / range)
-        }).collect();
-        if vals.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let body = (b.close - b.open).abs().to_f64()?;
+                let range = (b.high - b.low).to_f64()?;
+                if range == 0.0 {
+                    return None;
+                }
+                Some(body / range)
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
     /// Average body percent: mean of body / open across bars.
     pub fn avg_body_pct(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let vals: Vec<f64> = bars.iter().filter_map(|b| {
-            let body = (b.close - b.open).abs().to_f64()?;
-            let o = b.open.to_f64()?;
-            if o == 0.0 { return None; }
-            Some(body / o)
-        }).collect();
-        if vals.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let body = (b.close - b.open).abs().to_f64()?;
+                let o = b.open.to_f64()?;
+                if o == 0.0 {
+                    return None;
+                }
+                Some(body / o)
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
     /// Bar symmetry: mean of |upper_shadow - lower_shadow| / range per bar.
     pub fn bar_symmetry(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let vals: Vec<f64> = bars.iter().filter_map(|b| {
-            let hi = b.high.to_f64()?;
-            let lo = b.low.to_f64()?;
-            let op = b.open.to_f64()?;
-            let cl = b.close.to_f64()?;
-            let range = hi - lo;
-            if range == 0.0 { return None; }
-            let body_hi = op.max(cl);
-            let body_lo = op.min(cl);
-            let upper = hi - body_hi;
-            let lower = body_lo - lo;
-            Some((upper - lower).abs() / range)
-        }).collect();
-        if vals.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let hi = b.high.to_f64()?;
+                let lo = b.low.to_f64()?;
+                let op = b.open.to_f64()?;
+                let cl = b.close.to_f64()?;
+                let range = hi - lo;
+                if range == 0.0 {
+                    return None;
+                }
+                let body_hi = op.max(cl);
+                let body_lo = op.min(cl);
+                let upper = hi - body_hi;
+                let lower = body_lo - lo;
+                Some((upper - lower).abs() / range)
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
     /// Open gap direction: fraction of bars where open > prior close (gap up).
     pub fn open_gap_direction(bars: &[OhlcvBar]) -> Option<f64> {
-        if bars.len() < 2 { return None; }
-        let count = bars.windows(2)
-            .filter(|w| w[1].open > w[0].close)
-            .count();
+        if bars.len() < 2 {
+            return None;
+        }
+        let count = bars.windows(2).filter(|w| w[1].open > w[0].close).count();
         Some(count as f64 / (bars.len() - 1) as f64)
     }
 
@@ -5958,36 +6755,57 @@ impl OhlcvBar {
     /// Close trend strength: (last close - first close) / (max close - min close).
     pub fn close_trend_strength(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 2 { return None; }
-        let closes: Vec<f64> = bars.iter().map(|b| b.close.to_f64().unwrap_or(0.0)).collect();
+        if bars.len() < 2 {
+            return None;
+        }
+        let closes: Vec<f64> = bars
+            .iter()
+            .map(|b| b.close.to_f64().unwrap_or(0.0))
+            .collect();
         let first = *closes.first()?;
         let last = *closes.last()?;
         let max = closes.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
         let min = closes.iter().cloned().fold(f64::INFINITY, f64::min);
         let range = max - min;
-        if range == 0.0 { return None; }
+        if range == 0.0 {
+            return None;
+        }
         Some((last - first) / range)
     }
 
     /// Bar body skew: mean of (close - open) / (high - low), signed.
     pub fn bar_body_skew(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let vals: Vec<f64> = bars.iter().filter_map(|b| {
-            let body = (b.close - b.open).to_f64()?;
-            let range = (b.high - b.low).to_f64()?;
-            if range == 0.0 { return None; }
-            Some(body / range)
-        }).collect();
-        if vals.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let body = (b.close - b.open).to_f64()?;
+                let range = (b.high - b.low).to_f64()?;
+                if range == 0.0 {
+                    return None;
+                }
+                Some(body / range)
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
     /// Bar range mean deviation: mean absolute deviation of (high - low) from its mean.
     pub fn bar_range_mean_dev(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let ranges: Vec<f64> = bars.iter().map(|b| (b.high - b.low).to_f64().unwrap_or(0.0)).collect();
+        if bars.is_empty() {
+            return None;
+        }
+        let ranges: Vec<f64> = bars
+            .iter()
+            .map(|b| (b.high - b.low).to_f64().unwrap_or(0.0))
+            .collect();
         let mean = ranges.iter().sum::<f64>() / ranges.len() as f64;
         let mad = ranges.iter().map(|&r| (r - mean).abs()).sum::<f64>() / ranges.len() as f64;
         Some(mad)
@@ -5995,12 +6813,21 @@ impl OhlcvBar {
 
     /// Bar close momentum: sum of sign of close changes across consecutive bars.
     pub fn bar_close_momentum(bars: &[OhlcvBar]) -> Option<f64> {
-        if bars.len() < 2 { return None; }
-        let sum: f64 = bars.windows(2).map(|w| {
-            if w[1].close > w[0].close { 1.0 }
-            else if w[1].close < w[0].close { -1.0 }
-            else { 0.0 }
-        }).sum();
+        if bars.len() < 2 {
+            return None;
+        }
+        let sum: f64 = bars
+            .windows(2)
+            .map(|w| {
+                if w[1].close > w[0].close {
+                    1.0
+                } else if w[1].close < w[0].close {
+                    -1.0
+                } else {
+                    0.0
+                }
+            })
+            .sum();
         Some(sum)
     }
 
@@ -6009,8 +6836,13 @@ impl OhlcvBar {
     /// Bar volume trend: mean of consecutive volume differences.
     pub fn bar_volume_trend(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 2 { return None; }
-        let vols: Vec<f64> = bars.iter().map(|b| b.volume.to_f64().unwrap_or(0.0)).collect();
+        if bars.len() < 2 {
+            return None;
+        }
+        let vols: Vec<f64> = bars
+            .iter()
+            .map(|b| b.volume.to_f64().unwrap_or(0.0))
+            .collect();
         let diffs: Vec<f64> = vols.windows(2).map(|w| w[1] - w[0]).collect();
         Some(diffs.iter().sum::<f64>() / diffs.len() as f64)
     }
@@ -6018,28 +6850,42 @@ impl OhlcvBar {
     /// Close-low spread: mean of (close - low) / (high - low) per bar.
     pub fn close_low_spread(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let vals: Vec<f64> = bars.iter().filter_map(|b| {
-            let cl = b.close.to_f64()?;
-            let lo = b.low.to_f64()?;
-            let hi = b.high.to_f64()?;
-            let range = hi - lo;
-            if range == 0.0 { return None; }
-            Some((cl - lo) / range)
-        }).collect();
-        if vals.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let cl = b.close.to_f64()?;
+                let lo = b.low.to_f64()?;
+                let hi = b.high.to_f64()?;
+                let range = hi - lo;
+                if range == 0.0 {
+                    return None;
+                }
+                Some((cl - lo) / range)
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
     /// Bar midpoint trend: mean of consecutive midpoint (high+low)/2 differences.
     pub fn bar_midpoint_trend(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 2 { return None; }
-        let mids: Vec<f64> = bars.iter().map(|b| {
-            let hi = b.high.to_f64().unwrap_or(0.0);
-            let lo = b.low.to_f64().unwrap_or(0.0);
-            (hi + lo) / 2.0
-        }).collect();
+        if bars.len() < 2 {
+            return None;
+        }
+        let mids: Vec<f64> = bars
+            .iter()
+            .map(|b| {
+                let hi = b.high.to_f64().unwrap_or(0.0);
+                let lo = b.low.to_f64().unwrap_or(0.0);
+                (hi + lo) / 2.0
+            })
+            .collect();
         let diffs: Vec<f64> = mids.windows(2).map(|w| w[1] - w[0]).collect();
         Some(diffs.iter().sum::<f64>() / diffs.len() as f64)
     }
@@ -6047,15 +6893,24 @@ impl OhlcvBar {
     /// Bar spread score: mean of (high - low) / close per bar.
     pub fn bar_spread_score(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let vals: Vec<f64> = bars.iter().filter_map(|b| {
-            let hi = b.high.to_f64()?;
-            let lo = b.low.to_f64()?;
-            let cl = b.close.to_f64()?;
-            if cl == 0.0 { return None; }
-            Some((hi - lo) / cl)
-        }).collect();
-        if vals.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let hi = b.high.to_f64()?;
+                let lo = b.low.to_f64()?;
+                let cl = b.close.to_f64()?;
+                if cl == 0.0 {
+                    return None;
+                }
+                Some((hi - lo) / cl)
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
@@ -6063,55 +6918,82 @@ impl OhlcvBar {
 
     /// Bar open-close momentum: sum of signs of (close - open) across bars.
     pub fn bar_open_close_momentum(bars: &[OhlcvBar]) -> Option<f64> {
-        if bars.is_empty() { return None; }
-        let sum: f64 = bars.iter().map(|b| {
-            if b.close > b.open { 1.0 }
-            else if b.close < b.open { -1.0 }
-            else { 0.0 }
-        }).sum();
+        if bars.is_empty() {
+            return None;
+        }
+        let sum: f64 = bars
+            .iter()
+            .map(|b| {
+                if b.close > b.open {
+                    1.0
+                } else if b.close < b.open {
+                    -1.0
+                } else {
+                    0.0
+                }
+            })
+            .sum();
         Some(sum)
     }
 
     /// Close body position: mean of (close - low) / (high - low) per bar (1.0 = close at high).
     pub fn close_body_position(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let vals: Vec<f64> = bars.iter().filter_map(|b| {
-            let cl = b.close.to_f64()?;
-            let lo = b.low.to_f64()?;
-            let hi = b.high.to_f64()?;
-            let range = hi - lo;
-            if range == 0.0 { return None; }
-            Some((cl - lo) / range)
-        }).collect();
-        if vals.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let cl = b.close.to_f64()?;
+                let lo = b.low.to_f64()?;
+                let hi = b.high.to_f64()?;
+                let range = hi - lo;
+                if range == 0.0 {
+                    return None;
+                }
+                Some((cl - lo) / range)
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
     /// Bar close persistence: fraction of bars where close > prior close (already exists as
     /// `bar_trend_persistence`, so this version uses open-close comparison across bars).
     pub fn bar_close_persistence(bars: &[OhlcvBar]) -> Option<f64> {
-        if bars.len() < 2 { return None; }
-        let count = bars.windows(2)
-            .filter(|w| w[1].close > w[0].open)
-            .count();
+        if bars.len() < 2 {
+            return None;
+        }
+        let count = bars.windows(2).filter(|w| w[1].close > w[0].open).count();
         Some(count as f64 / (bars.len() - 1) as f64)
     }
 
     /// Close wick ratio: mean of upper_wick / body per bar.
     pub fn close_wick_ratio(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let vals: Vec<f64> = bars.iter().filter_map(|b| {
-            let hi = b.high.to_f64()?;
-            let cl = b.close.to_f64()?;
-            let op = b.open.to_f64()?;
-            let body = (cl - op).abs();
-            if body == 0.0 { return None; }
-            let upper_wick = hi - cl.max(op);
-            Some(upper_wick / body)
-        }).collect();
-        if vals.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let hi = b.high.to_f64()?;
+                let cl = b.close.to_f64()?;
+                let op = b.open.to_f64()?;
+                let body = (cl - op).abs();
+                if body == 0.0 {
+                    return None;
+                }
+                let upper_wick = hi - cl.max(op);
+                Some(upper_wick / body)
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
@@ -6120,8 +7002,13 @@ impl OhlcvBar {
     /// Bar high trend: mean of consecutive high differences.
     pub fn bar_high_trend(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 2 { return None; }
-        let highs: Vec<f64> = bars.iter().map(|b| b.high.to_f64().unwrap_or(0.0)).collect();
+        if bars.len() < 2 {
+            return None;
+        }
+        let highs: Vec<f64> = bars
+            .iter()
+            .map(|b| b.high.to_f64().unwrap_or(0.0))
+            .collect();
         let diffs: Vec<f64> = highs.windows(2).map(|w| w[1] - w[0]).collect();
         Some(diffs.iter().sum::<f64>() / diffs.len() as f64)
     }
@@ -6129,7 +7016,9 @@ impl OhlcvBar {
     /// Bar low trend: mean of consecutive low differences.
     pub fn bar_low_trend(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 2 { return None; }
+        if bars.len() < 2 {
+            return None;
+        }
         let lows: Vec<f64> = bars.iter().map(|b| b.low.to_f64().unwrap_or(0.0)).collect();
         let diffs: Vec<f64> = lows.windows(2).map(|w| w[1] - w[0]).collect();
         Some(diffs.iter().sum::<f64>() / diffs.len() as f64)
@@ -6138,25 +7027,34 @@ impl OhlcvBar {
     /// Close-high wick: mean of (high - close) / (high - low) per bar.
     pub fn close_high_wick(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let vals: Vec<f64> = bars.iter().filter_map(|b| {
-            let hi = b.high.to_f64()?;
-            let lo = b.low.to_f64()?;
-            let cl = b.close.to_f64()?;
-            let range = hi - lo;
-            if range == 0.0 { return None; }
-            Some((hi - cl) / range)
-        }).collect();
-        if vals.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let hi = b.high.to_f64()?;
+                let lo = b.low.to_f64()?;
+                let cl = b.close.to_f64()?;
+                let range = hi - lo;
+                if range == 0.0 {
+                    return None;
+                }
+                Some((hi - cl) / range)
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
     /// Bar open persistence: fraction where open\[i\] > open[i-1].
     pub fn bar_open_persistence(bars: &[OhlcvBar]) -> Option<f64> {
-        if bars.len() < 2 { return None; }
-        let count = bars.windows(2)
-            .filter(|w| w[1].open > w[0].open)
-            .count();
+        if bars.len() < 2 {
+            return None;
+        }
+        let count = bars.windows(2).filter(|w| w[1].open > w[0].open).count();
         Some(count as f64 / (bars.len() - 1) as f64)
     }
 
@@ -6164,15 +7062,20 @@ impl OhlcvBar {
 
     /// Bar body count: number of bars with non-zero body (close ≠ open).
     pub fn bar_body_count(bars: &[OhlcvBar]) -> Option<usize> {
-        if bars.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
         let count = bars.iter().filter(|b| b.close != b.open).count();
         Some(count)
     }
 
     /// Range contraction ratio: fraction of bars where range < prior range.
     pub fn range_contraction_ratio(bars: &[OhlcvBar]) -> Option<f64> {
-        if bars.len() < 2 { return None; }
-        let count = bars.windows(2)
+        if bars.len() < 2 {
+            return None;
+        }
+        let count = bars
+            .windows(2)
             .filter(|w| (w[1].high - w[1].low) < (w[0].high - w[0].low))
             .count();
         Some(count as f64 / (bars.len() - 1) as f64)
@@ -6181,10 +7084,17 @@ impl OhlcvBar {
     /// Volume trend ratio: last volume / mean volume.
     pub fn volume_trend_ratio(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let vols: Vec<f64> = bars.iter().map(|b| b.volume.to_f64().unwrap_or(0.0)).collect();
+        if bars.is_empty() {
+            return None;
+        }
+        let vols: Vec<f64> = bars
+            .iter()
+            .map(|b| b.volume.to_f64().unwrap_or(0.0))
+            .collect();
         let mean = vols.iter().sum::<f64>() / vols.len() as f64;
-        if mean == 0.0 { return None; }
+        if mean == 0.0 {
+            return None;
+        }
         let last = *vols.last()?;
         Some(last / mean)
     }
@@ -6192,17 +7102,26 @@ impl OhlcvBar {
     /// Bar midpoint score: mean of (midpoint - open) / range per bar.
     pub fn bar_midpoint_score(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let vals: Vec<f64> = bars.iter().filter_map(|b| {
-            let hi = b.high.to_f64()?;
-            let lo = b.low.to_f64()?;
-            let op = b.open.to_f64()?;
-            let range = hi - lo;
-            if range == 0.0 { return None; }
-            let mid = (hi + lo) / 2.0;
-            Some((mid - op) / range)
-        }).collect();
-        if vals.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let hi = b.high.to_f64()?;
+                let lo = b.low.to_f64()?;
+                let op = b.open.to_f64()?;
+                let range = hi - lo;
+                if range == 0.0 {
+                    return None;
+                }
+                let mid = (hi + lo) / 2.0;
+                Some((mid - op) / range)
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
@@ -6211,46 +7130,75 @@ impl OhlcvBar {
     /// Bar open efficiency: mean of |close - open| / (high - low) per bar.
     pub fn bar_open_efficiency(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let vals: Vec<f64> = bars.iter().filter_map(|b| {
-            let body = (b.close - b.open).abs().to_f64()?;
-            let range = (b.high - b.low).to_f64()?;
-            if range == 0.0 { return None; }
-            Some(body / range)
-        }).collect();
-        if vals.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let body = (b.close - b.open).abs().to_f64()?;
+                let range = (b.high - b.low).to_f64()?;
+                if range == 0.0 {
+                    return None;
+                }
+                Some(body / range)
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
     /// Close oscillation amplitude: std of close prices across bars.
     pub fn close_oscillation_amplitude(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 2 { return None; }
-        let closes: Vec<f64> = bars.iter().map(|b| b.close.to_f64().unwrap_or(0.0)).collect();
+        if bars.len() < 2 {
+            return None;
+        }
+        let closes: Vec<f64> = bars
+            .iter()
+            .map(|b| b.close.to_f64().unwrap_or(0.0))
+            .collect();
         let mean = closes.iter().sum::<f64>() / closes.len() as f64;
-        let std = (closes.iter().map(|&c| (c - mean).powi(2)).sum::<f64>() / closes.len() as f64).sqrt();
+        let std =
+            (closes.iter().map(|&c| (c - mean).powi(2)).sum::<f64>() / closes.len() as f64).sqrt();
         Some(std)
     }
 
     /// Bar high-low score: mean of high / low ratio minus 1.
     pub fn bar_high_low_score(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let vals: Vec<f64> = bars.iter().filter_map(|b| {
-            let hi = b.high.to_f64()?;
-            let lo = b.low.to_f64()?;
-            if lo == 0.0 { return None; }
-            Some(hi / lo - 1.0)
-        }).collect();
-        if vals.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let hi = b.high.to_f64()?;
+                let lo = b.low.to_f64()?;
+                if lo == 0.0 {
+                    return None;
+                }
+                Some(hi / lo - 1.0)
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
     /// Bar range change: mean of range\[i\] - range[i-1] across consecutive bars.
     pub fn bar_range_change(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 2 { return None; }
-        let ranges: Vec<f64> = bars.iter().map(|b| (b.high - b.low).to_f64().unwrap_or(0.0)).collect();
+        if bars.len() < 2 {
+            return None;
+        }
+        let ranges: Vec<f64> = bars
+            .iter()
+            .map(|b| (b.high - b.low).to_f64().unwrap_or(0.0))
+            .collect();
         let diffs: Vec<f64> = ranges.windows(2).map(|w| w[1] - w[0]).collect();
         Some(diffs.iter().sum::<f64>() / diffs.len() as f64)
     }
@@ -6260,8 +7208,11 @@ impl OhlcvBar {
     /// Bar body mean: mean absolute body size (|close - open|) across bars.
     pub fn bar_body_mean(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let sum: f64 = bars.iter()
+        if bars.is_empty() {
+            return None;
+        }
+        let sum: f64 = bars
+            .iter()
             .map(|b| (b.close - b.open).abs().to_f64().unwrap_or(0.0))
             .sum();
         Some(sum / bars.len() as f64)
@@ -6270,42 +7221,69 @@ impl OhlcvBar {
     /// Close-high correlation: correlation between close and high values.
     pub fn close_high_correlation(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 2 { return None; }
-        let closes: Vec<f64> = bars.iter().map(|b| b.close.to_f64().unwrap_or(0.0)).collect();
-        let highs: Vec<f64> = bars.iter().map(|b| b.high.to_f64().unwrap_or(0.0)).collect();
+        if bars.len() < 2 {
+            return None;
+        }
+        let closes: Vec<f64> = bars
+            .iter()
+            .map(|b| b.close.to_f64().unwrap_or(0.0))
+            .collect();
+        let highs: Vec<f64> = bars
+            .iter()
+            .map(|b| b.high.to_f64().unwrap_or(0.0))
+            .collect();
         let n = closes.len() as f64;
         let c_mean = closes.iter().sum::<f64>() / n;
         let h_mean = highs.iter().sum::<f64>() / n;
-        let cov: f64 = closes.iter().zip(highs.iter())
+        let cov: f64 = closes
+            .iter()
+            .zip(highs.iter())
             .map(|(&c, &h)| (c - c_mean) * (h - h_mean))
-            .sum::<f64>() / n;
+            .sum::<f64>()
+            / n;
         let c_std = (closes.iter().map(|&c| (c - c_mean).powi(2)).sum::<f64>() / n).sqrt();
         let h_std = (highs.iter().map(|&h| (h - h_mean).powi(2)).sum::<f64>() / n).sqrt();
-        if c_std == 0.0 || h_std == 0.0 { return None; }
+        if c_std == 0.0 || h_std == 0.0 {
+            return None;
+        }
         Some(cov / (c_std * h_std))
     }
 
     /// Bar close above midpoint: fraction of bars where close > (high + low) / 2.
     pub fn bar_close_above_midpoint(bars: &[OhlcvBar]) -> Option<f64> {
-        if bars.is_empty() { return None; }
-        let count = bars.iter().filter(|b| {
-            let mid = (b.high + b.low) / rust_decimal::Decimal::TWO;
-            b.close > mid
-        }).count();
+        if bars.is_empty() {
+            return None;
+        }
+        let count = bars
+            .iter()
+            .filter(|b| {
+                let mid = (b.high + b.low) / rust_decimal::Decimal::TWO;
+                b.close > mid
+            })
+            .count();
         Some(count as f64 / bars.len() as f64)
     }
 
     /// Bar open gap score: mean of (open\[i\] - close[i-1]) / (high[i-1] - low[i-1]).
     pub fn bar_open_gap_score(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 2 { return None; }
-        let vals: Vec<f64> = bars.windows(2).filter_map(|w| {
-            let gap = (w[1].open - w[0].close).to_f64()?;
-            let range = (w[0].high - w[0].low).to_f64()?;
-            if range == 0.0 { return None; }
-            Some(gap / range)
-        }).collect();
-        if vals.is_empty() { return None; }
+        if bars.len() < 2 {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .windows(2)
+            .filter_map(|w| {
+                let gap = (w[1].open - w[0].close).to_f64()?;
+                let range = (w[0].high - w[0].low).to_f64()?;
+                if range == 0.0 {
+                    return None;
+                }
+                Some(gap / range)
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
@@ -6313,7 +7291,9 @@ impl OhlcvBar {
 
     /// Bar close trend ratio: fraction of bars where close is higher than previous close.
     pub fn bar_close_trend_ratio(bars: &[OhlcvBar]) -> Option<f64> {
-        if bars.len() < 2 { return None; }
+        if bars.len() < 2 {
+            return None;
+        }
         let ups = bars.windows(2).filter(|w| w[1].close > w[0].close).count();
         Some(ups as f64 / (bars.len() - 1) as f64)
     }
@@ -6321,8 +7301,11 @@ impl OhlcvBar {
     /// Open-close gap mean: mean of (open\[i\] - close\[i\]) per bar.
     pub fn open_close_gap_mean(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let sum: f64 = bars.iter()
+        if bars.is_empty() {
+            return None;
+        }
+        let sum: f64 = bars
+            .iter()
             .map(|b| (b.open - b.close).to_f64().unwrap_or(0.0))
             .sum();
         Some(sum / bars.len() as f64)
@@ -6331,8 +7314,11 @@ impl OhlcvBar {
     /// Bar body velocity: mean of consecutive body size changes.
     pub fn bar_body_velocity(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 2 { return None; }
-        let bodies: Vec<f64> = bars.iter()
+        if bars.len() < 2 {
+            return None;
+        }
+        let bodies: Vec<f64> = bars
+            .iter()
             .map(|b| (b.close - b.open).abs().to_f64().unwrap_or(0.0))
             .collect();
         let diffs: Vec<f64> = bodies.windows(2).map(|w| w[1] - w[0]).collect();
@@ -6342,10 +7328,16 @@ impl OhlcvBar {
     /// Close mean reversion: fraction of close changes that move toward the overall close mean.
     pub fn close_mean_reversion(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 2 { return None; }
-        let closes: Vec<f64> = bars.iter().map(|b| b.close.to_f64().unwrap_or(0.0)).collect();
+        if bars.len() < 2 {
+            return None;
+        }
+        let closes: Vec<f64> = bars
+            .iter()
+            .map(|b| b.close.to_f64().unwrap_or(0.0))
+            .collect();
         let mean = closes.iter().sum::<f64>() / closes.len() as f64;
-        let reversions = closes.windows(2)
+        let reversions = closes
+            .windows(2)
             .filter(|w| {
                 let d0 = (w[0] - mean).abs();
                 let d1 = (w[1] - mean).abs();
@@ -6360,33 +7352,54 @@ impl OhlcvBar {
     /// Bar wick asymmetry: mean of (upper wick - lower wick) per bar.
     pub fn bar_wick_asymmetry(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let sum: f64 = bars.iter().map(|b| {
-            let upper = (b.high - b.close.max(b.open)).to_f64().unwrap_or(0.0);
-            let lower = (b.close.min(b.open) - b.low).to_f64().unwrap_or(0.0);
-            upper - lower
-        }).sum();
+        if bars.is_empty() {
+            return None;
+        }
+        let sum: f64 = bars
+            .iter()
+            .map(|b| {
+                let upper = (b.high - b.close.max(b.open)).to_f64().unwrap_or(0.0);
+                let lower = (b.close.min(b.open) - b.low).to_f64().unwrap_or(0.0);
+                upper - lower
+            })
+            .sum();
         Some(sum / bars.len() as f64)
     }
 
     /// Close to open ratio: mean of close\[i\] / open\[i\] per bar.
     pub fn close_to_open_ratio(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let ratios: Vec<f64> = bars.iter().filter_map(|b| {
-            let o = b.open.to_f64()?;
-            let c = b.close.to_f64()?;
-            if o == 0.0 { None } else { Some(c / o) }
-        }).collect();
-        if ratios.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
+        let ratios: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let o = b.open.to_f64()?;
+                let c = b.close.to_f64()?;
+                if o == 0.0 {
+                    None
+                } else {
+                    Some(c / o)
+                }
+            })
+            .collect();
+        if ratios.is_empty() {
+            return None;
+        }
         Some(ratios.iter().sum::<f64>() / ratios.len() as f64)
     }
 
     /// Bar volume skew: fraction of bars with volume above the mean volume.
     pub fn bar_volume_skew(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let vols: Vec<f64> = bars.iter().map(|b| b.volume.to_f64().unwrap_or(0.0)).collect();
+        if bars.is_empty() {
+            return None;
+        }
+        let vols: Vec<f64> = bars
+            .iter()
+            .map(|b| b.volume.to_f64().unwrap_or(0.0))
+            .collect();
         let mean = vols.iter().sum::<f64>() / vols.len() as f64;
         let above = vols.iter().filter(|&&v| v > mean).count() as f64;
         Some(above / vols.len() as f64)
@@ -6395,14 +7408,23 @@ impl OhlcvBar {
     /// Bar close to range: mean of (close - low) / (high - low) per bar.
     pub fn bar_close_to_range(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let vals: Vec<f64> = bars.iter().filter_map(|b| {
-            let range = (b.high - b.low).to_f64()?;
-            if range == 0.0 { return None; }
-            let cl = (b.close - b.low).to_f64()?;
-            Some(cl / range)
-        }).collect();
-        if vals.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let range = (b.high - b.low).to_f64()?;
+                if range == 0.0 {
+                    return None;
+                }
+                let cl = (b.close - b.low).to_f64()?;
+                Some(cl / range)
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
@@ -6411,47 +7433,80 @@ impl OhlcvBar {
     /// Bar body trend score: OLS slope of body sizes (|close - open|) over bars.
     pub fn bar_body_trend_score(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 2 { return None; }
-        let bodies: Vec<f64> = bars.iter()
+        if bars.len() < 2 {
+            return None;
+        }
+        let bodies: Vec<f64> = bars
+            .iter()
             .map(|b| (b.close - b.open).abs().to_f64().unwrap_or(0.0))
             .collect();
         let n = bodies.len() as f64;
         let x_mean = (n - 1.0) / 2.0;
         let y_mean = bodies.iter().sum::<f64>() / n;
-        let num: f64 = bodies.iter().enumerate().map(|(i, &y)| (i as f64 - x_mean) * (y - y_mean)).sum();
-        let den: f64 = bodies.iter().enumerate().map(|(i, _)| (i as f64 - x_mean).powi(2)).sum();
-        if den == 0.0 { return None; }
+        let num: f64 = bodies
+            .iter()
+            .enumerate()
+            .map(|(i, &y)| (i as f64 - x_mean) * (y - y_mean))
+            .sum();
+        let den: f64 = bodies
+            .iter()
+            .enumerate()
+            .map(|(i, _)| (i as f64 - x_mean).powi(2))
+            .sum();
+        if den == 0.0 {
+            return None;
+        }
         Some(num / den)
     }
 
     /// Close-high ratio: mean of close / high per bar.
     pub fn close_high_ratio(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let ratios: Vec<f64> = bars.iter().filter_map(|b| {
-            let h = b.high.to_f64()?;
-            let c = b.close.to_f64()?;
-            if h == 0.0 { None } else { Some(c / h) }
-        }).collect();
-        if ratios.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
+        let ratios: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let h = b.high.to_f64()?;
+                let c = b.close.to_f64()?;
+                if h == 0.0 {
+                    None
+                } else {
+                    Some(c / h)
+                }
+            })
+            .collect();
+        if ratios.is_empty() {
+            return None;
+        }
         Some(ratios.iter().sum::<f64>() / ratios.len() as f64)
     }
 
     /// Bar volume efficiency: close range (|close\[n\]-close\[0\]|) / total volume.
     pub fn bar_volume_efficiency(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 2 { return None; }
+        if bars.len() < 2 {
+            return None;
+        }
         let price_move = (bars.last()?.close - bars.first()?.close).abs().to_f64()?;
         let total_vol: f64 = bars.iter().map(|b| b.volume.to_f64().unwrap_or(0.0)).sum();
-        if total_vol == 0.0 { return None; }
+        if total_vol == 0.0 {
+            return None;
+        }
         Some(price_move / total_vol)
     }
 
     /// High open spread: mean of (high - open) per bar.
     pub fn high_open_spread(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let sum: f64 = bars.iter().map(|b| (b.high - b.open).to_f64().unwrap_or(0.0)).sum();
+        if bars.is_empty() {
+            return None;
+        }
+        let sum: f64 = bars
+            .iter()
+            .map(|b| (b.high - b.open).to_f64().unwrap_or(0.0))
+            .sum();
         Some(sum / bars.len() as f64)
     }
 
@@ -6460,44 +7515,72 @@ impl OhlcvBar {
     /// Bar open-low spread: mean of (open - low) per bar.
     pub fn bar_open_low_spread(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let sum: f64 = bars.iter().map(|b| (b.open - b.low).to_f64().unwrap_or(0.0)).sum();
+        if bars.is_empty() {
+            return None;
+        }
+        let sum: f64 = bars
+            .iter()
+            .map(|b| (b.open - b.low).to_f64().unwrap_or(0.0))
+            .sum();
         Some(sum / bars.len() as f64)
     }
 
     /// Close-low body ratio: mean of (close - low) / |close - open| per bar.
     pub fn close_low_body_ratio(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let vals: Vec<f64> = bars.iter().filter_map(|b| {
-            let body = (b.close - b.open).abs().to_f64()?;
-            if body == 0.0 { return None; }
-            let cl = (b.close - b.low).to_f64()?;
-            Some(cl / body)
-        }).collect();
-        if vals.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let body = (b.close - b.open).abs().to_f64()?;
+                if body == 0.0 {
+                    return None;
+                }
+                let cl = (b.close - b.low).to_f64()?;
+                Some(cl / body)
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
     /// Bar high-close spread: mean of (high - close) per bar.
     pub fn bar_high_close_spread(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let sum: f64 = bars.iter().map(|b| (b.high - b.close).to_f64().unwrap_or(0.0)).sum();
+        if bars.is_empty() {
+            return None;
+        }
+        let sum: f64 = bars
+            .iter()
+            .map(|b| (b.high - b.close).to_f64().unwrap_or(0.0))
+            .sum();
         Some(sum / bars.len() as f64)
     }
 
     /// Volume-body ratio: mean of volume / |close - open| per bar.
     pub fn volume_body_ratio(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let vals: Vec<f64> = bars.iter().filter_map(|b| {
-            let body = (b.close - b.open).abs().to_f64()?;
-            if body == 0.0 { return None; }
-            let vol = b.volume.to_f64()?;
-            Some(vol / body)
-        }).collect();
-        if vals.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let body = (b.close - b.open).abs().to_f64()?;
+                if body == 0.0 {
+                    return None;
+                }
+                let vol = b.volume.to_f64()?;
+                Some(vol / body)
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
@@ -6506,39 +7589,64 @@ impl OhlcvBar {
     /// Bar close-low trend: OLS slope of (close - low) per bar.
     pub fn bar_close_low_trend(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 2 { return None; }
-        let vals: Vec<f64> = bars.iter()
+        if bars.len() < 2 {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .iter()
             .map(|b| (b.close - b.low).to_f64().unwrap_or(0.0))
             .collect();
         let n = vals.len() as f64;
         let x_mean = (n - 1.0) / 2.0;
         let y_mean = vals.iter().sum::<f64>() / n;
-        let num: f64 = vals.iter().enumerate().map(|(i, &y)| (i as f64 - x_mean) * (y - y_mean)).sum();
-        let den: f64 = vals.iter().enumerate().map(|(i, _)| (i as f64 - x_mean).powi(2)).sum();
-        if den == 0.0 { return None; }
+        let num: f64 = vals
+            .iter()
+            .enumerate()
+            .map(|(i, &y)| (i as f64 - x_mean) * (y - y_mean))
+            .sum();
+        let den: f64 = vals
+            .iter()
+            .enumerate()
+            .map(|(i, _)| (i as f64 - x_mean).powi(2))
+            .sum();
+        if den == 0.0 {
+            return None;
+        }
         Some(num / den)
     }
 
     /// Open body skew: mean of (open - (open+close)/2) / |close-open| per bar.
     pub fn open_body_skew(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let vals: Vec<f64> = bars.iter().filter_map(|b| {
-            let body = (b.close - b.open).abs().to_f64()?;
-            if body == 0.0 { return None; }
-            let mid = ((b.open + b.close) / rust_decimal::Decimal::TWO).to_f64()?;
-            let open = b.open.to_f64()?;
-            Some((open - mid) / body)
-        }).collect();
-        if vals.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let body = (b.close - b.open).abs().to_f64()?;
+                if body == 0.0 {
+                    return None;
+                }
+                let mid = ((b.open + b.close) / rust_decimal::Decimal::TWO).to_f64()?;
+                let open = b.open.to_f64()?;
+                Some((open - mid) / body)
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
     /// Bar volume trend ratio: fraction of bars with volume above previous bar's volume.
     pub fn bar_volume_trend_ratio(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 2 { return None; }
-        let ups = bars.windows(2)
+        if bars.len() < 2 {
+            return None;
+        }
+        let ups = bars
+            .windows(2)
             .filter(|w| w[1].volume.to_f64().unwrap_or(0.0) > w[0].volume.to_f64().unwrap_or(0.0))
             .count() as f64;
         Some(ups / (bars.len() - 1) as f64)
@@ -6547,14 +7655,23 @@ impl OhlcvBar {
     /// Bar body-range ratio: mean of |close - open| / (high - low) per bar.
     pub fn bar_body_range_ratio(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let vals: Vec<f64> = bars.iter().filter_map(|b| {
-            let range = (b.high - b.low).to_f64()?;
-            if range == 0.0 { return None; }
-            let body = (b.close - b.open).abs().to_f64()?;
-            Some(body / range)
-        }).collect();
-        if vals.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let range = (b.high - b.low).to_f64()?;
+                if range == 0.0 {
+                    return None;
+                }
+                let body = (b.close - b.open).abs().to_f64()?;
+                Some(body / range)
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
@@ -6563,31 +7680,51 @@ impl OhlcvBar {
     /// Bar open body skew: mean of (open - close) / (high - low) per bar.
     pub fn bar_open_body_skew(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let vals: Vec<f64> = bars.iter().filter_map(|b| {
-            let range = (b.high - b.low).to_f64()?;
-            if range == 0.0 { return None; }
-            let diff = (b.open - b.close).to_f64()?;
-            Some(diff / range)
-        }).collect();
-        if vals.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let range = (b.high - b.low).to_f64()?;
+                if range == 0.0 {
+                    return None;
+                }
+                let diff = (b.open - b.close).to_f64()?;
+                Some(diff / range)
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
     /// Close-open spread mean: mean of (close - open) across bars.
     pub fn close_open_spread_mean(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let sum: f64 = bars.iter().map(|b| (b.close - b.open).to_f64().unwrap_or(0.0)).sum();
+        if bars.is_empty() {
+            return None;
+        }
+        let sum: f64 = bars
+            .iter()
+            .map(|b| (b.close - b.open).to_f64().unwrap_or(0.0))
+            .sum();
         Some(sum / bars.len() as f64)
     }
 
     /// Bar close acceleration: mean second derivative of close prices.
     pub fn bar_close_acceleration(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 3 { return None; }
-        let closes: Vec<f64> = bars.iter().map(|b| b.close.to_f64().unwrap_or(0.0)).collect();
-        let accels: Vec<f64> = closes.windows(3)
+        if bars.len() < 3 {
+            return None;
+        }
+        let closes: Vec<f64> = bars
+            .iter()
+            .map(|b| b.close.to_f64().unwrap_or(0.0))
+            .collect();
+        let accels: Vec<f64> = closes
+            .windows(3)
             .map(|w| (w[2] - w[1]) - (w[1] - w[0]))
             .collect();
         Some(accels.iter().sum::<f64>() / accels.len() as f64)
@@ -6596,14 +7733,23 @@ impl OhlcvBar {
     /// High body fraction: mean of (high - close.max(open)) / (high - low) per bar.
     pub fn high_body_fraction(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let vals: Vec<f64> = bars.iter().filter_map(|b| {
-            let range = (b.high - b.low).to_f64()?;
-            if range == 0.0 { return None; }
-            let upper_wick = (b.high - b.close.max(b.open)).to_f64()?;
-            Some(upper_wick / range)
-        }).collect();
-        if vals.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let range = (b.high - b.low).to_f64()?;
+                if range == 0.0 {
+                    return None;
+                }
+                let upper_wick = (b.high - b.close.max(b.open)).to_f64()?;
+                Some(upper_wick / range)
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
@@ -6611,7 +7757,9 @@ impl OhlcvBar {
 
     /// Fraction of bars where close > open (bullish bars).
     pub fn bar_close_above_open_ratio(bars: &[OhlcvBar]) -> Option<f64> {
-        if bars.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
         let bullish = bars.iter().filter(|b| b.close > b.open).count();
         Some(bullish as f64 / bars.len() as f64)
     }
@@ -6619,10 +7767,15 @@ impl OhlcvBar {
     /// Mean second-order change of bar highs (acceleration of highs).
     pub fn bar_high_acceleration(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 3 { return None; }
+        if bars.len() < 3 {
+            return None;
+        }
         let highs: Vec<f64> = bars.iter().filter_map(|b| b.high.to_f64()).collect();
-        if highs.len() < 3 { return None; }
-        let accels: Vec<f64> = highs.windows(3)
+        if highs.len() < 3 {
+            return None;
+        }
+        let accels: Vec<f64> = highs
+            .windows(3)
             .map(|w| (w[2] - w[1]) - (w[1] - w[0]))
             .collect();
         Some(accels.iter().sum::<f64>() / accels.len() as f64)
@@ -6631,25 +7784,39 @@ impl OhlcvBar {
     /// Mean spread between low and open across bars.
     pub fn low_open_spread(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let vals: Vec<f64> = bars.iter()
+        if bars.is_empty() {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .iter()
             .filter_map(|b| (b.open - b.low).to_f64())
             .collect();
-        if vals.is_empty() { return None; }
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
     /// Mean ratio of close to open across bars (close/open).
     pub fn close_over_open(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let vals: Vec<f64> = bars.iter().filter_map(|b| {
-            let o = b.open.to_f64()?;
-            if o == 0.0 { return None; }
-            let c = b.close.to_f64()?;
-            Some(c / o)
-        }).collect();
-        if vals.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let o = b.open.to_f64()?;
+                if o == 0.0 {
+                    return None;
+                }
+                let c = b.close.to_f64()?;
+                Some(c / o)
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
@@ -6658,39 +7825,62 @@ impl OhlcvBar {
     /// Mean ratio of total wick length to bar range (upper_wick + lower_wick) / range.
     pub fn bar_wick_ratio(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let vals: Vec<f64> = bars.iter().filter_map(|b| {
-            let range = (b.high - b.low).to_f64()?;
-            if range == 0.0 { return None; }
-            let body_top = b.close.max(b.open);
-            let body_bot = b.close.min(b.open);
-            let upper_wick = (b.high - body_top).to_f64()?;
-            let lower_wick = (body_bot - b.low).to_f64()?;
-            Some((upper_wick + lower_wick) / range)
-        }).collect();
-        if vals.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let range = (b.high - b.low).to_f64()?;
+                if range == 0.0 {
+                    return None;
+                }
+                let body_top = b.close.max(b.open);
+                let body_bot = b.close.min(b.open);
+                let upper_wick = (b.high - body_top).to_f64()?;
+                let lower_wick = (body_bot - b.low).to_f64()?;
+                Some((upper_wick + lower_wick) / range)
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
     /// Mean direction of open-to-close moves: +1 for bullish, -1 for bearish, 0 for doji.
     pub fn open_to_close_direction(bars: &[OhlcvBar]) -> Option<f64> {
-        if bars.is_empty() { return None; }
-        let sum: f64 = bars.iter().map(|b| {
-            if b.close > b.open { 1.0 }
-            else if b.close < b.open { -1.0 }
-            else { 0.0 }
-        }).sum();
+        if bars.is_empty() {
+            return None;
+        }
+        let sum: f64 = bars
+            .iter()
+            .map(|b| {
+                if b.close > b.open {
+                    1.0
+                } else if b.close < b.open {
+                    -1.0
+                } else {
+                    0.0
+                }
+            })
+            .sum();
         Some(sum / bars.len() as f64)
     }
 
     /// Mean change in the (high + low) / 2 midpoint across consecutive bars.
     pub fn high_low_midpoint_trend(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 2 { return None; }
-        let mids: Vec<f64> = bars.iter().filter_map(|b| {
-            ((b.high + b.low) / rust_decimal::Decimal::TWO).to_f64()
-        }).collect();
-        if mids.len() < 2 { return None; }
+        if bars.len() < 2 {
+            return None;
+        }
+        let mids: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| ((b.high + b.low) / rust_decimal::Decimal::TWO).to_f64())
+            .collect();
+        if mids.len() < 2 {
+            return None;
+        }
         let diffs: Vec<f64> = mids.windows(2).map(|w| w[1] - w[0]).collect();
         Some(diffs.iter().sum::<f64>() / diffs.len() as f64)
     }
@@ -6698,9 +7888,16 @@ impl OhlcvBar {
     /// Mean of (close - low) across bars.
     pub fn close_minus_low_mean(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let vals: Vec<f64> = bars.iter().filter_map(|b| (b.close - b.low).to_f64()).collect();
-        if vals.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| (b.close - b.low).to_f64())
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
@@ -6709,9 +7906,13 @@ impl OhlcvBar {
     /// Standard deviation of close prices across bars.
     pub fn bar_close_dispersion(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 2 { return None; }
+        if bars.len() < 2 {
+            return None;
+        }
         let closes: Vec<f64> = bars.iter().filter_map(|b| b.close.to_f64()).collect();
-        if closes.len() < 2 { return None; }
+        if closes.len() < 2 {
+            return None;
+        }
         let mean = closes.iter().sum::<f64>() / closes.len() as f64;
         let var = closes.iter().map(|c| (c - mean).powi(2)).sum::<f64>() / closes.len() as f64;
         Some(var.sqrt())
@@ -6720,29 +7921,41 @@ impl OhlcvBar {
     /// Mean of (open + close) / 2 across bars.
     pub fn bar_open_close_mean(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let vals: Vec<f64> = bars.iter().filter_map(|b| {
-            ((b.open + b.close) / rust_decimal::Decimal::TWO).to_f64()
-        }).collect();
-        if vals.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| ((b.open + b.close) / rust_decimal::Decimal::TWO).to_f64())
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
     /// Mean gap between consecutive bar closes (close\[i\] - close[i-1]).
     pub fn close_gap_from_prior(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 2 { return None; }
-        let gaps: Vec<f64> = bars.windows(2).filter_map(|w| {
-            (w[1].close - w[0].close).to_f64()
-        }).collect();
-        if gaps.is_empty() { return None; }
+        if bars.len() < 2 {
+            return None;
+        }
+        let gaps: Vec<f64> = bars
+            .windows(2)
+            .filter_map(|w| (w[1].close - w[0].close).to_f64())
+            .collect();
+        if gaps.is_empty() {
+            return None;
+        }
         Some(gaps.iter().sum::<f64>() / gaps.len() as f64)
     }
 
     /// Mean volume per bar (volume / number of bars — same as mean volume but explicit).
     pub fn bar_volume_per_bar(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
         let total: f64 = bars.iter().filter_map(|b| b.volume.to_f64()).sum();
         Some(total / bars.len() as f64)
     }
@@ -6752,25 +7965,38 @@ impl OhlcvBar {
     /// Mean signed distance of close from VWAP (price-volume weighted avg price).
     pub fn bar_close_to_vwap(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
         let total_vol: f64 = bars.iter().filter_map(|b| b.volume.to_f64()).sum();
-        if total_vol == 0.0 { return None; }
-        let vwap: f64 = bars.iter().filter_map(|b| {
-            let c = b.close.to_f64()?;
-            let v = b.volume.to_f64()?;
-            Some(c * v)
-        }).sum::<f64>() / total_vol;
-        let diffs: Vec<f64> = bars.iter().filter_map(|b| {
-            Some(b.close.to_f64()? - vwap)
-        }).collect();
-        if diffs.is_empty() { return None; }
+        if total_vol == 0.0 {
+            return None;
+        }
+        let vwap: f64 = bars
+            .iter()
+            .filter_map(|b| {
+                let c = b.close.to_f64()?;
+                let v = b.volume.to_f64()?;
+                Some(c * v)
+            })
+            .sum::<f64>()
+            / total_vol;
+        let diffs: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| Some(b.close.to_f64()? - vwap))
+            .collect();
+        if diffs.is_empty() {
+            return None;
+        }
         Some(diffs.iter().sum::<f64>() / diffs.len() as f64)
     }
 
     /// Exponential moving average proxy of close prices (alpha=2/(n+1)).
     pub fn close_ema_proxy(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
         let n = bars.len();
         let alpha = 2.0 / (n as f64 + 1.0);
         let mut ema = bars[0].close.to_f64()?;
@@ -6784,10 +8010,18 @@ impl OhlcvBar {
     /// Mean second-order change of bar ranges (acceleration of range).
     pub fn bar_range_acceleration(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 3 { return None; }
-        let ranges: Vec<f64> = bars.iter().filter_map(|b| (b.high - b.low).to_f64()).collect();
-        if ranges.len() < 3 { return None; }
-        let accels: Vec<f64> = ranges.windows(3)
+        if bars.len() < 3 {
+            return None;
+        }
+        let ranges: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| (b.high - b.low).to_f64())
+            .collect();
+        if ranges.len() < 3 {
+            return None;
+        }
+        let accels: Vec<f64> = ranges
+            .windows(3)
             .map(|w| (w[2] - w[1]) - (w[1] - w[0]))
             .collect();
         Some(accels.iter().sum::<f64>() / accels.len() as f64)
@@ -6796,14 +8030,23 @@ impl OhlcvBar {
     /// Mean of (open - close range) / bar range across bars.
     pub fn open_close_range_ratio(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let vals: Vec<f64> = bars.iter().filter_map(|b| {
-            let range = (b.high - b.low).to_f64()?;
-            if range == 0.0 { return None; }
-            let body = (b.open - b.close).abs().to_f64()?;
-            Some(body / range)
-        }).collect();
-        if vals.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let range = (b.high - b.low).to_f64()?;
+                if range == 0.0 {
+                    return None;
+                }
+                let body = (b.open - b.close).abs().to_f64()?;
+                Some(body / range)
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
@@ -6812,11 +8055,20 @@ impl OhlcvBar {
     /// Ratio of bar range standard deviation to mean range (coefficient of variation).
     pub fn bar_volatility_ratio(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 2 { return None; }
-        let ranges: Vec<f64> = bars.iter().filter_map(|b| (b.high - b.low).to_f64()).collect();
-        if ranges.len() < 2 { return None; }
+        if bars.len() < 2 {
+            return None;
+        }
+        let ranges: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| (b.high - b.low).to_f64())
+            .collect();
+        if ranges.len() < 2 {
+            return None;
+        }
         let mean = ranges.iter().sum::<f64>() / ranges.len() as f64;
-        if mean == 0.0 { return None; }
+        if mean == 0.0 {
+            return None;
+        }
         let var = ranges.iter().map(|r| (r - mean).powi(2)).sum::<f64>() / ranges.len() as f64;
         Some(var.sqrt() / mean)
     }
@@ -6824,7 +8076,9 @@ impl OhlcvBar {
     /// Mean deviation of close from EMA proxy across bars (close - EMA_proxy).
     pub fn close_ema_deviation(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
         let n = bars.len();
         let alpha = 2.0 / (n as f64 + 1.0);
         let mut ema = bars[0].close.to_f64()?;
@@ -6840,22 +8094,36 @@ impl OhlcvBar {
     /// Count of doji bars (|open - close| / range < 0.1).
     pub fn bar_doji_count(bars: &[OhlcvBar]) -> Option<usize> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let count = bars.iter().filter(|b| {
-            let range = (b.high - b.low).to_f64().unwrap_or(0.0);
-            if range == 0.0 { return true; }
-            let body = (b.open - b.close).abs().to_f64().unwrap_or(0.0);
-            body / range < 0.1
-        }).count();
+        if bars.is_empty() {
+            return None;
+        }
+        let count = bars
+            .iter()
+            .filter(|b| {
+                let range = (b.high - b.low).to_f64().unwrap_or(0.0);
+                if range == 0.0 {
+                    return true;
+                }
+                let body = (b.open - b.close).abs().to_f64().unwrap_or(0.0);
+                body / range < 0.1
+            })
+            .count();
         Some(count)
     }
 
     /// Mean of (high - close) across bars.
     pub fn bar_high_minus_close_mean(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let vals: Vec<f64> = bars.iter().filter_map(|b| (b.high - b.close).to_f64()).collect();
-        if vals.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| (b.high - b.close).to_f64())
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
@@ -6863,7 +8131,9 @@ impl OhlcvBar {
 
     /// Fraction of bars where open > prior bar's close (gap up).
     pub fn bar_open_above_prior_close(bars: &[OhlcvBar]) -> Option<f64> {
-        if bars.len() < 2 { return None; }
+        if bars.len() < 2 {
+            return None;
+        }
         let above = bars.windows(2).filter(|w| w[1].open > w[0].close).count();
         Some(above as f64 / (bars.len() - 1) as f64)
     }
@@ -6871,33 +8141,56 @@ impl OhlcvBar {
     /// Mean of close / low ratio across bars.
     pub fn close_low_ratio(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let vals: Vec<f64> = bars.iter().filter_map(|b| {
-            let l = b.low.to_f64()?;
-            if l == 0.0 { return None; }
-            let c = b.close.to_f64()?;
-            Some(c / l)
-        }).collect();
-        if vals.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let l = b.low.to_f64()?;
+                if l == 0.0 {
+                    return None;
+                }
+                let c = b.close.to_f64()?;
+                Some(c / l)
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
     /// Mean second-order change of close prices (price acceleration).
     pub fn bar_price_acceleration(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 3 { return None; }
+        if bars.len() < 3 {
+            return None;
+        }
         let closes: Vec<f64> = bars.iter().filter_map(|b| b.close.to_f64()).collect();
-        if closes.len() < 3 { return None; }
-        let accels: Vec<f64> = closes.windows(3).map(|w| (w[2] - w[1]) - (w[1] - w[0])).collect();
+        if closes.len() < 3 {
+            return None;
+        }
+        let accels: Vec<f64> = closes
+            .windows(3)
+            .map(|w| (w[2] - w[1]) - (w[1] - w[0]))
+            .collect();
         Some(accels.iter().sum::<f64>() / accels.len() as f64)
     }
 
     /// Standard deviation of bar body sizes (|close - open|).
     pub fn bar_body_std(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 2 { return None; }
-        let bodies: Vec<f64> = bars.iter().filter_map(|b| (b.close - b.open).abs().to_f64()).collect();
-        if bodies.len() < 2 { return None; }
+        if bars.len() < 2 {
+            return None;
+        }
+        let bodies: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| (b.close - b.open).abs().to_f64())
+            .collect();
+        if bodies.len() < 2 {
+            return None;
+        }
         let mean = bodies.iter().sum::<f64>() / bodies.len() as f64;
         let var = bodies.iter().map(|b| (b - mean).powi(2)).sum::<f64>() / bodies.len() as f64;
         Some(var.sqrt())
@@ -6907,45 +8200,79 @@ impl OhlcvBar {
 
     /// Count of bars where close > prior bar's close (up closes).
     pub fn bar_up_close_count(bars: &[OhlcvBar]) -> Option<usize> {
-        if bars.len() < 2 { return None; }
+        if bars.len() < 2 {
+            return None;
+        }
         Some(bars.windows(2).filter(|w| w[1].close > w[0].close).count())
     }
 
     /// Mean ratio of bar range to body size (range / |close - open|).
     pub fn bar_range_to_body(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let vals: Vec<f64> = bars.iter().filter_map(|b| {
-            let body = (b.close - b.open).abs().to_f64()?;
-            if body == 0.0 { return None; }
-            let range = (b.high - b.low).to_f64()?;
-            Some(range / body)
-        }).collect();
-        if vals.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let body = (b.close - b.open).abs().to_f64()?;
+                if body == 0.0 {
+                    return None;
+                }
+                let range = (b.high - b.low).to_f64()?;
+                Some(range / body)
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
     /// Mean fraction of bar range from low to open (open position within range).
     pub fn bar_open_range_fraction(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let vals: Vec<f64> = bars.iter().filter_map(|b| {
-            let range = (b.high - b.low).to_f64()?;
-            if range == 0.0 { return None; }
-            let open_pos = (b.open - b.low).to_f64()?;
-            Some(open_pos / range)
-        }).collect();
-        if vals.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let range = (b.high - b.low).to_f64()?;
+                if range == 0.0 {
+                    return None;
+                }
+                let open_pos = (b.open - b.low).to_f64()?;
+                Some(open_pos / range)
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
     /// Count of consecutive close direction changes (up→down or down→up).
     pub fn close_direction_change_count(bars: &[OhlcvBar]) -> Option<usize> {
-        if bars.len() < 3 { return None; }
-        let dirs: Vec<i8> = bars.windows(2).map(|w| {
-            if w[1].close > w[0].close { 1 } else if w[1].close < w[0].close { -1 } else { 0 }
-        }).collect();
-        let count = dirs.windows(2).filter(|w| w[0] != 0 && w[1] != 0 && w[0] != w[1]).count();
+        if bars.len() < 3 {
+            return None;
+        }
+        let dirs: Vec<i8> = bars
+            .windows(2)
+            .map(|w| {
+                if w[1].close > w[0].close {
+                    1
+                } else if w[1].close < w[0].close {
+                    -1
+                } else {
+                    0
+                }
+            })
+            .collect();
+        let count = dirs
+            .windows(2)
+            .filter(|w| w[0] != 0 && w[1] != 0 && w[0] != w[1])
+            .count();
         Some(count)
     }
 
@@ -6954,23 +8281,39 @@ impl OhlcvBar {
     /// Mean ratio of high to open across bars.
     pub fn bar_high_open_ratio(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let vals: Vec<f64> = bars.iter().filter_map(|b| {
-            let o = b.open.to_f64()?;
-            if o == 0.0 { return None; }
-            let h = b.high.to_f64()?;
-            Some(h / o)
-        }).collect();
-        if vals.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let o = b.open.to_f64()?;
+                if o == 0.0 {
+                    return None;
+                }
+                let h = b.high.to_f64()?;
+                Some(h / o)
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
     /// Standard deviation of close gaps (close\[i\] - close[i-1]).
     pub fn bar_close_gap_std(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 3 { return None; }
-        let gaps: Vec<f64> = bars.windows(2).filter_map(|w| (w[1].close - w[0].close).to_f64()).collect();
-        if gaps.len() < 2 { return None; }
+        if bars.len() < 3 {
+            return None;
+        }
+        let gaps: Vec<f64> = bars
+            .windows(2)
+            .filter_map(|w| (w[1].close - w[0].close).to_f64())
+            .collect();
+        if gaps.len() < 2 {
+            return None;
+        }
         let mean = gaps.iter().sum::<f64>() / gaps.len() as f64;
         let var = gaps.iter().map(|g| (g - mean).powi(2)).sum::<f64>() / gaps.len() as f64;
         Some(var.sqrt())
@@ -6979,26 +8322,42 @@ impl OhlcvBar {
     /// Mean rate of open-to-close change per bar (close - open velocity).
     pub fn open_close_velocity(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let vals: Vec<f64> = bars.iter().filter_map(|b| (b.close - b.open).to_f64()).collect();
-        if vals.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| (b.close - b.open).to_f64())
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
     /// Mean ratio of total tail (wick) length to body size.
     pub fn bar_tail_ratio(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let vals: Vec<f64> = bars.iter().filter_map(|b| {
-            let body = (b.close - b.open).abs().to_f64()?;
-            if body == 0.0 { return None; }
-            let body_top = b.close.max(b.open);
-            let body_bot = b.close.min(b.open);
-            let upper_wick = (b.high - body_top).to_f64()?;
-            let lower_wick = (body_bot - b.low).to_f64()?;
-            Some((upper_wick + lower_wick) / body)
-        }).collect();
-        if vals.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let body = (b.close - b.open).abs().to_f64()?;
+                if body == 0.0 {
+                    return None;
+                }
+                let body_top = b.close.max(b.open);
+                let body_bot = b.close.min(b.open);
+                let upper_wick = (b.high - body_top).to_f64()?;
+                let lower_wick = (body_bot - b.low).to_f64()?;
+                Some((upper_wick + lower_wick) / body)
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
@@ -7007,46 +8366,75 @@ impl OhlcvBar {
     /// Mean total wick length (high - low minus |close - open|) across bars.
     pub fn bar_wicks_mean(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let vals: Vec<f64> = bars.iter().filter_map(|b| {
-            let range = (b.high - b.low).to_f64()?;
-            let body = (b.close - b.open).abs().to_f64()?;
-            Some(range - body)
-        }).collect();
-        if vals.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let range = (b.high - b.low).to_f64()?;
+                let body = (b.close - b.open).abs().to_f64()?;
+                Some(range - body)
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
     /// Mean ratio of total wick to bar range (shadow ratio).
     pub fn bar_shadow_ratio(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let vals: Vec<f64> = bars.iter().filter_map(|b| {
-            let range = (b.high - b.low).to_f64()?;
-            if range == 0.0 { return None; }
-            let body = (b.close - b.open).abs().to_f64()?;
-            Some((range - body) / range)
-        }).collect();
-        if vals.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let range = (b.high - b.low).to_f64()?;
+                if range == 0.0 {
+                    return None;
+                }
+                let body = (b.close - b.open).abs().to_f64()?;
+                Some((range - body) / range)
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
     /// Sum of consecutive close-to-close changes (momentum proxy).
     pub fn bar_momentum_strength(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 2 { return None; }
-        let gaps: Vec<f64> = bars.windows(2)
-            .filter_map(|w| (w[1].close - w[0].close).to_f64()).collect();
-        if gaps.is_empty() { return None; }
+        if bars.len() < 2 {
+            return None;
+        }
+        let gaps: Vec<f64> = bars
+            .windows(2)
+            .filter_map(|w| (w[1].close - w[0].close).to_f64())
+            .collect();
+        if gaps.is_empty() {
+            return None;
+        }
         Some(gaps.iter().sum::<f64>())
     }
 
     /// Volatility proxy: std dev of (high - low) across bars.
     pub fn bar_range_std(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let ranges: Vec<f64> = bars.iter().filter_map(|b| (b.high - b.low).to_f64()).collect();
-        if ranges.len() < 2 { return None; }
+        if bars.is_empty() {
+            return None;
+        }
+        let ranges: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| (b.high - b.low).to_f64())
+            .collect();
+        if ranges.len() < 2 {
+            return None;
+        }
         let mean = ranges.iter().sum::<f64>() / ranges.len() as f64;
         let var = ranges.iter().map(|r| (r - mean).powi(2)).sum::<f64>() / ranges.len() as f64;
         Some(var.sqrt())
@@ -7057,46 +8445,81 @@ impl OhlcvBar {
     /// Linear trend of (high - low) ranges across bars (positive = expanding range).
     pub fn high_low_range_trend(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 2 { return None; }
-        let ranges: Vec<f64> = bars.iter().filter_map(|b| (b.high - b.low).to_f64()).collect();
-        if ranges.len() < 2 { return None; }
+        if bars.len() < 2 {
+            return None;
+        }
+        let ranges: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| (b.high - b.low).to_f64())
+            .collect();
+        if ranges.len() < 2 {
+            return None;
+        }
         let n = ranges.len() as f64;
         let x_mean = (n - 1.0) / 2.0;
         let y_mean = ranges.iter().sum::<f64>() / n;
-        let num: f64 = ranges.iter().enumerate().map(|(i, &y)| (i as f64 - x_mean) * (y - y_mean)).sum();
-        let den: f64 = ranges.iter().enumerate().map(|(i, _)| (i as f64 - x_mean).powi(2)).sum();
-        if den == 0.0 { return Some(0.0); }
+        let num: f64 = ranges
+            .iter()
+            .enumerate()
+            .map(|(i, &y)| (i as f64 - x_mean) * (y - y_mean))
+            .sum();
+        let den: f64 = ranges
+            .iter()
+            .enumerate()
+            .map(|(i, _)| (i as f64 - x_mean).powi(2))
+            .sum();
+        if den == 0.0 {
+            return Some(0.0);
+        }
         Some(num / den)
     }
 
     /// Mean of open-to-prior-close gaps (open\[i\] - close[i-1]).
     pub fn bar_open_gap_mean(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 2 { return None; }
-        let gaps: Vec<f64> = bars.windows(2)
-            .filter_map(|w| (w[1].open - w[0].close).to_f64()).collect();
-        if gaps.is_empty() { return None; }
+        if bars.len() < 2 {
+            return None;
+        }
+        let gaps: Vec<f64> = bars
+            .windows(2)
+            .filter_map(|w| (w[1].open - w[0].close).to_f64())
+            .collect();
+        if gaps.is_empty() {
+            return None;
+        }
         Some(gaps.iter().sum::<f64>() / gaps.len() as f64)
     }
 
     /// Mean of (high - low) range across all bars.
     pub fn bar_avg_range(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let ranges: Vec<f64> = bars.iter().filter_map(|b| (b.high - b.low).to_f64()).collect();
-        if ranges.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
+        let ranges: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| (b.high - b.low).to_f64())
+            .collect();
+        if ranges.is_empty() {
+            return None;
+        }
         Some(ranges.iter().sum::<f64>() / ranges.len() as f64)
     }
 
     /// Fraction of bars where close is within top 25% of bar range (close extremity).
     pub fn bar_close_extremity(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let count = bars.iter().filter(|b| {
-            let range = (b.high - b.low).to_f64().unwrap_or(0.0);
-            let close_pos = (b.close - b.low).to_f64().unwrap_or(0.0);
-            range > 0.0 && close_pos / range >= 0.75
-        }).count();
+        if bars.is_empty() {
+            return None;
+        }
+        let count = bars
+            .iter()
+            .filter(|b| {
+                let range = (b.high - b.low).to_f64().unwrap_or(0.0);
+                let close_pos = (b.close - b.low).to_f64().unwrap_or(0.0);
+                range > 0.0 && close_pos / range >= 0.75
+            })
+            .count();
         Some(count as f64 / bars.len() as f64)
     }
 
@@ -7105,52 +8528,97 @@ impl OhlcvBar {
     /// Skewness of (high - low) ranges across bars.
     pub fn bar_range_skew(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 3 { return None; }
-        let ranges: Vec<f64> = bars.iter().filter_map(|b| (b.high - b.low).to_f64()).collect();
-        if ranges.len() < 3 { return None; }
+        if bars.len() < 3 {
+            return None;
+        }
+        let ranges: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| (b.high - b.low).to_f64())
+            .collect();
+        if ranges.len() < 3 {
+            return None;
+        }
         let n = ranges.len() as f64;
         let mean = ranges.iter().sum::<f64>() / n;
         let var = ranges.iter().map(|r| (r - mean).powi(2)).sum::<f64>() / n;
         let std = var.sqrt();
-        if std == 0.0 { return None; }
-        Some(ranges.iter().map(|r| ((r - mean) / std).powi(3)).sum::<f64>() / n)
+        if std == 0.0 {
+            return None;
+        }
+        Some(
+            ranges
+                .iter()
+                .map(|r| ((r - mean) / std).powi(3))
+                .sum::<f64>()
+                / n,
+        )
     }
 
     /// Mean fraction of bar range from low to open (where open sits in the range).
     pub fn bar_open_mid_fraction(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let vals: Vec<f64> = bars.iter().filter_map(|b| {
-            let range = (b.high - b.low).to_f64()?;
-            if range == 0.0 { return None; }
-            let open_pos = (b.open - b.low).to_f64()?;
-            Some(open_pos / range)
-        }).collect();
-        if vals.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let range = (b.high - b.low).to_f64()?;
+                if range == 0.0 {
+                    return None;
+                }
+                let open_pos = (b.open - b.low).to_f64()?;
+                Some(open_pos / range)
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
     /// Mean of (high - close) gaps across bars.
     pub fn bar_high_close_gap(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let gaps: Vec<f64> = bars.iter().filter_map(|b| (b.high - b.close).to_f64()).collect();
-        if gaps.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
+        let gaps: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| (b.high - b.close).to_f64())
+            .collect();
+        if gaps.is_empty() {
+            return None;
+        }
         Some(gaps.iter().sum::<f64>() / gaps.len() as f64)
     }
 
     /// Linear trend slope of open prices across bars.
     pub fn bar_open_trend(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 2 { return None; }
+        if bars.len() < 2 {
+            return None;
+        }
         let opens: Vec<f64> = bars.iter().filter_map(|b| b.open.to_f64()).collect();
-        if opens.len() < 2 { return None; }
+        if opens.len() < 2 {
+            return None;
+        }
         let n = opens.len() as f64;
         let x_mean = (n - 1.0) / 2.0;
         let y_mean = opens.iter().sum::<f64>() / n;
-        let num: f64 = opens.iter().enumerate().map(|(i, &y)| (i as f64 - x_mean) * (y - y_mean)).sum();
-        let den: f64 = opens.iter().enumerate().map(|(i, _)| (i as f64 - x_mean).powi(2)).sum();
-        if den == 0.0 { return Some(0.0); }
+        let num: f64 = opens
+            .iter()
+            .enumerate()
+            .map(|(i, &y)| (i as f64 - x_mean) * (y - y_mean))
+            .sum();
+        let den: f64 = opens
+            .iter()
+            .enumerate()
+            .map(|(i, _)| (i as f64 - x_mean).powi(2))
+            .sum();
+        if den == 0.0 {
+            return Some(0.0);
+        }
         Some(num / den)
     }
 
@@ -7159,53 +8627,83 @@ impl OhlcvBar {
     /// Mean of (close - (high + low) / 2) — how far close is from range midpoint.
     pub fn bar_close_vs_range_mid(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let vals: Vec<f64> = bars.iter().filter_map(|b| {
-            let mid = ((b.high + b.low) / rust_decimal::Decimal::TWO).to_f64()?;
-            let close = b.close.to_f64()?;
-            Some(close - mid)
-        }).collect();
-        if vals.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let mid = ((b.high + b.low) / rust_decimal::Decimal::TWO).to_f64()?;
+                let close = b.close.to_f64()?;
+                Some(close - mid)
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
     /// Average True Range proxy: mean of max(high-low, |close-prior_close|) across bars.
     pub fn bar_atr_proxy(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 2 { return None; }
-        let trs: Vec<f64> = bars.windows(2).filter_map(|w| {
-            let hl = (w[1].high - w[1].low).to_f64()?;
-            let cp = (w[1].close - w[0].close).abs().to_f64()?;
-            Some(hl.max(cp))
-        }).collect();
-        if trs.is_empty() { return None; }
+        if bars.len() < 2 {
+            return None;
+        }
+        let trs: Vec<f64> = bars
+            .windows(2)
+            .filter_map(|w| {
+                let hl = (w[1].high - w[1].low).to_f64()?;
+                let cp = (w[1].close - w[0].close).abs().to_f64()?;
+                Some(hl.max(cp))
+            })
+            .collect();
+        if trs.is_empty() {
+            return None;
+        }
         Some(trs.iter().sum::<f64>() / trs.len() as f64)
     }
 
     /// Mean of (high + low) / 2 - close: how much close lags bar midpoint.
     pub fn bar_mid_close_diff(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let vals: Vec<f64> = bars.iter().filter_map(|b| {
-            let mid = ((b.high + b.low) / rust_decimal::Decimal::TWO).to_f64()?;
-            let close = b.close.to_f64()?;
-            Some(mid - close)
-        }).collect();
-        if vals.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let mid = ((b.high + b.low) / rust_decimal::Decimal::TWO).to_f64()?;
+                let close = b.close.to_f64()?;
+                Some(mid - close)
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
     /// Candle strength: mean of body / range ratio across bars (0 = pure wick, 1 = pure body).
     pub fn bar_candle_strength(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let vals: Vec<f64> = bars.iter().filter_map(|b| {
-            let range = (b.high - b.low).to_f64()?;
-            if range == 0.0 { return None; }
-            let body = (b.close - b.open).abs().to_f64()?;
-            Some(body / range)
-        }).collect();
-        if vals.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let range = (b.high - b.low).to_f64()?;
+                if range == 0.0 {
+                    return None;
+                }
+                let body = (b.close - b.open).abs().to_f64()?;
+                Some(body / range)
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
@@ -7214,26 +8712,44 @@ impl OhlcvBar {
     /// Mean of open-to-close gaps (close\[i\] - open\[i\]) across bars (signed).
     pub fn bar_open_close_gap(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let gaps: Vec<f64> = bars.iter().filter_map(|b| (b.close - b.open).to_f64()).collect();
-        if gaps.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
+        let gaps: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| (b.close - b.open).to_f64())
+            .collect();
+        if gaps.is_empty() {
+            return None;
+        }
         Some(gaps.iter().sum::<f64>() / gaps.len() as f64)
     }
 
     /// Count of bars where close > open (bullish candles).
     pub fn bar_bullish_count(bars: &[OhlcvBar]) -> Option<usize> {
-        if bars.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
         Some(bars.iter().filter(|b| b.close > b.open).count())
     }
 
     /// Ratio of each bar's range to the mean range across all bars.
     pub fn bar_range_mean_ratio(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let ranges: Vec<f64> = bars.iter().filter_map(|b| (b.high - b.low).to_f64()).collect();
-        if ranges.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
+        let ranges: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| (b.high - b.low).to_f64())
+            .collect();
+        if ranges.is_empty() {
+            return None;
+        }
         let mean = ranges.iter().sum::<f64>() / ranges.len() as f64;
-        if mean == 0.0 { return None; }
+        if mean == 0.0 {
+            return None;
+        }
         // Return ratio of last bar range to mean
         let last = *ranges.last()?;
         Some(last / mean)
@@ -7242,15 +8758,32 @@ impl OhlcvBar {
     /// Linear trend slope of (high - low) ranges: how bar volatility is trending.
     pub fn bar_volatility_trend(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 2 { return None; }
-        let ranges: Vec<f64> = bars.iter().filter_map(|b| (b.high - b.low).to_f64()).collect();
-        if ranges.len() < 2 { return None; }
+        if bars.len() < 2 {
+            return None;
+        }
+        let ranges: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| (b.high - b.low).to_f64())
+            .collect();
+        if ranges.len() < 2 {
+            return None;
+        }
         let n = ranges.len() as f64;
         let x_mean = (n - 1.0) / 2.0;
         let y_mean = ranges.iter().sum::<f64>() / n;
-        let num: f64 = ranges.iter().enumerate().map(|(i, &y)| (i as f64 - x_mean) * (y - y_mean)).sum();
-        let den: f64 = ranges.iter().enumerate().map(|(i, _)| (i as f64 - x_mean).powi(2)).sum();
-        if den == 0.0 { return Some(0.0); }
+        let num: f64 = ranges
+            .iter()
+            .enumerate()
+            .map(|(i, &y)| (i as f64 - x_mean) * (y - y_mean))
+            .sum();
+        let den: f64 = ranges
+            .iter()
+            .enumerate()
+            .map(|(i, _)| (i as f64 - x_mean).powi(2))
+            .sum();
+        if den == 0.0 {
+            return Some(0.0);
+        }
         Some(num / den)
     }
 
@@ -7259,9 +8792,13 @@ impl OhlcvBar {
     /// EMA trend of close prices (alpha=0.1): slope between first and last EMA value.
     pub fn bar_ema_close_trend(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 2 { return None; }
+        if bars.len() < 2 {
+            return None;
+        }
         let closes: Vec<f64> = bars.iter().filter_map(|b| b.close.to_f64()).collect();
-        if closes.len() < 2 { return None; }
+        if closes.len() < 2 {
+            return None;
+        }
         let alpha = 0.1_f64;
         let mut ema = closes[0];
         let mut first_ema = ema;
@@ -7276,9 +8813,16 @@ impl OhlcvBar {
     /// Std dev of (close - open) across bars.
     pub fn bar_close_vs_open_std(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 2 { return None; }
-        let diffs: Vec<f64> = bars.iter().filter_map(|b| (b.close - b.open).to_f64()).collect();
-        if diffs.len() < 2 { return None; }
+        if bars.len() < 2 {
+            return None;
+        }
+        let diffs: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| (b.close - b.open).to_f64())
+            .collect();
+        if diffs.len() < 2 {
+            return None;
+        }
         let mean = diffs.iter().sum::<f64>() / diffs.len() as f64;
         let var = diffs.iter().map(|d| (d - mean).powi(2)).sum::<f64>() / diffs.len() as f64;
         Some(var.sqrt())
@@ -7287,26 +8831,44 @@ impl OhlcvBar {
     /// Mean of (high / close) ratio across bars.
     pub fn bar_high_vs_close_ratio(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let vals: Vec<f64> = bars.iter().filter_map(|b| {
-            let c = b.close.to_f64()?;
-            if c == 0.0 { return None; }
-            Some(b.high.to_f64()? / c)
-        }).collect();
-        if vals.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let c = b.close.to_f64()?;
+                if c == 0.0 {
+                    return None;
+                }
+                Some(b.high.to_f64()? / c)
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
     /// Mean of (low / open) ratio across bars.
     pub fn bar_low_vs_open_ratio(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let vals: Vec<f64> = bars.iter().filter_map(|b| {
-            let o = b.open.to_f64()?;
-            if o == 0.0 { return None; }
-            Some(b.low.to_f64()? / o)
-        }).collect();
-        if vals.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let o = b.open.to_f64()?;
+                if o == 0.0 {
+                    return None;
+                }
+                Some(b.low.to_f64()? / o)
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
@@ -7315,41 +8877,62 @@ impl OhlcvBar {
     /// Fraction of bars that are doji (body < 10% of range).
     pub fn bar_doji_ratio(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let doji_count = bars.iter().filter(|b| {
-            let range = (b.high - b.low).to_f64().unwrap_or(0.0);
-            let body = (b.close - b.open).abs().to_f64().unwrap_or(0.0);
-            range > 0.0 && body / range < 0.1
-        }).count();
+        if bars.is_empty() {
+            return None;
+        }
+        let doji_count = bars
+            .iter()
+            .filter(|b| {
+                let range = (b.high - b.low).to_f64().unwrap_or(0.0);
+                let body = (b.close - b.open).abs().to_f64().unwrap_or(0.0);
+                range > 0.0 && body / range < 0.1
+            })
+            .count();
         Some(doji_count as f64 / bars.len() as f64)
     }
 
     /// Mean upper wick length (high - max(open, close)) across bars.
     pub fn bar_wick_upper_mean(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let wicks: Vec<f64> = bars.iter()
-            .filter_map(|b| (b.high - b.close.max(b.open)).to_f64()).collect();
-        if wicks.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
+        let wicks: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| (b.high - b.close.max(b.open)).to_f64())
+            .collect();
+        if wicks.is_empty() {
+            return None;
+        }
         Some(wicks.iter().sum::<f64>() / wicks.len() as f64)
     }
 
     /// Mean lower wick length (min(open, close) - low) across bars.
     pub fn bar_wick_lower_mean(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let wicks: Vec<f64> = bars.iter()
-            .filter_map(|b| (b.close.min(b.open) - b.low).to_f64()).collect();
-        if wicks.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
+        let wicks: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| (b.close.min(b.open) - b.low).to_f64())
+            .collect();
+        if wicks.is_empty() {
+            return None;
+        }
         Some(wicks.iter().sum::<f64>() / wicks.len() as f64)
     }
 
     /// Mean close price across all bars.
     pub fn bar_close_mean(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
         let closes: Vec<f64> = bars.iter().filter_map(|b| b.close.to_f64()).collect();
-        if closes.is_empty() { return None; }
+        if closes.is_empty() {
+            return None;
+        }
         Some(closes.iter().sum::<f64>() / closes.len() as f64)
     }
 
@@ -7358,36 +8941,52 @@ impl OhlcvBar {
     /// Mean open price across all bars.
     pub fn bar_open_mean(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
         let opens: Vec<f64> = bars.iter().filter_map(|b| b.open.to_f64()).collect();
-        if opens.is_empty() { return None; }
+        if opens.is_empty() {
+            return None;
+        }
         Some(opens.iter().sum::<f64>() / opens.len() as f64)
     }
 
     /// Mean high price across all bars.
     pub fn bar_high_mean(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
         let highs: Vec<f64> = bars.iter().filter_map(|b| b.high.to_f64()).collect();
-        if highs.is_empty() { return None; }
+        if highs.is_empty() {
+            return None;
+        }
         Some(highs.iter().sum::<f64>() / highs.len() as f64)
     }
 
     /// Mean low price across all bars.
     pub fn bar_low_mean(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
         let lows: Vec<f64> = bars.iter().filter_map(|b| b.low.to_f64()).collect();
-        if lows.is_empty() { return None; }
+        if lows.is_empty() {
+            return None;
+        }
         Some(lows.iter().sum::<f64>() / lows.len() as f64)
     }
 
     /// Std dev of open prices across bars.
     pub fn bar_open_std(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 2 { return None; }
+        if bars.len() < 2 {
+            return None;
+        }
         let opens: Vec<f64> = bars.iter().filter_map(|b| b.open.to_f64()).collect();
-        if opens.len() < 2 { return None; }
+        if opens.len() < 2 {
+            return None;
+        }
         let mean = opens.iter().sum::<f64>() / opens.len() as f64;
         let var = opens.iter().map(|o| (o - mean).powi(2)).sum::<f64>() / opens.len() as f64;
         Some(var.sqrt())
@@ -7398,24 +8997,33 @@ impl OhlcvBar {
     /// Mean of (high - close) across bars — average upper close distance.
     pub fn bar_close_to_high_mean(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let vals: Vec<f64> = bars.iter()
+        if bars.is_empty() {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .iter()
             .filter_map(|b| {
                 let h = b.high.to_f64()?;
                 let c = b.close.to_f64()?;
                 Some(h - c)
             })
             .collect();
-        if vals.is_empty() { return None; }
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
     /// Std dev of high prices across bars.
     pub fn bar_high_std(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 2 { return None; }
+        if bars.len() < 2 {
+            return None;
+        }
         let highs: Vec<f64> = bars.iter().filter_map(|b| b.high.to_f64()).collect();
-        if highs.len() < 2 { return None; }
+        if highs.len() < 2 {
+            return None;
+        }
         let mean = highs.iter().sum::<f64>() / highs.len() as f64;
         let var = highs.iter().map(|h| (h - mean).powi(2)).sum::<f64>() / highs.len() as f64;
         Some(var.sqrt())
@@ -7424,9 +9032,13 @@ impl OhlcvBar {
     /// Std dev of low prices across bars.
     pub fn bar_low_std(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 2 { return None; }
+        if bars.len() < 2 {
+            return None;
+        }
         let lows: Vec<f64> = bars.iter().filter_map(|b| b.low.to_f64()).collect();
-        if lows.len() < 2 { return None; }
+        if lows.len() < 2 {
+            return None;
+        }
         let mean = lows.iter().sum::<f64>() / lows.len() as f64;
         let var = lows.iter().map(|l| (l - mean).powi(2)).sum::<f64>() / lows.len() as f64;
         Some(var.sqrt())
@@ -7435,9 +9047,13 @@ impl OhlcvBar {
     /// Std dev of close prices across bars.
     pub fn bar_close_std(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 2 { return None; }
+        if bars.len() < 2 {
+            return None;
+        }
         let closes: Vec<f64> = bars.iter().filter_map(|b| b.close.to_f64()).collect();
-        if closes.len() < 2 { return None; }
+        if closes.len() < 2 {
+            return None;
+        }
         let mean = closes.iter().sum::<f64>() / closes.len() as f64;
         let var = closes.iter().map(|c| (c - mean).powi(2)).sum::<f64>() / closes.len() as f64;
         Some(var.sqrt())
@@ -7448,9 +9064,13 @@ impl OhlcvBar {
     /// Mean gap between consecutive bar closes (close[i+1] - close\[i\]).
     pub fn bar_gap_mean(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 2 { return None; }
+        if bars.len() < 2 {
+            return None;
+        }
         let closes: Vec<f64> = bars.iter().filter_map(|b| b.close.to_f64()).collect();
-        if closes.len() < 2 { return None; }
+        if closes.len() < 2 {
+            return None;
+        }
         let gaps: Vec<f64> = closes.windows(2).map(|w| w[1] - w[0]).collect();
         Some(gaps.iter().sum::<f64>() / gaps.len() as f64)
     }
@@ -7458,9 +9078,13 @@ impl OhlcvBar {
     /// Std dev of bar volumes.
     pub fn bar_volume_std(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 2 { return None; }
+        if bars.len() < 2 {
+            return None;
+        }
         let vols: Vec<f64> = bars.iter().filter_map(|b| b.volume.to_f64()).collect();
-        if vols.len() < 2 { return None; }
+        if vols.len() < 2 {
+            return None;
+        }
         let mean = vols.iter().sum::<f64>() / vols.len() as f64;
         let var = vols.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / vols.len() as f64;
         Some(var.sqrt())
@@ -7469,8 +9093,11 @@ impl OhlcvBar {
     /// Mean upper wick for bullish bars (close >= open): high - close.
     pub fn bar_bull_wick_mean(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let wicks: Vec<f64> = bars.iter()
+        if bars.is_empty() {
+            return None;
+        }
+        let wicks: Vec<f64> = bars
+            .iter()
             .filter(|b| b.close >= b.open)
             .filter_map(|b| {
                 let h = b.high.to_f64()?;
@@ -7478,15 +9105,20 @@ impl OhlcvBar {
                 Some(h - c)
             })
             .collect();
-        if wicks.is_empty() { return None; }
+        if wicks.is_empty() {
+            return None;
+        }
         Some(wicks.iter().sum::<f64>() / wicks.len() as f64)
     }
 
     /// Mean lower wick for bearish bars (close < open): open - low.
     pub fn bar_bear_wick_mean(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let wicks: Vec<f64> = bars.iter()
+        if bars.is_empty() {
+            return None;
+        }
+        let wicks: Vec<f64> = bars
+            .iter()
             .filter(|b| b.close < b.open)
             .filter_map(|b| {
                 let o = b.open.to_f64()?;
@@ -7494,7 +9126,9 @@ impl OhlcvBar {
                 Some(o - l)
             })
             .collect();
-        if wicks.is_empty() { return None; }
+        if wicks.is_empty() {
+            return None;
+        }
         Some(wicks.iter().sum::<f64>() / wicks.len() as f64)
     }
 
@@ -7503,22 +9137,31 @@ impl OhlcvBar {
     /// Mean of open/close ratio (open / close) across bars; None if any close is zero.
     pub fn bar_open_close_ratio(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let ratios: Vec<f64> = bars.iter()
+        if bars.is_empty() {
+            return None;
+        }
+        let ratios: Vec<f64> = bars
+            .iter()
             .filter_map(|b| {
                 let o = b.open.to_f64()?;
                 let c = b.close.to_f64()?;
-                if c == 0.0 { return None; }
+                if c == 0.0 {
+                    return None;
+                }
                 Some(o / c)
             })
             .collect();
-        if ratios.is_empty() { return None; }
+        if ratios.is_empty() {
+            return None;
+        }
         Some(ratios.iter().sum::<f64>() / ratios.len() as f64)
     }
 
     /// Fraction of bars where close > open (bullish bars).
     pub fn bar_close_above_open_fraction(bars: &[OhlcvBar]) -> Option<f64> {
-        if bars.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
         let bullish = bars.iter().filter(|b| b.close > b.open).count();
         Some(bullish as f64 / bars.len() as f64)
     }
@@ -7526,24 +9169,33 @@ impl OhlcvBar {
     /// Mean of (high - low) across all bars.
     pub fn bar_hl_spread_mean(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let spreads: Vec<f64> = bars.iter()
+        if bars.is_empty() {
+            return None;
+        }
+        let spreads: Vec<f64> = bars
+            .iter()
             .filter_map(|b| {
                 let h = b.high.to_f64()?;
                 let l = b.low.to_f64()?;
                 Some(h - l)
             })
             .collect();
-        if spreads.is_empty() { return None; }
+        if spreads.is_empty() {
+            return None;
+        }
         Some(spreads.iter().sum::<f64>() / spreads.len() as f64)
     }
 
     /// Mean absolute gap between consecutive bar highs (high[i+1] - high\[i\]).
     pub fn bar_high_gap_mean(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 2 { return None; }
+        if bars.len() < 2 {
+            return None;
+        }
         let highs: Vec<f64> = bars.iter().filter_map(|b| b.high.to_f64()).collect();
-        if highs.len() < 2 { return None; }
+        if highs.len() < 2 {
+            return None;
+        }
         let gaps: Vec<f64> = highs.windows(2).map(|w| w[1] - w[0]).collect();
         Some(gaps.iter().sum::<f64>() / gaps.len() as f64)
     }
@@ -7553,72 +9205,100 @@ impl OhlcvBar {
     /// Price efficiency: |close - open| / (high - low); None if range=0.
     pub fn bar_price_efficiency(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let vals: Vec<f64> = bars.iter()
+        if bars.is_empty() {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .iter()
             .filter_map(|b| {
                 let o = b.open.to_f64()?;
                 let h = b.high.to_f64()?;
                 let l = b.low.to_f64()?;
                 let c = b.close.to_f64()?;
                 let range = h - l;
-                if range == 0.0 { return None; }
+                if range == 0.0 {
+                    return None;
+                }
                 Some((c - o).abs() / range)
             })
             .collect();
-        if vals.is_empty() { return None; }
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
     /// Mean of (close - low) / (high - low) across bars; None if any range=0.
     pub fn bar_close_range_pct(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let vals: Vec<f64> = bars.iter()
+        if bars.is_empty() {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .iter()
             .filter_map(|b| {
                 let h = b.high.to_f64()?;
                 let l = b.low.to_f64()?;
                 let c = b.close.to_f64()?;
                 let range = h - l;
-                if range == 0.0 { return None; }
+                if range == 0.0 {
+                    return None;
+                }
                 Some((c - l) / range)
             })
             .collect();
-        if vals.is_empty() { return None; }
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
     /// Mean of close / (high + low + close) across bars.
     pub fn bar_close_range_ratio(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let vals: Vec<f64> = bars.iter()
+        if bars.is_empty() {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .iter()
             .filter_map(|b| {
                 let h = b.high.to_f64()?;
                 let l = b.low.to_f64()?;
                 let c = b.close.to_f64()?;
                 let denom = h + l + c;
-                if denom == 0.0 { return None; }
+                if denom == 0.0 {
+                    return None;
+                }
                 Some(c / denom)
             })
             .collect();
-        if vals.is_empty() { return None; }
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
     /// Mean of |close - open| / volume (price move per unit volume); None if any vol=0.
     pub fn bar_speed_mean(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let vals: Vec<f64> = bars.iter()
+        if bars.is_empty() {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .iter()
             .filter_map(|b| {
                 let o = b.open.to_f64()?;
                 let c = b.close.to_f64()?;
                 let v = b.volume.to_f64()?;
-                if v == 0.0 { return None; }
+                if v == 0.0 {
+                    return None;
+                }
                 Some((c - o).abs() / v)
             })
             .collect();
-        if vals.is_empty() { return None; }
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
@@ -7627,8 +9307,11 @@ impl OhlcvBar {
     /// Mean of HLC3 = (high + low + close) / 3 across bars.
     pub fn bar_hlc3_mean(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let vals: Vec<f64> = bars.iter()
+        if bars.is_empty() {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .iter()
             .filter_map(|b| {
                 let h = b.high.to_f64()?;
                 let l = b.low.to_f64()?;
@@ -7636,15 +9319,20 @@ impl OhlcvBar {
                 Some((h + l + c) / 3.0)
             })
             .collect();
-        if vals.is_empty() { return None; }
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
     /// Mean of OHLC4 = (open + high + low + close) / 4 across bars.
     pub fn bar_ohlc4_mean(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let vals: Vec<f64> = bars.iter()
+        if bars.is_empty() {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .iter()
             .filter_map(|b| {
                 let o = b.open.to_f64()?;
                 let h = b.high.to_f64()?;
@@ -7653,41 +9341,55 @@ impl OhlcvBar {
                 Some((o + h + l + c) / 4.0)
             })
             .collect();
-        if vals.is_empty() { return None; }
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
     /// Mean of midprice = (high + low) / 2 across bars.
     pub fn bar_mid_price(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let vals: Vec<f64> = bars.iter()
+        if bars.is_empty() {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .iter()
             .filter_map(|b| {
                 let h = b.high.to_f64()?;
                 let l = b.low.to_f64()?;
                 Some((h + l) / 2.0)
             })
             .collect();
-        if vals.is_empty() { return None; }
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
     /// Mean of body as fraction of range: |close-open|/(high-low); None if any range=0.
     pub fn bar_body_pct(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let vals: Vec<f64> = bars.iter()
+        if bars.is_empty() {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .iter()
             .filter_map(|b| {
                 let o = b.open.to_f64()?;
                 let h = b.high.to_f64()?;
                 let l = b.low.to_f64()?;
                 let c = b.close.to_f64()?;
                 let range = h - l;
-                if range == 0.0 { return None; }
+                if range == 0.0 {
+                    return None;
+                }
                 Some((c - o).abs() / range)
             })
             .collect();
-        if vals.is_empty() { return None; }
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
@@ -7696,35 +9398,56 @@ impl OhlcvBar {
     /// Mean of (range\[i\] - range[i-1]) across consecutive bars (range expansion).
     pub fn bar_range_expansion(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 2 { return None; }
-        let ranges: Vec<f64> = bars.iter()
+        if bars.len() < 2 {
+            return None;
+        }
+        let ranges: Vec<f64> = bars
+            .iter()
             .filter_map(|b| Some(b.high.to_f64()? - b.low.to_f64()?))
             .collect();
-        if ranges.len() < 2 { return None; }
+        if ranges.len() < 2 {
+            return None;
+        }
         let diffs: Vec<f64> = ranges.windows(2).map(|w| w[1] - w[0]).collect();
         Some(diffs.iter().sum::<f64>() / diffs.len() as f64)
     }
 
     /// Longest consecutive streak of bars with close > open (bullish run).
     pub fn bar_up_streak(bars: &[OhlcvBar]) -> Option<f64> {
-        if bars.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
         let mut max_streak = 0usize;
         let mut cur = 0usize;
         for b in bars {
-            if b.close > b.open { cur += 1; if cur > max_streak { max_streak = cur; } }
-            else { cur = 0; }
+            if b.close > b.open {
+                cur += 1;
+                if cur > max_streak {
+                    max_streak = cur;
+                }
+            } else {
+                cur = 0;
+            }
         }
         Some(max_streak as f64)
     }
 
     /// Longest consecutive streak of bars with close < open (bearish run).
     pub fn bar_down_streak(bars: &[OhlcvBar]) -> Option<f64> {
-        if bars.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
         let mut max_streak = 0usize;
         let mut cur = 0usize;
         for b in bars {
-            if b.close < b.open { cur += 1; if cur > max_streak { max_streak = cur; } }
-            else { cur = 0; }
+            if b.close < b.open {
+                cur += 1;
+                if cur > max_streak {
+                    max_streak = cur;
+                }
+            } else {
+                cur = 0;
+            }
         }
         Some(max_streak as f64)
     }
@@ -7732,13 +9455,19 @@ impl OhlcvBar {
     /// ATR normalized by close price: mean(|close\[i\] - close[i-1]|) / mean_close.
     pub fn bar_atr_normalized(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 2 { return None; }
+        if bars.len() < 2 {
+            return None;
+        }
         let closes: Vec<f64> = bars.iter().filter_map(|b| b.close.to_f64()).collect();
-        if closes.len() < 2 { return None; }
+        if closes.len() < 2 {
+            return None;
+        }
         let mean_close = closes.iter().sum::<f64>() / closes.len() as f64;
-        if mean_close == 0.0 { return None; }
-        let atr: f64 = closes.windows(2).map(|w| (w[1] - w[0]).abs()).sum::<f64>()
-            / (closes.len() - 1) as f64;
+        if mean_close == 0.0 {
+            return None;
+        }
+        let atr: f64 =
+            closes.windows(2).map(|w| (w[1] - w[0]).abs()).sum::<f64>() / (closes.len() - 1) as f64;
         Some(atr / mean_close)
     }
 
@@ -7747,69 +9476,106 @@ impl OhlcvBar {
     /// Mean of upper_wick / range symmetry: 1 - |upper_wick - lower_wick| / range per bar.
     pub fn bar_wick_symmetry(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let vals: Vec<f64> = bars.iter().filter_map(|b| {
-            let o = b.open.to_f64()?;
-            let h = b.high.to_f64()?;
-            let l = b.low.to_f64()?;
-            let c = b.close.to_f64()?;
-            let range = h - l;
-            if range == 0.0 { return None; }
-            let body_top = o.max(c);
-            let body_bot = o.min(c);
-            let upper_wick = h - body_top;
-            let lower_wick = body_bot - l;
-            Some(1.0 - (upper_wick - lower_wick).abs() / range)
-        }).collect();
-        if vals.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let o = b.open.to_f64()?;
+                let h = b.high.to_f64()?;
+                let l = b.low.to_f64()?;
+                let c = b.close.to_f64()?;
+                let range = h - l;
+                if range == 0.0 {
+                    return None;
+                }
+                let body_top = o.max(c);
+                let body_bot = o.min(c);
+                let upper_wick = h - body_top;
+                let lower_wick = body_bot - l;
+                Some(1.0 - (upper_wick - lower_wick).abs() / range)
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
     /// Mean of open / range per bar (open position within bar range).
     pub fn bar_open_range_ratio(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let vals: Vec<f64> = bars.iter().filter_map(|b| {
-            let o = b.open.to_f64()?;
-            let h = b.high.to_f64()?;
-            let l = b.low.to_f64()?;
-            let range = h - l;
-            if range == 0.0 { return None; }
-            Some((o - l) / range)
-        }).collect();
-        if vals.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let o = b.open.to_f64()?;
+                let h = b.high.to_f64()?;
+                let l = b.low.to_f64()?;
+                let range = h - l;
+                if range == 0.0 {
+                    return None;
+                }
+                Some((o - l) / range)
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
     /// Linear regression slope of (high + low) / 2 midpoints across bars.
     pub fn bar_hl_midpoint_trend(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 2 { return None; }
+        if bars.len() < 2 {
+            return None;
+        }
         let n = bars.len() as f64;
         let xs: Vec<f64> = (0..bars.len()).map(|i| i as f64).collect();
-        let ys: Vec<f64> = bars.iter().filter_map(|b| {
-            let h = b.high.to_f64()?;
-            let l = b.low.to_f64()?;
-            Some((h + l) / 2.0)
-        }).collect();
-        if ys.len() != bars.len() { return None; }
+        let ys: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let h = b.high.to_f64()?;
+                let l = b.low.to_f64()?;
+                Some((h + l) / 2.0)
+            })
+            .collect();
+        if ys.len() != bars.len() {
+            return None;
+        }
         let x_mean = xs.iter().sum::<f64>() / n;
         let y_mean = ys.iter().sum::<f64>() / n;
-        let num: f64 = xs.iter().zip(ys.iter()).map(|(&x, &y)| (x - x_mean) * (y - y_mean)).sum();
+        let num: f64 = xs
+            .iter()
+            .zip(ys.iter())
+            .map(|(&x, &y)| (x - x_mean) * (y - y_mean))
+            .sum();
         let den: f64 = xs.iter().map(|&x| (x - x_mean).powi(2)).sum();
-        if den == 0.0 { return None; }
+        if den == 0.0 {
+            return None;
+        }
         Some(num / den)
     }
 
     /// Mean of second differences of bar volumes (volume acceleration).
     pub fn bar_volume_acceleration(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 3 { return None; }
+        if bars.len() < 3 {
+            return None;
+        }
         let vols: Vec<f64> = bars.iter().filter_map(|b| b.volume.to_f64()).collect();
-        if vols.len() < 3 { return None; }
+        if vols.len() < 3 {
+            return None;
+        }
         let diffs1: Vec<f64> = vols.windows(2).map(|w| w[1] - w[0]).collect();
         let diffs2: Vec<f64> = diffs1.windows(2).map(|w| w[1] - w[0]).collect();
-        if diffs2.is_empty() { return None; }
+        if diffs2.is_empty() {
+            return None;
+        }
         Some(diffs2.iter().sum::<f64>() / diffs2.len() as f64)
     }
 
@@ -7818,54 +9584,80 @@ impl OhlcvBar {
     /// Mean |open - close| per bar (average body spread).
     pub fn bar_open_close_spread(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let vals: Vec<f64> = bars.iter().filter_map(|b| {
-            let o = b.open.to_f64()?;
-            let c = b.close.to_f64()?;
-            Some((o - c).abs())
-        }).collect();
-        if vals.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let o = b.open.to_f64()?;
+                let c = b.close.to_f64()?;
+                Some((o - c).abs())
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
     /// Mean gap between close\[i\] and high[i-1] across consecutive bars.
     pub fn bar_close_prev_high_gap(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 2 { return None; }
-        let vals: Vec<f64> = bars.windows(2).filter_map(|w| {
-            let prev_high = w[0].high.to_f64()?;
-            let curr_close = w[1].close.to_f64()?;
-            Some(curr_close - prev_high)
-        }).collect();
-        if vals.is_empty() { return None; }
+        if bars.len() < 2 {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .windows(2)
+            .filter_map(|w| {
+                let prev_high = w[0].high.to_f64()?;
+                let curr_close = w[1].close.to_f64()?;
+                Some(curr_close - prev_high)
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
     /// Mean |close - (open+high+low+close)/4| per bar (close deviation from bar center).
     pub fn bar_vwap_deviation(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let vals: Vec<f64> = bars.iter().filter_map(|b| {
-            let o = b.open.to_f64()?;
-            let h = b.high.to_f64()?;
-            let l = b.low.to_f64()?;
-            let c = b.close.to_f64()?;
-            let center = (o + h + l + c) / 4.0;
-            Some((c - center).abs())
-        }).collect();
-        if vals.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let o = b.open.to_f64()?;
+                let h = b.high.to_f64()?;
+                let l = b.low.to_f64()?;
+                let c = b.close.to_f64()?;
+                let center = (o + h + l + c) / 4.0;
+                Some((c - center).abs())
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
     /// Sum of (close - open) across all bars (cumulative body momentum).
     pub fn bar_body_momentum(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let sum: f64 = bars.iter().filter_map(|b| {
-            let o = b.open.to_f64()?;
-            let c = b.close.to_f64()?;
-            Some(c - o)
-        }).sum();
+        if bars.is_empty() {
+            return None;
+        }
+        let sum: f64 = bars
+            .iter()
+            .filter_map(|b| {
+                let o = b.open.to_f64()?;
+                let c = b.close.to_f64()?;
+                Some(c - o)
+            })
+            .sum();
         Some(sum)
     }
 
@@ -7874,66 +9666,95 @@ impl OhlcvBar {
     /// Count of engulfing patterns (bar\[i\] body fully contains bar[i-1] body).
     pub fn bar_engulfing_count(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 2 { return None; }
-        let count = bars.windows(2).filter(|w| {
-            let po = w[0].open.to_f64().unwrap_or(0.0);
-            let pc = w[0].close.to_f64().unwrap_or(0.0);
-            let co = w[1].open.to_f64().unwrap_or(0.0);
-            let cc = w[1].close.to_f64().unwrap_or(0.0);
-            let prev_top = po.max(pc);
-            let prev_bot = po.min(pc);
-            let curr_top = co.max(cc);
-            let curr_bot = co.min(cc);
-            curr_top >= prev_top && curr_bot <= prev_bot
-        }).count();
+        if bars.len() < 2 {
+            return None;
+        }
+        let count = bars
+            .windows(2)
+            .filter(|w| {
+                let po = w[0].open.to_f64().unwrap_or(0.0);
+                let pc = w[0].close.to_f64().unwrap_or(0.0);
+                let co = w[1].open.to_f64().unwrap_or(0.0);
+                let cc = w[1].close.to_f64().unwrap_or(0.0);
+                let prev_top = po.max(pc);
+                let prev_bot = po.min(pc);
+                let curr_top = co.max(cc);
+                let curr_bot = co.min(cc);
+                curr_top >= prev_top && curr_bot <= prev_bot
+            })
+            .count();
         Some(count as f64)
     }
 
     /// Fraction of bars where |close - open| / range < 0.1 (doji-like bars).
     pub fn bar_doji_fraction(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let dojis = bars.iter().filter(|b| {
-            let o = b.open.to_f64().unwrap_or(0.0);
-            let h = b.high.to_f64().unwrap_or(0.0);
-            let l = b.low.to_f64().unwrap_or(0.0);
-            let c = b.close.to_f64().unwrap_or(0.0);
-            let range = h - l;
-            if range == 0.0 { return true; }
-            (c - o).abs() / range < 0.1
-        }).count();
+        if bars.is_empty() {
+            return None;
+        }
+        let dojis = bars
+            .iter()
+            .filter(|b| {
+                let o = b.open.to_f64().unwrap_or(0.0);
+                let h = b.high.to_f64().unwrap_or(0.0);
+                let l = b.low.to_f64().unwrap_or(0.0);
+                let c = b.close.to_f64().unwrap_or(0.0);
+                let range = h - l;
+                if range == 0.0 {
+                    return true;
+                }
+                (c - o).abs() / range < 0.1
+            })
+            .count();
         Some(dojis as f64 / bars.len() as f64)
     }
 
     /// Mean of (close * volume) / sum_volume across bars (volume-weighted average close).
     pub fn bar_volume_weighted_close(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
         let total_vol: f64 = bars.iter().filter_map(|b| b.volume.to_f64()).sum();
-        if total_vol == 0.0 { return None; }
-        let vw_sum: f64 = bars.iter().filter_map(|b| {
-            let c = b.close.to_f64()?;
-            let v = b.volume.to_f64()?;
-            Some(c * v)
-        }).sum();
+        if total_vol == 0.0 {
+            return None;
+        }
+        let vw_sum: f64 = bars
+            .iter()
+            .filter_map(|b| {
+                let c = b.close.to_f64()?;
+                let v = b.volume.to_f64()?;
+                Some(c * v)
+            })
+            .sum();
         Some(vw_sum / total_vol)
     }
 
     /// Ratio of bullish bar count to bearish bar count (close > open is bullish).
     pub fn bar_bull_bear_ratio(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let bulls = bars.iter().filter(|b| {
-            let o = b.open.to_f64().unwrap_or(0.0);
-            let c = b.close.to_f64().unwrap_or(0.0);
-            c > o
-        }).count();
-        let bears = bars.iter().filter(|b| {
-            let o = b.open.to_f64().unwrap_or(0.0);
-            let c = b.close.to_f64().unwrap_or(0.0);
-            c < o
-        }).count();
-        if bears == 0 { return None; }
+        if bars.is_empty() {
+            return None;
+        }
+        let bulls = bars
+            .iter()
+            .filter(|b| {
+                let o = b.open.to_f64().unwrap_or(0.0);
+                let c = b.close.to_f64().unwrap_or(0.0);
+                c > o
+            })
+            .count();
+        let bears = bars
+            .iter()
+            .filter(|b| {
+                let o = b.open.to_f64().unwrap_or(0.0);
+                let c = b.close.to_f64().unwrap_or(0.0);
+                c < o
+            })
+            .count();
+        if bears == 0 {
+            return None;
+        }
         Some(bulls as f64 / bears as f64)
     }
 
@@ -7942,58 +9763,90 @@ impl OhlcvBar {
     /// Mean gap between consecutive bar closes (close\[i\] - close[i-1]).
     pub fn bar_close_gap_mean(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 2 { return None; }
-        let gaps: Vec<f64> = bars.windows(2).filter_map(|w| {
-            let a = w[0].close.to_f64()?;
-            let b = w[1].close.to_f64()?;
-            Some(b - a)
-        }).collect();
-        if gaps.is_empty() { return None; }
+        if bars.len() < 2 {
+            return None;
+        }
+        let gaps: Vec<f64> = bars
+            .windows(2)
+            .filter_map(|w| {
+                let a = w[0].close.to_f64()?;
+                let b = w[1].close.to_f64()?;
+                Some(b - a)
+            })
+            .collect();
+        if gaps.is_empty() {
+            return None;
+        }
         Some(gaps.iter().sum::<f64>() / gaps.len() as f64)
     }
 
     /// Mean |open - (high+low)/2| per bar (open distance from bar midpoint).
     pub fn bar_open_mid_dist(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let vals: Vec<f64> = bars.iter().filter_map(|b| {
-            let o = b.open.to_f64()?;
-            let h = b.high.to_f64()?;
-            let l = b.low.to_f64()?;
-            Some((o - (h + l) / 2.0).abs())
-        }).collect();
-        if vals.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let o = b.open.to_f64()?;
+                let h = b.high.to_f64()?;
+                let l = b.low.to_f64()?;
+                Some((o - (h + l) / 2.0).abs())
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
     /// Mean (high - low) / volume per bar (range per unit volume).
     pub fn bar_high_low_velocity(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let vals: Vec<f64> = bars.iter().filter_map(|b| {
-            let h = b.high.to_f64()?;
-            let l = b.low.to_f64()?;
-            let v = b.volume.to_f64()?;
-            if v == 0.0 { return None; }
-            Some((h - l) / v)
-        }).collect();
-        if vals.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let h = b.high.to_f64()?;
+                let l = b.low.to_f64()?;
+                let v = b.volume.to_f64()?;
+                if v == 0.0 {
+                    return None;
+                }
+                Some((h - l) / v)
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
     /// Histogram entropy of bar ranges (4 equal-width bins).
     pub fn bar_range_entropy(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let ranges: Vec<f64> = bars.iter().filter_map(|b| {
-            let h = b.high.to_f64()?;
-            let l = b.low.to_f64()?;
-            Some(h - l)
-        }).collect();
-        if ranges.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
+        let ranges: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let h = b.high.to_f64()?;
+                let l = b.low.to_f64()?;
+                Some(h - l)
+            })
+            .collect();
+        if ranges.is_empty() {
+            return None;
+        }
         let min = ranges.iter().cloned().fold(f64::INFINITY, f64::min);
         let max = ranges.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
-        if (max - min).abs() < 1e-12 { return Some(0.0); }
+        if (max - min).abs() < 1e-12 {
+            return Some(0.0);
+        }
         let n_bins = 4usize;
         let bin_w = (max - min) / n_bins as f64;
         let mut counts = vec![0usize; n_bins];
@@ -8002,9 +9855,13 @@ impl OhlcvBar {
             counts[idx.min(n_bins - 1)] += 1;
         }
         let total = ranges.len() as f64;
-        let entropy: f64 = counts.iter()
+        let entropy: f64 = counts
+            .iter()
             .filter(|&&c| c > 0)
-            .map(|&c| { let p = c as f64 / total; -p * p.ln() })
+            .map(|&c| {
+                let p = c as f64 / total;
+                -p * p.ln()
+            })
             .sum();
         Some(entropy)
     }
@@ -8014,12 +9871,18 @@ impl OhlcvBar {
     /// Histogram entropy of bar volumes (4 equal-width bins).
     pub fn bar_volume_entropy(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
         let vols: Vec<f64> = bars.iter().filter_map(|b| b.volume.to_f64()).collect();
-        if vols.is_empty() { return None; }
+        if vols.is_empty() {
+            return None;
+        }
         let min = vols.iter().cloned().fold(f64::INFINITY, f64::min);
         let max = vols.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
-        if (max - min).abs() < 1e-12 { return Some(0.0); }
+        if (max - min).abs() < 1e-12 {
+            return Some(0.0);
+        }
         let n_bins = 4usize;
         let bin_w = (max - min) / n_bins as f64;
         let mut counts = vec![0usize; n_bins];
@@ -8028,9 +9891,13 @@ impl OhlcvBar {
             counts[idx.min(n_bins - 1)] += 1;
         }
         let total = vols.len() as f64;
-        let entropy: f64 = counts.iter()
+        let entropy: f64 = counts
+            .iter()
             .filter(|&&c| c > 0)
-            .map(|&c| { let p = c as f64 / total; -p * p.ln() })
+            .map(|&c| {
+                let p = c as f64 / total;
+                -p * p.ln()
+            })
             .sum();
         Some(entropy)
     }
@@ -8038,37 +9905,55 @@ impl OhlcvBar {
     /// Mean (open\[i\] - close[i-1]) gap across consecutive bars.
     pub fn bar_open_prev_close_gap(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 2 { return None; }
-        let gaps: Vec<f64> = bars.windows(2).filter_map(|w| {
-            let prev_close = w[0].close.to_f64()?;
-            let curr_open = w[1].open.to_f64()?;
-            Some(curr_open - prev_close)
-        }).collect();
-        if gaps.is_empty() { return None; }
+        if bars.len() < 2 {
+            return None;
+        }
+        let gaps: Vec<f64> = bars
+            .windows(2)
+            .filter_map(|w| {
+                let prev_close = w[0].close.to_f64()?;
+                let curr_open = w[1].open.to_f64()?;
+                Some(curr_open - prev_close)
+            })
+            .collect();
+        if gaps.is_empty() {
+            return None;
+        }
         Some(gaps.iter().sum::<f64>() / gaps.len() as f64)
     }
 
     /// Classic Average True Range: mean(max(H-L, |H-prev_C|, |L-prev_C|)).
     pub fn bar_avg_true_range(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 2 { return None; }
-        let trs: Vec<f64> = bars.windows(2).filter_map(|w| {
-            let h = w[1].high.to_f64()?;
-            let l = w[1].low.to_f64()?;
-            let pc = w[0].close.to_f64()?;
-            let tr = (h - l).max((h - pc).abs()).max((l - pc).abs());
-            Some(tr)
-        }).collect();
-        if trs.is_empty() { return None; }
+        if bars.len() < 2 {
+            return None;
+        }
+        let trs: Vec<f64> = bars
+            .windows(2)
+            .filter_map(|w| {
+                let h = w[1].high.to_f64()?;
+                let l = w[1].low.to_f64()?;
+                let pc = w[0].close.to_f64()?;
+                let tr = (h - l).max((h - pc).abs()).max((l - pc).abs());
+                Some(tr)
+            })
+            .collect();
+        if trs.is_empty() {
+            return None;
+        }
         Some(trs.iter().sum::<f64>() / trs.len() as f64)
     }
 
     /// Std dev of consecutive close-to-close differences.
     pub fn bar_close_momentum_std(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 3 { return None; }
+        if bars.len() < 3 {
+            return None;
+        }
         let closes: Vec<f64> = bars.iter().filter_map(|b| b.close.to_f64()).collect();
-        if closes.len() < 3 { return None; }
+        if closes.len() < 3 {
+            return None;
+        }
         let diffs: Vec<f64> = closes.windows(2).map(|w| w[1] - w[0]).collect();
         let n = diffs.len() as f64;
         let mean = diffs.iter().sum::<f64>() / n;
@@ -8081,41 +9966,63 @@ impl OhlcvBar {
     /// Mean of (high + low + close) / 3 per bar (typical price).
     pub fn bar_typical_price_mean(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let vals: Vec<f64> = bars.iter().filter_map(|b| {
-            let h = b.high.to_f64()?;
-            let l = b.low.to_f64()?;
-            let c = b.close.to_f64()?;
-            Some((h + l + c) / 3.0)
-        }).collect();
-        if vals.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let h = b.high.to_f64()?;
+                let l = b.low.to_f64()?;
+                let c = b.close.to_f64()?;
+                Some((h + l + c) / 3.0)
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
     /// Mean of (high - low) / low * 100 per bar (high-low percent range).
     pub fn bar_high_low_pct(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let vals: Vec<f64> = bars.iter().filter_map(|b| {
-            let h = b.high.to_f64()?;
-            let l = b.low.to_f64()?;
-            if l == 0.0 { return None; }
-            Some((h - l) / l * 100.0)
-        }).collect();
-        if vals.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let h = b.high.to_f64()?;
+                let l = b.low.to_f64()?;
+                if l == 0.0 {
+                    return None;
+                }
+                Some((h - l) / l * 100.0)
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
     /// Z-score of the last bar volume relative to all bar volumes.
     pub fn bar_volume_zscore(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 2 { return None; }
+        if bars.len() < 2 {
+            return None;
+        }
         let vols: Vec<f64> = bars.iter().filter_map(|b| b.volume.to_f64()).collect();
-        if vols.len() < 2 { return None; }
+        if vols.len() < 2 {
+            return None;
+        }
         let n = vols.len() as f64;
         let mean = vols.iter().sum::<f64>() / n;
         let std = (vols.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / n).sqrt();
-        if std == 0.0 { return None; }
+        if std == 0.0 {
+            return None;
+        }
         let last = *vols.last()?;
         Some((last - mean) / std)
     }
@@ -8123,14 +10030,23 @@ impl OhlcvBar {
     /// Mean of log(close\[i\] / close[i-1]) across consecutive bars.
     pub fn bar_close_return_mean(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 2 { return None; }
-        let returns: Vec<f64> = bars.windows(2).filter_map(|w| {
-            let prev = w[0].close.to_f64()?;
-            let curr = w[1].close.to_f64()?;
-            if prev <= 0.0 { return None; }
-            Some((curr / prev).ln())
-        }).collect();
-        if returns.is_empty() { return None; }
+        if bars.len() < 2 {
+            return None;
+        }
+        let returns: Vec<f64> = bars
+            .windows(2)
+            .filter_map(|w| {
+                let prev = w[0].close.to_f64()?;
+                let curr = w[1].close.to_f64()?;
+                if prev <= 0.0 {
+                    return None;
+                }
+                Some((curr / prev).ln())
+            })
+            .collect();
+        if returns.is_empty() {
+            return None;
+        }
         Some(returns.iter().sum::<f64>() / returns.len() as f64)
     }
 
@@ -8139,62 +10055,98 @@ impl OhlcvBar {
     /// Mean of |close - open| / (high - low) per bar (candle efficiency / body ratio).
     pub fn bar_candle_efficiency(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let vals: Vec<f64> = bars.iter().filter_map(|b| {
-            let o = b.open.to_f64()?;
-            let h = b.high.to_f64()?;
-            let l = b.low.to_f64()?;
-            let c = b.close.to_f64()?;
-            let range = h - l;
-            if range == 0.0 { return None; }
-            Some((c - o).abs() / range)
-        }).collect();
-        if vals.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let o = b.open.to_f64()?;
+                let h = b.high.to_f64()?;
+                let l = b.low.to_f64()?;
+                let c = b.close.to_f64()?;
+                let range = h - l;
+                if range == 0.0 {
+                    return None;
+                }
+                Some((c - o).abs() / range)
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
     /// Sum of (close - open) / range per bar — signed directional momentum score.
     pub fn bar_momentum_score(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let vals: Vec<f64> = bars.iter().filter_map(|b| {
-            let o = b.open.to_f64()?;
-            let h = b.high.to_f64()?;
-            let l = b.low.to_f64()?;
-            let c = b.close.to_f64()?;
-            let range = h - l;
-            if range == 0.0 { return None; }
-            Some((c - o) / range)
-        }).collect();
-        if vals.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let o = b.open.to_f64()?;
+                let h = b.high.to_f64()?;
+                let l = b.low.to_f64()?;
+                let c = b.close.to_f64()?;
+                let range = h - l;
+                if range == 0.0 {
+                    return None;
+                }
+                Some((c - o) / range)
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>())
     }
 
     /// Mean of (close - open) / open * 100 per bar (open-to-close pct change).
     pub fn bar_open_close_pct(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let vals: Vec<f64> = bars.iter().filter_map(|b| {
-            let o = b.open.to_f64()?;
-            let c = b.close.to_f64()?;
-            if o == 0.0 { return None; }
-            Some((c - o) / o * 100.0)
-        }).collect();
-        if vals.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let o = b.open.to_f64()?;
+                let c = b.close.to_f64()?;
+                if o == 0.0 {
+                    return None;
+                }
+                Some((c - o) / o * 100.0)
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
     /// Mean of high / close per bar (high-to-close ratio).
     pub fn bar_high_close_ratio(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let vals: Vec<f64> = bars.iter().filter_map(|b| {
-            let h = b.high.to_f64()?;
-            let c = b.close.to_f64()?;
-            if c == 0.0 { return None; }
-            Some(h / c)
-        }).collect();
-        if vals.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let h = b.high.to_f64()?;
+                let c = b.close.to_f64()?;
+                if c == 0.0 {
+                    return None;
+                }
+                Some(h / c)
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
@@ -8203,151 +10155,231 @@ impl OhlcvBar {
     /// Mean True Range: mean(max(H-L, |H-prev_C|, |L-prev_C|)) — same formula as ATR.
     pub fn bar_true_range_mean(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 2 { return None; }
-        let trs: Vec<f64> = bars.windows(2).filter_map(|w| {
-            let h = w[1].high.to_f64()?;
-            let l = w[1].low.to_f64()?;
-            let pc = w[0].close.to_f64()?;
-            Some((h - l).max((h - pc).abs()).max((l - pc).abs()))
-        }).collect();
-        if trs.is_empty() { return None; }
+        if bars.len() < 2 {
+            return None;
+        }
+        let trs: Vec<f64> = bars
+            .windows(2)
+            .filter_map(|w| {
+                let h = w[1].high.to_f64()?;
+                let l = w[1].low.to_f64()?;
+                let pc = w[0].close.to_f64()?;
+                Some((h - l).max((h - pc).abs()).max((l - pc).abs()))
+            })
+            .collect();
+        if trs.is_empty() {
+            return None;
+        }
         Some(trs.iter().sum::<f64>() / trs.len() as f64)
     }
 
     /// Fraction of bars where close > open (bullish pct).
     pub fn bar_close_above_open_pct(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let bulls = bars.iter().filter(|b| {
-            b.close.to_f64().unwrap_or(0.0) > b.open.to_f64().unwrap_or(0.0)
-        }).count();
+        if bars.is_empty() {
+            return None;
+        }
+        let bulls = bars
+            .iter()
+            .filter(|b| b.close.to_f64().unwrap_or(0.0) > b.open.to_f64().unwrap_or(0.0))
+            .count();
         Some(bulls as f64 / bars.len() as f64)
     }
 
     /// Mean ATR / body ratio: true_range / |close - open| per bar.
     pub fn bar_atr_body_ratio(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 2 { return None; }
-        let vals: Vec<f64> = bars.windows(2).filter_map(|w| {
-            let h = w[1].high.to_f64()?;
-            let l = w[1].low.to_f64()?;
-            let pc = w[0].close.to_f64()?;
-            let o = w[1].open.to_f64()?;
-            let c = w[1].close.to_f64()?;
-            let tr = (h - l).max((h - pc).abs()).max((l - pc).abs());
-            let body = (c - o).abs();
-            if body == 0.0 { return None; }
-            Some(tr / body)
-        }).collect();
-        if vals.is_empty() { return None; }
+        if bars.len() < 2 {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .windows(2)
+            .filter_map(|w| {
+                let h = w[1].high.to_f64()?;
+                let l = w[1].low.to_f64()?;
+                let pc = w[0].close.to_f64()?;
+                let o = w[1].open.to_f64()?;
+                let c = w[1].close.to_f64()?;
+                let tr = (h - l).max((h - pc).abs()).max((l - pc).abs());
+                let body = (c - o).abs();
+                if body == 0.0 {
+                    return None;
+                }
+                Some(tr / body)
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
     /// Mean pct volume change between consecutive bars: (vol\[i\]-vol[i-1])/vol[i-1].
     pub fn bar_volume_pct_change(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 2 { return None; }
-        let vals: Vec<f64> = bars.windows(2).filter_map(|w| {
-            let prev = w[0].volume.to_f64()?;
-            let curr = w[1].volume.to_f64()?;
-            if prev == 0.0 { return None; }
-            Some((curr - prev) / prev)
-        }).collect();
-        if vals.is_empty() { return None; }
+        if bars.len() < 2 {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .windows(2)
+            .filter_map(|w| {
+                let prev = w[0].volume.to_f64()?;
+                let curr = w[1].volume.to_f64()?;
+                if prev == 0.0 {
+                    return None;
+                }
+                Some((curr - prev) / prev)
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
     /// Mean (total_wick / |close - open|) per bar; None if all bars are doji.
     pub fn bar_wick_to_body_ratio(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let vals: Vec<f64> = bars.iter().filter_map(|b| {
-            let h = b.high.to_f64()?;
-            let l = b.low.to_f64()?;
-            let o = b.open.to_f64()?;
-            let c = b.close.to_f64()?;
-            let body = (c - o).abs();
-            if body == 0.0 { return None; }
-            let total_wick = (h - l) - body;
-            Some(total_wick.max(0.0) / body)
-        }).collect();
-        if vals.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let h = b.high.to_f64()?;
+                let l = b.low.to_f64()?;
+                let o = b.open.to_f64()?;
+                let c = b.close.to_f64()?;
+                let body = (c - o).abs();
+                if body == 0.0 {
+                    return None;
+                }
+                let total_wick = (h - l) - body;
+                Some(total_wick.max(0.0) / body)
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
     /// Mean |open - (high + low) / 2| per bar — distance of open from bar midpoint.
     pub fn bar_open_midpoint_gap(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let vals: Vec<f64> = bars.iter().filter_map(|b| {
-            let h = b.high.to_f64()?;
-            let l = b.low.to_f64()?;
-            let o = b.open.to_f64()?;
-            Some((o - (h + l) / 2.0).abs())
-        }).collect();
-        if vals.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let h = b.high.to_f64()?;
+                let l = b.low.to_f64()?;
+                let o = b.open.to_f64()?;
+                Some((o - (h + l) / 2.0).abs())
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
     /// Mean low / open per bar.
     pub fn bar_low_open_ratio(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let vals: Vec<f64> = bars.iter().filter_map(|b| {
-            let l = b.low.to_f64()?;
-            let o = b.open.to_f64()?;
-            if o == 0.0 { return None; }
-            Some(l / o)
-        }).collect();
-        if vals.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let l = b.low.to_f64()?;
+                let o = b.open.to_f64()?;
+                if o == 0.0 {
+                    return None;
+                }
+                Some(l / o)
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
     /// Correlation between volume and body size (|close-open|) across bars.
     pub fn bar_volume_body_corr(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 2 { return None; }
+        if bars.len() < 2 {
+            return None;
+        }
         let vols: Vec<f64> = bars.iter().filter_map(|b| b.volume.to_f64()).collect();
-        let bodies: Vec<f64> = bars.iter().filter_map(|b| {
-            let o = b.open.to_f64()?;
-            let c = b.close.to_f64()?;
-            Some((c - o).abs())
-        }).collect();
-        if vols.len() != bars.len() || bodies.len() != bars.len() { return None; }
+        let bodies: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let o = b.open.to_f64()?;
+                let c = b.close.to_f64()?;
+                Some((c - o).abs())
+            })
+            .collect();
+        if vols.len() != bars.len() || bodies.len() != bars.len() {
+            return None;
+        }
         let n = vols.len() as f64;
         let mv = vols.iter().sum::<f64>() / n;
         let mb = bodies.iter().sum::<f64>() / n;
-        let num: f64 = vols.iter().zip(bodies.iter()).map(|(v, b)| (v - mv) * (b - mb)).sum();
+        let num: f64 = vols
+            .iter()
+            .zip(bodies.iter())
+            .map(|(v, b)| (v - mv) * (b - mb))
+            .sum();
         let sv: f64 = vols.iter().map(|v| (v - mv).powi(2)).sum::<f64>().sqrt();
         let sb: f64 = bodies.iter().map(|b| (b - mb).powi(2)).sum::<f64>().sqrt();
-        if sv == 0.0 || sb == 0.0 { return None; }
+        if sv == 0.0 || sb == 0.0 {
+            return None;
+        }
         Some(num / (sv * sb))
     }
 
     /// Mean upper shadow length: mean(high - max(open, close)) per bar.
     pub fn bar_upper_shadow_mean(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let vals: Vec<f64> = bars.iter().filter_map(|b| {
-            let h = b.high.to_f64()?;
-            let o = b.open.to_f64()?;
-            let c = b.close.to_f64()?;
-            Some(h - o.max(c))
-        }).collect();
-        if vals.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let h = b.high.to_f64()?;
+                let o = b.open.to_f64()?;
+                let c = b.close.to_f64()?;
+                Some(h - o.max(c))
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
     /// Std dev of (close - open) across bars.
     pub fn bar_close_minus_open_std(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 2 { return None; }
-        let diffs: Vec<f64> = bars.iter().filter_map(|b| {
-            let o = b.open.to_f64()?;
-            let c = b.close.to_f64()?;
-            Some(c - o)
-        }).collect();
-        if diffs.len() < 2 { return None; }
+        if bars.len() < 2 {
+            return None;
+        }
+        let diffs: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let o = b.open.to_f64()?;
+                let c = b.close.to_f64()?;
+                Some(c - o)
+            })
+            .collect();
+        if diffs.len() < 2 {
+            return None;
+        }
         let mean = diffs.iter().sum::<f64>() / diffs.len() as f64;
         let var = diffs.iter().map(|d| (d - mean).powi(2)).sum::<f64>() / diffs.len() as f64;
         Some(var.sqrt())
@@ -8356,93 +10388,141 @@ impl OhlcvBar {
     /// Mean volume * (high - low) per bar — volume-weighted range proxy.
     pub fn bar_volume_weighted_range(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let vals: Vec<f64> = bars.iter().filter_map(|b| {
-            let h = b.high.to_f64()?;
-            let l = b.low.to_f64()?;
-            let v = b.volume.to_f64()?;
-            Some(v * (h - l))
-        }).collect();
-        if vals.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let h = b.high.to_f64()?;
+                let l = b.low.to_f64()?;
+                let v = b.volume.to_f64()?;
+                Some(v * (h - l))
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
     /// Mean (high - low) / close per bar — range relative to close price.
     pub fn bar_body_speed(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let vals: Vec<f64> = bars.iter().filter_map(|b| {
-            let h = b.high.to_f64()?;
-            let l = b.low.to_f64()?;
-            let c = b.close.to_f64()?;
-            if c == 0.0 { return None; }
-            Some((h - l) / c)
-        }).collect();
-        if vals.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let h = b.high.to_f64()?;
+                let l = b.low.to_f64()?;
+                let c = b.close.to_f64()?;
+                if c == 0.0 {
+                    return None;
+                }
+                Some((h - l) / c)
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
     /// Mean (close - open) / open * 100 net return across bars.
     pub fn bar_net_return_mean(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let vals: Vec<f64> = bars.iter().filter_map(|b| {
-            let o = b.open.to_f64()?;
-            let c = b.close.to_f64()?;
-            if o == 0.0 { return None; }
-            Some((c - o) / o * 100.0)
-        }).collect();
-        if vals.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let o = b.open.to_f64()?;
+                let c = b.close.to_f64()?;
+                if o == 0.0 {
+                    return None;
+                }
+                Some((c - o) / o * 100.0)
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
     /// Ratio of up-bar volume to down-bar volume.
     pub fn bar_up_down_vol_ratio(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let mut up_vol = 0.0_f64; let mut down_vol = 0.0_f64;
+        if bars.is_empty() {
+            return None;
+        }
+        let mut up_vol = 0.0_f64;
+        let mut down_vol = 0.0_f64;
         for b in bars {
             let o = b.open.to_f64()?;
             let c = b.close.to_f64()?;
             let v = b.volume.to_f64()?;
-            if c > o { up_vol += v; } else if c < o { down_vol += v; }
+            if c > o {
+                up_vol += v;
+            } else if c < o {
+                down_vol += v;
+            }
         }
-        if down_vol == 0.0 { return None; }
+        if down_vol == 0.0 {
+            return None;
+        }
         Some(up_vol / down_vol)
     }
 
     /// Mean gap between current open and previous close.
     pub fn bar_close_prev_open_gap(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 2 { return None; }
-        let vals: Vec<f64> = bars.windows(2).filter_map(|w| {
-            let prev_c = w[0].close.to_f64()?;
-            let curr_o = w[1].open.to_f64()?;
-            Some(curr_o - prev_c)
-        }).collect();
-        if vals.is_empty() { return None; }
+        if bars.len() < 2 {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .windows(2)
+            .filter_map(|w| {
+                let prev_c = w[0].close.to_f64()?;
+                let curr_o = w[1].open.to_f64()?;
+                Some(curr_o - prev_c)
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
     /// Weighted moving average of close prices (linearly weighted, recent = higher).
     pub fn bar_wma_close(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let mut wsum = 0.0_f64; let mut wt = 0.0_f64;
+        if bars.is_empty() {
+            return None;
+        }
+        let mut wsum = 0.0_f64;
+        let mut wt = 0.0_f64;
         for (i, b) in bars.iter().enumerate() {
             let c = b.close.to_f64()?;
             let w = (i + 1) as f64;
             wsum += c * w;
             wt += w;
         }
-        if wt == 0.0 { return None; }
+        if wt == 0.0 {
+            return None;
+        }
         Some(wsum / wt)
     }
 
     /// Exponentially weighted moving average of close (alpha=2/(n+1)).
     pub fn bar_ewma_close(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
         let alpha = 2.0 / (bars.len() as f64 + 1.0);
         let mut ema = bars.first()?.close.to_f64()?;
         for b in bars.iter().skip(1) {
@@ -8455,25 +10535,38 @@ impl OhlcvBar {
     /// Position of open within [low, high]: (open - low) / (high - low).
     pub fn bar_open_range_pos(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let vals: Vec<f64> = bars.iter().filter_map(|b| {
-            let h = b.high.to_f64()?;
-            let l = b.low.to_f64()?;
-            let o = b.open.to_f64()?;
-            let range = h - l;
-            if range == 0.0 { return None; }
-            Some((o - l) / range)
-        }).collect();
-        if vals.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let h = b.high.to_f64()?;
+                let l = b.low.to_f64()?;
+                let o = b.open.to_f64()?;
+                let range = h - l;
+                if range == 0.0 {
+                    return None;
+                }
+                Some((o - l) / range)
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
     /// Fraction of bars with volume > mean volume of the slice.
     pub fn bar_volume_above_mean_pct(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
         let vols: Vec<f64> = bars.iter().filter_map(|b| b.volume.to_f64()).collect();
-        if vols.is_empty() { return None; }
+        if vols.is_empty() {
+            return None;
+        }
         let mean = vols.iter().sum::<f64>() / vols.len() as f64;
         let above = vols.iter().filter(|&&v| v > mean).count();
         Some(above as f64 / vols.len() as f64)
@@ -8482,77 +10575,126 @@ impl OhlcvBar {
     /// Mean (close - low) / (high - low) per bar — close position in range.
     pub fn bar_close_minus_low_pct(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let vals: Vec<f64> = bars.iter().filter_map(|b| {
-            let h = b.high.to_f64()?;
-            let l = b.low.to_f64()?;
-            let c = b.close.to_f64()?;
-            let range = h - l;
-            if range == 0.0 { return None; }
-            Some((c - l) / range)
-        }).collect();
-        if vals.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let h = b.high.to_f64()?;
+                let l = b.low.to_f64()?;
+                let c = b.close.to_f64()?;
+                let range = h - l;
+                if range == 0.0 {
+                    return None;
+                }
+                Some((c - l) / range)
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
     /// Composite candle pattern score: sum of (body/range * sign(close-open)) per bar.
     pub fn bar_candle_pattern_score(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let vals: Vec<f64> = bars.iter().filter_map(|b| {
-            let h = b.high.to_f64()?;
-            let l = b.low.to_f64()?;
-            let o = b.open.to_f64()?;
-            let c = b.close.to_f64()?;
-            let range = h - l;
-            if range == 0.0 { return None; }
-            let sign = if c > o { 1.0 } else if c < o { -1.0 } else { 0.0 };
-            Some((c - o).abs() / range * sign)
-        }).collect();
-        if vals.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let h = b.high.to_f64()?;
+                let l = b.low.to_f64()?;
+                let o = b.open.to_f64()?;
+                let c = b.close.to_f64()?;
+                let range = h - l;
+                if range == 0.0 {
+                    return None;
+                }
+                let sign = if c > o {
+                    1.0
+                } else if c < o {
+                    -1.0
+                } else {
+                    0.0
+                };
+                Some((c - o).abs() / range * sign)
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
     /// Mean high / low ratio per bar.
     pub fn bar_hl_ratio(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let vals: Vec<f64> = bars.iter().filter_map(|b| {
-            let h = b.high.to_f64()?;
-            let l = b.low.to_f64()?;
-            if l == 0.0 { return None; }
-            Some(h / l)
-        }).collect();
-        if vals.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let h = b.high.to_f64()?;
+                let l = b.low.to_f64()?;
+                if l == 0.0 {
+                    return None;
+                }
+                Some(h / l)
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
     /// Mean (high - low) / volume per bar — range per unit volume.
     pub fn bar_range_to_volume(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let vals: Vec<f64> = bars.iter().filter_map(|b| {
-            let h = b.high.to_f64()?;
-            let l = b.low.to_f64()?;
-            let v = b.volume.to_f64()?;
-            if v == 0.0 { return None; }
-            Some((h - l) / v)
-        }).collect();
-        if vals.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let h = b.high.to_f64()?;
+                let l = b.low.to_f64()?;
+                let v = b.volume.to_f64()?;
+                if v == 0.0 {
+                    return None;
+                }
+                Some((h - l) / v)
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
     /// Std dev of typical price (H+L+C)/3 across bars.
     pub fn bar_typical_price_std(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 2 { return None; }
-        let tps: Vec<f64> = bars.iter().filter_map(|b| {
-            let h = b.high.to_f64()?;
-            let l = b.low.to_f64()?;
-            let c = b.close.to_f64()?;
-            Some((h + l + c) / 3.0)
-        }).collect();
-        if tps.len() < 2 { return None; }
+        if bars.len() < 2 {
+            return None;
+        }
+        let tps: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let h = b.high.to_f64()?;
+                let l = b.low.to_f64()?;
+                let c = b.close.to_f64()?;
+                Some((h + l + c) / 3.0)
+            })
+            .collect();
+        if tps.len() < 2 {
+            return None;
+        }
         let mean = tps.iter().sum::<f64>() / tps.len() as f64;
         let var = tps.iter().map(|t| (t - mean).powi(2)).sum::<f64>() / tps.len() as f64;
         Some(var.sqrt())
@@ -8561,40 +10703,59 @@ impl OhlcvBar {
     /// Mean (open + close) / 2 per bar — bar midpoint price.
     pub fn bar_open_close_midpoint(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let vals: Vec<f64> = bars.iter().filter_map(|b| {
-            let o = b.open.to_f64()?;
-            let c = b.close.to_f64()?;
-            Some((o + c) / 2.0)
-        }).collect();
-        if vals.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let o = b.open.to_f64()?;
+                let c = b.close.to_f64()?;
+                Some((o + c) / 2.0)
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
     /// Mean (upper_shadow + lower_shadow) / (high - low) per bar.
     pub fn bar_shadow_to_range(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let vals: Vec<f64> = bars.iter().filter_map(|b| {
-            let h = b.high.to_f64()?;
-            let l = b.low.to_f64()?;
-            let o = b.open.to_f64()?;
-            let c = b.close.to_f64()?;
-            let range = h - l;
-            if range == 0.0 { return None; }
-            let body = (c - o).abs();
-            let shadows = (range - body).max(0.0);
-            Some(shadows / range)
-        }).collect();
-        if vals.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let h = b.high.to_f64()?;
+                let l = b.low.to_f64()?;
+                let o = b.open.to_f64()?;
+                let c = b.close.to_f64()?;
+                let range = h - l;
+                if range == 0.0 {
+                    return None;
+                }
+                let body = (c - o).abs();
+                let shadows = (range - body).max(0.0);
+                Some(shadows / range)
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
     /// Linearly weighted moving average of body sizes |close - open|.
     pub fn bar_body_wma(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let mut wsum = 0.0_f64; let mut wt = 0.0_f64;
+        if bars.is_empty() {
+            return None;
+        }
+        let mut wsum = 0.0_f64;
+        let mut wt = 0.0_f64;
         for (i, b) in bars.iter().enumerate() {
             let o = b.open.to_f64()?;
             let c = b.close.to_f64()?;
@@ -8602,136 +10763,209 @@ impl OhlcvBar {
             wsum += (c - o).abs() * w;
             wt += w;
         }
-        if wt == 0.0 { return None; }
+        if wt == 0.0 {
+            return None;
+        }
         Some(wsum / wt)
     }
 
     /// Pearson correlation between close and open across bars.
     pub fn bar_close_open_corr(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 2 { return None; }
+        if bars.len() < 2 {
+            return None;
+        }
         let opens: Vec<f64> = bars.iter().filter_map(|b| b.open.to_f64()).collect();
         let closes: Vec<f64> = bars.iter().filter_map(|b| b.close.to_f64()).collect();
-        if opens.len() != bars.len() || closes.len() != bars.len() { return None; }
+        if opens.len() != bars.len() || closes.len() != bars.len() {
+            return None;
+        }
         let n = opens.len() as f64;
         let mo = opens.iter().sum::<f64>() / n;
         let mc = closes.iter().sum::<f64>() / n;
-        let num: f64 = opens.iter().zip(closes.iter()).map(|(o, c)| (o - mo) * (c - mc)).sum();
+        let num: f64 = opens
+            .iter()
+            .zip(closes.iter())
+            .map(|(o, c)| (o - mo) * (c - mc))
+            .sum();
         let so: f64 = opens.iter().map(|o| (o - mo).powi(2)).sum::<f64>().sqrt();
         let sc: f64 = closes.iter().map(|c| (c - mc).powi(2)).sum::<f64>().sqrt();
-        if so == 0.0 || sc == 0.0 { return None; }
+        if so == 0.0 || sc == 0.0 {
+            return None;
+        }
         Some(num / (so * sc))
     }
 
     /// Pearson correlation between volume and (high - low) range.
     pub fn bar_volume_range_corr(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 2 { return None; }
+        if bars.len() < 2 {
+            return None;
+        }
         let vols: Vec<f64> = bars.iter().filter_map(|b| b.volume.to_f64()).collect();
-        let ranges: Vec<f64> = bars.iter().filter_map(|b| {
-            let h = b.high.to_f64()?;
-            let l = b.low.to_f64()?;
-            Some(h - l)
-        }).collect();
-        if vols.len() != bars.len() || ranges.len() != bars.len() { return None; }
+        let ranges: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let h = b.high.to_f64()?;
+                let l = b.low.to_f64()?;
+                Some(h - l)
+            })
+            .collect();
+        if vols.len() != bars.len() || ranges.len() != bars.len() {
+            return None;
+        }
         let n = vols.len() as f64;
         let mv = vols.iter().sum::<f64>() / n;
         let mr = ranges.iter().sum::<f64>() / n;
-        let num: f64 = vols.iter().zip(ranges.iter()).map(|(v, r)| (v - mv) * (r - mr)).sum();
+        let num: f64 = vols
+            .iter()
+            .zip(ranges.iter())
+            .map(|(v, r)| (v - mv) * (r - mr))
+            .sum();
         let sv: f64 = vols.iter().map(|v| (v - mv).powi(2)).sum::<f64>().sqrt();
         let sr: f64 = ranges.iter().map(|r| (r - mr).powi(2)).sum::<f64>().sqrt();
-        if sv == 0.0 || sr == 0.0 { return None; }
+        if sv == 0.0 || sr == 0.0 {
+            return None;
+        }
         Some(num / (sv * sr))
     }
 
     /// Mean open / volume per bar — open price per unit volume.
     pub fn bar_open_vol_ratio(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let vals: Vec<f64> = bars.iter().filter_map(|b| {
-            let o = b.open.to_f64()?;
-            let v = b.volume.to_f64()?;
-            if v == 0.0 { return None; }
-            Some(o / v)
-        }).collect();
-        if vals.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let o = b.open.to_f64()?;
+                let v = b.volume.to_f64()?;
+                if v == 0.0 {
+                    return None;
+                }
+                Some(o / v)
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
     /// Mean second difference of close prices: close price acceleration.
     pub fn bar_close_trend_accel(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 3 { return None; }
+        if bars.len() < 3 {
+            return None;
+        }
         let closes: Vec<f64> = bars.iter().filter_map(|b| b.close.to_f64()).collect();
-        if closes.len() < 3 { return None; }
-        let accels: Vec<f64> = closes.windows(3).map(|w| w[2] - 2.0 * w[1] + w[0]).collect();
+        if closes.len() < 3 {
+            return None;
+        }
+        let accels: Vec<f64> = closes
+            .windows(3)
+            .map(|w| w[2] - 2.0 * w[1] + w[0])
+            .collect();
         Some(accels.iter().sum::<f64>() / accels.len() as f64)
     }
 
     /// Fraction of bars where close is above previous close: net uptrend strength.
     pub fn bar_net_trend_strength(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 2 { return None; }
-        let ups = bars.windows(2).filter(|w| {
-            let pc = w[0].close.to_f64().unwrap_or(0.0);
-            let cc = w[1].close.to_f64().unwrap_or(0.0);
-            cc > pc
-        }).count();
+        if bars.len() < 2 {
+            return None;
+        }
+        let ups = bars
+            .windows(2)
+            .filter(|w| {
+                let pc = w[0].close.to_f64().unwrap_or(0.0);
+                let cc = w[1].close.to_f64().unwrap_or(0.0);
+                cc > pc
+            })
+            .count();
         Some(ups as f64 / (bars.len() - 1) as f64)
     }
 
     /// Mean gap between close\[i\] and close[i-2]: 2-bar close gap acceleration.
     pub fn bar_close_gap_accel(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 3 { return None; }
-        let vals: Vec<f64> = bars.windows(3).filter_map(|w| {
-            let c0 = w[0].close.to_f64()?;
-            let c2 = w[2].close.to_f64()?;
-            let c1 = w[1].close.to_f64()?;
-            Some((c2 - c1) - (c1 - c0))
-        }).collect();
-        if vals.is_empty() { return None; }
+        if bars.len() < 3 {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .windows(3)
+            .filter_map(|w| {
+                let c0 = w[0].close.to_f64()?;
+                let c2 = w[2].close.to_f64()?;
+                let c1 = w[1].close.to_f64()?;
+                Some((c2 - c1) - (c1 - c0))
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
     /// Mean upper_shadow - lower_shadow per bar: upper vs lower wick imbalance.
     pub fn bar_shadow_imbalance(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let vals: Vec<f64> = bars.iter().filter_map(|b| {
-            let h = b.high.to_f64()?;
-            let l = b.low.to_f64()?;
-            let o = b.open.to_f64()?;
-            let c = b.close.to_f64()?;
-            let upper = h - o.max(c);
-            let lower = o.min(c) - l;
-            Some(upper - lower)
-        }).collect();
-        if vals.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let h = b.high.to_f64()?;
+                let l = b.low.to_f64()?;
+                let o = b.open.to_f64()?;
+                let c = b.close.to_f64()?;
+                let upper = h - o.max(c);
+                let lower = o.min(c) - l;
+                Some(upper - lower)
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
     /// Mean |open\[i\] - high[i-1]| gap: open vs prior high distance.
     pub fn bar_open_prev_high_dist(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 2 { return None; }
-        let vals: Vec<f64> = bars.windows(2).filter_map(|w| {
-            let prev_h = w[0].high.to_f64()?;
-            let curr_o = w[1].open.to_f64()?;
-            Some((curr_o - prev_h).abs())
-        }).collect();
-        if vals.is_empty() { return None; }
+        if bars.len() < 2 {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .windows(2)
+            .filter_map(|w| {
+                let prev_h = w[0].high.to_f64()?;
+                let curr_o = w[1].open.to_f64()?;
+                Some((curr_o - prev_h).abs())
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
     /// Dispersion index of volume: std(volume) / mean(volume).
     pub fn bar_volume_dispersion(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 2 { return None; }
+        if bars.len() < 2 {
+            return None;
+        }
         let vols: Vec<f64> = bars.iter().filter_map(|b| b.volume.to_f64()).collect();
-        if vols.len() < 2 { return None; }
+        if vols.len() < 2 {
+            return None;
+        }
         let mean = vols.iter().sum::<f64>() / vols.len() as f64;
-        if mean == 0.0 { return None; }
+        if mean == 0.0 {
+            return None;
+        }
         let std = (vols.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / vols.len() as f64).sqrt();
         Some(std / mean)
     }
@@ -8739,182 +10973,275 @@ impl OhlcvBar {
     /// Mean (upper_wick + lower_wick) / body_size ratio per bar. None on empty.
     pub fn bar_wicks_to_body_ratio(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let ratios: Vec<f64> = bars.iter().filter_map(|b| {
-            let o = b.open.to_f64()?;
-            let h = b.high.to_f64()?;
-            let l = b.low.to_f64()?;
-            let c = b.close.to_f64()?;
-            let body = (c - o).abs();
-            if body == 0.0 { return None; }
-            let upper = h - o.max(c);
-            let lower = o.min(c) - l;
-            Some((upper + lower) / body)
-        }).collect();
-        if ratios.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
+        let ratios: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let o = b.open.to_f64()?;
+                let h = b.high.to_f64()?;
+                let l = b.low.to_f64()?;
+                let c = b.close.to_f64()?;
+                let body = (c - o).abs();
+                if body == 0.0 {
+                    return None;
+                }
+                let upper = h - o.max(c);
+                let lower = o.min(c) - l;
+                Some((upper + lower) / body)
+            })
+            .collect();
+        if ratios.is_empty() {
+            return None;
+        }
         Some(ratios.iter().sum::<f64>() / ratios.len() as f64)
     }
 
     /// Mean (close - low) / (high - low) per bar: close position within range.
     pub fn bar_close_to_high_pct(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let vals: Vec<f64> = bars.iter().filter_map(|b| {
-            let h = b.high.to_f64()?;
-            let l = b.low.to_f64()?;
-            let c = b.close.to_f64()?;
-            let range = h - l;
-            if range == 0.0 { return None; }
-            Some((c - l) / range)
-        }).collect();
-        if vals.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let h = b.high.to_f64()?;
+                let l = b.low.to_f64()?;
+                let c = b.close.to_f64()?;
+                let range = h - l;
+                if range == 0.0 {
+                    return None;
+                }
+                Some((c - l) / range)
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
     /// Mean body / (upper + lower wick) ratio. None if all bars have zero wicks.
     pub fn bar_body_to_shadow_pct(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let vals: Vec<f64> = bars.iter().filter_map(|b| {
-            let o = b.open.to_f64()?;
-            let h = b.high.to_f64()?;
-            let l = b.low.to_f64()?;
-            let c = b.close.to_f64()?;
-            let body = (c - o).abs();
-            let wicks = (h - o.max(c)) + (o.min(c) - l);
-            if wicks == 0.0 { return None; }
-            Some(body / wicks)
-        }).collect();
-        if vals.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let o = b.open.to_f64()?;
+                let h = b.high.to_f64()?;
+                let l = b.low.to_f64()?;
+                let c = b.close.to_f64()?;
+                let body = (c - o).abs();
+                let wicks = (h - o.max(c)) + (o.min(c) - l);
+                if wicks == 0.0 {
+                    return None;
+                }
+                Some(body / wicks)
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
     /// Mean second difference of (high - low): acceleration of range change.
     pub fn bar_high_low_accel(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 3 { return None; }
-        let ranges: Vec<f64> = bars.iter().filter_map(|b| {
-            Some(b.high.to_f64()? - b.low.to_f64()?)
-        }).collect();
-        if ranges.len() < 3 { return None; }
-        let accels: Vec<f64> = ranges.windows(3).map(|w| (w[2] - w[1]) - (w[1] - w[0])).collect();
+        if bars.len() < 3 {
+            return None;
+        }
+        let ranges: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| Some(b.high.to_f64()? - b.low.to_f64()?))
+            .collect();
+        if ranges.len() < 3 {
+            return None;
+        }
+        let accels: Vec<f64> = ranges
+            .windows(3)
+            .map(|w| (w[2] - w[1]) - (w[1] - w[0]))
+            .collect();
         Some(accels.iter().sum::<f64>() / accels.len() as f64)
     }
 
     /// Mean |open\[i\] - close[i-1]| / close[i-1]: gap percentage between bars.
     pub fn bar_open_gap_pct(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 2 { return None; }
-        let vals: Vec<f64> = bars.windows(2).filter_map(|w| {
-            let prev_close = w[0].close.to_f64()?;
-            let open = w[1].open.to_f64()?;
-            if prev_close == 0.0 { return None; }
-            Some((open - prev_close).abs() / prev_close)
-        }).collect();
-        if vals.is_empty() { return None; }
+        if bars.len() < 2 {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .windows(2)
+            .filter_map(|w| {
+                let prev_close = w[0].close.to_f64()?;
+                let open = w[1].open.to_f64()?;
+                if prev_close == 0.0 {
+                    return None;
+                }
+                Some((open - prev_close).abs() / prev_close)
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
     /// Mean |close\[i\] - close[i-1]|: mean absolute close momentum.
     pub fn bar_abs_close_momentum(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 2 { return None; }
-        let vals: Vec<f64> = bars.windows(2).filter_map(|w| {
-            Some((w[1].close.to_f64()? - w[0].close.to_f64()?).abs())
-        }).collect();
-        if vals.is_empty() { return None; }
+        if bars.len() < 2 {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .windows(2)
+            .filter_map(|w| Some((w[1].close.to_f64()? - w[0].close.to_f64()?).abs()))
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
     /// Mean volume\[i\] - volume[i-1]: volume momentum.
     pub fn bar_volume_momentum(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 2 { return None; }
-        let vals: Vec<f64> = bars.windows(2).filter_map(|w| {
-            Some(w[1].volume.to_f64()? - w[0].volume.to_f64()?)
-        }).collect();
-        if vals.is_empty() { return None; }
+        if bars.len() < 2 {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .windows(2)
+            .filter_map(|w| Some(w[1].volume.to_f64()? - w[0].volume.to_f64()?))
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
     /// Mean (close\[i\] - open\[i\]) / open\[i\]: per-bar close return.
     pub fn bar_close_level_return(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let vals: Vec<f64> = bars.iter().filter_map(|b| {
-            let o = b.open.to_f64()?;
-            if o == 0.0 { return None; }
-            Some((b.close.to_f64()? - o) / o)
-        }).collect();
-        if vals.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let o = b.open.to_f64()?;
+                if o == 0.0 {
+                    return None;
+                }
+                Some((b.close.to_f64()? - o) / o)
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
     /// Pearson correlation between (high-low) and volume across bars.
     pub fn bar_range_vol_corr(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 2 { return None; }
-        let pairs: Vec<(f64, f64)> = bars.iter().filter_map(|b| {
-            Some((b.high.to_f64()? - b.low.to_f64()?, b.volume.to_f64()?))
-        }).collect();
-        if pairs.len() < 2 { return None; }
+        if bars.len() < 2 {
+            return None;
+        }
+        let pairs: Vec<(f64, f64)> = bars
+            .iter()
+            .filter_map(|b| Some((b.high.to_f64()? - b.low.to_f64()?, b.volume.to_f64()?)))
+            .collect();
+        if pairs.len() < 2 {
+            return None;
+        }
         let n = pairs.len() as f64;
         let mx = pairs.iter().map(|p| p.0).sum::<f64>() / n;
         let my = pairs.iter().map(|p| p.1).sum::<f64>() / n;
         let cov = pairs.iter().map(|p| (p.0 - mx) * (p.1 - my)).sum::<f64>() / n;
         let sx = (pairs.iter().map(|p| (p.0 - mx).powi(2)).sum::<f64>() / n).sqrt();
         let sy = (pairs.iter().map(|p| (p.1 - my).powi(2)).sum::<f64>() / n).sqrt();
-        if sx == 0.0 || sy == 0.0 { return None; }
+        if sx == 0.0 || sy == 0.0 {
+            return None;
+        }
         Some(cov / (sx * sy))
     }
 
     /// Mean second difference of bar body sizes: acceleration of body growth.
     pub fn bar_body_accel(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 3 { return None; }
-        let bodies: Vec<f64> = bars.iter().filter_map(|b| {
-            Some((b.close.to_f64()? - b.open.to_f64()?).abs())
-        }).collect();
-        if bodies.len() < 3 { return None; }
-        let accels: Vec<f64> = bodies.windows(3).map(|w| (w[2] - w[1]) - (w[1] - w[0])).collect();
+        if bars.len() < 3 {
+            return None;
+        }
+        let bodies: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| Some((b.close.to_f64()? - b.open.to_f64()?).abs()))
+            .collect();
+        if bodies.len() < 3 {
+            return None;
+        }
+        let accels: Vec<f64> = bodies
+            .windows(3)
+            .map(|w| (w[2] - w[1]) - (w[1] - w[0]))
+            .collect();
         Some(accels.iter().sum::<f64>() / accels.len() as f64)
     }
 
     /// Pearson correlation between total shadow length and volume.
     pub fn bar_shadow_vol_corr(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 2 { return None; }
-        let pairs: Vec<(f64, f64)> = bars.iter().filter_map(|b| {
-            let o = b.open.to_f64()?;
-            let h = b.high.to_f64()?;
-            let l = b.low.to_f64()?;
-            let c = b.close.to_f64()?;
-            let shadow = (h - o.max(c)) + (o.min(c) - l);
-            Some((shadow, b.volume.to_f64()?))
-        }).collect();
-        if pairs.len() < 2 { return None; }
+        if bars.len() < 2 {
+            return None;
+        }
+        let pairs: Vec<(f64, f64)> = bars
+            .iter()
+            .filter_map(|b| {
+                let o = b.open.to_f64()?;
+                let h = b.high.to_f64()?;
+                let l = b.low.to_f64()?;
+                let c = b.close.to_f64()?;
+                let shadow = (h - o.max(c)) + (o.min(c) - l);
+                Some((shadow, b.volume.to_f64()?))
+            })
+            .collect();
+        if pairs.len() < 2 {
+            return None;
+        }
         let n = pairs.len() as f64;
         let mx = pairs.iter().map(|p| p.0).sum::<f64>() / n;
         let my = pairs.iter().map(|p| p.1).sum::<f64>() / n;
         let cov = pairs.iter().map(|p| (p.0 - mx) * (p.1 - my)).sum::<f64>() / n;
         let sx = (pairs.iter().map(|p| (p.0 - mx).powi(2)).sum::<f64>() / n).sqrt();
         let sy = (pairs.iter().map(|p| (p.1 - my).powi(2)).sum::<f64>() / n).sqrt();
-        if sx == 0.0 || sy == 0.0 { return None; }
+        if sx == 0.0 || sy == 0.0 {
+            return None;
+        }
         Some(cov / (sx * sy))
     }
 
     /// Mean close position within IQR of closes: (close - q1) / (q3 - q1).
     pub fn bar_close_iqr_position(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 4 { return None; }
+        if bars.len() < 4 {
+            return None;
+        }
         let mut closes: Vec<f64> = bars.iter().filter_map(|b| b.close.to_f64()).collect();
-        if closes.len() < 4 { return None; }
+        if closes.len() < 4 {
+            return None;
+        }
         closes.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
         let n = closes.len();
         let q1 = closes[n / 4];
         let q3 = closes[3 * n / 4];
         let iqr = q3 - q1;
-        if iqr == 0.0 { return None; }
+        if iqr == 0.0 {
+            return None;
+        }
         let raw: Vec<f64> = bars.iter().filter_map(|b| b.close.to_f64()).collect();
         let mean_pos = raw.iter().map(|c| (c - q1) / iqr).sum::<f64>() / raw.len() as f64;
         Some(mean_pos)
@@ -8923,11 +11250,16 @@ impl OhlcvBar {
     /// Standard deviation of (close - open) per bar.
     pub fn bar_open_close_std(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 2 { return None; }
-        let vals: Vec<f64> = bars.iter().filter_map(|b| {
-            Some(b.close.to_f64()? - b.open.to_f64()?)
-        }).collect();
-        if vals.len() < 2 { return None; }
+        if bars.len() < 2 {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| Some(b.close.to_f64()? - b.open.to_f64()?))
+            .collect();
+        if vals.len() < 2 {
+            return None;
+        }
         let mean = vals.iter().sum::<f64>() / vals.len() as f64;
         Some((vals.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / vals.len() as f64).sqrt())
     }
@@ -8935,43 +11267,66 @@ impl OhlcvBar {
     /// Mean (high - low) / open per bar: range as fraction of open.
     pub fn bar_hl_return(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let vals: Vec<f64> = bars.iter().filter_map(|b| {
-            let o = b.open.to_f64()?;
-            if o == 0.0 { return None; }
-            Some((b.high.to_f64()? - b.low.to_f64()?) / o)
-        }).collect();
-        if vals.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let o = b.open.to_f64()?;
+                if o == 0.0 {
+                    return None;
+                }
+                Some((b.high.to_f64()? - b.low.to_f64()?) / o)
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
     /// Mean (upper_shadow + lower_shadow) / body per bar.
     pub fn bar_shadow_body_mean(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let vals: Vec<f64> = bars.iter().filter_map(|b| {
-            let o = b.open.to_f64()?;
-            let h = b.high.to_f64()?;
-            let l = b.low.to_f64()?;
-            let c = b.close.to_f64()?;
-            let body = (c - o).abs();
-            if body == 0.0 { return None; }
-            let upper = h - o.max(c);
-            let lower = o.min(c) - l;
-            Some((upper + lower) / body)
-        }).collect();
-        if vals.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let o = b.open.to_f64()?;
+                let h = b.high.to_f64()?;
+                let l = b.low.to_f64()?;
+                let c = b.close.to_f64()?;
+                let body = (c - o).abs();
+                if body == 0.0 {
+                    return None;
+                }
+                let upper = h - o.max(c);
+                let lower = o.min(c) - l;
+                Some((upper + lower) / body)
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
     /// Standard deviation of (close - prev_close) per consecutive bar pair.
     pub fn bar_close_range_std(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 3 { return None; }
-        let diffs: Vec<f64> = bars.windows(2).filter_map(|w| {
-            Some(w[1].close.to_f64()? - w[0].close.to_f64()?)
-        }).collect();
-        if diffs.len() < 2 { return None; }
+        if bars.len() < 3 {
+            return None;
+        }
+        let diffs: Vec<f64> = bars
+            .windows(2)
+            .filter_map(|w| Some(w[1].close.to_f64()? - w[0].close.to_f64()?))
+            .collect();
+        if diffs.len() < 2 {
+            return None;
+        }
         let mean = diffs.iter().sum::<f64>() / diffs.len() as f64;
         Some((diffs.iter().map(|d| (d - mean).powi(2)).sum::<f64>() / diffs.len() as f64).sqrt())
     }
@@ -8979,154 +11334,253 @@ impl OhlcvBar {
     /// Mean (open + high + low + close) / 4 per bar.
     pub fn bar_ohlc_mean(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let vals: Vec<f64> = bars.iter().filter_map(|b| {
-            Some((b.open.to_f64()? + b.high.to_f64()? + b.low.to_f64()? + b.close.to_f64()?) / 4.0)
-        }).collect();
-        if vals.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                Some(
+                    (b.open.to_f64()? + b.high.to_f64()? + b.low.to_f64()? + b.close.to_f64()?)
+                        / 4.0,
+                )
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
     /// Mean second difference of (close - open) per bar: body acceleration.
     pub fn bar_open_close_accel(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 3 { return None; }
-        let bodies: Vec<f64> = bars.iter().filter_map(|b| {
-            Some(b.close.to_f64()? - b.open.to_f64()?)
-        }).collect();
-        if bodies.len() < 3 { return None; }
-        let accels: Vec<f64> = bodies.windows(3).map(|w| (w[2] - w[1]) - (w[1] - w[0])).collect();
+        if bars.len() < 3 {
+            return None;
+        }
+        let bodies: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| Some(b.close.to_f64()? - b.open.to_f64()?))
+            .collect();
+        if bodies.len() < 3 {
+            return None;
+        }
+        let accels: Vec<f64> = bodies
+            .windows(3)
+            .map(|w| (w[2] - w[1]) - (w[1] - w[0]))
+            .collect();
         Some(accels.iter().sum::<f64>() / accels.len() as f64)
     }
 
     /// Z-score of latest close vs. rolling close mean and std.
     pub fn bar_close_vol_zscore(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 2 { return None; }
+        if bars.len() < 2 {
+            return None;
+        }
         let closes: Vec<f64> = bars.iter().filter_map(|b| b.close.to_f64()).collect();
-        if closes.len() < 2 { return None; }
+        if closes.len() < 2 {
+            return None;
+        }
         let mean = closes.iter().sum::<f64>() / closes.len() as f64;
-        let std = (closes.iter().map(|c| (c - mean).powi(2)).sum::<f64>() / closes.len() as f64).sqrt();
-        if std == 0.0 { return None; }
+        let std =
+            (closes.iter().map(|c| (c - mean).powi(2)).sum::<f64>() / closes.len() as f64).sqrt();
+        if std == 0.0 {
+            return None;
+        }
         Some((*closes.last()? - mean) / std)
     }
 
     /// Mean (open - low) / (high - low): open position within bar range.
     pub fn bar_open_range_pct(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let vals: Vec<f64> = bars.iter().filter_map(|b| {
-            let o = b.open.to_f64()?;
-            let h = b.high.to_f64()?;
-            let l = b.low.to_f64()?;
-            let range = h - l;
-            if range == 0.0 { return None; }
-            Some((o - l) / range)
-        }).collect();
-        if vals.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let o = b.open.to_f64()?;
+                let h = b.high.to_f64()?;
+                let l = b.low.to_f64()?;
+                let range = h - l;
+                if range == 0.0 {
+                    return None;
+                }
+                Some((o - l) / range)
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
     /// Mean volume / close per bar.
     pub fn bar_volume_per_close(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let vals: Vec<f64> = bars.iter().filter_map(|b| {
-            let c = b.close.to_f64()?;
-            if c == 0.0 { return None; }
-            Some(b.volume.to_f64()? / c)
-        }).collect();
-        if vals.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let c = b.close.to_f64()?;
+                if c == 0.0 {
+                    return None;
+                }
+                Some(b.volume.to_f64()? / c)
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
     /// Fraction of bars where open > prev close (gap up sign).
     pub fn bar_open_gap_sign(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 2 { return None; }
-        let signs: Vec<f64> = bars.windows(2).filter_map(|w| {
-            let open = w[1].open.to_f64()?;
-            let prev_close = w[0].close.to_f64()?;
-            Some(if open > prev_close { 1.0 } else if open < prev_close { -1.0 } else { 0.0 })
-        }).collect();
-        if signs.is_empty() { return None; }
+        if bars.len() < 2 {
+            return None;
+        }
+        let signs: Vec<f64> = bars
+            .windows(2)
+            .filter_map(|w| {
+                let open = w[1].open.to_f64()?;
+                let prev_close = w[0].close.to_f64()?;
+                Some(if open > prev_close {
+                    1.0
+                } else if open < prev_close {
+                    -1.0
+                } else {
+                    0.0
+                })
+            })
+            .collect();
+        if signs.is_empty() {
+            return None;
+        }
         Some(signs.iter().sum::<f64>() / signs.len() as f64)
     }
 
     /// Mean |close - ohlc_mean| per bar: close deviation from bar average.
     pub fn bar_close_to_ohlc_mean(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let vals: Vec<f64> = bars.iter().filter_map(|b| {
-            let o = b.open.to_f64()?;
-            let h = b.high.to_f64()?;
-            let l = b.low.to_f64()?;
-            let c = b.close.to_f64()?;
-            let ohlc_mean = (o + h + l + c) / 4.0;
-            Some((c - ohlc_mean).abs())
-        }).collect();
-        if vals.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let o = b.open.to_f64()?;
+                let h = b.high.to_f64()?;
+                let l = b.low.to_f64()?;
+                let c = b.close.to_f64()?;
+                let ohlc_mean = (o + h + l + c) / 4.0;
+                Some((c - ohlc_mean).abs())
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
     /// Fraction of bars where (high-low)\[i\] > (high-low)[i-1]: range expansion sign.
     pub fn bar_range_change_sign(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 2 { return None; }
-        let signs: Vec<f64> = bars.windows(2).filter_map(|w| {
-            let r0 = w[0].high.to_f64()? - w[0].low.to_f64()?;
-            let r1 = w[1].high.to_f64()? - w[1].low.to_f64()?;
-            Some(if r1 > r0 { 1.0 } else if r1 < r0 { -1.0 } else { 0.0 })
-        }).collect();
-        if signs.is_empty() { return None; }
+        if bars.len() < 2 {
+            return None;
+        }
+        let signs: Vec<f64> = bars
+            .windows(2)
+            .filter_map(|w| {
+                let r0 = w[0].high.to_f64()? - w[0].low.to_f64()?;
+                let r1 = w[1].high.to_f64()? - w[1].low.to_f64()?;
+                Some(if r1 > r0 {
+                    1.0
+                } else if r1 < r0 {
+                    -1.0
+                } else {
+                    0.0
+                })
+            })
+            .collect();
+        if signs.is_empty() {
+            return None;
+        }
         Some(signs.iter().sum::<f64>() / signs.len() as f64)
     }
 
     /// Mean (open - min(open,close)) / body per bar: open position within body.
     pub fn bar_open_body_pct(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let vals: Vec<f64> = bars.iter().filter_map(|b| {
-            let o = b.open.to_f64()?;
-            let c = b.close.to_f64()?;
-            let body = (c - o).abs();
-            if body == 0.0 { return None; }
-            Some((o - o.min(c)) / body)
-        }).collect();
-        if vals.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let o = b.open.to_f64()?;
+                let c = b.close.to_f64()?;
+                let body = (c - o).abs();
+                if body == 0.0 {
+                    return None;
+                }
+                Some((o - o.min(c)) / body)
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
     /// Pearson correlation between close and volume across bars.
     pub fn bar_close_to_vol_corr(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 2 { return None; }
-        let pairs: Vec<(f64, f64)> = bars.iter().filter_map(|b| {
-            Some((b.close.to_f64()?, b.volume.to_f64()?))
-        }).collect();
-        if pairs.len() < 2 { return None; }
+        if bars.len() < 2 {
+            return None;
+        }
+        let pairs: Vec<(f64, f64)> = bars
+            .iter()
+            .filter_map(|b| Some((b.close.to_f64()?, b.volume.to_f64()?)))
+            .collect();
+        if pairs.len() < 2 {
+            return None;
+        }
         let n = pairs.len() as f64;
         let mx = pairs.iter().map(|p| p.0).sum::<f64>() / n;
         let my = pairs.iter().map(|p| p.1).sum::<f64>() / n;
         let cov = pairs.iter().map(|p| (p.0 - mx) * (p.1 - my)).sum::<f64>() / n;
         let sx = (pairs.iter().map(|p| (p.0 - mx).powi(2)).sum::<f64>() / n).sqrt();
         let sy = (pairs.iter().map(|p| (p.1 - my).powi(2)).sum::<f64>() / n).sqrt();
-        if sx == 0.0 || sy == 0.0 { return None; }
+        if sx == 0.0 || sy == 0.0 {
+            return None;
+        }
         Some(cov / (sx * sy))
     }
 
     /// Std of total wick length: std(upper_wick + lower_wick) per bar.
     pub fn bar_wick_volatility(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 2 { return None; }
-        let wicks: Vec<f64> = bars.iter().filter_map(|b| {
-            let o = b.open.to_f64()?;
-            let h = b.high.to_f64()?;
-            let l = b.low.to_f64()?;
-            let c = b.close.to_f64()?;
-            Some((h - o.max(c)) + (o.min(c) - l))
-        }).collect();
-        if wicks.len() < 2 { return None; }
+        if bars.len() < 2 {
+            return None;
+        }
+        let wicks: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let o = b.open.to_f64()?;
+                let h = b.high.to_f64()?;
+                let l = b.low.to_f64()?;
+                let c = b.close.to_f64()?;
+                Some((h - o.max(c)) + (o.min(c) - l))
+            })
+            .collect();
+        if wicks.len() < 2 {
+            return None;
+        }
         let mean = wicks.iter().sum::<f64>() / wicks.len() as f64;
         Some((wicks.iter().map(|w| (w - mean).powi(2)).sum::<f64>() / wicks.len() as f64).sqrt())
     }
@@ -9134,12 +11588,18 @@ impl OhlcvBar {
     /// Z-score of each bar's volume vs. rolling mean, then take the mean z-score.
     pub fn bar_vol_zscore_mean(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 2 { return None; }
+        if bars.len() < 2 {
+            return None;
+        }
         let vols: Vec<f64> = bars.iter().filter_map(|b| b.volume.to_f64()).collect();
-        if vols.len() < 2 { return None; }
+        if vols.len() < 2 {
+            return None;
+        }
         let mean = vols.iter().sum::<f64>() / vols.len() as f64;
         let std = (vols.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / vols.len() as f64).sqrt();
-        if std == 0.0 { return None; }
+        if std == 0.0 {
+            return None;
+        }
         let z_mean = vols.iter().map(|v| (v - mean) / std).sum::<f64>() / vols.len() as f64;
         Some(z_mean)
     }
@@ -9147,30 +11607,46 @@ impl OhlcvBar {
     /// Pearson correlation between absolute body size and volume.
     pub fn bar_body_vol_corr(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 2 { return None; }
-        let bodies: Vec<f64> = bars.iter()
+        if bars.len() < 2 {
+            return None;
+        }
+        let bodies: Vec<f64> = bars
+            .iter()
             .filter_map(|b| (b.close - b.open).abs().to_f64())
             .collect();
         let vols: Vec<f64> = bars.iter().filter_map(|b| b.volume.to_f64()).collect();
-        if bodies.len() != vols.len() || bodies.len() < 2 { return None; }
+        if bodies.len() != vols.len() || bodies.len() < 2 {
+            return None;
+        }
         let n = bodies.len() as f64;
         let bm = bodies.iter().sum::<f64>() / n;
         let vm = vols.iter().sum::<f64>() / n;
-        let num: f64 = bodies.iter().zip(vols.iter()).map(|(b, v)| (b - bm) * (v - vm)).sum();
+        let num: f64 = bodies
+            .iter()
+            .zip(vols.iter())
+            .map(|(b, v)| (b - bm) * (v - vm))
+            .sum();
         let db = (bodies.iter().map(|b| (b - bm).powi(2)).sum::<f64>()).sqrt();
         let dv = (vols.iter().map(|v| (v - vm).powi(2)).sum::<f64>()).sqrt();
-        if db == 0.0 || dv == 0.0 { return None; }
+        if db == 0.0 || dv == 0.0 {
+            return None;
+        }
         Some(num / (db * dv))
     }
 
     /// Mean absolute change in body size between consecutive bars.
     pub fn bar_body_change_rate(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 2 { return None; }
-        let bodies: Vec<f64> = bars.iter()
+        if bars.len() < 2 {
+            return None;
+        }
+        let bodies: Vec<f64> = bars
+            .iter()
             .filter_map(|b| (b.close - b.open).abs().to_f64())
             .collect();
-        if bodies.len() < 2 { return None; }
+        if bodies.len() < 2 {
+            return None;
+        }
         let changes: Vec<f64> = bodies.windows(2).map(|w| (w[1] - w[0]).abs()).collect();
         Some(changes.iter().sum::<f64>() / changes.len() as f64)
     }
@@ -9178,72 +11654,109 @@ impl OhlcvBar {
     /// Ratio of upper shadow to lower shadow. None if lower shadow is zero.
     pub fn bar_upper_lower_ratio(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
         let b = &bars[bars.len() - 1];
         let top = b.open.max(b.close);
         let bot = b.open.min(b.close);
         let upper = (b.high - top).to_f64()?;
         let lower = (bot - b.low).to_f64()?;
-        if lower == 0.0 { return None; }
+        if lower == 0.0 {
+            return None;
+        }
         Some(upper / lower)
     }
 
     /// Last close minus exponential moving average of closes, divided by HL range.
     pub fn bar_close_ema_spread(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 2 { return None; }
+        if bars.len() < 2 {
+            return None;
+        }
         let closes: Vec<f64> = bars.iter().filter_map(|b| b.close.to_f64()).collect();
-        if closes.len() < 2 { return None; }
+        if closes.len() < 2 {
+            return None;
+        }
         let k = 2.0 / (closes.len() as f64 + 1.0);
         let mut ema = closes[0];
-        for &c in &closes[1..] { ema = c * k + ema * (1.0 - k); }
+        for &c in &closes[1..] {
+            ema = c * k + ema * (1.0 - k);
+        }
         let last = *closes.last()?;
-        let range: f64 = bars.iter()
+        let range: f64 = bars
+            .iter()
             .filter_map(|b| (b.high - b.low).to_f64())
-            .sum::<f64>() / bars.len() as f64;
-        if range == 0.0 { return None; }
+            .sum::<f64>()
+            / bars.len() as f64;
+        if range == 0.0 {
+            return None;
+        }
         Some((last - ema) / range)
     }
 
     /// Mean body as a fraction of HL range per bar.
     pub fn bar_range_pct_body(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let ratios: Vec<f64> = bars.iter().filter_map(|b| {
-            let range = (b.high - b.low).to_f64()?;
-            if range == 0.0 { return None; }
-            let body = (b.close - b.open).abs().to_f64()?;
-            Some(body / range)
-        }).collect();
-        if ratios.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
+        let ratios: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let range = (b.high - b.low).to_f64()?;
+                if range == 0.0 {
+                    return None;
+                }
+                let body = (b.close - b.open).abs().to_f64()?;
+                Some(body / range)
+            })
+            .collect();
+        if ratios.is_empty() {
+            return None;
+        }
         Some(ratios.iter().sum::<f64>() / ratios.len() as f64)
     }
 
     /// Mean shadow asymmetry: (upper_shadow - lower_shadow) / range per bar.
     pub fn bar_shadow_asymmetry(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let vals: Vec<f64> = bars.iter().filter_map(|b| {
-            let range = (b.high - b.low).to_f64()?;
-            if range == 0.0 { return None; }
-            let top = b.open.max(b.close);
-            let bot = b.open.min(b.close);
-            let upper = (b.high - top).to_f64()?;
-            let lower = (bot - b.low).to_f64()?;
-            Some((upper - lower) / range)
-        }).collect();
-        if vals.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let range = (b.high - b.low).to_f64()?;
+                if range == 0.0 {
+                    return None;
+                }
+                let top = b.open.max(b.close);
+                let bot = b.open.min(b.close);
+                let upper = (b.high - top).to_f64()?;
+                let lower = (bot - b.low).to_f64()?;
+                Some((upper - lower) / range)
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
     /// Mean absolute change in (close - open) between consecutive bars.
     pub fn bar_close_open_accel(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 2 { return None; }
-        let diffs: Vec<f64> = bars.iter()
+        if bars.len() < 2 {
+            return None;
+        }
+        let diffs: Vec<f64> = bars
+            .iter()
             .filter_map(|b| (b.close - b.open).to_f64())
             .collect();
-        if diffs.len() < 2 { return None; }
+        if diffs.len() < 2 {
+            return None;
+        }
         let changes: Vec<f64> = diffs.windows(2).map(|w| (w[1] - w[0]).abs()).collect();
         Some(changes.iter().sum::<f64>() / changes.len() as f64)
     }
@@ -9251,131 +11764,200 @@ impl OhlcvBar {
     /// Mean body / HL-range ratio treating it as efficiency (how much of range is body).
     pub fn bar_hl_body_efficiency(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let vals: Vec<f64> = bars.iter().filter_map(|b| {
-            let hl = (b.high - b.low).to_f64()?;
-            if hl == 0.0 { return None; }
-            let body = (b.close - b.open).abs().to_f64()?;
-            Some(body / hl)
-        }).collect();
-        if vals.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let hl = (b.high - b.low).to_f64()?;
+                if hl == 0.0 {
+                    return None;
+                }
+                let body = (b.close - b.open).abs().to_f64()?;
+                Some(body / hl)
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
     /// Mean (close - prev_close) / prev_close gap ratio between consecutive bars.
     pub fn bar_close_gap_ratio(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 2 { return None; }
-        let ratios: Vec<f64> = bars.windows(2).filter_map(|w| {
-            let prev = w[0].close.to_f64()?;
-            if prev == 0.0 { return None; }
-            let curr = w[1].close.to_f64()?;
-            Some((curr - prev) / prev)
-        }).collect();
-        if ratios.is_empty() { return None; }
+        if bars.len() < 2 {
+            return None;
+        }
+        let ratios: Vec<f64> = bars
+            .windows(2)
+            .filter_map(|w| {
+                let prev = w[0].close.to_f64()?;
+                if prev == 0.0 {
+                    return None;
+                }
+                let curr = w[1].close.to_f64()?;
+                Some((curr - prev) / prev)
+            })
+            .collect();
+        if ratios.is_empty() {
+            return None;
+        }
         Some(ratios.iter().sum::<f64>() / ratios.len() as f64)
     }
 
     /// Ratio of total body to total wick length across bars.
     pub fn bar_body_wick_ratio(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
         let mut total_body = 0.0_f64;
         let mut total_wick = 0.0_f64;
         for b in bars {
             let body = (b.close - b.open).abs().to_f64().unwrap_or(0.0);
             let top = b.open.max(b.close);
             let bot = b.open.min(b.close);
-            let wick = (b.high - top).to_f64().unwrap_or(0.0)
-                     + (bot - b.low).to_f64().unwrap_or(0.0);
+            let wick =
+                (b.high - top).to_f64().unwrap_or(0.0) + (bot - b.low).to_f64().unwrap_or(0.0);
             total_body += body;
             total_wick += wick;
         }
-        if total_wick == 0.0 { return None; }
+        if total_wick == 0.0 {
+            return None;
+        }
         Some(total_body / total_wick)
     }
 
     /// Mean (open - prev_close) / body ratio: gap relative to body size.
     pub fn bar_open_gap_body_ratio(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 2 { return None; }
-        let ratios: Vec<f64> = bars.windows(2).filter_map(|w| {
-            let gap = (w[1].open - w[0].close).to_f64()?;
-            let body = (w[1].close - w[1].open).abs().to_f64()?;
-            if body == 0.0 { return None; }
-            Some(gap / body)
-        }).collect();
-        if ratios.is_empty() { return None; }
+        if bars.len() < 2 {
+            return None;
+        }
+        let ratios: Vec<f64> = bars
+            .windows(2)
+            .filter_map(|w| {
+                let gap = (w[1].open - w[0].close).to_f64()?;
+                let body = (w[1].close - w[1].open).abs().to_f64()?;
+                if body == 0.0 {
+                    return None;
+                }
+                Some(gap / body)
+            })
+            .collect();
+        if ratios.is_empty() {
+            return None;
+        }
         Some(ratios.iter().sum::<f64>() / ratios.len() as f64)
     }
 
     /// Ratio of second-half volume mean to first-half volume mean.
     pub fn bar_vol_momentum_ratio(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 2 { return None; }
+        if bars.len() < 2 {
+            return None;
+        }
         let mid = bars.len() / 2;
-        let first_mean = bars[..mid].iter()
+        let first_mean = bars[..mid]
+            .iter()
             .filter_map(|b| b.volume.to_f64())
-            .sum::<f64>() / mid as f64;
-        let second_mean = bars[mid..].iter()
+            .sum::<f64>()
+            / mid as f64;
+        let second_mean = bars[mid..]
+            .iter()
             .filter_map(|b| b.volume.to_f64())
-            .sum::<f64>() / (bars.len() - mid) as f64;
-        if first_mean == 0.0 { return None; }
+            .sum::<f64>()
+            / (bars.len() - mid) as f64;
+        if first_mean == 0.0 {
+            return None;
+        }
         Some(second_mean / first_mean)
     }
 
     /// Mean distance of close to (prev_high + prev_low) / 2.
     pub fn bar_close_prev_midpoint(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 2 { return None; }
-        let dists: Vec<f64> = bars.windows(2).filter_map(|w| {
-            let prev_mid = ((w[0].high + w[0].low) / rust_decimal::Decimal::TWO).to_f64()?;
-            let close = w[1].close.to_f64()?;
-            Some((close - prev_mid).abs())
-        }).collect();
-        if dists.is_empty() { return None; }
+        if bars.len() < 2 {
+            return None;
+        }
+        let dists: Vec<f64> = bars
+            .windows(2)
+            .filter_map(|w| {
+                let prev_mid = ((w[0].high + w[0].low) / rust_decimal::Decimal::TWO).to_f64()?;
+                let close = w[1].close.to_f64()?;
+                Some((close - prev_mid).abs())
+            })
+            .collect();
+        if dists.is_empty() {
+            return None;
+        }
         Some(dists.iter().sum::<f64>() / dists.len() as f64)
     }
 
     /// Fraction of HL range consumed by wicks (total wicks / range).
     pub fn bar_wicks_to_range(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let vals: Vec<f64> = bars.iter().filter_map(|b| {
-            let range = (b.high - b.low).to_f64()?;
-            if range == 0.0 { return None; }
-            let top = b.open.max(b.close);
-            let bot = b.open.min(b.close);
-            let wicks = (b.high - top).to_f64()? + (bot - b.low).to_f64()?;
-            Some(wicks / range)
-        }).collect();
-        if vals.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let range = (b.high - b.low).to_f64()?;
+                if range == 0.0 {
+                    return None;
+                }
+                let top = b.open.max(b.close);
+                let bot = b.open.min(b.close);
+                let wicks = (b.high - top).to_f64()? + (bot - b.low).to_f64()?;
+                Some(wicks / range)
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
     /// Mean (high - max(open, close)) normalized by range.
     pub fn bar_high_to_open_close(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let vals: Vec<f64> = bars.iter().filter_map(|b| {
-            let range = (b.high - b.low).to_f64()?;
-            if range == 0.0 { return None; }
-            let top = b.open.max(b.close);
-            let upper = (b.high - top).to_f64()?;
-            Some(upper / range)
-        }).collect();
-        if vals.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let range = (b.high - b.low).to_f64()?;
+                if range == 0.0 {
+                    return None;
+                }
+                let top = b.open.max(b.close);
+                let upper = (b.high - top).to_f64()?;
+                Some(upper / range)
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
     /// Mean change in body size (close - open) per bar across the series.
     pub fn bar_body_progression(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 2 { return None; }
-        let diffs: Vec<f64> = bars.iter()
+        if bars.len() < 2 {
+            return None;
+        }
+        let diffs: Vec<f64> = bars
+            .iter()
             .filter_map(|b| (b.close - b.open).to_f64())
             .collect();
-        if diffs.len() < 2 { return None; }
+        if diffs.len() < 2 {
+            return None;
+        }
         let changes: Vec<f64> = diffs.windows(2).map(|w| w[1] - w[0]).collect();
         Some(changes.iter().sum::<f64>() / changes.len() as f64)
     }
@@ -9383,21 +11965,31 @@ impl OhlcvBar {
     /// Ratio of mean |open - close| to mean |high - low| across bars.
     pub fn bar_open_close_range_ratio(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let body_mean = bars.iter()
+        if bars.is_empty() {
+            return None;
+        }
+        let body_mean = bars
+            .iter()
             .filter_map(|b| (b.close - b.open).abs().to_f64())
-            .sum::<f64>() / bars.len() as f64;
-        let range_mean = bars.iter()
+            .sum::<f64>()
+            / bars.len() as f64;
+        let range_mean = bars
+            .iter()
             .filter_map(|b| (b.high - b.low).to_f64())
-            .sum::<f64>() / bars.len() as f64;
-        if range_mean == 0.0 { return None; }
+            .sum::<f64>()
+            / bars.len() as f64;
+        if range_mean == 0.0 {
+            return None;
+        }
         Some(body_mean / range_mean)
     }
 
     /// Total volume divided by number of bars (volume per candle).
     pub fn bar_vol_per_candle(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
         let total: f64 = bars.iter().filter_map(|b| b.volume.to_f64()).sum();
         Some(total / bars.len() as f64)
     }
@@ -9405,25 +11997,39 @@ impl OhlcvBar {
     /// Ratio of close to (high + low) / 2 averaged across bars.
     pub fn bar_close_high_low_ratio(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let vals: Vec<f64> = bars.iter().filter_map(|b| {
-            let hl_mid = ((b.high + b.low) / rust_decimal::Decimal::TWO).to_f64()?;
-            if hl_mid == 0.0 { return None; }
-            let close = b.close.to_f64()?;
-            Some(close / hl_mid)
-        }).collect();
-        if vals.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let hl_mid = ((b.high + b.low) / rust_decimal::Decimal::TWO).to_f64()?;
+                if hl_mid == 0.0 {
+                    return None;
+                }
+                let close = b.close.to_f64()?;
+                Some(close / hl_mid)
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
     /// Standard deviation of (close - open) values across bars.
     pub fn bar_close_open_std(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 2 { return None; }
-        let diffs: Vec<f64> = bars.iter()
+        if bars.len() < 2 {
+            return None;
+        }
+        let diffs: Vec<f64> = bars
+            .iter()
             .filter_map(|b| (b.close - b.open).to_f64())
             .collect();
-        if diffs.len() < 2 { return None; }
+        if diffs.len() < 2 {
+            return None;
+        }
         let mean = diffs.iter().sum::<f64>() / diffs.len() as f64;
         let var = diffs.iter().map(|d| (d - mean).powi(2)).sum::<f64>() / diffs.len() as f64;
         Some(var.sqrt())
@@ -9432,40 +12038,59 @@ impl OhlcvBar {
     /// Mean (close - open) momentum: positive = net bullish, negative = net bearish.
     pub fn bar_oc_momentum(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let vals: Vec<f64> = bars.iter()
+        if bars.is_empty() {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .iter()
             .filter_map(|b| (b.close - b.open).to_f64())
             .collect();
-        if vals.is_empty() { return None; }
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
     /// Mean (close - VWAP) across bars. Uses (open+high+low+close)/4 as VWAP proxy.
     pub fn bar_close_vs_vwap(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
         let four = rust_decimal::Decimal::new(4, 0);
-        let vals: Vec<f64> = bars.iter().filter_map(|b| {
-            let vwap = ((b.open + b.high + b.low + b.close) / four).to_f64()?;
-            let close = b.close.to_f64()?;
-            Some(close - vwap)
-        }).collect();
-        if vals.is_empty() { return None; }
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let vwap = ((b.open + b.high + b.low + b.close) / four).to_f64()?;
+                let close = b.close.to_f64()?;
+                Some(close - vwap)
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
     /// Z-score of HL ranges across bars (last bar's range vs distribution).
     pub fn bar_hl_zscore(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 2 { return None; }
-        let ranges: Vec<f64> = bars.iter()
+        if bars.len() < 2 {
+            return None;
+        }
+        let ranges: Vec<f64> = bars
+            .iter()
             .filter_map(|b| (b.high - b.low).to_f64())
             .collect();
-        if ranges.len() < 2 { return None; }
+        if ranges.len() < 2 {
+            return None;
+        }
         let n = ranges.len() as f64;
         let mean = ranges.iter().sum::<f64>() / n;
         let std = (ranges.iter().map(|r| (r - mean).powi(2)).sum::<f64>() / n).sqrt();
-        if std == 0.0 { return None; }
+        if std == 0.0 {
+            return None;
+        }
         let last = *ranges.last()?;
         Some((last - mean) / std)
     }
@@ -9473,85 +12098,133 @@ impl OhlcvBar {
     /// Mean candle speed: HL range / number of bars.
     pub fn bar_candle_speed(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let total_range: f64 = bars.iter()
-            .filter_map(|b| (b.high - b.low).to_f64())
-            .sum();
+        if bars.is_empty() {
+            return None;
+        }
+        let total_range: f64 = bars.iter().filter_map(|b| (b.high - b.low).to_f64()).sum();
         Some(total_range / bars.len() as f64)
     }
 
     /// Rate of change in volume: mean (v\[i\] - v[i-1]) / v[i-1] across bars.
     pub fn bar_vol_accel(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 2 { return None; }
+        if bars.len() < 2 {
+            return None;
+        }
         let vols: Vec<f64> = bars.iter().filter_map(|b| b.volume.to_f64()).collect();
-        if vols.len() < 2 { return None; }
-        let rates: Vec<f64> = vols.windows(2).filter_map(|w| {
-            if w[0] == 0.0 { return None; }
-            Some((w[1] - w[0]) / w[0])
-        }).collect();
-        if rates.is_empty() { return None; }
+        if vols.len() < 2 {
+            return None;
+        }
+        let rates: Vec<f64> = vols
+            .windows(2)
+            .filter_map(|w| {
+                if w[0] == 0.0 {
+                    return None;
+                }
+                Some((w[1] - w[0]) / w[0])
+            })
+            .collect();
+        if rates.is_empty() {
+            return None;
+        }
         Some(rates.iter().sum::<f64>() / rates.len() as f64)
     }
 
     /// Ratio of total wick length to volume, averaged per bar.
     pub fn bar_shadow_vol_ratio(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let vals: Vec<f64> = bars.iter().filter_map(|b| {
-            let vol = b.volume.to_f64()?;
-            if vol == 0.0 { return None; }
-            let top = b.open.max(b.close);
-            let bot = b.open.min(b.close);
-            let wicks = (b.high - top).to_f64()? + (bot - b.low).to_f64()?;
-            Some(wicks / vol)
-        }).collect();
-        if vals.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let vol = b.volume.to_f64()?;
+                if vol == 0.0 {
+                    return None;
+                }
+                let top = b.open.max(b.close);
+                let bot = b.open.min(b.close);
+                let wicks = (b.high - top).to_f64()? + (bot - b.low).to_f64()?;
+                Some(wicks / vol)
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
     /// Mean |open - (prev_high + prev_low) / 2| gap to prev midpoint.
     pub fn bar_open_midpoint_dist(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 2 { return None; }
-        let dists: Vec<f64> = bars.windows(2).filter_map(|w| {
-            let prev_mid = ((w[0].high + w[0].low) / rust_decimal::Decimal::TWO).to_f64()?;
-            let open = w[1].open.to_f64()?;
-            Some((open - prev_mid).abs())
-        }).collect();
-        if dists.is_empty() { return None; }
+        if bars.len() < 2 {
+            return None;
+        }
+        let dists: Vec<f64> = bars
+            .windows(2)
+            .filter_map(|w| {
+                let prev_mid = ((w[0].high + w[0].low) / rust_decimal::Decimal::TWO).to_f64()?;
+                let open = w[1].open.to_f64()?;
+                Some((open - prev_mid).abs())
+            })
+            .collect();
+        if dists.is_empty() {
+            return None;
+        }
         Some(dists.iter().sum::<f64>() / dists.len() as f64)
     }
 
     /// Sign of (close - open) for the last bar: +1 bullish, -1 bearish, 0 doji.
     pub fn bar_close_momentum_sign(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
         let b = bars.last()?;
         let diff = (b.close - b.open).to_f64()?;
-        Some(if diff > 0.0 { 1.0 } else if diff < 0.0 { -1.0 } else { 0.0 })
+        Some(if diff > 0.0 {
+            1.0
+        } else if diff < 0.0 {
+            -1.0
+        } else {
+            0.0
+        })
     }
 
     /// Mean HL range / volume per bar.
     pub fn bar_vol_per_range(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let vals: Vec<f64> = bars.iter().filter_map(|b| {
-            let range = (b.high - b.low).to_f64()?;
-            if range == 0.0 { return None; }
-            let vol = b.volume.to_f64()?;
-            Some(vol / range)
-        }).collect();
-        if vals.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let range = (b.high - b.low).to_f64()?;
+                if range == 0.0 {
+                    return None;
+                }
+                let vol = b.volume.to_f64()?;
+                Some(vol / range)
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
     /// Position of last close within its own HL quartile (0=Q1, 1=Q2, 2=Q3, 3=Q4).
     pub fn bar_close_quartile(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
         let mut closes: Vec<f64> = bars.iter().filter_map(|b| b.close.to_f64()).collect();
-        if closes.is_empty() { return None; }
+        if closes.is_empty() {
+            return None;
+        }
         let last = *closes.last()?;
         closes.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
         let n = closes.len();
@@ -9562,14 +12235,21 @@ impl OhlcvBar {
     /// Standard deviation of total wick length across bars.
     pub fn bar_wicks_std(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 2 { return None; }
-        let wicks: Vec<f64> = bars.iter().filter_map(|b| {
-            let top = b.open.max(b.close);
-            let bot = b.open.min(b.close);
-            let w = (b.high - top).to_f64()? + (bot - b.low).to_f64()?;
-            Some(w)
-        }).collect();
-        if wicks.len() < 2 { return None; }
+        if bars.len() < 2 {
+            return None;
+        }
+        let wicks: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let top = b.open.max(b.close);
+                let bot = b.open.min(b.close);
+                let w = (b.high - top).to_f64()? + (bot - b.low).to_f64()?;
+                Some(w)
+            })
+            .collect();
+        if wicks.len() < 2 {
+            return None;
+        }
         let mean = wicks.iter().sum::<f64>() / wicks.len() as f64;
         let var = wicks.iter().map(|w| (w - mean).powi(2)).sum::<f64>() / wicks.len() as f64;
         Some(var.sqrt())
@@ -9578,9 +12258,13 @@ impl OhlcvBar {
     /// Mean change in open prices between consecutive bars.
     pub fn bar_open_velocity(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 2 { return None; }
+        if bars.len() < 2 {
+            return None;
+        }
         let opens: Vec<f64> = bars.iter().filter_map(|b| b.open.to_f64()).collect();
-        if opens.len() < 2 { return None; }
+        if opens.len() < 2 {
+            return None;
+        }
         let diffs: Vec<f64> = opens.windows(2).map(|w| w[1] - w[0]).collect();
         Some(diffs.iter().sum::<f64>() / diffs.len() as f64)
     }
@@ -9588,26 +12272,42 @@ impl OhlcvBar {
     /// Count of bars where close direction reverses vs previous bar.
     pub fn bar_candle_reversal_count(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 3 { return None; }
+        if bars.len() < 3 {
+            return None;
+        }
         let closes: Vec<f64> = bars.iter().filter_map(|b| b.close.to_f64()).collect();
-        if closes.len() < 3 { return None; }
-        let signs: Vec<f64> = closes.windows(2)
-            .map(|w| if w[1] > w[0] { 1.0 } else if w[1] < w[0] { -1.0 } else { 0.0 })
+        if closes.len() < 3 {
+            return None;
+        }
+        let signs: Vec<f64> = closes
+            .windows(2)
+            .map(|w| {
+                if w[1] > w[0] {
+                    1.0
+                } else if w[1] < w[0] {
+                    -1.0
+                } else {
+                    0.0
+                }
+            })
             .collect();
-        let reversals = signs.windows(2)
-            .filter(|w| w[0] * w[1] < 0.0)
-            .count();
+        let reversals = signs.windows(2).filter(|w| w[0] * w[1] < 0.0).count();
         Some(reversals as f64)
     }
 
     /// Standard deviation of (open - close) across bars.
     pub fn bar_oc_std(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 2 { return None; }
-        let diffs: Vec<f64> = bars.iter()
+        if bars.len() < 2 {
+            return None;
+        }
+        let diffs: Vec<f64> = bars
+            .iter()
             .filter_map(|b| (b.open - b.close).to_f64())
             .collect();
-        if diffs.len() < 2 { return None; }
+        if diffs.len() < 2 {
+            return None;
+        }
         let mean = diffs.iter().sum::<f64>() / diffs.len() as f64;
         let var = diffs.iter().map(|d| (d - mean).powi(2)).sum::<f64>() / diffs.len() as f64;
         Some(var.sqrt())
@@ -9615,159 +12315,253 @@ impl OhlcvBar {
 
     /// Fraction of bars where high was rising relative to previous bar.
     pub fn bar_high_low_trend(bars: &[OhlcvBar]) -> Option<f64> {
-        if bars.len() < 2 { return None; }
-        let ups = bars.windows(2).filter(|w| w[1].high > w[0].high && w[1].low > w[0].low).count();
+        if bars.len() < 2 {
+            return None;
+        }
+        let ups = bars
+            .windows(2)
+            .filter(|w| w[1].high > w[0].high && w[1].low > w[0].low)
+            .count();
         Some(ups as f64 / (bars.len() - 1) as f64)
     }
 
     /// Fraction of bars where close > OHLC/4 (proxy VWAP).
     pub fn bar_close_above_vwap(bars: &[OhlcvBar]) -> Option<f64> {
-        if bars.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
         let four = rust_decimal::Decimal::new(4, 0);
-        let count = bars.iter().filter(|b| {
-            let vwap = (b.open + b.high + b.low + b.close) / four;
-            b.close > vwap
-        }).count();
+        let count = bars
+            .iter()
+            .filter(|b| {
+                let vwap = (b.open + b.high + b.low + b.close) / four;
+                b.close > vwap
+            })
+            .count();
         Some(count as f64 / bars.len() as f64)
     }
 
     /// Mean distance from open to high across bars (normalized by range).
     pub fn bar_open_high_dist(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let vals: Vec<f64> = bars.iter().filter_map(|b| {
-            let range = (b.high - b.low).to_f64()?;
-            if range == 0.0 { return Some(0.0); }
-            let dist = (b.high - b.open).to_f64()?;
-            Some(dist / range)
-        }).collect();
-        if vals.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let range = (b.high - b.low).to_f64()?;
+                if range == 0.0 {
+                    return Some(0.0);
+                }
+                let dist = (b.high - b.open).to_f64()?;
+                Some(dist / range)
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
     /// Std dev of body-to-range ratios across bars.
     pub fn bar_body_ratio_std(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 2 { return None; }
-        let ratios: Vec<f64> = bars.iter().filter_map(|b| {
-            let range = (b.high - b.low).to_f64()?;
-            if range == 0.0 { return Some(0.0); }
-            let body = (b.close - b.open).abs().to_f64()?;
-            Some(body / range)
-        }).collect();
-        if ratios.len() < 2 { return None; }
+        if bars.len() < 2 {
+            return None;
+        }
+        let ratios: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let range = (b.high - b.low).to_f64()?;
+                if range == 0.0 {
+                    return Some(0.0);
+                }
+                let body = (b.close - b.open).abs().to_f64()?;
+                Some(body / range)
+            })
+            .collect();
+        if ratios.len() < 2 {
+            return None;
+        }
         let mean = ratios.iter().sum::<f64>() / ratios.len() as f64;
-        let var = ratios.iter().map(|x| (x - mean).powi(2)).sum::<f64>() / (ratios.len() - 1) as f64;
+        let var =
+            ratios.iter().map(|x| (x - mean).powi(2)).sum::<f64>() / (ratios.len() - 1) as f64;
         Some(var.sqrt())
     }
 
     /// Ratio of volume to open-to-high range across bars (mean).
     pub fn bar_vol_vs_open_range(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let vals: Vec<f64> = bars.iter().filter_map(|b| {
-            let vol = b.volume.to_f64()?;
-            let rng = (b.high - b.open).abs().to_f64()?;
-            if rng == 0.0 { return None; }
-            Some(vol / rng)
-        }).collect();
-        if vals.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let vol = b.volume.to_f64()?;
+                let rng = (b.high - b.open).abs().to_f64()?;
+                if rng == 0.0 {
+                    return None;
+                }
+                Some(vol / rng)
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
     /// Net directional power: mean signed (close-open)/range.
     pub fn bar_trend_power(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let vals: Vec<f64> = bars.iter().filter_map(|b| {
-            let range = (b.high - b.low).to_f64()?;
-            if range == 0.0 { return Some(0.0); }
-            let net = (b.close - b.open).to_f64()?;
-            Some(net / range)
-        }).collect();
-        if vals.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let range = (b.high - b.low).to_f64()?;
+                if range == 0.0 {
+                    return Some(0.0);
+                }
+                let net = (b.close - b.open).to_f64()?;
+                Some(net / range)
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
     /// Pearson correlation of volume to close price across bars.
     pub fn bar_vol_close_corr(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 2 { return None; }
+        if bars.len() < 2 {
+            return None;
+        }
         let vols: Vec<f64> = bars.iter().filter_map(|b| b.volume.to_f64()).collect();
         let closes: Vec<f64> = bars.iter().filter_map(|b| b.close.to_f64()).collect();
-        if vols.len() != bars.len() || closes.len() != bars.len() { return None; }
+        if vols.len() != bars.len() || closes.len() != bars.len() {
+            return None;
+        }
         let n = vols.len() as f64;
         let mv = vols.iter().sum::<f64>() / n;
         let mc = closes.iter().sum::<f64>() / n;
-        let num: f64 = vols.iter().zip(closes.iter()).map(|(v, c)| (v - mv) * (c - mc)).sum();
+        let num: f64 = vols
+            .iter()
+            .zip(closes.iter())
+            .map(|(v, c)| (v - mv) * (c - mc))
+            .sum();
         let dv: f64 = vols.iter().map(|v| (v - mv).powi(2)).sum::<f64>().sqrt();
         let dc: f64 = closes.iter().map(|c| (c - mc).powi(2)).sum::<f64>().sqrt();
-        if dv == 0.0 || dc == 0.0 { return None; }
+        if dv == 0.0 || dc == 0.0 {
+            return None;
+        }
         Some(num / (dv * dc))
     }
 
     /// Mean |upper_shadow - lower_shadow| / range — candle symmetry score.
     pub fn bar_candle_symmetry(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let vals: Vec<f64> = bars.iter().filter_map(|b| {
-            let range = (b.high - b.low).to_f64()?;
-            if range == 0.0 { return Some(0.0); }
-            let body_top = if b.close > b.open { b.close } else { b.open };
-            let body_bot = if b.close < b.open { b.close } else { b.open };
-            let upper = (b.high - body_top).to_f64()?;
-            let lower = (body_bot - b.low).to_f64()?;
-            Some((upper - lower).abs() / range)
-        }).collect();
-        if vals.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let range = (b.high - b.low).to_f64()?;
+                if range == 0.0 {
+                    return Some(0.0);
+                }
+                let body_top = if b.close > b.open { b.close } else { b.open };
+                let body_bot = if b.close < b.open { b.close } else { b.open };
+                let upper = (b.high - body_top).to_f64()?;
+                let lower = (body_bot - b.low).to_f64()?;
+                Some((upper - lower).abs() / range)
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
     /// Sign of volume trend (positive if second half volume > first half).
     pub fn bar_vol_change_sign(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 2 { return None; }
+        if bars.len() < 2 {
+            return None;
+        }
         let half = bars.len() / 2;
         let first: f64 = bars[..half].iter().filter_map(|b| b.volume.to_f64()).sum();
         let second: f64 = bars[half..].iter().filter_map(|b| b.volume.to_f64()).sum();
-        if second > first { Some(1.0) } else if second < first { Some(-1.0) } else { Some(0.0) }
+        if second > first {
+            Some(1.0)
+        } else if second < first {
+            Some(-1.0)
+        } else {
+            Some(0.0)
+        }
     }
 
     /// Mean of (upper_shadow - lower_shadow) across bars — wick directional momentum.
     pub fn bar_wick_momentum(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let vals: Vec<f64> = bars.iter().filter_map(|b| {
-            let body_top = if b.close > b.open { b.close } else { b.open };
-            let body_bot = if b.close < b.open { b.close } else { b.open };
-            let upper = (b.high - body_top).to_f64()?;
-            let lower = (body_bot - b.low).to_f64()?;
-            Some(upper - lower)
-        }).collect();
-        if vals.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let body_top = if b.close > b.open { b.close } else { b.open };
+                let body_bot = if b.close < b.open { b.close } else { b.open };
+                let upper = (b.high - body_top).to_f64()?;
+                let lower = (body_bot - b.low).to_f64()?;
+                Some(upper - lower)
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
     /// Mean (close - open) / (open - low) — open-to-close efficiency relative to lower wick.
     pub fn bar_open_close_efficiency(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let vals: Vec<f64> = bars.iter().filter_map(|b| {
-            let ol = (b.open - b.low).to_f64()?;
-            if ol == 0.0 { return None; }
-            let oc = (b.close - b.open).to_f64()?;
-            Some(oc / ol)
-        }).collect();
-        if vals.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let ol = (b.open - b.low).to_f64()?;
+                if ol == 0.0 {
+                    return None;
+                }
+                let oc = (b.close - b.open).to_f64()?;
+                Some(oc / ol)
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
     /// Std dev of volumes across bars as a concentration measure.
     pub fn bar_vol_concentration(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 2 { return None; }
+        if bars.len() < 2 {
+            return None;
+        }
         let vols: Vec<f64> = bars.iter().filter_map(|b| b.volume.to_f64()).collect();
-        if vols.len() < 2 { return None; }
+        if vols.len() < 2 {
+            return None;
+        }
         let mean = vols.iter().sum::<f64>() / vols.len() as f64;
         let var = vols.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / (vols.len() - 1) as f64;
         Some(var.sqrt())
@@ -9776,124 +12570,206 @@ impl OhlcvBar {
     /// Std dev of per-bar (wick / body) ratios across bars.
     pub fn bar_wick_to_body_std(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 2 { return None; }
-        let ratios: Vec<f64> = bars.iter().filter_map(|b| {
-            let body = (b.close - b.open).abs().to_f64()?;
-            if body == 0.0 { return None; }
-            let body_top = if b.close > b.open { b.close } else { b.open };
-            let body_bot = if b.close < b.open { b.close } else { b.open };
-            let wicks = ((b.high - body_top) + (body_bot - b.low)).to_f64()?;
-            Some(wicks / body)
-        }).collect();
-        if ratios.len() < 2 { return None; }
+        if bars.len() < 2 {
+            return None;
+        }
+        let ratios: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let body = (b.close - b.open).abs().to_f64()?;
+                if body == 0.0 {
+                    return None;
+                }
+                let body_top = if b.close > b.open { b.close } else { b.open };
+                let body_bot = if b.close < b.open { b.close } else { b.open };
+                let wicks = ((b.high - body_top) + (body_bot - b.low)).to_f64()?;
+                Some(wicks / body)
+            })
+            .collect();
+        if ratios.len() < 2 {
+            return None;
+        }
         let mean = ratios.iter().sum::<f64>() / ratios.len() as f64;
-        let var = ratios.iter().map(|r| (r - mean).powi(2)).sum::<f64>() / (ratios.len() - 1) as f64;
+        let var =
+            ratios.iter().map(|r| (r - mean).powi(2)).sum::<f64>() / (ratios.len() - 1) as f64;
         Some(var.sqrt())
     }
 
     /// Mean volume per unit of close price change between consecutive bars.
     pub fn bar_close_vol_speed(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 2 { return None; }
-        let vals: Vec<f64> = bars.windows(2).filter_map(|w| {
-            let close_diff = (w[1].close - w[0].close).abs().to_f64()?;
-            if close_diff == 0.0 { return None; }
-            let vol = w[1].volume.to_f64()?;
-            Some(vol / close_diff)
-        }).collect();
-        if vals.is_empty() { return None; }
+        if bars.len() < 2 {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .windows(2)
+            .filter_map(|w| {
+                let close_diff = (w[1].close - w[0].close).abs().to_f64()?;
+                if close_diff == 0.0 {
+                    return None;
+                }
+                let vol = w[1].volume.to_f64()?;
+                Some(vol / close_diff)
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
     /// Fraction of bars with directional reversal (close direction flips).
     pub fn bar_trend_reversal_pct(bars: &[OhlcvBar]) -> Option<f64> {
-        if bars.len() < 3 { return None; }
-        let dirs: Vec<i8> = bars.iter().map(|b| {
-            if b.close > b.open { 1 } else if b.close < b.open { -1 } else { 0 }
-        }).collect();
-        let reversals = dirs.windows(2).filter(|w| w[0] != 0 && w[1] != 0 && w[0] != w[1]).count();
+        if bars.len() < 3 {
+            return None;
+        }
+        let dirs: Vec<i8> = bars
+            .iter()
+            .map(|b| {
+                if b.close > b.open {
+                    1
+                } else if b.close < b.open {
+                    -1
+                } else {
+                    0
+                }
+            })
+            .collect();
+        let reversals = dirs
+            .windows(2)
+            .filter(|w| w[0] != 0 && w[1] != 0 && w[0] != w[1])
+            .count();
         Some(reversals as f64 / (dirs.len() - 1) as f64)
     }
 
     /// Mean total shadow (upper + lower wick) as a fraction of range across bars.
     pub fn bar_shadow_range_ratio(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let vals: Vec<f64> = bars.iter().filter_map(|b| {
-            let hl = (b.high - b.low).to_f64()?;
-            if hl == 0.0 { return Some(0.0); }
-            let body = (b.close - b.open).abs().to_f64()?;
-            let wicks = hl - body;
-            Some(wicks / hl)
-        }).collect();
-        if vals.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let hl = (b.high - b.low).to_f64()?;
+                if hl == 0.0 {
+                    return Some(0.0);
+                }
+                let body = (b.close - b.open).abs().to_f64()?;
+                let wicks = hl - body;
+                Some(wicks / hl)
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
     /// Mean volume * (close - open) / range — volume-weighted directional intensity.
     pub fn bar_vol_intensity(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let vals: Vec<f64> = bars.iter().filter_map(|b| {
-            let hl = (b.high - b.low).to_f64()?;
-            if hl == 0.0 { return Some(0.0); }
-            let body = (b.close - b.open).to_f64()?;
-            let vol = b.volume.to_f64()?;
-            Some(vol * body / hl)
-        }).collect();
-        if vals.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let hl = (b.high - b.low).to_f64()?;
+                if hl == 0.0 {
+                    return Some(0.0);
+                }
+                let body = (b.close - b.open).to_f64()?;
+                let vol = b.volume.to_f64()?;
+                Some(vol * body / hl)
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
     /// Mean volume * |open - prev_close| — gap volume across consecutive bars.
     pub fn bar_gap_direction(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 2 { return None; }
-        let vals: Vec<f64> = bars.windows(2).filter_map(|w| {
-            let gap = (w[1].open - w[0].close).to_f64()?;
-            let vol = w[1].volume.to_f64()?;
-            Some(gap * vol)
-        }).collect();
-        if vals.is_empty() { return None; }
+        if bars.len() < 2 {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .windows(2)
+            .filter_map(|w| {
+                let gap = (w[1].open - w[0].close).to_f64()?;
+                let vol = w[1].volume.to_f64()?;
+                Some(gap * vol)
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
     /// Mean relative close-to-close gap: mean of (close\[i\] - close[i-1]) / close[i-1].
     pub fn bar_close_gap_pct(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 2 { return None; }
-        let vals: Vec<f64> = bars.windows(2).filter_map(|w| {
-            let prev = w[0].close.to_f64()?;
-            let curr = w[1].close.to_f64()?;
-            if prev == 0.0 { return None; }
-            Some((curr - prev) / prev)
-        }).collect();
-        if vals.is_empty() { return None; }
+        if bars.len() < 2 {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .windows(2)
+            .filter_map(|w| {
+                let prev = w[0].close.to_f64()?;
+                let curr = w[1].close.to_f64()?;
+                if prev == 0.0 {
+                    return None;
+                }
+                Some((curr - prev) / prev)
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
     /// Mean fraction of range below open: mean of (open - low) / (high - low) where range > 0.
     pub fn bar_low_wick_ratio(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let vals: Vec<f64> = bars.iter().filter_map(|b| {
-            let range = (b.high - b.low).to_f64()?;
-            if range == 0.0 { return None; }
-            let low_wick = (b.open - b.low).to_f64()?;
-            Some(low_wick.max(0.0) / range)
-        }).collect();
-        if vals.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let range = (b.high - b.low).to_f64()?;
+                if range == 0.0 {
+                    return None;
+                }
+                let low_wick = (b.open - b.low).to_f64()?;
+                Some(low_wick.max(0.0) / range)
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
     /// Volume coefficient of variation: std_dev(volume) / mean(volume).
     pub fn bar_vol_surprise(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 2 { return None; }
+        if bars.len() < 2 {
+            return None;
+        }
         let vols: Vec<f64> = bars.iter().filter_map(|b| b.volume.to_f64()).collect();
-        if vols.len() < 2 { return None; }
+        if vols.len() < 2 {
+            return None;
+        }
         let mean = vols.iter().sum::<f64>() / vols.len() as f64;
-        if mean == 0.0 { return None; }
+        if mean == 0.0 {
+            return None;
+        }
         let var = vols.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / (vols.len() - 1) as f64;
         Some(var.sqrt() / mean)
     }
@@ -9901,106 +12777,158 @@ impl OhlcvBar {
     /// Mean volume change between consecutive bars normalized by mean volume (decay rate).
     pub fn bar_vol_decay(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 2 { return None; }
+        if bars.len() < 2 {
+            return None;
+        }
         let vols: Vec<f64> = bars.iter().filter_map(|b| b.volume.to_f64()).collect();
-        if vols.len() < 2 { return None; }
+        if vols.len() < 2 {
+            return None;
+        }
         let mean = vols.iter().sum::<f64>() / vols.len() as f64;
-        if mean == 0.0 { return None; }
-        let mean_change = vols.windows(2).map(|w| (w[1] - w[0]) / mean).sum::<f64>() / (vols.len() - 1) as f64;
+        if mean == 0.0 {
+            return None;
+        }
+        let mean_change =
+            vols.windows(2).map(|w| (w[1] - w[0]) / mean).sum::<f64>() / (vols.len() - 1) as f64;
         Some(mean_change)
     }
 
     /// Mean (open - low) / (high - low) vs (high - close) / (high - low): open wick vs close wick balance.
     pub fn bar_open_wick_pct(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let vals: Vec<f64> = bars.iter().filter_map(|b| {
-            let range = (b.high - b.low).to_f64()?;
-            if range == 0.0 { return None; }
-            let open_wick = (b.open - b.low).min(b.high - b.open).to_f64()?;
-            Some(open_wick / range)
-        }).collect();
-        if vals.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let range = (b.high - b.low).to_f64()?;
+                if range == 0.0 {
+                    return None;
+                }
+                let open_wick = (b.open - b.low).min(b.high - b.open).to_f64()?;
+                Some(open_wick / range)
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
     /// Mean (high - low) / (|close - open| + 1e-9) — range-to-body ratio.
     pub fn bar_hl_vs_body(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let vals: Vec<f64> = bars.iter().filter_map(|b| {
-            let range = (b.high - b.low).to_f64()?;
-            let body = (b.close - b.open).abs().to_f64()?;
-            Some(range / (body + 1e-9))
-        }).collect();
-        if vals.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let range = (b.high - b.low).to_f64()?;
+                let body = (b.close - b.open).abs().to_f64()?;
+                Some(range / (body + 1e-9))
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
     /// Volume-weighted mean of high prices (vol-weighted high).
     pub fn bar_vol_weighted_high(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
         let total_vol: f64 = bars.iter().filter_map(|b| b.volume.to_f64()).sum();
-        if total_vol == 0.0 { return None; }
-        let weighted: f64 = bars.iter().filter_map(|b| {
-            Some(b.high.to_f64()? * b.volume.to_f64()?)
-        }).sum();
+        if total_vol == 0.0 {
+            return None;
+        }
+        let weighted: f64 = bars
+            .iter()
+            .filter_map(|b| Some(b.high.to_f64()? * b.volume.to_f64()?))
+            .sum();
         Some(weighted / total_vol)
     }
 
     /// Volume-weighted mean of low prices (vol-weighted low).
     pub fn bar_vol_weighted_low(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
         let total_vol: f64 = bars.iter().filter_map(|b| b.volume.to_f64()).sum();
-        if total_vol == 0.0 { return None; }
-        let weighted: f64 = bars.iter().filter_map(|b| {
-            Some(b.low.to_f64()? * b.volume.to_f64()?)
-        }).sum();
+        if total_vol == 0.0 {
+            return None;
+        }
+        let weighted: f64 = bars
+            .iter()
+            .filter_map(|b| Some(b.low.to_f64()? * b.volume.to_f64()?))
+            .sum();
         Some(weighted / total_vol)
     }
 
     /// Mean reversion of close: fraction of bars where close reverts toward prior open.
     pub fn bar_close_reversion(bars: &[OhlcvBar]) -> Option<f64> {
-        if bars.len() < 2 { return None; }
+        if bars.len() < 2 {
+            return None;
+        }
         let n = bars.len() - 1;
-        let reversions = bars.windows(2).filter(|w| {
-            // Close moved toward the prior bar's open (opposite direction)
-            let prior_dir = w[0].close > w[0].open;
-            let curr_dir = w[1].close > w[1].open;
-            prior_dir != curr_dir
-        }).count();
+        let reversions = bars
+            .windows(2)
+            .filter(|w| {
+                // Close moved toward the prior bar's open (opposite direction)
+                let prior_dir = w[0].close > w[0].open;
+                let curr_dir = w[1].close > w[1].open;
+                prior_dir != curr_dir
+            })
+            .count();
         Some(reversions as f64 / n as f64)
     }
 
     /// Mean ratio of body to total wick: |close - open| / (upper_wick + lower_wick).
     pub fn bar_body_vs_wick(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let vals: Vec<f64> = bars.iter().filter_map(|b| {
-            let top = b.open.max(b.close);
-            let bottom = b.open.min(b.close);
-            let body = (b.close - b.open).abs().to_f64()?;
-            let upper = (b.high - top).to_f64()?;
-            let lower = (bottom - b.low).to_f64()?;
-            let total_wick = upper + lower;
-            if total_wick == 0.0 { return None; }
-            Some(body / total_wick)
-        }).collect();
-        if vals.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let top = b.open.max(b.close);
+                let bottom = b.open.min(b.close);
+                let body = (b.close - b.open).abs().to_f64()?;
+                let upper = (b.high - top).to_f64()?;
+                let lower = (bottom - b.low).to_f64()?;
+                let total_wick = upper + lower;
+                if total_wick == 0.0 {
+                    return None;
+                }
+                Some(body / total_wick)
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
     /// Number of bars with volume > mean + std (volume spike count) as fraction of total.
     pub fn bar_vol_spike_count(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 2 { return None; }
+        if bars.len() < 2 {
+            return None;
+        }
         let vols: Vec<f64> = bars.iter().filter_map(|b| b.volume.to_f64()).collect();
-        if vols.len() < 2 { return None; }
+        if vols.len() < 2 {
+            return None;
+        }
         let mean = vols.iter().sum::<f64>() / vols.len() as f64;
         let std = {
-            let var = vols.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / (vols.len() - 1) as f64;
+            let var =
+                vols.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / (vols.len() - 1) as f64;
             var.sqrt()
         };
         let threshold = mean + std;
@@ -10011,54 +12939,87 @@ impl OhlcvBar {
     /// Pearson correlation between open prices and close prices across bars.
     pub fn bar_open_close_corr(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 2 { return None; }
+        if bars.len() < 2 {
+            return None;
+        }
         let opens: Vec<f64> = bars.iter().filter_map(|b| b.open.to_f64()).collect();
         let closes: Vec<f64> = bars.iter().filter_map(|b| b.close.to_f64()).collect();
-        if opens.len() < 2 || closes.len() != opens.len() { return None; }
+        if opens.len() < 2 || closes.len() != opens.len() {
+            return None;
+        }
         let n = opens.len() as f64;
         let mean_o = opens.iter().sum::<f64>() / n;
         let mean_c = closes.iter().sum::<f64>() / n;
-        let cov: f64 = opens.iter().zip(closes.iter()).map(|(o, c)| (o - mean_o) * (c - mean_c)).sum::<f64>() / n;
+        let cov: f64 = opens
+            .iter()
+            .zip(closes.iter())
+            .map(|(o, c)| (o - mean_o) * (c - mean_c))
+            .sum::<f64>()
+            / n;
         let std_o = (opens.iter().map(|o| (o - mean_o).powi(2)).sum::<f64>() / n).sqrt();
         let std_c = (closes.iter().map(|c| (c - mean_c).powi(2)).sum::<f64>() / n).sqrt();
-        if std_o == 0.0 || std_c == 0.0 { return None; }
+        if std_o == 0.0 || std_c == 0.0 {
+            return None;
+        }
         Some(cov / (std_o * std_c))
     }
 
     /// Mean signed return: mean (close_t - close_{t-1}) / close_{t-1} across consecutive bars.
     pub fn bar_return_mean(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 2 { return None; }
-        let rocs: Vec<f64> = bars.windows(2).filter_map(|w| {
-            let prev = w[0].close.to_f64()?;
-            let curr = w[1].close.to_f64()?;
-            if prev == 0.0 { return None; }
-            Some((curr - prev) / prev)
-        }).collect();
-        if rocs.is_empty() { return None; }
+        if bars.len() < 2 {
+            return None;
+        }
+        let rocs: Vec<f64> = bars
+            .windows(2)
+            .filter_map(|w| {
+                let prev = w[0].close.to_f64()?;
+                let curr = w[1].close.to_f64()?;
+                if prev == 0.0 {
+                    return None;
+                }
+                Some((curr - prev) / prev)
+            })
+            .collect();
+        if rocs.is_empty() {
+            return None;
+        }
         Some(rocs.iter().sum::<f64>() / rocs.len() as f64)
     }
 
     /// Mean body size as fraction of range: |close - open| / (high - low).
     pub fn bar_candle_body_pct(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let vals: Vec<f64> = bars.iter().filter_map(|b| {
-            let range = (b.high - b.low).to_f64()?;
-            if range == 0.0 { return None; }
-            let body = (b.close - b.open).abs().to_f64()?;
-            Some(body / range)
-        }).collect();
-        if vals.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let range = (b.high - b.low).to_f64()?;
+                if range == 0.0 {
+                    return None;
+                }
+                let body = (b.close - b.open).abs().to_f64()?;
+                Some(body / range)
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
     /// Fraction of bars with volume above the mean bar volume.
     pub fn bar_vol_above_avg_pct(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
         let vols: Vec<f64> = bars.iter().filter_map(|b| b.volume.to_f64()).collect();
-        if vols.is_empty() { return None; }
+        if vols.is_empty() {
+            return None;
+        }
         let mean = vols.iter().sum::<f64>() / vols.len() as f64;
         let above = vols.iter().filter(|&&v| v > mean).count();
         Some(above as f64 / vols.len() as f64)
@@ -10066,58 +13027,90 @@ impl OhlcvBar {
 
     /// Fraction of consecutive bar pairs where close direction is consistent (trend persistence).
     pub fn bar_trend_consistency(bars: &[OhlcvBar]) -> Option<f64> {
-        if bars.len() < 2 { return None; }
+        if bars.len() < 2 {
+            return None;
+        }
         let n = bars.len() - 1;
-        let consistent = bars.windows(2).filter(|w| {
-            (w[0].close > w[0].open) == (w[1].close > w[1].open)
-        }).count();
+        let consistent = bars
+            .windows(2)
+            .filter(|w| (w[0].close > w[0].open) == (w[1].close > w[1].open))
+            .count();
         Some(consistent as f64 / n as f64)
     }
 
     /// Volume trend acceleration: change in volume growth rate between halves.
     pub fn bar_vol_trend_acc(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 4 { return None; }
+        if bars.len() < 4 {
+            return None;
+        }
         let vols: Vec<f64> = bars.iter().filter_map(|b| b.volume.to_f64()).collect();
-        if vols.len() < 4 { return None; }
+        if vols.len() < 4 {
+            return None;
+        }
         let half = vols.len() / 2;
-        let first_growth: f64 = vols[..half].windows(2).map(|w| w[1] - w[0]).sum::<f64>() / (half - 1) as f64;
-        let second_growth: f64 = vols[half..].windows(2).map(|w| w[1] - w[0]).sum::<f64>() / (vols.len() - half - 1).max(1) as f64;
+        let first_growth: f64 =
+            vols[..half].windows(2).map(|w| w[1] - w[0]).sum::<f64>() / (half - 1) as f64;
+        let second_growth: f64 = vols[half..].windows(2).map(|w| w[1] - w[0]).sum::<f64>()
+            / (vols.len() - half - 1).max(1) as f64;
         Some(second_growth - first_growth)
     }
 
     /// Std dev of bar body sizes (|close - open|) across bars.
     pub fn bar_body_size_std(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 2 { return None; }
-        let bodies: Vec<f64> = bars.iter().filter_map(|b| (b.close - b.open).abs().to_f64()).collect();
-        if bodies.len() < 2 { return None; }
+        if bars.len() < 2 {
+            return None;
+        }
+        let bodies: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| (b.close - b.open).abs().to_f64())
+            .collect();
+        if bodies.len() < 2 {
+            return None;
+        }
         let mean = bodies.iter().sum::<f64>() / bodies.len() as f64;
-        let var = bodies.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / (bodies.len() - 1) as f64;
+        let var =
+            bodies.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / (bodies.len() - 1) as f64;
         Some(var.sqrt())
     }
 
     /// Std dev of (high - low) range values across bars.
     pub fn bar_high_low_std(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 2 { return None; }
-        let ranges: Vec<f64> = bars.iter().filter_map(|b| (b.high - b.low).to_f64()).collect();
-        if ranges.len() < 2 { return None; }
+        if bars.len() < 2 {
+            return None;
+        }
+        let ranges: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| (b.high - b.low).to_f64())
+            .collect();
+        if ranges.len() < 2 {
+            return None;
+        }
         let mean = ranges.iter().sum::<f64>() / ranges.len() as f64;
-        let var = ranges.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / (ranges.len() - 1) as f64;
+        let var =
+            ranges.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / (ranges.len() - 1) as f64;
         Some(var.sqrt())
     }
 
     /// Std dev of bar volume normalized by mean volume (volume consistency score).
     pub fn bar_vol_consistency(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 2 { return None; }
+        if bars.len() < 2 {
+            return None;
+        }
         let vols: Vec<f64> = bars.iter().filter_map(|b| b.volume.to_f64()).collect();
-        if vols.len() < 2 { return None; }
+        if vols.len() < 2 {
+            return None;
+        }
         let mean = vols.iter().sum::<f64>() / vols.len() as f64;
-        if mean == 0.0 { return None; }
+        if mean == 0.0 {
+            return None;
+        }
         let std = {
-            let var = vols.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / (vols.len() - 1) as f64;
+            let var =
+                vols.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / (vols.len() - 1) as f64;
             var.sqrt()
         };
         Some(std / mean)
@@ -10126,61 +13119,91 @@ impl OhlcvBar {
     /// Mean (close - low) / range across bars (close position above low as fraction of range).
     pub fn bar_close_to_low_pct(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let vals: Vec<f64> = bars.iter().filter_map(|b| {
-            let range = (b.high - b.low).to_f64()?;
-            if range == 0.0 { return Some(0.5); }
-            let dist = (b.close - b.low).to_f64()?;
-            Some(dist / range)
-        }).collect();
-        if vals.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let range = (b.high - b.low).to_f64()?;
+                if range == 0.0 {
+                    return Some(0.5);
+                }
+                let dist = (b.close - b.low).to_f64()?;
+                Some(dist / range)
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
     /// Fraction of bars fully inside prior bar's high-low range (inside bar rate).
     pub fn bar_inside_bar_pct(bars: &[OhlcvBar]) -> Option<f64> {
-        if bars.len() < 2 { return None; }
+        if bars.len() < 2 {
+            return None;
+        }
         let n = bars.len() - 1;
-        let inside = bars.windows(2).filter(|w| {
-            w[1].high <= w[0].high && w[1].low >= w[0].low
-        }).count();
+        let inside = bars
+            .windows(2)
+            .filter(|w| w[1].high <= w[0].high && w[1].low >= w[0].low)
+            .count();
         Some(inside as f64 / n as f64)
     }
 
     /// Fraction of bar range occupied by body above midpoint (upper body dominance).
     pub fn bar_upper_body_pct(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let vals: Vec<f64> = bars.iter().filter_map(|b| {
-            let range = (b.high - b.low).to_f64()?;
-            if range == 0.0 { return None; }
-            let top = b.open.max(b.close);
-            let mid = b.low + (b.high - b.low) / rust_decimal::Decimal::from(2);
-            let upper_body = (top - mid).max(rust_decimal::Decimal::ZERO).to_f64()?;
-            Some(upper_body / range)
-        }).collect();
-        if vals.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let range = (b.high - b.low).to_f64()?;
+                if range == 0.0 {
+                    return None;
+                }
+                let top = b.open.max(b.close);
+                let mid = b.low + (b.high - b.low) / rust_decimal::Decimal::from(2);
+                let upper_body = (top - mid).max(rust_decimal::Decimal::ZERO).to_f64()?;
+                Some(upper_body / range)
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
     /// Mean total wick length (upper + lower shadow) per bar.
     pub fn bar_wicks_total(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let vals: Vec<f64> = bars.iter().filter_map(|b| {
-            let top = b.open.max(b.close);
-            let bottom = b.open.min(b.close);
-            let upper = (b.high - top).to_f64()?;
-            let lower = (bottom - b.low).to_f64()?;
-            Some(upper + lower)
-        }).collect();
-        if vals.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let top = b.open.max(b.close);
+                let bottom = b.open.min(b.close);
+                let upper = (b.high - top).to_f64()?;
+                let lower = (bottom - b.low).to_f64()?;
+                Some(upper + lower)
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
     /// Fraction of bars where current close is above previous bar's high (breakout rate).
     pub fn bar_close_above_prev_high(bars: &[OhlcvBar]) -> Option<f64> {
-        if bars.len() < 2 { return None; }
+        if bars.len() < 2 {
+            return None;
+        }
         let n = bars.len() - 1;
         let breakouts = bars.windows(2).filter(|w| w[1].close > w[0].high).count();
         Some(breakouts as f64 / n as f64)
@@ -10189,85 +13212,142 @@ impl OhlcvBar {
     /// Mean price range normalized by opening price (normalized volatility).
     pub fn bar_range_open_ratio(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let vals: Vec<f64> = bars.iter().filter_map(|b| {
-            let range = (b.high - b.low).to_f64()?;
-            let open = b.open.to_f64()?;
-            if open == 0.0 { return None; }
-            Some(range / open)
-        }).collect();
-        if vals.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let range = (b.high - b.low).to_f64()?;
+                let open = b.open.to_f64()?;
+                if open == 0.0 {
+                    return None;
+                }
+                Some(range / open)
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
     /// Mean (open - low) / range across bars (distance open to range low as fraction of range).
     pub fn bar_open_to_low_pct(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let vals: Vec<f64> = bars.iter().filter_map(|b| {
-            let range = (b.high - b.low).to_f64()?;
-            if range == 0.0 { return None; }
-            let dist = (b.open - b.low).to_f64()?;
-            Some(dist / range)
-        }).collect();
-        if vals.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let range = (b.high - b.low).to_f64()?;
+                if range == 0.0 {
+                    return None;
+                }
+                let dist = (b.open - b.low).to_f64()?;
+                Some(dist / range)
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
     /// Mean (high - close) / range across bars (upper tail fraction).
     pub fn bar_high_close_pct(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let vals: Vec<f64> = bars.iter().filter_map(|b| {
-            let range = (b.high - b.low).to_f64()?;
-            if range == 0.0 { return None; }
-            let dist = (b.high - b.close).to_f64()?;
-            Some(dist / range)
-        }).collect();
-        if vals.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let range = (b.high - b.low).to_f64()?;
+                if range == 0.0 {
+                    return None;
+                }
+                let dist = (b.high - b.close).to_f64()?;
+                Some(dist / range)
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
     /// Close position within bar's range ranked as 0..1 across all bars.
     pub fn bar_close_range_rank(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let scores: Vec<f64> = bars.iter().filter_map(|b| {
-            let range = (b.high - b.low).to_f64()?;
-            if range == 0.0 { return Some(0.5); }
-            let pos = (b.close - b.low).to_f64()?;
-            Some(pos / range)
-        }).collect();
-        if scores.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
+        let scores: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let range = (b.high - b.low).to_f64()?;
+                if range == 0.0 {
+                    return Some(0.5);
+                }
+                let pos = (b.close - b.low).to_f64()?;
+                Some(pos / range)
+            })
+            .collect();
+        if scores.is_empty() {
+            return None;
+        }
         Some(scores.iter().sum::<f64>() / scores.len() as f64)
     }
 
     /// Sign of bar volume rate-of-change: +1 if volume rising, -1 if falling, 0 if equal.
     pub fn bar_vol_roc_sign(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 2 { return None; }
+        if bars.len() < 2 {
+            return None;
+        }
         let vols: Vec<f64> = bars.iter().filter_map(|b| b.volume.to_f64()).collect();
-        if vols.len() < 2 { return None; }
+        if vols.len() < 2 {
+            return None;
+        }
         let last = *vols.last()?;
         let prev = vols[vols.len() - 2];
-        Some(if last > prev { 1.0 } else if last < prev { -1.0 } else { 0.0 })
+        Some(if last > prev {
+            1.0
+        } else if last < prev {
+            -1.0
+        } else {
+            0.0
+        })
     }
 
     /// Mean (high - close) across bars (upper tail remaining after close).
     pub fn bar_body_range_diff(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let vals: Vec<f64> = bars.iter().filter_map(|b| (b.high - b.close).to_f64()).collect();
-        if vals.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| (b.high - b.close).to_f64())
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
     /// Std dev of open prices across bars (opening price volatility).
     pub fn bar_open_volatility(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 2 { return None; }
+        if bars.len() < 2 {
+            return None;
+        }
         let opens: Vec<f64> = bars.iter().filter_map(|b| b.open.to_f64()).collect();
-        if opens.len() < 2 { return None; }
+        if opens.len() < 2 {
+            return None;
+        }
         let mean = opens.iter().sum::<f64>() / opens.len() as f64;
         let var = opens.iter().map(|o| (o - mean).powi(2)).sum::<f64>() / (opens.len() - 1) as f64;
         Some(var.sqrt())
@@ -10276,9 +13356,16 @@ impl OhlcvBar {
     /// Fraction of bars where high-low range increases vs prior bar (range expansion rate).
     pub fn bar_hl_persistence(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 2 { return None; }
-        let ranges: Vec<f64> = bars.iter().filter_map(|b| (b.high - b.low).to_f64()).collect();
-        if ranges.len() < 2 { return None; }
+        if bars.len() < 2 {
+            return None;
+        }
+        let ranges: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| (b.high - b.low).to_f64())
+            .collect();
+        if ranges.len() < 2 {
+            return None;
+        }
         let n = ranges.len() - 1;
         let expanding = ranges.windows(2).filter(|w| w[1] > w[0]).count();
         Some(expanding as f64 / n as f64)
@@ -10287,103 +13374,160 @@ impl OhlcvBar {
     /// Mean body center offset: (open + close) / 2 - (high + low) / 2 (body center vs range center).
     pub fn bar_body_center_offset(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let vals: Vec<f64> = bars.iter().filter_map(|b| {
-            let body_center = (b.open + b.close).to_f64()? / 2.0;
-            let range_center = (b.high + b.low).to_f64()? / 2.0;
-            Some(body_center - range_center)
-        }).collect();
-        if vals.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let body_center = (b.open + b.close).to_f64()? / 2.0;
+                let range_center = (b.high + b.low).to_f64()? / 2.0;
+                Some(body_center - range_center)
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
     /// Fraction of bars where close direction reverses vs prior bar (momentum reversal rate).
     pub fn bar_momentum_reversal(bars: &[OhlcvBar]) -> Option<f64> {
-        if bars.len() < 2 { return None; }
+        if bars.len() < 2 {
+            return None;
+        }
         let n = bars.len() - 1;
-        if n == 0 { return None; }
-        let reversals = bars.windows(2).filter(|w| {
-            let prev_dir = w[0].close > w[0].open;
-            let curr_dir = w[1].close > w[1].open;
-            prev_dir != curr_dir
-        }).count();
+        if n == 0 {
+            return None;
+        }
+        let reversals = bars
+            .windows(2)
+            .filter(|w| {
+                let prev_dir = w[0].close > w[0].open;
+                let curr_dir = w[1].close > w[1].open;
+                prev_dir != curr_dir
+            })
+            .count();
         Some(reversals as f64 / n as f64)
     }
 
     /// Difference between upper and lower shadow (wick asymmetry).
     pub fn bar_shadow_body_diff(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let vals: Vec<f64> = bars.iter().filter_map(|b| {
-            let top = b.open.max(b.close);
-            let bottom = b.open.min(b.close);
-            let upper = (b.high - top).to_f64()?;
-            let lower = (bottom - b.low).to_f64()?;
-            Some(upper - lower)
-        }).collect();
-        if vals.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let top = b.open.max(b.close);
+                let bottom = b.open.min(b.close);
+                let upper = (b.high - top).to_f64()?;
+                let lower = (bottom - b.low).to_f64()?;
+                Some(upper - lower)
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
     /// Fraction of bars in a winning trend run (consecutive same-direction closes).
     pub fn bar_trend_run_pct(bars: &[OhlcvBar]) -> Option<f64> {
-        if bars.len() < 2 { return None; }
+        if bars.len() < 2 {
+            return None;
+        }
         let n = bars.len() - 1;
-        if n == 0 { return None; }
-        let continues = bars.windows(2).filter(|w| {
-            (w[0].close > w[0].open) == (w[1].close > w[1].open)
-        }).count();
+        if n == 0 {
+            return None;
+        }
+        let continues = bars
+            .windows(2)
+            .filter(|w| (w[0].close > w[0].open) == (w[1].close > w[1].open))
+            .count();
         Some(continues as f64 / n as f64)
     }
 
     /// Mean (open - previous_close) reversion: how much open reverts toward prior close.
     pub fn bar_open_reversion(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 2 { return None; }
-        let vals: Vec<f64> = bars.windows(2).filter_map(|w| {
-            let gap = (w[1].open - w[0].close).to_f64()?;
-            let range = (w[0].high - w[0].low).to_f64()?;
-            if range == 0.0 { return None; }
-            Some(gap / range)
-        }).collect();
-        if vals.is_empty() { return None; }
+        if bars.len() < 2 {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .windows(2)
+            .filter_map(|w| {
+                let gap = (w[1].open - w[0].close).to_f64()?;
+                let range = (w[0].high - w[0].low).to_f64()?;
+                if range == 0.0 {
+                    return None;
+                }
+                Some(gap / range)
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
     /// Mean directional candle efficiency: body / range (how directed the price move was).
     pub fn bar_directional_efficiency(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let vals: Vec<f64> = bars.iter().filter_map(|b| {
-            let hl = (b.high - b.low).to_f64()?;
-            if hl == 0.0 { return Some(0.0); }
-            let body = (b.close - b.open).abs().to_f64()?;
-            Some(body / hl)
-        }).collect();
-        if vals.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let hl = (b.high - b.low).to_f64()?;
+                if hl == 0.0 {
+                    return Some(0.0);
+                }
+                let body = (b.close - b.open).abs().to_f64()?;
+                Some(body / hl)
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
     /// Mean bar range: mean (high - low) across all bars (average intrabar width).
     pub fn bar_mean_range(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let vals: Vec<f64> = bars.iter().filter_map(|b| (b.high - b.low).to_f64()).collect();
-        if vals.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| (b.high - b.low).to_f64())
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
     /// Skewness of bar volumes (volume distribution asymmetry).
     pub fn bar_vol_skew(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 3 { return None; }
+        if bars.len() < 3 {
+            return None;
+        }
         let vals: Vec<f64> = bars.iter().filter_map(|b| b.volume.to_f64()).collect();
-        if vals.len() < 3 { return None; }
+        if vals.len() < 3 {
+            return None;
+        }
         let n = vals.len() as f64;
         let mean = vals.iter().sum::<f64>() / n;
         let var = vals.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / n;
         let std = var.sqrt();
-        if std == 0.0 { return None; }
+        if std == 0.0 {
+            return None;
+        }
         let skew = vals.iter().map(|v| ((v - mean) / std).powi(3)).sum::<f64>() / n;
         Some(skew)
     }
@@ -10391,53 +13535,89 @@ impl OhlcvBar {
     /// Rate of change of volume: mean of (vol[i+1] - vol\[i\]) / vol\[i\].
     pub fn bar_vol_roc(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 2 { return None; }
+        if bars.len() < 2 {
+            return None;
+        }
         let vols: Vec<f64> = bars.iter().filter_map(|b| b.volume.to_f64()).collect();
-        if vols.len() < 2 { return None; }
-        let rocs: Vec<f64> = vols.windows(2).filter_map(|w| {
-            if w[0] == 0.0 { None } else { Some((w[1] - w[0]) / w[0]) }
-        }).collect();
-        if rocs.is_empty() { return None; }
+        if vols.len() < 2 {
+            return None;
+        }
+        let rocs: Vec<f64> = vols
+            .windows(2)
+            .filter_map(|w| {
+                if w[0] == 0.0 {
+                    None
+                } else {
+                    Some((w[1] - w[0]) / w[0])
+                }
+            })
+            .collect();
+        if rocs.is_empty() {
+            return None;
+        }
         Some(rocs.iter().sum::<f64>() / rocs.len() as f64)
     }
 
     /// Volume-weighted close price: sum(close * volume) / sum(volume).
     pub fn bar_vol_weighted_close(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
         let total_vol: f64 = bars.iter().filter_map(|b| b.volume.to_f64()).sum();
-        if total_vol == 0.0 { return None; }
-        let weighted: f64 = bars.iter().filter_map(|b| {
-            Some(b.close.to_f64()? * b.volume.to_f64()?)
-        }).sum();
+        if total_vol == 0.0 {
+            return None;
+        }
+        let weighted: f64 = bars
+            .iter()
+            .filter_map(|b| Some(b.close.to_f64()? * b.volume.to_f64()?))
+            .sum();
         Some(weighted / total_vol)
     }
 
     /// Fraction of bars where high is within 1% of the prior bar's high (high clustering).
     pub fn bar_high_low_ratio(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let vals: Vec<f64> = bars.iter().filter_map(|b| {
-            let h = b.high.to_f64()?;
-            let l = b.low.to_f64()?;
-            if l == 0.0 { return None; }
-            Some(h / l)
-        }).collect();
-        if vals.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let h = b.high.to_f64()?;
+                let l = b.low.to_f64()?;
+                if l == 0.0 {
+                    return None;
+                }
+                Some(h / l)
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
     /// Skewness of (close - open) body values across bars (directional body skewness).
     pub fn bar_oc_skewness(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 3 { return None; }
-        let vals: Vec<f64> = bars.iter().filter_map(|b| (b.close - b.open).to_f64()).collect();
-        if vals.len() < 3 { return None; }
+        if bars.len() < 3 {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| (b.close - b.open).to_f64())
+            .collect();
+        if vals.len() < 3 {
+            return None;
+        }
         let n = vals.len() as f64;
         let mean = vals.iter().sum::<f64>() / n;
         let var = vals.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / n;
         let std = var.sqrt();
-        if std == 0.0 { return None; }
+        if std == 0.0 {
+            return None;
+        }
         let skew = vals.iter().map(|v| ((v - mean) / std).powi(3)).sum::<f64>() / n;
         Some(skew)
     }
@@ -10445,9 +13625,16 @@ impl OhlcvBar {
     /// Mean rate of change of price range across consecutive bars (range velocity).
     pub fn bar_range_velocity(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 2 { return None; }
-        let ranges: Vec<f64> = bars.iter().filter_map(|b| (b.high - b.low).to_f64()).collect();
-        if ranges.len() < 2 { return None; }
+        if bars.len() < 2 {
+            return None;
+        }
+        let ranges: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| (b.high - b.low).to_f64())
+            .collect();
+        if ranges.len() < 2 {
+            return None;
+        }
         let diffs: Vec<f64> = ranges.windows(2).map(|w| w[1] - w[0]).collect();
         Some(diffs.iter().sum::<f64>() / diffs.len() as f64)
     }
@@ -10455,23 +13642,36 @@ impl OhlcvBar {
     /// Mean high minus close as fraction of range (upper pressure indicator).
     pub fn bar_high_minus_close(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let vals: Vec<f64> = bars.iter().filter_map(|b| {
-            let hl = (b.high - b.low).to_f64()?;
-            if hl == 0.0 { return Some(0.0); }
-            let hc = (b.high - b.close).to_f64()?;
-            Some(hc / hl)
-        }).collect();
-        if vals.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let hl = (b.high - b.low).to_f64()?;
+                if hl == 0.0 {
+                    return Some(0.0);
+                }
+                let hc = (b.high - b.close).to_f64()?;
+                Some(hc / hl)
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
     /// Volume surge: std dev of bar volumes (absolute volume dispersion).
     pub fn bar_vol_surge(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 2 { return None; }
+        if bars.len() < 2 {
+            return None;
+        }
         let vols: Vec<f64> = bars.iter().filter_map(|b| b.volume.to_f64()).collect();
-        if vols.len() < 2 { return None; }
+        if vols.len() < 2 {
+            return None;
+        }
         let mean = vols.iter().sum::<f64>() / vols.len() as f64;
         let var = vols.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / (vols.len() - 1) as f64;
         Some(var.sqrt())
@@ -10480,23 +13680,31 @@ impl OhlcvBar {
     /// Momentum index: mean of (close\[i\] - close[i-2]) across bars (2-step return).
     pub fn bar_momentum_index(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 3 { return None; }
+        if bars.len() < 3 {
+            return None;
+        }
         let closes: Vec<f64> = bars.iter().filter_map(|b| b.close.to_f64()).collect();
-        if closes.len() < 3 { return None; }
+        if closes.len() < 3 {
+            return None;
+        }
         let diffs: Vec<f64> = closes.windows(3).map(|w| w[2] - w[0]).collect();
         Some(diffs.iter().sum::<f64>() / diffs.len() as f64)
     }
 
     /// Fraction of bars where close > open (bullish fraction).
     pub fn bar_bull_fraction(bars: &[OhlcvBar]) -> Option<f64> {
-        if bars.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
         let bulls = bars.iter().filter(|b| b.close > b.open).count();
         Some(bulls as f64 / bars.len() as f64)
     }
 
     /// Fraction of bars where close < open (bearish fraction).
     pub fn bar_bear_fraction(bars: &[OhlcvBar]) -> Option<f64> {
-        if bars.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
         let bears = bars.iter().filter(|b| b.close < b.open).count();
         Some(bears as f64 / bars.len() as f64)
     }
@@ -10504,12 +13712,19 @@ impl OhlcvBar {
     /// Mean absolute (close - open) / (high - low) — body-to-range ratio std dev proxy.
     pub fn bar_oc_volatility(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 2 { return None; }
-        let vals: Vec<f64> = bars.iter().filter_map(|b| {
-            let oc = (b.close - b.open).to_f64()?;
-            Some(oc)
-        }).collect();
-        if vals.len() < 2 { return None; }
+        if bars.len() < 2 {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let oc = (b.close - b.open).to_f64()?;
+                Some(oc)
+            })
+            .collect();
+        if vals.len() < 2 {
+            return None;
+        }
         let mean = vals.iter().sum::<f64>() / vals.len() as f64;
         let var = vals.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / (vals.len() - 1) as f64;
         Some(var.sqrt())
@@ -10518,55 +13733,85 @@ impl OhlcvBar {
     /// Std dev of per-bar high prices (high price variability).
     pub fn bar_high_vol_corr(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 2 { return None; }
+        if bars.len() < 2 {
+            return None;
+        }
         let highs: Vec<f64> = bars.iter().filter_map(|b| b.high.to_f64()).collect();
         let vols: Vec<f64> = bars.iter().filter_map(|b| b.volume.to_f64()).collect();
-        if highs.len() < 2 || vols.len() < 2 || highs.len() != vols.len() { return None; }
+        if highs.len() < 2 || vols.len() < 2 || highs.len() != vols.len() {
+            return None;
+        }
         let n = highs.len() as f64;
         let mh = highs.iter().sum::<f64>() / n;
         let mv = vols.iter().sum::<f64>() / n;
-        let num: f64 = highs.iter().zip(vols.iter()).map(|(h, v)| (h - mh) * (v - mv)).sum();
+        let num: f64 = highs
+            .iter()
+            .zip(vols.iter())
+            .map(|(h, v)| (h - mh) * (v - mv))
+            .sum();
         let dh: f64 = highs.iter().map(|h| (h - mh).powi(2)).sum::<f64>();
         let dv: f64 = vols.iter().map(|v| (v - mv).powi(2)).sum::<f64>();
         let denom = (dh * dv).sqrt();
-        if denom == 0.0 { return None; }
+        if denom == 0.0 {
+            return None;
+        }
         Some(num / denom)
     }
 
     /// Mean upper shadow as fraction of range: (high - max(open,close)) / (high - low).
     pub fn bar_upper_shadow_pct(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let vals: Vec<f64> = bars.iter().filter_map(|b| {
-            let hl = (b.high - b.low).to_f64()?;
-            if hl == 0.0 { return Some(0.0); }
-            let top = b.open.max(b.close);
-            let upper = (b.high - top).to_f64()?;
-            Some(upper / hl)
-        }).collect();
-        if vals.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let hl = (b.high - b.low).to_f64()?;
+                if hl == 0.0 {
+                    return Some(0.0);
+                }
+                let top = b.open.max(b.close);
+                let upper = (b.high - top).to_f64()?;
+                Some(upper / hl)
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
     /// Mean lower shadow as fraction of range: (min(open,close) - low) / (high - low).
     pub fn bar_lower_shadow_pct(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let vals: Vec<f64> = bars.iter().filter_map(|b| {
-            let hl = (b.high - b.low).to_f64()?;
-            if hl == 0.0 { return Some(0.0); }
-            let bottom = b.open.min(b.close);
-            let lower = (bottom - b.low).to_f64()?;
-            Some(lower / hl)
-        }).collect();
-        if vals.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let hl = (b.high - b.low).to_f64()?;
+                if hl == 0.0 {
+                    return Some(0.0);
+                }
+                let bottom = b.open.min(b.close);
+                let lower = (bottom - b.low).to_f64()?;
+                Some(lower / hl)
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
     /// Mean volume per bar in absolute terms (average volume per candle).
     pub fn bar_vol_per_tick(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
         let total: f64 = bars.iter().filter_map(|b| b.volume.to_f64()).sum();
         Some(total / bars.len() as f64)
     }
@@ -10574,101 +13819,158 @@ impl OhlcvBar {
     /// Mean midpoint of open and close: (open + close) / 2.
     pub fn bar_body_center(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let vals: Vec<f64> = bars.iter().filter_map(|b| {
-            let o = b.open.to_f64()?;
-            let c = b.close.to_f64()?;
-            Some((o + c) / 2.0)
-        }).collect();
-        if vals.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let o = b.open.to_f64()?;
+                let c = b.close.to_f64()?;
+                Some((o + c) / 2.0)
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
     /// Mean fraction of body relative to high: (close - open).abs() / high.
     pub fn bar_body_high_pct(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let vals: Vec<f64> = bars.iter().filter_map(|b| {
-            let body = (b.close - b.open).abs().to_f64()?;
-            let high = b.high.to_f64()?;
-            if high == 0.0 { return None; }
-            Some(body / high)
-        }).collect();
-        if vals.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let body = (b.close - b.open).abs().to_f64()?;
+                let high = b.high.to_f64()?;
+                if high == 0.0 {
+                    return None;
+                }
+                Some(body / high)
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
     /// Fraction of consecutive bar pairs where volume increases (vol trend sign).
     pub fn bar_vol_trend_sign(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 2 { return None; }
-        let ups: usize = bars.windows(2).filter(|w| {
-            let v0 = w[0].volume.to_f64().unwrap_or(0.0);
-            let v1 = w[1].volume.to_f64().unwrap_or(0.0);
-            v1 > v0
-        }).count();
+        if bars.len() < 2 {
+            return None;
+        }
+        let ups: usize = bars
+            .windows(2)
+            .filter(|w| {
+                let v0 = w[0].volume.to_f64().unwrap_or(0.0);
+                let v1 = w[1].volume.to_f64().unwrap_or(0.0);
+                v1 > v0
+            })
+            .count();
         Some(ups as f64 / (bars.len() - 1) as f64)
     }
 
     /// Mean (high - low) / volume — range per unit of volume traded.
     pub fn bar_range_vol_ratio(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let vals: Vec<f64> = bars.iter().filter_map(|b| {
-            let range = (b.high - b.low).to_f64()?;
-            let vol = b.volume.to_f64()?;
-            if vol == 0.0 { return None; }
-            Some(range / vol)
-        }).collect();
-        if vals.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let range = (b.high - b.low).to_f64()?;
+                let vol = b.volume.to_f64()?;
+                if vol == 0.0 {
+                    return None;
+                }
+                Some(range / vol)
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
     /// Mean (close - open) / open return per bar (signed directional return).
     pub fn bar_open_close_return(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let vals: Vec<f64> = bars.iter().filter_map(|b| {
-            let open = b.open.to_f64()?;
-            if open == 0.0 { return None; }
-            let close = b.close.to_f64()?;
-            Some((close - open) / open)
-        }).collect();
-        if vals.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let open = b.open.to_f64()?;
+                if open == 0.0 {
+                    return None;
+                }
+                let close = b.close.to_f64()?;
+                Some((close - open) / open)
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
     /// Mean gap between each bar's open and previous bar's close.
     pub fn bar_prev_close_gap(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 2 { return None; }
-        let gaps: Vec<f64> = bars.windows(2).filter_map(|w| {
-            (w[1].open - w[0].close).to_f64()
-        }).collect();
-        if gaps.is_empty() { return None; }
+        if bars.len() < 2 {
+            return None;
+        }
+        let gaps: Vec<f64> = bars
+            .windows(2)
+            .filter_map(|w| (w[1].open - w[0].close).to_f64())
+            .collect();
+        if gaps.is_empty() {
+            return None;
+        }
         Some(gaps.iter().sum::<f64>() / gaps.len() as f64)
     }
 
     /// Mean (open - low) / (high - low) — open lower efficiency.
     pub fn bar_open_low_efficiency(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let vals: Vec<f64> = bars.iter().filter_map(|b| {
-            let hl = (b.high - b.low).to_f64()?;
-            if hl == 0.0 { return Some(0.0); }
-            let ol = (b.open - b.low).to_f64()?;
-            Some(ol / hl)
-        }).collect();
-        if vals.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let hl = (b.high - b.low).to_f64()?;
+                if hl == 0.0 {
+                    return Some(0.0);
+                }
+                let ol = (b.open - b.low).to_f64()?;
+                Some(ol / hl)
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
     /// Fraction of bars with volume in the top quartile of the window.
     pub fn bar_extreme_vol_pct(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
         let mut vols: Vec<f64> = bars.iter().filter_map(|b| b.volume.to_f64()).collect();
-        if vols.is_empty() { return None; }
+        if vols.is_empty() {
+            return None;
+        }
         let mut sorted = vols.clone();
         sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
         let threshold = sorted[sorted.len() * 3 / 4];
@@ -10680,169 +13982,267 @@ impl OhlcvBar {
     /// Volume oscillator: (short_vol_mean - long_vol_mean) / long_vol_mean.
     pub fn bar_volume_oscillator(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 4 { return None; }
+        if bars.len() < 4 {
+            return None;
+        }
         let half = bars.len() / 2;
         let vols: Vec<f64> = bars.iter().filter_map(|b| b.volume.to_f64()).collect();
-        if vols.len() < 4 { return None; }
-        let short_mean = vols[vols.len()-half..].iter().sum::<f64>() / half as f64;
+        if vols.len() < 4 {
+            return None;
+        }
+        let short_mean = vols[vols.len() - half..].iter().sum::<f64>() / half as f64;
         let long_mean = vols.iter().sum::<f64>() / vols.len() as f64;
-        if long_mean == 0.0 { return None; }
+        if long_mean == 0.0 {
+            return None;
+        }
         Some((short_mean - long_mean) / long_mean)
     }
 
     /// Mean (open - low) / (high - low) — open strength (position of open in range).
     pub fn bar_open_strength(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let vals: Vec<f64> = bars.iter().filter_map(|b| {
-            let hl = (b.high - b.low).to_f64()?;
-            if hl == 0.0 { return Some(0.5); }
-            let ol = (b.open - b.low).to_f64()?;
-            Some(ol / hl)
-        }).collect();
-        if vals.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let hl = (b.high - b.low).to_f64()?;
+                if hl == 0.0 {
+                    return Some(0.5);
+                }
+                let ol = (b.open - b.low).to_f64()?;
+                Some(ol / hl)
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
     /// Mean (close - low) / (high - low) — close pull (position of close in range).
     pub fn bar_close_pull(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let vals: Vec<f64> = bars.iter().filter_map(|b| {
-            let hl = (b.high - b.low).to_f64()?;
-            if hl == 0.0 { return Some(0.5); }
-            let cl = (b.close - b.low).to_f64()?;
-            Some(cl / hl)
-        }).collect();
-        if vals.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let hl = (b.high - b.low).to_f64()?;
+                if hl == 0.0 {
+                    return Some(0.5);
+                }
+                let cl = (b.close - b.low).to_f64()?;
+                Some(cl / hl)
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
     /// Mean body / (body + total_wick) — body vs shadow ratio.
     pub fn bar_body_vs_shadow(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let vals: Vec<f64> = bars.iter().filter_map(|b| {
-            let body = (b.close - b.open).abs().to_f64()?;
-            let body_top = if b.close > b.open { b.close } else { b.open };
-            let body_bot = if b.close < b.open { b.close } else { b.open };
-            let wicks = ((b.high - body_top) + (body_bot - b.low)).to_f64()?;
-            let total = body + wicks;
-            if total == 0.0 { return None; }
-            Some(body / total)
-        }).collect();
-        if vals.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let body = (b.close - b.open).abs().to_f64()?;
+                let body_top = if b.close > b.open { b.close } else { b.open };
+                let body_bot = if b.close < b.open { b.close } else { b.open };
+                let wicks = ((b.high - body_top) + (body_bot - b.low)).to_f64()?;
+                let total = body + wicks;
+                if total == 0.0 {
+                    return None;
+                }
+                Some(body / total)
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
     /// Mean volume per price point (high - low) across bars.
     pub fn bar_vol_per_point(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let vals: Vec<f64> = bars.iter().filter_map(|b| {
-            let hl = (b.high - b.low).to_f64()?;
-            if hl == 0.0 { return None; }
-            let vol = b.volume.to_f64()?;
-            Some(vol / hl)
-        }).collect();
-        if vals.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let hl = (b.high - b.low).to_f64()?;
+                if hl == 0.0 {
+                    return None;
+                }
+                let vol = b.volume.to_f64()?;
+                Some(vol / hl)
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
     /// Mean body as a fraction of total volume (body efficiency per volume unit).
     pub fn bar_body_vol_efficiency(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let vals: Vec<f64> = bars.iter().filter_map(|b| {
-            let body = (b.close - b.open).abs().to_f64()?;
-            let vol = b.volume.to_f64()?;
-            if vol == 0.0 { return None; }
-            Some(body / vol)
-        }).collect();
-        if vals.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let body = (b.close - b.open).abs().to_f64()?;
+                let vol = b.volume.to_f64()?;
+                if vol == 0.0 {
+                    return None;
+                }
+                Some(body / vol)
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
     /// Mean (close_t - open_t) / close_{t-1} — normalized open-to-close momentum.
     pub fn bar_close_open_momentum(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 2 { return None; }
-        let vals: Vec<f64> = bars.windows(2).filter_map(|w| {
-            let prev_close = w[0].close.to_f64()?;
-            if prev_close == 0.0 { return None; }
-            let curr_body = (w[1].close - w[1].open).to_f64()?;
-            Some(curr_body / prev_close)
-        }).collect();
-        if vals.is_empty() { return None; }
+        if bars.len() < 2 {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .windows(2)
+            .filter_map(|w| {
+                let prev_close = w[0].close.to_f64()?;
+                if prev_close == 0.0 {
+                    return None;
+                }
+                let curr_body = (w[1].close - w[1].open).to_f64()?;
+                Some(curr_body / prev_close)
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
     /// Mean (upper_wick - lower_wick) / range — directional wick delta.
     pub fn bar_wick_body_delta(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let vals: Vec<f64> = bars.iter().filter_map(|b| {
-            let range = (b.high - b.low).to_f64()?;
-            if range == 0.0 { return Some(0.0); }
-            let body_top = if b.close > b.open { b.close } else { b.open };
-            let body_bot = if b.close < b.open { b.close } else { b.open };
-            let upper = (b.high - body_top).to_f64()?;
-            let lower = (body_bot - b.low).to_f64()?;
-            Some((upper - lower) / range)
-        }).collect();
-        if vals.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let range = (b.high - b.low).to_f64()?;
+                if range == 0.0 {
+                    return Some(0.0);
+                }
+                let body_top = if b.close > b.open { b.close } else { b.open };
+                let body_bot = if b.close < b.open { b.close } else { b.open };
+                let upper = (b.high - body_top).to_f64()?;
+                let lower = (body_bot - b.low).to_f64()?;
+                Some((upper - lower) / range)
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
     /// Mean (high - close) / (high - low) — fraction of range above close.
     pub fn bar_high_close_momentum(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let vals: Vec<f64> = bars.iter().filter_map(|b| {
-            let hl = (b.high - b.low).to_f64()?;
-            if hl == 0.0 { return Some(0.0); }
-            let hc = (b.high - b.close).to_f64()?;
-            Some(hc / hl)
-        }).collect();
-        if vals.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let hl = (b.high - b.low).to_f64()?;
+                if hl == 0.0 {
+                    return Some(0.0);
+                }
+                let hc = (b.high - b.close).to_f64()?;
+                Some(hc / hl)
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
     /// Mean absolute (open - close) across bars.
     pub fn bar_oc_mean_abs(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let vals: Vec<f64> = bars.iter().filter_map(|b| {
-            (b.open - b.close).abs().to_f64()
-        }).collect();
-        if vals.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| (b.open - b.close).abs().to_f64())
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
     /// Mean (close - open) / (high - low) — directional efficiency.
     pub fn bar_range_efficiency(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let vals: Vec<f64> = bars.iter().filter_map(|b| {
-            let hl = (b.high - b.low).to_f64()?;
-            if hl == 0.0 { return Some(0.0); }
-            let oc = (b.close - b.open).to_f64()?;
-            Some(oc / hl)
-        }).collect();
-        if vals.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let hl = (b.high - b.low).to_f64()?;
+                if hl == 0.0 {
+                    return Some(0.0);
+                }
+                let oc = (b.close - b.open).to_f64()?;
+                Some(oc / hl)
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
     /// Z-score of the last bar's volume relative to window mean and std dev.
     pub fn bar_vol_zscore(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 2 { return None; }
+        if bars.len() < 2 {
+            return None;
+        }
         let vols: Vec<f64> = bars.iter().filter_map(|b| b.volume.to_f64()).collect();
-        if vols.len() < 2 { return None; }
+        if vols.len() < 2 {
+            return None;
+        }
         let mean = vols.iter().sum::<f64>() / vols.len() as f64;
         let var = vols.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / (vols.len() - 1) as f64;
         let std = var.sqrt();
-        if std == 0.0 { return None; }
+        if std == 0.0 {
+            return None;
+        }
         let last = *vols.last()?;
         Some((last - mean) / std)
     }
@@ -10850,37 +14250,59 @@ impl OhlcvBar {
     /// Skewness of close prices across bars (third standardized moment).
     pub fn bar_close_skew(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 3 { return None; }
+        if bars.len() < 3 {
+            return None;
+        }
         let closes: Vec<f64> = bars.iter().filter_map(|b| b.close.to_f64()).collect();
-        if closes.len() < 3 { return None; }
+        if closes.len() < 3 {
+            return None;
+        }
         let n = closes.len() as f64;
         let mean = closes.iter().sum::<f64>() / n;
         let var = closes.iter().map(|c| (c - mean).powi(2)).sum::<f64>() / n;
         let std = var.sqrt();
-        if std == 0.0 { return None; }
-        let skew = closes.iter().map(|c| ((c - mean) / std).powi(3)).sum::<f64>() / n;
+        if std == 0.0 {
+            return None;
+        }
+        let skew = closes
+            .iter()
+            .map(|c| ((c - mean) / std).powi(3))
+            .sum::<f64>()
+            / n;
         Some(skew)
     }
 
     /// Mean percentile rank of volume across bars (volume rank / n_bars).
     pub fn bar_vol_rank_pct(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
         let vols: Vec<f64> = bars.iter().filter_map(|b| b.volume.to_f64()).collect();
-        if vols.is_empty() { return None; }
+        if vols.is_empty() {
+            return None;
+        }
         let mut sorted = vols.clone();
         sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-        let rank_sum: f64 = vols.iter().map(|v| sorted.partition_point(|&s| s <= *v) as f64).sum();
+        let rank_sum: f64 = vols
+            .iter()
+            .map(|v| sorted.partition_point(|&s| s <= *v) as f64)
+            .sum();
         Some(rank_sum / (vols.len() * vols.len()) as f64)
     }
 
     /// Fraction of bars where close equals or exceeds all previous closes (consistency).
     pub fn bar_close_consistency(bars: &[OhlcvBar]) -> Option<f64> {
-        if bars.len() < 2 { return None; }
+        if bars.len() < 2 {
+            return None;
+        }
         let mut max_close = bars[0].close;
         let mut count = 0usize;
         for b in &bars[1..] {
-            if b.close >= max_close { count += 1; max_close = b.close; }
+            if b.close >= max_close {
+                count += 1;
+                max_close = b.close;
+            }
         }
         Some(count as f64 / (bars.len() - 1) as f64)
     }
@@ -10888,79 +14310,117 @@ impl OhlcvBar {
     /// High/Low price range as percentage of the mean close across bars.
     pub fn bar_high_low_pct_range(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
         let highs: Vec<f64> = bars.iter().filter_map(|b| b.high.to_f64()).collect();
         let lows: Vec<f64> = bars.iter().filter_map(|b| b.low.to_f64()).collect();
         let closes: Vec<f64> = bars.iter().filter_map(|b| b.close.to_f64()).collect();
-        if highs.is_empty() || lows.is_empty() || closes.is_empty() { return None; }
+        if highs.is_empty() || lows.is_empty() || closes.is_empty() {
+            return None;
+        }
         let max_high = highs.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
         let min_low = lows.iter().cloned().fold(f64::INFINITY, f64::min);
         let mean_close = closes.iter().sum::<f64>() / closes.len() as f64;
-        if mean_close == 0.0 { return None; }
+        if mean_close == 0.0 {
+            return None;
+        }
         Some((max_high - min_low) / mean_close)
     }
 
     /// Fraction of total wick height concentrated in wicks above the body.
     pub fn bar_shadow_concentration(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
         let mut total_upper = 0.0f64;
         let mut total_lower = 0.0f64;
         for b in bars {
             let body_top = if b.close > b.open { b.close } else { b.open };
             let body_bot = if b.close < b.open { b.close } else { b.open };
-            if let (Some(upper), Some(lower)) = (
-                (b.high - body_top).to_f64(),
-                (body_bot - b.low).to_f64(),
-            ) {
+            if let (Some(upper), Some(lower)) =
+                ((b.high - body_top).to_f64(), (body_bot - b.low).to_f64())
+            {
                 total_upper += upper;
                 total_lower += lower;
             }
         }
         let total = total_upper + total_lower;
-        if total == 0.0 { return None; }
+        if total == 0.0 {
+            return None;
+        }
         Some(total_upper / total)
     }
 
     /// Rank of each bar's close relative to all closes (returns mean rank / n).
     pub fn bar_close_vol_rank(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
         let closes: Vec<f64> = bars.iter().filter_map(|b| b.close.to_f64()).collect();
-        if closes.is_empty() { return None; }
+        if closes.is_empty() {
+            return None;
+        }
         let mut sorted = closes.clone();
         sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-        let rank_sum: f64 = closes.iter().map(|c| {
-            sorted.partition_point(|&s| s <= *c) as f64
-        }).sum();
+        let rank_sum: f64 = closes
+            .iter()
+            .map(|c| sorted.partition_point(|&s| s <= *c) as f64)
+            .sum();
         Some(rank_sum / (closes.len() * closes.len()) as f64)
     }
 
     /// Mean (high - open) / (high - low) spread across bars.
     pub fn bar_open_high_spread(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let vals: Vec<f64> = bars.iter().filter_map(|b| {
-            let hl = (b.high - b.low).to_f64()?;
-            if hl == 0.0 { return Some(0.0); }
-            let ho = (b.high - b.open).to_f64()?;
-            Some(ho / hl)
-        }).collect();
-        if vals.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let hl = (b.high - b.low).to_f64()?;
+                if hl == 0.0 {
+                    return Some(0.0);
+                }
+                let ho = (b.high - b.open).to_f64()?;
+                Some(ho / hl)
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
     /// Length of longest run of bars with same close direction.
     pub fn bar_body_direction_run(bars: &[OhlcvBar]) -> Option<f64> {
-        if bars.is_empty() { return None; }
-        let dirs: Vec<i8> = bars.iter().map(|b| {
-            if b.close > b.open { 1 } else if b.close < b.open { -1 } else { 0 }
-        }).collect();
+        if bars.is_empty() {
+            return None;
+        }
+        let dirs: Vec<i8> = bars
+            .iter()
+            .map(|b| {
+                if b.close > b.open {
+                    1
+                } else if b.close < b.open {
+                    -1
+                } else {
+                    0
+                }
+            })
+            .collect();
         let mut max_run = 1usize;
         let mut cur_run = 1usize;
         for i in 1..dirs.len() {
-            if dirs[i] == dirs[i-1] && dirs[i] != 0 { cur_run += 1; max_run = max_run.max(cur_run); }
-            else { cur_run = 1; }
+            if dirs[i] == dirs[i - 1] && dirs[i] != 0 {
+                cur_run += 1;
+                max_run = max_run.max(cur_run);
+            } else {
+                cur_run = 1;
+            }
         }
         Some(max_run as f64)
     }
@@ -10968,43 +14428,71 @@ impl OhlcvBar {
     /// Mean volume relative to spread (close - open range) across bars.
     pub fn bar_vol_close_spread(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let vals: Vec<f64> = bars.iter().filter_map(|b| {
-            let spread = (b.close - b.open).abs().to_f64()?;
-            if spread == 0.0 { return None; }
-            let vol = b.volume.to_f64()?;
-            Some(vol / spread)
-        }).collect();
-        if vals.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let spread = (b.close - b.open).abs().to_f64()?;
+                if spread == 0.0 {
+                    return None;
+                }
+                let vol = b.volume.to_f64()?;
+                Some(vol / spread)
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
 
     /// Fraction of volume in bars with open > previous close (gap-up bars).
     pub fn bar_open_vol_trend(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.len() < 2 { return None; }
+        if bars.len() < 2 {
+            return None;
+        }
         let total_vol: f64 = bars.iter().filter_map(|b| b.volume.to_f64()).sum();
-        if total_vol == 0.0 { return None; }
-        let gap_vol: f64 = bars.windows(2).filter_map(|w| {
-            if w[1].open > w[0].close { w[1].volume.to_f64() } else { None }
-        }).sum();
+        if total_vol == 0.0 {
+            return None;
+        }
+        let gap_vol: f64 = bars
+            .windows(2)
+            .filter_map(|w| {
+                if w[1].open > w[0].close {
+                    w[1].volume.to_f64()
+                } else {
+                    None
+                }
+            })
+            .sum();
         Some(gap_vol / total_vol)
     }
 
     /// Mean volume per unit of body size across bars.
     pub fn bar_vol_body_ratio(bars: &[OhlcvBar]) -> Option<f64> {
         use rust_decimal::prelude::ToPrimitive;
-        if bars.is_empty() { return None; }
-        let vals: Vec<f64> = bars.iter().filter_map(|b| {
-            let body = (b.close - b.open).abs().to_f64()?;
-            if body == 0.0 { return None; }
-            let vol = b.volume.to_f64()?;
-            Some(vol / body)
-        }).collect();
-        if vals.is_empty() { return None; }
+        if bars.is_empty() {
+            return None;
+        }
+        let vals: Vec<f64> = bars
+            .iter()
+            .filter_map(|b| {
+                let body = (b.close - b.open).abs().to_f64()?;
+                if body == 0.0 {
+                    return None;
+                }
+                let vol = b.volume.to_f64()?;
+                Some(vol / body)
+            })
+            .collect();
+        if vals.is_empty() {
+            return None;
+        }
         Some(vals.iter().sum::<f64>() / vals.len() as f64)
     }
-
 }
 
 impl std::fmt::Display for OhlcvBar {
@@ -11110,7 +14598,11 @@ impl OhlcvAggregator {
         // A tick for a window that is already closed (out-of-order delivery). Opening a
         // bar for it would close the current bar early and emit bars that go back in
         // time, so drop it and count it instead.
-        if self.current_bar.as_ref().is_some_and(|b| bar_start < b.bar_start_ms) {
+        if self
+            .current_bar
+            .as_ref()
+            .is_some_and(|b| bar_start < b.bar_start_ms)
+        {
             self.late_ticks += 1;
             self.counters.late_tick();
             return Ok(Vec::new());
@@ -11404,15 +14896,25 @@ mod tests {
     #[test]
     fn test_late_tick_is_dropped_not_reopened() {
         let mut a = agg("BTC-USD", Timeframe::Minutes(1));
-        assert!(a.feed(&make_tick("BTC-USD", dec!(100), dec!(1), 10)).unwrap().is_empty());
-        let done = a.feed(&make_tick("BTC-USD", dec!(101), dec!(1), 60_010)).unwrap();
+        assert!(a
+            .feed(&make_tick("BTC-USD", dec!(100), dec!(1), 10))
+            .unwrap()
+            .is_empty());
+        let done = a
+            .feed(&make_tick("BTC-USD", dec!(101), dec!(1), 60_010))
+            .unwrap();
         assert_eq!(done.len(), 1);
         // A straggler from minute 0 after minute 1 opened. It used to emit the
         // minute-1 bar after one trade and open a second minute-0 bar.
-        let late = a.feed(&make_tick("BTC-USD", dec!(50), dec!(5), 20)).unwrap();
+        let late = a
+            .feed(&make_tick("BTC-USD", dec!(50), dec!(5), 20))
+            .unwrap();
         assert!(late.is_empty());
         assert_eq!(a.late_tick_count(), 1);
-        assert!(a.feed(&make_tick("BTC-USD", dec!(102), dec!(1), 60_020)).unwrap().is_empty());
+        assert!(a
+            .feed(&make_tick("BTC-USD", dec!(102), dec!(1), 60_020))
+            .unwrap()
+            .is_empty());
         let bar = a.current_bar().unwrap();
         assert_eq!(bar.bar_start_ms, 60_000);
         assert_eq!(bar.trade_count, 2);
@@ -11477,9 +14979,11 @@ mod tests {
 
     #[test]
     fn test_timeframe_ord_sort() {
-        let mut tfs = [Timeframe::Hours(1),
+        let mut tfs = [
+            Timeframe::Hours(1),
             Timeframe::Seconds(30),
-            Timeframe::Minutes(5)];
+            Timeframe::Minutes(5),
+        ];
         tfs.sort();
         assert_eq!(tfs[0], Timeframe::Seconds(30));
         assert_eq!(tfs[1], Timeframe::Minutes(5));
@@ -11876,20 +15380,38 @@ mod tests {
 
     #[test]
     fn test_from_duration_ms_hours() {
-        assert_eq!(Timeframe::from_duration_ms(3_600_000), Some(Timeframe::Hours(1)));
-        assert_eq!(Timeframe::from_duration_ms(7_200_000), Some(Timeframe::Hours(2)));
+        assert_eq!(
+            Timeframe::from_duration_ms(3_600_000),
+            Some(Timeframe::Hours(1))
+        );
+        assert_eq!(
+            Timeframe::from_duration_ms(7_200_000),
+            Some(Timeframe::Hours(2))
+        );
     }
 
     #[test]
     fn test_from_duration_ms_minutes() {
-        assert_eq!(Timeframe::from_duration_ms(300_000), Some(Timeframe::Minutes(5)));
-        assert_eq!(Timeframe::from_duration_ms(60_000), Some(Timeframe::Minutes(1)));
+        assert_eq!(
+            Timeframe::from_duration_ms(300_000),
+            Some(Timeframe::Minutes(5))
+        );
+        assert_eq!(
+            Timeframe::from_duration_ms(60_000),
+            Some(Timeframe::Minutes(1))
+        );
     }
 
     #[test]
     fn test_from_duration_ms_seconds() {
-        assert_eq!(Timeframe::from_duration_ms(15_000), Some(Timeframe::Seconds(15)));
-        assert_eq!(Timeframe::from_duration_ms(1_000), Some(Timeframe::Seconds(1)));
+        assert_eq!(
+            Timeframe::from_duration_ms(15_000),
+            Some(Timeframe::Seconds(15))
+        );
+        assert_eq!(
+            Timeframe::from_duration_ms(1_000),
+            Some(Timeframe::Seconds(1))
+        );
     }
 
     #[test]
@@ -11904,7 +15426,11 @@ mod tests {
 
     #[test]
     fn test_from_duration_ms_roundtrip() {
-        for tf in [Timeframe::Seconds(30), Timeframe::Minutes(5), Timeframe::Hours(4)] {
+        for tf in [
+            Timeframe::Seconds(30),
+            Timeframe::Minutes(5),
+            Timeframe::Hours(4),
+        ] {
             assert_eq!(Timeframe::from_duration_ms(tf.duration_ms()), Some(tf));
         }
     }
@@ -11914,11 +15440,18 @@ mod tests {
     #[test]
     fn test_is_doji_exact_zero_body() {
         let bar = OhlcvBar {
-            symbol: "X".into(), timeframe: Timeframe::Minutes(1),
-            bar_start_ms: 0, open: dec!(100), high: dec!(105),
-            low: dec!(95), close: dec!(100),
-            volume: dec!(1), trade_count: 1, is_complete: true,
-            is_gap_fill: false, vwap: None,
+            symbol: "X".into(),
+            timeframe: Timeframe::Minutes(1),
+            bar_start_ms: 0,
+            open: dec!(100),
+            high: dec!(105),
+            low: dec!(95),
+            close: dec!(100),
+            volume: dec!(1),
+            trade_count: 1,
+            is_complete: true,
+            is_gap_fill: false,
+            vwap: None,
         };
         assert!(bar.is_doji(Decimal::ZERO));
     }
@@ -11926,11 +15459,18 @@ mod tests {
     #[test]
     fn test_is_doji_small_epsilon() {
         let bar = OhlcvBar {
-            symbol: "X".into(), timeframe: Timeframe::Minutes(1),
-            bar_start_ms: 0, open: dec!(100), high: dec!(105),
-            low: dec!(95), close: dec!(100.005),
-            volume: dec!(1), trade_count: 1, is_complete: true,
-            is_gap_fill: false, vwap: None,
+            symbol: "X".into(),
+            timeframe: Timeframe::Minutes(1),
+            bar_start_ms: 0,
+            open: dec!(100),
+            high: dec!(105),
+            low: dec!(95),
+            close: dec!(100.005),
+            volume: dec!(1),
+            trade_count: 1,
+            is_complete: true,
+            is_gap_fill: false,
+            vwap: None,
         };
         assert!(bar.is_doji(dec!(0.01)));
         assert!(!bar.is_doji(Decimal::ZERO));
@@ -11940,11 +15480,18 @@ mod tests {
     fn test_wick_upper_bullish() {
         // open=100, close=104, high=107 → upper wick = 107 - 104 = 3
         let bar = OhlcvBar {
-            symbol: "X".into(), timeframe: Timeframe::Minutes(1),
-            bar_start_ms: 0, open: dec!(100), high: dec!(107),
-            low: dec!(98), close: dec!(104),
-            volume: dec!(1), trade_count: 1, is_complete: true,
-            is_gap_fill: false, vwap: None,
+            symbol: "X".into(),
+            timeframe: Timeframe::Minutes(1),
+            bar_start_ms: 0,
+            open: dec!(100),
+            high: dec!(107),
+            low: dec!(98),
+            close: dec!(104),
+            volume: dec!(1),
+            trade_count: 1,
+            is_complete: true,
+            is_gap_fill: false,
+            vwap: None,
         };
         assert_eq!(bar.wick_upper(), dec!(3));
     }
@@ -11953,11 +15500,18 @@ mod tests {
     fn test_wick_lower_bearish() {
         // open=104, close=100, low=97 → lower wick = 100 - 97 = 3
         let bar = OhlcvBar {
-            symbol: "X".into(), timeframe: Timeframe::Minutes(1),
-            bar_start_ms: 0, open: dec!(104), high: dec!(107),
-            low: dec!(97), close: dec!(100),
-            volume: dec!(1), trade_count: 1, is_complete: true,
-            is_gap_fill: false, vwap: None,
+            symbol: "X".into(),
+            timeframe: Timeframe::Minutes(1),
+            bar_start_ms: 0,
+            open: dec!(104),
+            high: dec!(107),
+            low: dec!(97),
+            close: dec!(100),
+            volume: dec!(1),
+            trade_count: 1,
+            is_complete: true,
+            is_gap_fill: false,
+            vwap: None,
         };
         assert_eq!(bar.wick_lower(), dec!(3));
     }
@@ -11974,14 +15528,16 @@ mod tests {
     fn test_window_progress_at_start_is_zero() {
         let mut agg = agg("BTC-USD", Timeframe::Minutes(1));
         // Tick at bar start.
-        agg.feed(&make_tick("BTC-USD", dec!(100), dec!(1), 60_000)).unwrap();
+        agg.feed(&make_tick("BTC-USD", dec!(100), dec!(1), 60_000))
+            .unwrap();
         assert_eq!(agg.window_progress(60_000), Some(0.0));
     }
 
     #[test]
     fn test_window_progress_midpoint() {
         let mut agg = agg("BTC-USD", Timeframe::Minutes(1));
-        agg.feed(&make_tick("BTC-USD", dec!(100), dec!(1), 60_000)).unwrap();
+        agg.feed(&make_tick("BTC-USD", dec!(100), dec!(1), 60_000))
+            .unwrap();
         // 30 s into a 60 s bar → 0.5
         let progress = agg.window_progress(90_000).unwrap();
         assert!((progress - 0.5).abs() < 1e-9);
@@ -11990,7 +15546,8 @@ mod tests {
     #[test]
     fn test_window_progress_clamps_at_one() {
         let mut agg = agg("BTC-USD", Timeframe::Minutes(1));
-        agg.feed(&make_tick("BTC-USD", dec!(100), dec!(1), 60_000)).unwrap();
+        agg.feed(&make_tick("BTC-USD", dec!(100), dec!(1), 60_000))
+            .unwrap();
         // 90 s past the bar start (longer than the bar) → clamped to 1.0
         assert_eq!(agg.window_progress(150_000), Some(1.0));
     }
@@ -12020,7 +15577,8 @@ mod tests {
     #[test]
     fn test_total_volume_zero_before_completion() {
         let mut agg = agg("BTC-USD", Timeframe::Minutes(1));
-        agg.feed(&make_tick("BTC-USD", dec!(100), dec!(2), 60_000)).unwrap();
+        agg.feed(&make_tick("BTC-USD", dec!(100), dec!(2), 60_000))
+            .unwrap();
         // Bar not yet complete; total_volume should be zero
         assert_eq!(agg.total_volume(), dec!(0));
     }
@@ -12029,21 +15587,26 @@ mod tests {
     fn test_total_volume_accumulates_across_bars() {
         let mut agg = agg("BTC-USD", Timeframe::Minutes(1));
         // Bar 1: volume = 2
-        agg.feed(&make_tick("BTC-USD", dec!(100), dec!(2), 60_000)).unwrap();
+        agg.feed(&make_tick("BTC-USD", dec!(100), dec!(2), 60_000))
+            .unwrap();
         // Trigger completion of bar 1
-        agg.feed(&make_tick("BTC-USD", dec!(101), dec!(3), 120_000)).unwrap();
+        agg.feed(&make_tick("BTC-USD", dec!(101), dec!(3), 120_000))
+            .unwrap();
         // Bar 1 completed with volume 2. Bar 2 in progress with volume 3 (not counted).
         assert_eq!(agg.total_volume(), dec!(2));
         // Trigger completion of bar 2
-        agg.feed(&make_tick("BTC-USD", dec!(102), dec!(5), 180_000)).unwrap();
+        agg.feed(&make_tick("BTC-USD", dec!(102), dec!(5), 180_000))
+            .unwrap();
         assert_eq!(agg.total_volume(), dec!(5)); // 2 + 3
     }
 
     #[test]
     fn test_total_volume_reset_clears() {
         let mut agg = agg("BTC-USD", Timeframe::Minutes(1));
-        agg.feed(&make_tick("BTC-USD", dec!(100), dec!(2), 60_000)).unwrap();
-        agg.feed(&make_tick("BTC-USD", dec!(101), dec!(3), 120_000)).unwrap();
+        agg.feed(&make_tick("BTC-USD", dec!(100), dec!(2), 60_000))
+            .unwrap();
+        agg.feed(&make_tick("BTC-USD", dec!(101), dec!(3), 120_000))
+            .unwrap();
         agg.reset();
         assert_eq!(agg.total_volume(), dec!(0));
     }
@@ -12149,9 +15712,11 @@ mod tests {
     fn test_last_bar_set_after_bar_completion() {
         let mut agg = agg("BTC-USD", Timeframe::Minutes(1));
         // First bar in window [60000, 120000)
-        agg.feed(&make_tick("BTC-USD", dec!(100), dec!(1), 60_000)).unwrap();
+        agg.feed(&make_tick("BTC-USD", dec!(100), dec!(1), 60_000))
+            .unwrap();
         // Second tick in next window completes the first bar
-        agg.feed(&make_tick("BTC-USD", dec!(200), dec!(1), 120_000)).unwrap();
+        agg.feed(&make_tick("BTC-USD", dec!(200), dec!(1), 120_000))
+            .unwrap();
         let last = agg.last_bar().unwrap();
         assert!(last.is_complete);
         assert_eq!(last.close, dec!(100));
@@ -12160,7 +15725,8 @@ mod tests {
     #[test]
     fn test_last_bar_set_after_flush() {
         let mut agg = agg("BTC-USD", Timeframe::Minutes(1));
-        agg.feed(&make_tick("BTC-USD", dec!(50), dec!(1), 60_000)).unwrap();
+        agg.feed(&make_tick("BTC-USD", dec!(50), dec!(1), 60_000))
+            .unwrap();
         let flushed = agg.flush().unwrap();
         assert_eq!(agg.last_bar().unwrap().close, flushed.close);
     }
@@ -12168,8 +15734,10 @@ mod tests {
     #[test]
     fn test_last_bar_cleared_on_reset() {
         let mut agg = agg("BTC-USD", Timeframe::Minutes(1));
-        agg.feed(&make_tick("BTC-USD", dec!(100), dec!(1), 60_000)).unwrap();
-        agg.feed(&make_tick("BTC-USD", dec!(200), dec!(1), 120_000)).unwrap();
+        agg.feed(&make_tick("BTC-USD", dec!(100), dec!(1), 60_000))
+            .unwrap();
+        agg.feed(&make_tick("BTC-USD", dec!(200), dec!(1), 120_000))
+            .unwrap();
         assert!(agg.last_bar().is_some());
         agg.reset();
         assert!(agg.last_bar().is_none());
@@ -12280,8 +15848,10 @@ mod tests {
     #[test]
     fn test_average_volume_one_bar() {
         let mut agg = agg("BTC-USD", Timeframe::Minutes(1));
-        agg.feed(&make_tick("BTC-USD", dec!(100), dec!(4), 60_000)).unwrap();
-        agg.feed(&make_tick("BTC-USD", dec!(101), dec!(1), 120_000)).unwrap();
+        agg.feed(&make_tick("BTC-USD", dec!(100), dec!(4), 60_000))
+            .unwrap();
+        agg.feed(&make_tick("BTC-USD", dec!(101), dec!(1), 120_000))
+            .unwrap();
         // bar 1 complete with volume 4; bar 2 in progress, not counted
         assert_eq!(agg.average_volume(), Some(dec!(4)));
     }
@@ -12289,9 +15859,12 @@ mod tests {
     #[test]
     fn test_average_volume_two_bars() {
         let mut agg = agg("BTC-USD", Timeframe::Minutes(1));
-        agg.feed(&make_tick("BTC-USD", dec!(100), dec!(4), 60_000)).unwrap();
-        agg.feed(&make_tick("BTC-USD", dec!(101), dec!(6), 120_000)).unwrap();
-        agg.feed(&make_tick("BTC-USD", dec!(102), dec!(1), 180_000)).unwrap();
+        agg.feed(&make_tick("BTC-USD", dec!(100), dec!(4), 60_000))
+            .unwrap();
+        agg.feed(&make_tick("BTC-USD", dec!(101), dec!(6), 120_000))
+            .unwrap();
+        agg.feed(&make_tick("BTC-USD", dec!(102), dec!(1), 180_000))
+            .unwrap();
         // bar 1 vol=4, bar 2 vol=6 → avg=5
         assert_eq!(agg.average_volume(), Some(dec!(5)));
     }
@@ -12382,20 +15955,25 @@ mod tests {
     fn test_peak_volume_tracks_maximum() {
         let mut agg = agg("BTC-USD", Timeframe::Minutes(1));
         // Bar 1: vol=3
-        agg.feed(&make_tick("BTC-USD", dec!(100), dec!(3), 60_000)).unwrap();
+        agg.feed(&make_tick("BTC-USD", dec!(100), dec!(3), 60_000))
+            .unwrap();
         // Trigger bar 1 completion; bar 2 vol=10 in progress
-        agg.feed(&make_tick("BTC-USD", dec!(101), dec!(10), 120_000)).unwrap();
+        agg.feed(&make_tick("BTC-USD", dec!(101), dec!(10), 120_000))
+            .unwrap();
         assert_eq!(agg.peak_volume(), Some(dec!(3)));
         // Trigger bar 2 completion
-        agg.feed(&make_tick("BTC-USD", dec!(102), dec!(1), 180_000)).unwrap();
+        agg.feed(&make_tick("BTC-USD", dec!(102), dec!(1), 180_000))
+            .unwrap();
         assert_eq!(agg.peak_volume(), Some(dec!(10)));
     }
 
     #[test]
     fn test_peak_volume_reset_clears() {
         let mut agg = agg("BTC-USD", Timeframe::Minutes(1));
-        agg.feed(&make_tick("BTC-USD", dec!(100), dec!(5), 60_000)).unwrap();
-        agg.feed(&make_tick("BTC-USD", dec!(101), dec!(1), 120_000)).unwrap();
+        agg.feed(&make_tick("BTC-USD", dec!(100), dec!(5), 60_000))
+            .unwrap();
+        agg.feed(&make_tick("BTC-USD", dec!(101), dec!(1), 120_000))
+            .unwrap();
         agg.reset();
         assert!(agg.peak_volume().is_none());
     }
@@ -12403,7 +15981,8 @@ mod tests {
     #[test]
     fn test_peak_volume_via_flush() {
         let mut agg = agg("BTC-USD", Timeframe::Minutes(1));
-        agg.feed(&make_tick("BTC-USD", dec!(100), dec!(7), 60_000)).unwrap();
+        agg.feed(&make_tick("BTC-USD", dec!(100), dec!(7), 60_000))
+            .unwrap();
         let _ = agg.flush();
         assert_eq!(agg.peak_volume(), Some(dec!(7)));
     }
@@ -12453,19 +16032,24 @@ mod tests {
     fn test_min_volume_tracks_minimum() {
         let mut agg = agg("BTC-USD", Timeframe::Minutes(1));
         // Bar 1: vol=10
-        agg.feed(&make_tick("BTC-USD", dec!(100), dec!(10), 60_000)).unwrap();
-        agg.feed(&make_tick("BTC-USD", dec!(101), dec!(1), 120_000)).unwrap();
+        agg.feed(&make_tick("BTC-USD", dec!(100), dec!(10), 60_000))
+            .unwrap();
+        agg.feed(&make_tick("BTC-USD", dec!(101), dec!(1), 120_000))
+            .unwrap();
         assert_eq!(agg.min_volume(), Some(dec!(10)));
         // Bar 2: vol=1 — should update minimum
-        agg.feed(&make_tick("BTC-USD", dec!(102), dec!(5), 180_000)).unwrap();
+        agg.feed(&make_tick("BTC-USD", dec!(102), dec!(5), 180_000))
+            .unwrap();
         assert_eq!(agg.min_volume(), Some(dec!(1)));
     }
 
     #[test]
     fn test_min_volume_reset_clears() {
         let mut agg = agg("BTC-USD", Timeframe::Minutes(1));
-        agg.feed(&make_tick("BTC-USD", dec!(100), dec!(5), 60_000)).unwrap();
-        agg.feed(&make_tick("BTC-USD", dec!(101), dec!(1), 120_000)).unwrap();
+        agg.feed(&make_tick("BTC-USD", dec!(100), dec!(5), 60_000))
+            .unwrap();
+        agg.feed(&make_tick("BTC-USD", dec!(101), dec!(1), 120_000))
+            .unwrap();
         agg.reset();
         assert!(agg.min_volume().is_none());
     }
@@ -12511,9 +16095,12 @@ mod tests {
     #[test]
     fn test_volume_range_after_two_bars() {
         let mut agg = agg("BTC-USD", Timeframe::Minutes(1));
-        agg.feed(&make_tick("BTC-USD", dec!(100), dec!(3), 60_000)).unwrap();
-        agg.feed(&make_tick("BTC-USD", dec!(101), dec!(10), 120_000)).unwrap();
-        agg.feed(&make_tick("BTC-USD", dec!(102), dec!(1), 180_000)).unwrap();
+        agg.feed(&make_tick("BTC-USD", dec!(100), dec!(3), 60_000))
+            .unwrap();
+        agg.feed(&make_tick("BTC-USD", dec!(101), dec!(10), 120_000))
+            .unwrap();
+        agg.feed(&make_tick("BTC-USD", dec!(102), dec!(1), 180_000))
+            .unwrap();
         // bar1=3, bar2=10 → min=3, peak=10
         assert_eq!(agg.volume_range(), Some((dec!(3), dec!(10))));
     }
@@ -12568,14 +16155,16 @@ mod tests {
     #[test]
     fn test_is_active_true_after_first_tick() {
         let mut agg = agg("BTC-USD", Timeframe::Minutes(1));
-        agg.feed(&make_tick("BTC-USD", dec!(100), dec!(1), 1_000)).unwrap();
+        agg.feed(&make_tick("BTC-USD", dec!(100), dec!(1), 1_000))
+            .unwrap();
         assert!(agg.is_active());
     }
 
     #[test]
     fn test_is_active_false_after_flush() {
         let mut agg = agg("BTC-USD", Timeframe::Minutes(1));
-        agg.feed(&make_tick("BTC-USD", dec!(100), dec!(1), 1_000)).unwrap();
+        agg.feed(&make_tick("BTC-USD", dec!(100), dec!(1), 1_000))
+            .unwrap();
         let _ = agg.flush();
         assert!(!agg.is_active());
     }
@@ -12634,7 +16223,8 @@ mod tests {
     #[test]
     fn test_vwap_current_equals_price_for_single_tick() {
         let mut agg = agg("BTC-USD", Timeframe::Minutes(1));
-        agg.feed(&make_tick("BTC-USD", dec!(200), dec!(5), 1_000)).unwrap();
+        agg.feed(&make_tick("BTC-USD", dec!(200), dec!(5), 1_000))
+            .unwrap();
         // vwap = price*qty / qty = 200
         assert_eq!(agg.vwap_current(), Some(dec!(200)));
     }
@@ -12642,8 +16232,10 @@ mod tests {
     #[test]
     fn test_vwap_current_weighted_average() {
         let mut agg = agg("BTC-USD", Timeframe::Minutes(1));
-        agg.feed(&make_tick("BTC-USD", dec!(100), dec!(1), 1_000)).unwrap();
-        agg.feed(&make_tick("BTC-USD", dec!(200), dec!(3), 2_000)).unwrap();
+        agg.feed(&make_tick("BTC-USD", dec!(100), dec!(1), 1_000))
+            .unwrap();
+        agg.feed(&make_tick("BTC-USD", dec!(200), dec!(3), 2_000))
+            .unwrap();
         // vwap = (100*1 + 200*3) / (1+3) = 700/4 = 175
         assert_eq!(agg.vwap_current(), Some(dec!(175)));
     }
@@ -12709,7 +16301,10 @@ mod tests {
         let b = bar(100, 120, 80, 110);
         assert_eq!(b.hlc3(), b.typical_price());
         // (120 + 80 + 110) / 3 = 310/3
-        assert_eq!(b.hlc3(), (Decimal::from(120) + Decimal::from(80) + Decimal::from(110)) / Decimal::from(3));
+        assert_eq!(
+            b.hlc3(),
+            (Decimal::from(120) + Decimal::from(80) + Decimal::from(110)) / Decimal::from(3)
+        );
     }
 
     // ── OhlcvBar::is_bearish ──────────────────────────────────────────────────
@@ -12804,8 +16399,9 @@ mod tests {
     fn test_ohlc4_equals_average_of_all_four_prices() {
         let b = bar(100, 120, 80, 110);
         // (100 + 120 + 80 + 110) / 4 = 410 / 4 = 102.5
-        let expected = (Decimal::from(100) + Decimal::from(120) + Decimal::from(80) + Decimal::from(110))
-            / Decimal::from(4);
+        let expected =
+            (Decimal::from(100) + Decimal::from(120) + Decimal::from(80) + Decimal::from(110))
+                / Decimal::from(4);
         assert_eq!(b.ohlc4(), expected);
     }
 
@@ -12840,7 +16436,7 @@ mod tests {
     #[test]
     fn test_is_harami_false_when_body_engulfs_prev() {
         let prev = bar(100, 110, 95, 105); // prev body: 100-105
-        let curr = bar(98, 115, 90, 108);  // curr body: 98-108 — engulfs prev
+        let curr = bar(98, 115, 90, 108); // curr body: 98-108 — engulfs prev
         assert!(!curr.is_harami(&prev));
     }
 
@@ -13028,21 +16624,21 @@ mod tests {
     #[test]
     fn test_is_bearish_engulfing_true_for_bearish_engulf() {
         let prev = bar(100, 115, 95, 110); // bullish, body 100-110
-        let curr = bar(112, 115, 88, 90);  // bearish, body 112-90, engulfs 100-110
+        let curr = bar(112, 115, 88, 90); // bearish, body 112-90, engulfs 100-110
         assert!(curr.is_bearish_engulfing(&prev));
     }
 
     #[test]
     fn test_is_bearish_engulfing_false_for_bullish_engulf() {
         let prev = bar(110, 115, 95, 100); // bearish, body 110-100
-        let curr = bar(98, 120, 95, 115);  // bullish, body 98-115 engulfs but not bearish
+        let curr = bar(98, 120, 95, 115); // bullish, body 98-115 engulfs but not bearish
         assert!(!curr.is_bearish_engulfing(&prev));
     }
 
     #[test]
     fn test_is_engulfing_true_when_body_contains_prev_body() {
         let prev = bar(100, 110, 95, 105); // prev body: 100-105
-        let curr = bar(98, 115, 95, 108);  // curr body: 98-108 engulfs 100-105
+        let curr = bar(98, 115, 95, 108); // curr body: 98-108 engulfs 100-105
         assert!(curr.is_engulfing(&prev));
     }
 
@@ -13192,14 +16788,14 @@ mod tests {
     #[test]
     fn test_is_outside_bar_true() {
         let prev = make_ohlcv_bar(dec!(100), dec!(105), dec!(95), dec!(100));
-        let bar  = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        let bar = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
         assert!(bar.is_outside_bar(&prev));
     }
 
     #[test]
     fn test_is_outside_bar_false_when_inside() {
         let prev = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100));
-        let bar  = make_ohlcv_bar(dec!(100), dec!(105), dec!(95), dec!(100));
+        let bar = make_ohlcv_bar(dec!(100), dec!(105), dec!(95), dec!(100));
         assert!(!bar.is_outside_bar(&prev));
     }
 
@@ -13222,28 +16818,28 @@ mod tests {
     #[test]
     fn test_gap_up_true() {
         let prev = make_ohlcv_bar(dec!(95), dec!(100), dec!(90), dec!(98));
-        let bar  = make_ohlcv_bar(dec!(102), dec!(110), dec!(101), dec!(108));
+        let bar = make_ohlcv_bar(dec!(102), dec!(110), dec!(101), dec!(108));
         assert!(bar.gap_up(&prev));
     }
 
     #[test]
     fn test_gap_up_false_when_no_gap() {
         let prev = make_ohlcv_bar(dec!(95), dec!(100), dec!(90), dec!(98));
-        let bar  = make_ohlcv_bar(dec!(99), dec!(105), dec!(98), dec!(104));
+        let bar = make_ohlcv_bar(dec!(99), dec!(105), dec!(98), dec!(104));
         assert!(!bar.gap_up(&prev));
     }
 
     #[test]
     fn test_gap_down_true() {
         let prev = make_ohlcv_bar(dec!(95), dec!(100), dec!(90), dec!(92));
-        let bar  = make_ohlcv_bar(dec!(88), dec!(89), dec!(85), dec!(86));
+        let bar = make_ohlcv_bar(dec!(88), dec!(89), dec!(85), dec!(86));
         assert!(bar.gap_down(&prev));
     }
 
     #[test]
     fn test_gap_down_false_when_no_gap() {
         let prev = make_ohlcv_bar(dec!(95), dec!(100), dec!(90), dec!(92));
-        let bar  = make_ohlcv_bar(dec!(91), dec!(95), dec!(89), dec!(93));
+        let bar = make_ohlcv_bar(dec!(91), dec!(95), dec!(89), dec!(93));
         assert!(!bar.gap_down(&prev));
     }
 
@@ -13317,14 +16913,14 @@ mod tests {
     #[test]
     fn test_is_consolidating_true_when_small_range() {
         let prev = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105)); // range=20
-        let bar  = make_ohlcv_bar(dec!(102), dec!(106), dec!(100), dec!(104)); // range=6 < 10
+        let bar = make_ohlcv_bar(dec!(102), dec!(106), dec!(100), dec!(104)); // range=6 < 10
         assert!(bar.is_consolidating(&prev));
     }
 
     #[test]
     fn test_is_consolidating_false_when_large_range() {
         let prev = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105)); // range=20
-        let bar  = make_ohlcv_bar(dec!(102), dec!(115), dec!(95), dec!(110)); // range=20, not < 10
+        let bar = make_ohlcv_bar(dec!(102), dec!(115), dec!(95), dec!(110)); // range=20, not < 10
         assert!(!bar.is_consolidating(&prev));
     }
 
@@ -13769,7 +17365,7 @@ mod tests {
     #[test]
     fn test_bar_height_pct_correct_value() {
         let bar = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100)); // range=20
-        // 20/100 = 0.2
+                                                                             // 20/100 = 0.2
         let pct = bar.bar_height_pct().unwrap();
         assert!((pct - 0.2).abs() < 1e-10);
     }
@@ -13891,7 +17487,10 @@ mod tests {
             make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100)),
         ];
         let slope = OhlcvBar::linear_regression_slope(&bars).unwrap();
-        assert!(slope.abs() < 1e-10, "slope should be ~0 for identical closes");
+        assert!(
+            slope.abs() < 1e-10,
+            "slope should be ~0 for identical closes"
+        );
     }
 
     // ── volume_slope ──────────────────────────────────────────────────────────
@@ -13909,7 +17508,11 @@ mod tests {
             b.volume = Decimal::from(v);
             b
         };
-        let bars = vec![make_bar_with_vol(100), make_bar_with_vol(200), make_bar_with_vol(300)];
+        let bars = vec![
+            make_bar_with_vol(100),
+            make_bar_with_vol(200),
+            make_bar_with_vol(300),
+        ];
         assert!(OhlcvBar::volume_slope(&bars).unwrap() > 0.0);
     }
 
@@ -14017,7 +17620,10 @@ mod tests {
             make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100)),
         ];
         let sd = OhlcvBar::close_std_dev(&bars).unwrap();
-        assert!(sd.abs() < 1e-10, "std_dev should be ~0 for identical closes");
+        assert!(
+            sd.abs() < 1e-10,
+            "std_dev should be ~0 for identical closes"
+        );
     }
 
     #[test]
@@ -14065,14 +17671,20 @@ mod tests {
         // close == high: CLV = ((high-low)-(0)) / (high-low) = 1
         let bar = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(110));
         let clv = bar.close_location_value().unwrap();
-        assert!((clv - 1.0).abs() < 1e-10, "CLV should be 1.0 when close == high, got {clv}");
+        assert!(
+            (clv - 1.0).abs() < 1e-10,
+            "CLV should be 1.0 when close == high, got {clv}"
+        );
     }
 
     #[test]
     fn test_clv_minus_one_when_close_at_low() {
         let bar = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(90));
         let clv = bar.close_location_value().unwrap();
-        assert!((clv + 1.0).abs() < 1e-10, "CLV should be -1.0 when close == low, got {clv}");
+        assert!(
+            (clv + 1.0).abs() < 1e-10,
+            "CLV should be -1.0 when close == low, got {clv}"
+        );
     }
 
     #[test]
@@ -14100,7 +17712,10 @@ mod tests {
             make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(106)), // close above mid
         ];
         let clv = OhlcvBar::mean_clv(&bars).unwrap();
-        assert!(clv > 0.0, "mean CLV should be positive when closes are near highs");
+        assert!(
+            clv > 0.0,
+            "mean CLV should be positive when closes are near highs"
+        );
     }
 
     #[test]
@@ -14225,7 +17840,13 @@ mod tests {
 
     #[test]
     fn test_rolling_return_none_for_single_bar() {
-        assert!(OhlcvBar::rolling_return(&[make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105))]).is_none());
+        assert!(OhlcvBar::rolling_return(&[make_ohlcv_bar(
+            dec!(100),
+            dec!(110),
+            dec!(90),
+            dec!(105)
+        )])
+        .is_none());
     }
 
     #[test]
@@ -14304,7 +17925,10 @@ mod tests {
 
     #[test]
     fn test_atr_pct_none_for_single_bar() {
-        assert!(OhlcvBar::atr_pct(&[make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105))]).is_none());
+        assert!(
+            OhlcvBar::atr_pct(&[make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105))])
+                .is_none()
+        );
     }
 
     #[test]
@@ -14324,7 +17948,10 @@ mod tests {
 
     #[test]
     fn test_breakout_count_zero_for_single_bar() {
-        assert_eq!(OhlcvBar::breakout_count(&[make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105))]), 0);
+        assert_eq!(
+            OhlcvBar::breakout_count(&[make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105))]),
+            0
+        );
     }
 
     #[test]
@@ -14454,7 +18081,10 @@ mod tests {
         let above_mid = make_ohlcv_bar(dec!(100), dec!(120), dec!(80), dec!(110)); // mid=100, close=110 > 100
         let at_mid = make_ohlcv_bar(dec!(100), dec!(120), dec!(80), dec!(100)); // mid=100, close=100 not > 100
         let below_mid = make_ohlcv_bar(dec!(100), dec!(120), dec!(80), dec!(85)); // mid=100, close=85 < 100
-        assert_eq!(OhlcvBar::close_above_mid_count(&[above_mid, at_mid, below_mid]), 1);
+        assert_eq!(
+            OhlcvBar::close_above_mid_count(&[above_mid, at_mid, below_mid]),
+            1
+        );
     }
 
     // ── OhlcvBar::ema ─────────────────────────────────────────────────────────
@@ -14514,7 +18144,15 @@ mod tests {
 
     #[test]
     fn test_rising_close_count_zero_for_single_bar() {
-        assert_eq!(OhlcvBar::rising_close_count(&[make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105))]), 0);
+        assert_eq!(
+            OhlcvBar::rising_close_count(&[make_ohlcv_bar(
+                dec!(100),
+                dec!(110),
+                dec!(90),
+                dec!(105)
+            )]),
+            0
+        );
     }
 
     #[test]
@@ -14552,15 +18190,19 @@ mod tests {
 
     #[test]
     fn test_volume_std_dev_zero_for_identical_volumes() {
-        let mut b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105)); b1.volume = dec!(50);
-        let mut b2 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105)); b2.volume = dec!(50);
+        let mut b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        b1.volume = dec!(50);
+        let mut b2 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        b2.volume = dec!(50);
         assert_eq!(OhlcvBar::volume_std_dev(&[b1, b2]), Some(0.0));
     }
 
     #[test]
     fn test_volume_std_dev_positive_for_varied_volumes() {
-        let mut b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105)); b1.volume = dec!(10);
-        let mut b2 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105)); b2.volume = dec!(100);
+        let mut b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        b1.volume = dec!(10);
+        let mut b2 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        b2.volume = dec!(100);
         let std = OhlcvBar::volume_std_dev(&[b1, b2]).unwrap();
         assert!(std > 0.0);
     }
@@ -14574,8 +18216,10 @@ mod tests {
 
     #[test]
     fn test_max_volume_bar_returns_highest_volume() {
-        let mut b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105)); b1.volume = dec!(10);
-        let mut b2 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105)); b2.volume = dec!(100);
+        let mut b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        b1.volume = dec!(10);
+        let mut b2 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        b2.volume = dec!(100);
         let bars = [b1, b2];
         let bar = OhlcvBar::max_volume_bar(&bars).unwrap();
         assert_eq!(bar.volume, dec!(100));
@@ -14583,8 +18227,10 @@ mod tests {
 
     #[test]
     fn test_min_volume_bar_returns_lowest_volume() {
-        let mut b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105)); b1.volume = dec!(10);
-        let mut b2 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105)); b2.volume = dec!(100);
+        let mut b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        b1.volume = dec!(10);
+        let mut b2 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        b2.volume = dec!(100);
         let bars = [b1, b2];
         let bar = OhlcvBar::min_volume_bar(&bars).unwrap();
         assert_eq!(bar.volume, dec!(10));
@@ -14599,7 +18245,10 @@ mod tests {
 
     #[test]
     fn test_gap_sum_zero_for_single_bar() {
-        assert_eq!(OhlcvBar::gap_sum(&[make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105))]), dec!(0));
+        assert_eq!(
+            OhlcvBar::gap_sum(&[make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105))]),
+            dec!(0)
+        );
     }
 
     #[test]
@@ -14711,28 +18360,28 @@ mod tests {
     #[test]
     fn test_inside_bar_true_when_range_inside_prior_v2() {
         let prior = make_ohlcv_bar(dec!(100), dec!(120), dec!(80), dec!(110));
-        let bar   = make_ohlcv_bar(dec!(105), dec!(115), dec!(90), dec!(108));
+        let bar = make_ohlcv_bar(dec!(105), dec!(115), dec!(90), dec!(108));
         assert!(bar.inside_bar(&prior));
     }
 
     #[test]
     fn test_inside_bar_false_when_high_exceeds_prior_v2() {
         let prior = make_ohlcv_bar(dec!(100), dec!(120), dec!(80), dec!(110));
-        let bar   = make_ohlcv_bar(dec!(105), dec!(125), dec!(90), dec!(118));
+        let bar = make_ohlcv_bar(dec!(105), dec!(125), dec!(90), dec!(118));
         assert!(!bar.inside_bar(&prior));
     }
 
     #[test]
     fn test_outside_bar_true_when_range_engulfs_prior_v2() {
         let prior = make_ohlcv_bar(dec!(100), dec!(115), dec!(90), dec!(108));
-        let bar   = make_ohlcv_bar(dec!(95), dec!(120), dec!(85), dec!(112));
+        let bar = make_ohlcv_bar(dec!(95), dec!(120), dec!(85), dec!(112));
         assert!(bar.outside_bar(&prior));
     }
 
     #[test]
     fn test_outside_bar_false_when_range_is_inside_v2() {
         let prior = make_ohlcv_bar(dec!(100), dec!(120), dec!(80), dec!(110));
-        let bar   = make_ohlcv_bar(dec!(105), dec!(115), dec!(90), dec!(108));
+        let bar = make_ohlcv_bar(dec!(105), dec!(115), dec!(90), dec!(108));
         assert!(!bar.outside_bar(&prior));
     }
 
@@ -14940,8 +18589,10 @@ mod tests {
     #[test]
     fn test_volume_change_pct_correct() {
         // prior vol=100, current vol=150 → +50%
-        let mut b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105)); b1.volume = dec!(100);
-        let mut b2 = make_ohlcv_bar(dec!(105), dec!(115), dec!(103), dec!(110)); b2.volume = dec!(150);
+        let mut b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        b1.volume = dec!(100);
+        let mut b2 = make_ohlcv_bar(dec!(105), dec!(115), dec!(103), dec!(110));
+        b2.volume = dec!(150);
         let pct = OhlcvBar::volume_change_pct(&[b1, b2]).unwrap();
         assert!((pct - 50.0).abs() < 1e-9);
     }
@@ -15028,8 +18679,10 @@ mod tests {
 
     #[test]
     fn test_volume_cumulative_sums_all_volumes() {
-        let mut b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105)); b1.volume = dec!(100);
-        let mut b2 = make_ohlcv_bar(dec!(105), dec!(115), dec!(103), dec!(110)); b2.volume = dec!(200);
+        let mut b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        b1.volume = dec!(100);
+        let mut b2 = make_ohlcv_bar(dec!(105), dec!(115), dec!(103), dec!(110));
+        b2.volume = dec!(200);
         assert_eq!(OhlcvBar::volume_cumulative(&[b1, b2]), dec!(300));
     }
 
@@ -15075,8 +18728,10 @@ mod tests {
     #[test]
     fn test_volume_price_correlation_positive_for_comoving() {
         // Both volume and close rise together
-        let mut b1 = make_ohlcv_bar(dec!(100), dec!(105), dec!(98), dec!(102)); b1.volume = dec!(100);
-        let mut b2 = make_ohlcv_bar(dec!(102), dec!(110), dec!(100), dec!(108)); b2.volume = dec!(200);
+        let mut b1 = make_ohlcv_bar(dec!(100), dec!(105), dec!(98), dec!(102));
+        b1.volume = dec!(100);
+        let mut b2 = make_ohlcv_bar(dec!(102), dec!(110), dec!(100), dec!(108));
+        b2.volume = dec!(200);
         let corr = OhlcvBar::volume_price_correlation(&[b1, b2]).unwrap();
         assert!(corr > 0.0, "expected positive correlation, got {}", corr);
     }
@@ -15118,7 +18773,11 @@ mod tests {
         let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
         let b2 = make_ohlcv_bar(dec!(100), dec!(112), dec!(88), dec!(105));
         let r = OhlcvBar::close_volatility_ratio(&[b1, b2]).unwrap();
-        assert!((r - 0.0).abs() < 1e-9, "expected 0.0 for identical closes, got {}", r);
+        assert!(
+            (r - 0.0).abs() < 1e-9,
+            "expected 0.0 for identical closes, got {}",
+            r
+        );
     }
 
     // ── OhlcvBar::is_trending_up / is_trending_down ───────────────────────────
@@ -15160,10 +18819,16 @@ mod tests {
 
     #[test]
     fn test_volume_acceleration_positive_when_volume_rises() {
-        let mut b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105)); b1.volume = dec!(100);
-        let mut b2 = make_ohlcv_bar(dec!(105), dec!(115), dec!(103), dec!(110)); b2.volume = dec!(150);
+        let mut b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        b1.volume = dec!(100);
+        let mut b2 = make_ohlcv_bar(dec!(105), dec!(115), dec!(103), dec!(110));
+        b2.volume = dec!(150);
         let acc = OhlcvBar::volume_acceleration(&[b1, b2]).unwrap();
-        assert!(acc > 0.0, "volume rose so acceleration should be positive, got {}", acc);
+        assert!(
+            acc > 0.0,
+            "volume rose so acceleration should be positive, got {}",
+            acc
+        );
     }
 
     // ── OhlcvBar::wick_body_ratio ─────────────────────────────────────────────
@@ -15269,8 +18934,10 @@ mod tests {
 
     #[test]
     fn test_mean_volume_ratio_sums_to_n_times_mean() {
-        let mut b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105)); b1.volume = dec!(100);
-        let mut b2 = make_ohlcv_bar(dec!(105), dec!(115), dec!(103), dec!(110)); b2.volume = dec!(300);
+        let mut b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        b1.volume = dec!(100);
+        let mut b2 = make_ohlcv_bar(dec!(105), dec!(115), dec!(103), dec!(110));
+        b2.volume = dec!(300);
         // mean = 200; ratios: 0.5, 1.5
         let ratios = OhlcvBar::mean_volume_ratio(&[b1, b2]);
         assert_eq!(ratios.len(), 2);
@@ -15293,7 +18960,11 @@ mod tests {
     fn test_price_compression_ratio_in_range() {
         let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(108));
         let r = OhlcvBar::price_compression_ratio(&[b]).unwrap();
-        assert!((0.0..=1.0).contains(&r), "expected value in [0,1], got {}", r);
+        assert!(
+            (0.0..=1.0).contains(&r),
+            "expected value in [0,1], got {}",
+            r
+        );
     }
 
     // ── OhlcvBar::open_close_spread ───────────────────────────────────────────
@@ -15307,14 +18978,22 @@ mod tests {
     fn test_open_close_spread_zero_for_doji() {
         let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100));
         let s = OhlcvBar::open_close_spread(&[b]).unwrap();
-        assert!((s - 0.0).abs() < 1e-9, "doji should have spread=0, got {}", s);
+        assert!(
+            (s - 0.0).abs() < 1e-9,
+            "doji should have spread=0, got {}",
+            s
+        );
     }
 
     #[test]
     fn test_open_close_spread_positive_for_directional_bar() {
         let b = make_ohlcv_bar(dec!(100), dec!(115), dec!(98), dec!(110));
         let s = OhlcvBar::open_close_spread(&[b]).unwrap();
-        assert!(s > 0.0, "directional bar should have positive spread, got {}", s);
+        assert!(
+            s > 0.0,
+            "directional bar should have positive spread, got {}",
+            s
+        );
     }
 
     // ── OhlcvBar::close_above_high_ma ────────────────────────────────────────
@@ -15423,11 +19102,18 @@ mod tests {
 
     #[test]
     fn test_volume_trend_strength_positive_for_rising_volume() {
-        let mut b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105)); b1.volume = dec!(100);
-        let mut b2 = make_ohlcv_bar(dec!(105), dec!(115), dec!(103), dec!(110)); b2.volume = dec!(200);
-        let mut b3 = make_ohlcv_bar(dec!(110), dec!(120), dec!(108), dec!(115)); b3.volume = dec!(300);
+        let mut b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        b1.volume = dec!(100);
+        let mut b2 = make_ohlcv_bar(dec!(105), dec!(115), dec!(103), dec!(110));
+        b2.volume = dec!(200);
+        let mut b3 = make_ohlcv_bar(dec!(110), dec!(120), dec!(108), dec!(115));
+        b3.volume = dec!(300);
         let s = OhlcvBar::volume_trend_strength(&[b1, b2, b3]).unwrap();
-        assert!(s > 0.0, "rising volume should give positive strength, got {}", s);
+        assert!(
+            s > 0.0,
+            "rising volume should give positive strength, got {}",
+            s
+        );
     }
 
     // ── OhlcvBar::high_close_spread ───────────────────────────────────────────
@@ -15463,14 +19149,22 @@ mod tests {
     fn test_open_range_zero_for_doji() {
         let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100));
         let r = OhlcvBar::open_range(&[b]).unwrap();
-        assert!((r - 0.0).abs() < 1e-9, "doji should have open_range=0, got {}", r);
+        assert!(
+            (r - 0.0).abs() < 1e-9,
+            "doji should have open_range=0, got {}",
+            r
+        );
     }
 
     #[test]
     fn test_open_range_positive_for_directional() {
         let b = make_ohlcv_bar(dec!(100), dec!(115), dec!(98), dec!(110));
         let r = OhlcvBar::open_range(&[b]).unwrap();
-        assert!(r > 0.0, "directional bar should have positive open_range, got {}", r);
+        assert!(
+            r > 0.0,
+            "directional bar should have positive open_range, got {}",
+            r
+        );
     }
 
     // ── OhlcvBar::normalized_close ────────────────────────────────────────────
@@ -15486,7 +19180,11 @@ mod tests {
         let b1 = make_ohlcv_bar(dec!(98), dec!(105), dec!(96), dec!(100));
         let b2 = make_ohlcv_bar(dec!(100), dec!(115), dec!(99), dec!(110));
         let nc = OhlcvBar::normalized_close(&[b1, b2]).unwrap();
-        assert!((nc - 1.0).abs() < 1e-9, "last close = max should give 1.0, got {}", nc);
+        assert!(
+            (nc - 1.0).abs() < 1e-9,
+            "last close = max should give 1.0, got {}",
+            nc
+        );
     }
 
     #[test]
@@ -15496,7 +19194,11 @@ mod tests {
         // min_close=90, max_close=100, last_close=100 → 1.0
         // Actually min=90, max=100, last=100 → normalized=1.0
         let nc = OhlcvBar::normalized_close(&[b1, b2]).unwrap();
-        assert!((0.0..=1.0).contains(&nc), "normalized close should be in [0,1], got {}", nc);
+        assert!(
+            (0.0..=1.0).contains(&nc),
+            "normalized close should be in [0,1], got {}",
+            nc
+        );
     }
 
     // ── OhlcvBar::candle_score ────────────────────────────────────────────────
@@ -15576,7 +19278,8 @@ mod tests {
 
     #[test]
     fn test_volume_per_range_positive_for_valid_bar() {
-        let mut b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105)); b.volume = dec!(100);
+        let mut b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        b.volume = dec!(100);
         let r = OhlcvBar::volume_per_range(&[b]).unwrap();
         assert!(r > 0.0, "expected positive volume/range, got {}", r);
     }
@@ -15589,10 +19292,16 @@ mod tests {
     #[test]
     fn test_up_volume_fraction_all_up() {
         // close > open for both bars
-        let mut b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(95), dec!(108)); b1.volume = dec!(50);
-        let mut b2 = make_ohlcv_bar(dec!(105), dec!(115), dec!(100), dec!(112)); b2.volume = dec!(50);
+        let mut b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(95), dec!(108));
+        b1.volume = dec!(50);
+        let mut b2 = make_ohlcv_bar(dec!(105), dec!(115), dec!(100), dec!(112));
+        b2.volume = dec!(50);
         let f = OhlcvBar::up_volume_fraction(&[b1, b2]).unwrap();
-        assert!((f - 1.0).abs() < 1e-9, "all up bars → fraction=1.0, got {}", f);
+        assert!(
+            (f - 1.0).abs() < 1e-9,
+            "all up bars → fraction=1.0, got {}",
+            f
+        );
     }
 
     #[test]
@@ -15691,7 +19400,11 @@ mod tests {
     fn test_close_to_range_position_one_when_close_at_high() {
         let bar = make_ohlcv_bar(dec!(100), dec!(120), dec!(80), dec!(120));
         let r = OhlcvBar::close_to_range_position(&[bar]).unwrap();
-        assert!((r - 1.0).abs() < 1e-9, "close at high → position=1, got {}", r);
+        assert!(
+            (r - 1.0).abs() < 1e-9,
+            "close at high → position=1, got {}",
+            r
+        );
     }
 
     #[test]
@@ -15749,7 +19462,10 @@ mod tests {
         let bear = make_ohlcv_bar(dec!(108), dec!(112), dec!(95), dec!(102));
         let bull2 = make_ohlcv_bar(dec!(102), dec!(115), dec!(98), dec!(110));
         let bear2 = make_ohlcv_bar(dec!(110), dec!(115), dec!(100), dec!(104));
-        assert_eq!(OhlcvBar::direction_reversal_count(&[bull, bear, bull2, bear2]), 3);
+        assert_eq!(
+            OhlcvBar::direction_reversal_count(&[bull, bear, bull2, bear2]),
+            3
+        );
     }
 
     // ── OhlcvBar::upper_wick_dominance_fraction ───────────────────────────────
@@ -15764,7 +19480,11 @@ mod tests {
         // high > close and close > low, upper > lower
         let bar = make_ohlcv_bar(dec!(100), dec!(130), dec!(99), dec!(101));
         let r = OhlcvBar::upper_wick_dominance_fraction(&[bar]).unwrap();
-        assert!((r - 1.0).abs() < 1e-9, "all upper dominant → 1.0, got {}", r);
+        assert!(
+            (r - 1.0).abs() < 1e-9,
+            "all upper dominant → 1.0, got {}",
+            r
+        );
     }
 
     // ── OhlcvBar::avg_open_to_high_ratio ─────────────────────────────────────
@@ -15890,9 +19610,9 @@ mod tests {
     #[test]
     fn test_median_range_correct_odd() {
         let bars = vec![
-            make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105)),  // range=20
-            make_ohlcv_bar(dec!(100), dec!(115), dec!(90), dec!(105)),  // range=25
-            make_ohlcv_bar(dec!(100), dec!(120), dec!(90), dec!(105)),  // range=30
+            make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105)), // range=20
+            make_ohlcv_bar(dec!(100), dec!(115), dec!(90), dec!(105)), // range=25
+            make_ohlcv_bar(dec!(100), dec!(120), dec!(90), dec!(105)), // range=30
         ];
         assert_eq!(OhlcvBar::median_range(&bars).unwrap(), dec!(25));
     }
@@ -15919,8 +19639,10 @@ mod tests {
 
     #[test]
     fn test_directional_volume_ratio_one_for_all_bullish() {
-        let mut b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(108)); b1.volume = dec!(50);
-        let mut b2 = make_ohlcv_bar(dec!(105), dec!(115), dec!(100), dec!(112)); b2.volume = dec!(50);
+        let mut b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(108));
+        b1.volume = dec!(50);
+        let mut b2 = make_ohlcv_bar(dec!(105), dec!(115), dec!(100), dec!(112));
+        b2.volume = dec!(50);
         let r = OhlcvBar::directional_volume_ratio(&[b1, b2]).unwrap();
         assert!((r - 1.0).abs() < 1e-9, "all bullish → ratio=1, got {}", r);
     }
@@ -15955,8 +19677,10 @@ mod tests {
 
     #[test]
     fn test_max_trade_count_returns_max() {
-        let mut b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105)); b1.trade_count = 5;
-        let mut b2 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105)); b2.trade_count = 10;
+        let mut b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        b1.trade_count = 5;
+        let mut b2 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        b2.trade_count = 10;
         assert_eq!(OhlcvBar::max_trade_count(&[b1, b2]).unwrap(), 10);
     }
 
@@ -16038,8 +19762,10 @@ mod tests {
 
     #[test]
     fn test_min_trade_count_returns_min() {
-        let mut b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105)); b1.trade_count = 5;
-        let mut b2 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105)); b2.trade_count = 2;
+        let mut b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        b1.trade_count = 5;
+        let mut b2 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
+        b2.trade_count = 2;
         assert_eq!(OhlcvBar::min_trade_count(&[b1, b2]).unwrap(), 2);
     }
 
@@ -16092,7 +19818,11 @@ mod tests {
     fn test_avg_close_position_one_for_close_at_high() {
         let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(100), dec!(110));
         let pos = OhlcvBar::avg_close_position(&[b]).unwrap();
-        assert!((pos - 1.0).abs() < 1e-9, "close at high → position=1, got {}", pos);
+        assert!(
+            (pos - 1.0).abs() < 1e-9,
+            "close at high → position=1, got {}",
+            pos
+        );
     }
 
     #[test]
@@ -16119,7 +19849,11 @@ mod tests {
     fn test_avg_wick_ratio_in_range() {
         let b = make_ohlcv_bar(dec!(100), dec!(115), dec!(85), dec!(105));
         let r = OhlcvBar::avg_wick_ratio(&[b]).unwrap();
-        assert!((0.0..=1.0).contains(&r), "wick ratio should be in [0,1], got {}", r);
+        assert!(
+            (0.0..=1.0).contains(&r),
+            "wick ratio should be in [0,1], got {}",
+            r
+        );
     }
 
     #[test]
@@ -16217,7 +19951,11 @@ mod tests {
     fn test_avg_body_to_range_in_range() {
         let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
         let r = OhlcvBar::avg_body_to_range(&[b]).unwrap();
-        assert!((0.0..=1.0).contains(&r), "body-to-range in [0,1], got {}", r);
+        assert!(
+            (0.0..=1.0).contains(&r),
+            "body-to-range in [0,1], got {}",
+            r
+        );
     }
 
     #[test]
@@ -16254,7 +19992,11 @@ mod tests {
     fn test_avg_lower_shadow_ratio_in_range() {
         let b = make_ohlcv_bar(dec!(100), dec!(115), dec!(85), dec!(105));
         let r = OhlcvBar::avg_lower_shadow_ratio(&[b]).unwrap();
-        assert!((0.0..=1.0).contains(&r), "lower shadow ratio in [0,1], got {}", r);
+        assert!(
+            (0.0..=1.0).contains(&r),
+            "lower shadow ratio in [0,1], got {}",
+            r
+        );
     }
 
     #[test]
@@ -16297,7 +20039,11 @@ mod tests {
     fn test_avg_bar_efficiency_one_for_full_body_bar() {
         let b = make_ohlcv_bar(dec!(90), dec!(110), dec!(90), dec!(110));
         let e = OhlcvBar::avg_bar_efficiency(&[b]).unwrap();
-        assert!((e - 1.0).abs() < 1e-9, "full body → efficiency=1, got {}", e);
+        assert!(
+            (e - 1.0).abs() < 1e-9,
+            "full body → efficiency=1, got {}",
+            e
+        );
     }
 
     #[test]
@@ -16508,7 +20254,11 @@ mod tests {
     fn test_zero_volume_fraction_zero_when_no_zero_volume() {
         let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
         let f = OhlcvBar::zero_volume_fraction(&[b]).unwrap();
-        assert!(f.abs() < 1e-9, "bar has volume → zero_vol_fraction=0, got {}", f);
+        assert!(
+            f.abs() < 1e-9,
+            "bar has volume → zero_vol_fraction=0, got {}",
+            f
+        );
     }
 
     // ── round-87 tests ────────────────────────────────────────────────────────
@@ -16522,7 +20272,11 @@ mod tests {
     fn test_avg_open_to_close_positive_when_all_bullish() {
         let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105)); // close > open
         let r = OhlcvBar::avg_open_to_close(&[b]).unwrap();
-        assert!(r > dec!(0), "bullish bar → avg_open_to_close > 0, got {}", r);
+        assert!(
+            r > dec!(0),
+            "bullish bar → avg_open_to_close > 0, got {}",
+            r
+        );
     }
 
     #[test]
@@ -16626,7 +20380,10 @@ mod tests {
 
     #[test]
     fn test_total_body_movement_zero_for_empty() {
-        assert_eq!(OhlcvBar::total_body_movement(&[]), rust_decimal::Decimal::ZERO);
+        assert_eq!(
+            OhlcvBar::total_body_movement(&[]),
+            rust_decimal::Decimal::ZERO
+        );
     }
 
     #[test]
@@ -16979,7 +20736,9 @@ mod tests {
         let up = make_ohlcv_bar(dec!(90), dec!(110), dec!(85), dec!(105));
         let dn = make_ohlcv_bar(dec!(105), dec!(110), dec!(85), dec!(90));
         // up, dn, dn, up → longest bearish = 2
-        let streak = OhlcvBar::longest_bearish_streak(&[up.clone(), dn.clone(), dn.clone(), up.clone()]).unwrap();
+        let streak =
+            OhlcvBar::longest_bearish_streak(&[up.clone(), dn.clone(), dn.clone(), up.clone()])
+                .unwrap();
         assert_eq!(streak, 2);
     }
 
@@ -17229,7 +20988,11 @@ mod tests {
             bars.push(b);
         }
         let a = OhlcvBar::volume_trend_acceleration(&bars).unwrap();
-        assert!(a.abs() < 1e-9, "constant volume → acceleration=0, got {}", a);
+        assert!(
+            a.abs() < 1e-9,
+            "constant volume → acceleration=0, got {}",
+            a
+        );
     }
 
     // ── round-100 tests ───────────────────────────────────────────────────────
@@ -17631,7 +21394,11 @@ mod tests {
         // open=100, high=110 → (110-100)/110 ≈ 0.0909
         let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
         let r = OhlcvBar::open_to_high_ratio(&[b]).unwrap();
-        assert!((r - 10.0 / 110.0).abs() < 1e-9, "expected ~0.0909, got {}", r);
+        assert!(
+            (r - 10.0 / 110.0).abs() < 1e-9,
+            "expected ~0.0909, got {}",
+            r
+        );
     }
 
     #[test]
@@ -17722,7 +21489,11 @@ mod tests {
         let mut b2 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
         b2.volume = dec!(200);
         let r = OhlcvBar::volume_range_ratio(&[b1, b2]).unwrap();
-        assert!((r - 100.0 / 150.0).abs() < 1e-9, "expected ~0.667, got {}", r);
+        assert!(
+            (r - 100.0 / 150.0).abs() < 1e-9,
+            "expected ~0.667, got {}",
+            r
+        );
     }
 
     #[test]
@@ -18387,7 +22158,9 @@ mod tests {
     #[test]
     fn test_close_range_stability_consistent() {
         // all bars: open=low=90, high=110, close=100 → close_pct=0.5 each → std=0 → stability=1
-        let bars: Vec<_> = (0..3).map(|_| make_ohlcv_bar(dec!(90), dec!(110), dec!(90), dec!(100))).collect();
+        let bars: Vec<_> = (0..3)
+            .map(|_| make_ohlcv_bar(dec!(90), dec!(110), dec!(90), dec!(100)))
+            .collect();
         let s = OhlcvBar::close_range_stability(&bars).unwrap();
         assert!((s - 1.0).abs() < 1e-9, "expected 1.0, got {}", s);
     }
@@ -18426,7 +22199,9 @@ mod tests {
     #[test]
     fn test_body_volatility_uniform_zero() {
         // all same body size → std=0
-        let bars: Vec<_> = (0..3).map(|_| make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105))).collect();
+        let bars: Vec<_> = (0..3)
+            .map(|_| make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105)))
+            .collect();
         let v = OhlcvBar::body_volatility(&bars).unwrap();
         assert!(v.abs() < 1e-9, "expected 0.0, got {}", v);
     }
@@ -18435,7 +22210,13 @@ mod tests {
 
     #[test]
     fn test_close_gap_ratio_none_for_single() {
-        assert!(OhlcvBar::close_gap_ratio(&[make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100))]).is_none());
+        assert!(OhlcvBar::close_gap_ratio(&[make_ohlcv_bar(
+            dec!(100),
+            dec!(110),
+            dec!(90),
+            dec!(100)
+        )])
+        .is_none());
     }
 
     #[test]
@@ -18449,7 +22230,13 @@ mod tests {
 
     #[test]
     fn test_volume_deceleration_none_for_single() {
-        assert!(OhlcvBar::volume_deceleration(&[make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100))]).is_none());
+        assert!(OhlcvBar::volume_deceleration(&[make_ohlcv_bar(
+            dec!(100),
+            dec!(110),
+            dec!(90),
+            dec!(100)
+        )])
+        .is_none());
     }
 
     #[test]
@@ -18465,7 +22252,13 @@ mod tests {
 
     #[test]
     fn test_bar_trend_persistence_none_for_single() {
-        assert!(OhlcvBar::bar_trend_persistence(&[make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105))]).is_none());
+        assert!(OhlcvBar::bar_trend_persistence(&[make_ohlcv_bar(
+            dec!(100),
+            dec!(110),
+            dec!(90),
+            dec!(105)
+        )])
+        .is_none());
     }
 
     #[test]
@@ -18506,7 +22299,13 @@ mod tests {
 
     #[test]
     fn test_avg_open_close_gap_none_for_single() {
-        assert!(OhlcvBar::avg_open_close_gap(&[make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105))]).is_none());
+        assert!(OhlcvBar::avg_open_close_gap(&[make_ohlcv_bar(
+            dec!(100),
+            dec!(110),
+            dec!(90),
+            dec!(105)
+        )])
+        .is_none());
     }
 
     #[test]
@@ -18533,7 +22332,13 @@ mod tests {
 
     #[test]
     fn test_close_above_prior_high_none_for_single() {
-        assert!(OhlcvBar::close_above_prior_high(&[make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105))]).is_none());
+        assert!(OhlcvBar::close_above_prior_high(&[make_ohlcv_bar(
+            dec!(100),
+            dec!(110),
+            dec!(90),
+            dec!(105)
+        )])
+        .is_none());
     }
 
     #[test]
@@ -18632,14 +22437,22 @@ mod tests {
     #[test]
     fn test_bar_consolidation_ratio_uniform() {
         // all same range → half below median = 0
-        let bars: Vec<_> = (0..4).map(|_| make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105))).collect();
+        let bars: Vec<_> = (0..4)
+            .map(|_| make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105)))
+            .collect();
         let r = OhlcvBar::bar_consolidation_ratio(&bars).unwrap();
         assert!((0.0..=1.0).contains(&r), "expected [0,1], got {}", r);
     }
 
     #[test]
     fn test_open_momentum_score_none_for_single() {
-        assert!(OhlcvBar::open_momentum_score(&[make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105))]).is_none());
+        assert!(OhlcvBar::open_momentum_score(&[make_ohlcv_bar(
+            dec!(100),
+            dec!(110),
+            dec!(90),
+            dec!(105)
+        )])
+        .is_none());
     }
 
     #[test]
@@ -18652,12 +22465,20 @@ mod tests {
 
     #[test]
     fn test_avg_volume_change_none_for_single() {
-        assert!(OhlcvBar::avg_volume_change(&[make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105))]).is_none());
+        assert!(OhlcvBar::avg_volume_change(&[make_ohlcv_bar(
+            dec!(100),
+            dec!(110),
+            dec!(90),
+            dec!(105)
+        )])
+        .is_none());
     }
 
     #[test]
     fn test_avg_volume_change_zero_for_equal_volumes() {
-        let bars: Vec<_> = (0..3).map(|_| make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105))).collect();
+        let bars: Vec<_> = (0..3)
+            .map(|_| make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105)))
+            .collect();
         // volume is always dec!(1) from make_ohlcv_bar → no change
         let v = OhlcvBar::avg_volume_change(&bars).unwrap();
         assert!(v.abs() < 1e-9, "expected 0.0, got {}", v);
@@ -18677,7 +22498,9 @@ mod tests {
     #[test]
     fn test_close_lag1_autocorr_uniform_none() {
         // uniform close → var=0 → None
-        let bars: Vec<_> = (0..4).map(|_| make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105))).collect();
+        let bars: Vec<_> = (0..4)
+            .map(|_| make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105)))
+            .collect();
         assert!(OhlcvBar::close_lag1_autocorr(&bars).is_none());
     }
 
@@ -18692,7 +22515,9 @@ mod tests {
 
     #[test]
     fn test_volume_skewness_uniform_none() {
-        let bars: Vec<_> = (0..4).map(|_| make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105))).collect();
+        let bars: Vec<_> = (0..4)
+            .map(|_| make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105)))
+            .collect();
         // all vol=1 → std=0 → None
         assert!(OhlcvBar::volume_skewness(&bars).is_none());
     }
@@ -18714,7 +22539,13 @@ mod tests {
 
     #[test]
     fn test_high_persistence_none_for_single() {
-        assert!(OhlcvBar::high_persistence(&[make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105))]).is_none());
+        assert!(OhlcvBar::high_persistence(&[make_ohlcv_bar(
+            dec!(100),
+            dec!(110),
+            dec!(90),
+            dec!(105)
+        )])
+        .is_none());
     }
 
     #[test]
@@ -18742,7 +22573,13 @@ mod tests {
 
     #[test]
     fn test_avg_true_range_ratio_none_for_single() {
-        assert!(OhlcvBar::avg_true_range_ratio(&[make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105))]).is_none());
+        assert!(OhlcvBar::avg_true_range_ratio(&[make_ohlcv_bar(
+            dec!(100),
+            dec!(110),
+            dec!(90),
+            dec!(105)
+        )])
+        .is_none());
     }
 
     #[test]
@@ -18790,12 +22627,20 @@ mod tests {
 
     #[test]
     fn test_close_velocity_none_for_single() {
-        assert!(OhlcvBar::close_velocity(&[make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105))]).is_none());
+        assert!(OhlcvBar::close_velocity(&[make_ohlcv_bar(
+            dec!(100),
+            dec!(110),
+            dec!(90),
+            dec!(105)
+        )])
+        .is_none());
     }
 
     #[test]
     fn test_close_velocity_constant_zero() {
-        let bars: Vec<_> = (0..3).map(|_| make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105))).collect();
+        let bars: Vec<_> = (0..3)
+            .map(|_| make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105)))
+            .collect();
         let v = OhlcvBar::close_velocity(&bars).unwrap();
         assert!(v.abs() < 1e-9, "expected 0.0, got {}", v);
     }
@@ -18820,7 +22665,9 @@ mod tests {
 
     #[test]
     fn test_body_trend_direction_all_bull() {
-        let bars: Vec<_> = (0..3).map(|_| make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105))).collect();
+        let bars: Vec<_> = (0..3)
+            .map(|_| make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105)))
+            .collect();
         let d = OhlcvBar::body_trend_direction(&bars).unwrap();
         assert!((d - 1.0).abs() < 1e-9, "expected 1.0, got {}", d);
     }
@@ -18842,7 +22689,13 @@ mod tests {
 
     #[test]
     fn test_avg_close_slope_none_for_single() {
-        assert!(OhlcvBar::avg_close_slope(&[make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105))]).is_none());
+        assert!(OhlcvBar::avg_close_slope(&[make_ohlcv_bar(
+            dec!(100),
+            dec!(110),
+            dec!(90),
+            dec!(105)
+        )])
+        .is_none());
     }
 
     #[test]
@@ -18855,12 +22708,20 @@ mod tests {
 
     #[test]
     fn test_body_range_zscore_none_for_single() {
-        assert!(OhlcvBar::body_range_zscore(&[make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105))]).is_none());
+        assert!(OhlcvBar::body_range_zscore(&[make_ohlcv_bar(
+            dec!(100),
+            dec!(110),
+            dec!(90),
+            dec!(105)
+        )])
+        .is_none());
     }
 
     #[test]
     fn test_body_range_zscore_uniform_none() {
-        let bars: Vec<_> = (0..3).map(|_| make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105))).collect();
+        let bars: Vec<_> = (0..3)
+            .map(|_| make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105)))
+            .collect();
         // all same body → std=0 → None
         assert!(OhlcvBar::body_range_zscore(&bars).is_none());
     }
@@ -18872,14 +22733,22 @@ mod tests {
 
     #[test]
     fn test_volume_entropy_uniform_positive() {
-        let bars: Vec<_> = (0..3).map(|_| make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105))).collect();
+        let bars: Vec<_> = (0..3)
+            .map(|_| make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105)))
+            .collect();
         let e = OhlcvBar::volume_entropy(&bars).unwrap();
         assert!(e >= 0.0, "expected non-negative, got {}", e);
     }
 
     #[test]
     fn test_low_persistence_none_for_single() {
-        assert!(OhlcvBar::low_persistence(&[make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105))]).is_none());
+        assert!(OhlcvBar::low_persistence(&[make_ohlcv_bar(
+            dec!(100),
+            dec!(110),
+            dec!(90),
+            dec!(105)
+        )])
+        .is_none());
     }
 
     #[test]
@@ -18906,7 +22775,13 @@ mod tests {
 
     #[test]
     fn test_open_close_persistence_none_for_single() {
-        assert!(OhlcvBar::open_close_persistence(&[make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105))]).is_none());
+        assert!(OhlcvBar::open_close_persistence(&[make_ohlcv_bar(
+            dec!(100),
+            dec!(110),
+            dec!(90),
+            dec!(105)
+        )])
+        .is_none());
     }
 
     #[test]
@@ -18920,7 +22795,13 @@ mod tests {
 
     #[test]
     fn test_bar_range_trend_none_for_single() {
-        assert!(OhlcvBar::bar_range_trend(&[make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105))]).is_none());
+        assert!(OhlcvBar::bar_range_trend(&[make_ohlcv_bar(
+            dec!(100),
+            dec!(110),
+            dec!(90),
+            dec!(105)
+        )])
+        .is_none());
     }
 
     #[test]
@@ -18987,7 +22868,13 @@ mod tests {
 
     #[test]
     fn test_open_gap_direction_none_for_single() {
-        assert!(OhlcvBar::open_gap_direction(&[make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105))]).is_none());
+        assert!(OhlcvBar::open_gap_direction(&[make_ohlcv_bar(
+            dec!(100),
+            dec!(110),
+            dec!(90),
+            dec!(105)
+        )])
+        .is_none());
     }
 
     #[test]
@@ -19002,7 +22889,13 @@ mod tests {
     // ── round-131 ────────────────────────────────────────────────────────────
     #[test]
     fn test_close_trend_strength_none_for_single() {
-        assert!(OhlcvBar::close_trend_strength(&[make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105))]).is_none());
+        assert!(OhlcvBar::close_trend_strength(&[make_ohlcv_bar(
+            dec!(100),
+            dec!(110),
+            dec!(90),
+            dec!(105)
+        )])
+        .is_none());
     }
 
     #[test]
@@ -19023,7 +22916,11 @@ mod tests {
         // open=90, close=110, high=110, low=90 → body/range = 1.0 (bullish)
         let b = make_ohlcv_bar(dec!(90), dec!(110), dec!(90), dec!(110));
         let s = OhlcvBar::bar_body_skew(&[b]).unwrap();
-        assert!((s - 1.0).abs() < 1e-9, "expected 1.0 for full bullish, got {}", s);
+        assert!(
+            (s - 1.0).abs() < 1e-9,
+            "expected 1.0 for full bullish, got {}",
+            s
+        );
     }
 
     #[test]
@@ -19036,12 +22933,22 @@ mod tests {
         let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
         let b2 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
         let d = OhlcvBar::bar_range_mean_dev(&[b1, b2]).unwrap();
-        assert!(d.abs() < 1e-9, "expected 0.0 for identical ranges, got {}", d);
+        assert!(
+            d.abs() < 1e-9,
+            "expected 0.0 for identical ranges, got {}",
+            d
+        );
     }
 
     #[test]
     fn test_bar_close_momentum_none_for_single() {
-        assert!(OhlcvBar::bar_close_momentum(&[make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105))]).is_none());
+        assert!(OhlcvBar::bar_close_momentum(&[make_ohlcv_bar(
+            dec!(100),
+            dec!(110),
+            dec!(90),
+            dec!(105)
+        )])
+        .is_none());
     }
 
     #[test]
@@ -19050,13 +22957,23 @@ mod tests {
         let b2 = make_ohlcv_bar(dec!(100), dec!(115), dec!(95), dec!(105));
         let b3 = make_ohlcv_bar(dec!(105), dec!(120), dec!(100), dec!(115));
         let m = OhlcvBar::bar_close_momentum(&[b1, b2, b3]).unwrap();
-        assert!((m - 2.0).abs() < 1e-9, "expected 2.0 for 2 up moves, got {}", m);
+        assert!(
+            (m - 2.0).abs() < 1e-9,
+            "expected 2.0 for 2 up moves, got {}",
+            m
+        );
     }
 
     // ── round-132 ────────────────────────────────────────────────────────────
     #[test]
     fn test_bar_volume_trend_none_for_single() {
-        assert!(OhlcvBar::bar_volume_trend(&[make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105))]).is_none());
+        assert!(OhlcvBar::bar_volume_trend(&[make_ohlcv_bar(
+            dec!(100),
+            dec!(110),
+            dec!(90),
+            dec!(105)
+        )])
+        .is_none());
     }
 
     #[test]
@@ -19084,7 +23001,13 @@ mod tests {
 
     #[test]
     fn test_bar_midpoint_trend_none_for_single() {
-        assert!(OhlcvBar::bar_midpoint_trend(&[make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105))]).is_none());
+        assert!(OhlcvBar::bar_midpoint_trend(&[make_ohlcv_bar(
+            dec!(100),
+            dec!(110),
+            dec!(90),
+            dec!(105)
+        )])
+        .is_none());
     }
 
     #[test]
@@ -19137,7 +23060,13 @@ mod tests {
 
     #[test]
     fn test_bar_close_persistence_none_for_single() {
-        assert!(OhlcvBar::bar_close_persistence(&[make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105))]).is_none());
+        assert!(OhlcvBar::bar_close_persistence(&[make_ohlcv_bar(
+            dec!(100),
+            dec!(110),
+            dec!(90),
+            dec!(105)
+        )])
+        .is_none());
     }
 
     #[test]
@@ -19164,7 +23093,13 @@ mod tests {
     // ── round-134 ────────────────────────────────────────────────────────────
     #[test]
     fn test_bar_high_trend_none_for_single() {
-        assert!(OhlcvBar::bar_high_trend(&[make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105))]).is_none());
+        assert!(OhlcvBar::bar_high_trend(&[make_ohlcv_bar(
+            dec!(100),
+            dec!(110),
+            dec!(90),
+            dec!(105)
+        )])
+        .is_none());
     }
 
     #[test]
@@ -19177,7 +23112,13 @@ mod tests {
 
     #[test]
     fn test_bar_low_trend_none_for_single() {
-        assert!(OhlcvBar::bar_low_trend(&[make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105))]).is_none());
+        assert!(OhlcvBar::bar_low_trend(&[make_ohlcv_bar(
+            dec!(100),
+            dec!(110),
+            dec!(90),
+            dec!(105)
+        )])
+        .is_none());
     }
 
     #[test]
@@ -19185,7 +23126,11 @@ mod tests {
         let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
         let b2 = make_ohlcv_bar(dec!(95), dec!(108), dec!(80), dec!(100));
         let t = OhlcvBar::bar_low_trend(&[b1, b2]).unwrap();
-        assert!(t < 0.0, "expected negative trend for falling lows, got {}", t);
+        assert!(
+            t < 0.0,
+            "expected negative trend for falling lows, got {}",
+            t
+        );
     }
 
     #[test]
@@ -19203,7 +23148,13 @@ mod tests {
 
     #[test]
     fn test_bar_open_persistence_none_for_single() {
-        assert!(OhlcvBar::bar_open_persistence(&[make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105))]).is_none());
+        assert!(OhlcvBar::bar_open_persistence(&[make_ohlcv_bar(
+            dec!(100),
+            dec!(110),
+            dec!(90),
+            dec!(105)
+        )])
+        .is_none());
     }
 
     #[test]
@@ -19229,7 +23180,13 @@ mod tests {
 
     #[test]
     fn test_range_contraction_ratio_none_for_single() {
-        assert!(OhlcvBar::range_contraction_ratio(&[make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105))]).is_none());
+        assert!(OhlcvBar::range_contraction_ratio(&[make_ohlcv_bar(
+            dec!(100),
+            dec!(110),
+            dec!(90),
+            dec!(105)
+        )])
+        .is_none());
     }
 
     #[test]
@@ -19249,7 +23206,11 @@ mod tests {
     fn test_volume_trend_ratio_equal() {
         let b = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
         let r = OhlcvBar::volume_trend_ratio(&[b]).unwrap();
-        assert!((r - 1.0).abs() < 1e-9, "expected 1.0 for single bar, got {}", r);
+        assert!(
+            (r - 1.0).abs() < 1e-9,
+            "expected 1.0 for single bar, got {}",
+            r
+        );
     }
 
     #[test]
@@ -19281,7 +23242,13 @@ mod tests {
 
     #[test]
     fn test_close_oscillation_amplitude_none_for_single() {
-        assert!(OhlcvBar::close_oscillation_amplitude(&[make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105))]).is_none());
+        assert!(OhlcvBar::close_oscillation_amplitude(&[make_ohlcv_bar(
+            dec!(100),
+            dec!(110),
+            dec!(90),
+            dec!(105)
+        )])
+        .is_none());
     }
 
     #[test]
@@ -19289,7 +23256,11 @@ mod tests {
         let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
         let b2 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
         let a = OhlcvBar::close_oscillation_amplitude(&[b1, b2]).unwrap();
-        assert!(a.abs() < 1e-9, "expected 0.0 for identical closes, got {}", a);
+        assert!(
+            a.abs() < 1e-9,
+            "expected 0.0 for identical closes, got {}",
+            a
+        );
     }
 
     #[test]
@@ -19306,7 +23277,13 @@ mod tests {
 
     #[test]
     fn test_bar_range_change_none_for_single() {
-        assert!(OhlcvBar::bar_range_change(&[make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105))]).is_none());
+        assert!(OhlcvBar::bar_range_change(&[make_ohlcv_bar(
+            dec!(100),
+            dec!(110),
+            dec!(90),
+            dec!(105)
+        )])
+        .is_none());
     }
 
     #[test]
@@ -19314,7 +23291,11 @@ mod tests {
         let b1 = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
         let b2 = make_ohlcv_bar(dec!(100), dec!(120), dec!(80), dec!(105));
         let c = OhlcvBar::bar_range_change(&[b1, b2]).unwrap();
-        assert!(c > 0.0, "expected positive change for expanding range, got {}", c);
+        assert!(
+            c > 0.0,
+            "expected positive change for expanding range, got {}",
+            c
+        );
     }
 
     // ── round-137 ────────────────────────────────────────────────────────────
@@ -19335,7 +23316,13 @@ mod tests {
 
     #[test]
     fn test_close_high_correlation_none_for_single() {
-        assert!(OhlcvBar::close_high_correlation(&[make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105))]).is_none());
+        assert!(OhlcvBar::close_high_correlation(&[make_ohlcv_bar(
+            dec!(100),
+            dec!(110),
+            dec!(90),
+            dec!(105)
+        )])
+        .is_none());
     }
 
     #[test]
@@ -19365,7 +23352,13 @@ mod tests {
 
     #[test]
     fn test_bar_open_gap_score_none_for_single() {
-        assert!(OhlcvBar::bar_open_gap_score(&[make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105))]).is_none());
+        assert!(OhlcvBar::bar_open_gap_score(&[make_ohlcv_bar(
+            dec!(100),
+            dec!(110),
+            dec!(90),
+            dec!(105)
+        )])
+        .is_none());
     }
 
     #[test]
@@ -19381,7 +23374,13 @@ mod tests {
 
     #[test]
     fn test_bar_close_trend_ratio_none_for_single() {
-        assert!(OhlcvBar::bar_close_trend_ratio(&[make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105))]).is_none());
+        assert!(OhlcvBar::bar_close_trend_ratio(&[make_ohlcv_bar(
+            dec!(100),
+            dec!(110),
+            dec!(90),
+            dec!(105)
+        )])
+        .is_none());
     }
 
     #[test]
@@ -19413,7 +23412,13 @@ mod tests {
 
     #[test]
     fn test_bar_body_velocity_none_for_single() {
-        assert!(OhlcvBar::bar_body_velocity(&[make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105))]).is_none());
+        assert!(OhlcvBar::bar_body_velocity(&[make_ohlcv_bar(
+            dec!(100),
+            dec!(110),
+            dec!(90),
+            dec!(105)
+        )])
+        .is_none());
     }
 
     #[test]
@@ -19430,7 +23435,13 @@ mod tests {
 
     #[test]
     fn test_close_mean_reversion_none_for_single() {
-        assert!(OhlcvBar::close_mean_reversion(&[make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105))]).is_none());
+        assert!(OhlcvBar::close_mean_reversion(&[make_ohlcv_bar(
+            dec!(100),
+            dec!(110),
+            dec!(90),
+            dec!(105)
+        )])
+        .is_none());
     }
 
     #[test]
@@ -19456,7 +23467,11 @@ mod tests {
         // bullish: open < close, high=close+5, low=open-1 → upper wick=5, lower wick=1 → asym=4
         let bars = vec![make_ohlcv_bar(dec!(100), dec!(115), dec!(99), dec!(110))];
         let a = OhlcvBar::bar_wick_asymmetry(&bars).unwrap();
-        assert!(a > 0.0, "expected positive asymmetry for upper-wick dominant, got {}", a);
+        assert!(
+            a > 0.0,
+            "expected positive asymmetry for upper-wick dominant, got {}",
+            a
+        );
     }
 
     #[test]
@@ -19503,7 +23518,13 @@ mod tests {
 
     #[test]
     fn test_bar_body_trend_score_none_for_single() {
-        assert!(OhlcvBar::bar_body_trend_score(&[make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105))]).is_none());
+        assert!(OhlcvBar::bar_body_trend_score(&[make_ohlcv_bar(
+            dec!(100),
+            dec!(110),
+            dec!(90),
+            dec!(105)
+        )])
+        .is_none());
     }
 
     #[test]
@@ -19514,7 +23535,11 @@ mod tests {
             make_ohlcv_bar(dec!(100), dec!(115), dec!(85), dec!(110)),
         ];
         let s = OhlcvBar::bar_body_trend_score(&bars).unwrap();
-        assert!(s > 0.0, "expected positive trend for growing bodies, got {}", s);
+        assert!(
+            s > 0.0,
+            "expected positive trend for growing bodies, got {}",
+            s
+        );
     }
 
     #[test]
@@ -19531,7 +23556,13 @@ mod tests {
 
     #[test]
     fn test_bar_volume_efficiency_none_for_single() {
-        assert!(OhlcvBar::bar_volume_efficiency(&[make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105))]).is_none());
+        assert!(OhlcvBar::bar_volume_efficiency(&[make_ohlcv_bar(
+            dec!(100),
+            dec!(110),
+            dec!(90),
+            dec!(105)
+        )])
+        .is_none());
     }
 
     #[test]
@@ -19614,15 +23645,21 @@ mod tests {
 
     #[test]
     fn test_bar_close_low_trend_none_for_single() {
-        assert!(OhlcvBar::bar_close_low_trend(&[make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105))]).is_none());
+        assert!(OhlcvBar::bar_close_low_trend(&[make_ohlcv_bar(
+            dec!(100),
+            dec!(110),
+            dec!(90),
+            dec!(105)
+        )])
+        .is_none());
     }
 
     #[test]
     fn test_bar_close_low_trend_increasing() {
         let bars = vec![
-            make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100)),  // c-l=10
-            make_ohlcv_bar(dec!(100), dec!(115), dec!(90), dec!(105)),  // c-l=15
-            make_ohlcv_bar(dec!(100), dec!(120), dec!(90), dec!(112)),  // c-l=22
+            make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(100)), // c-l=10
+            make_ohlcv_bar(dec!(100), dec!(115), dec!(90), dec!(105)), // c-l=15
+            make_ohlcv_bar(dec!(100), dec!(120), dec!(90), dec!(112)), // c-l=22
         ];
         let t = OhlcvBar::bar_close_low_trend(&bars).unwrap();
         assert!(t > 0.0, "expected positive trend, got {}", t);
@@ -19641,7 +23678,13 @@ mod tests {
 
     #[test]
     fn test_bar_volume_trend_ratio_none_for_single() {
-        assert!(OhlcvBar::bar_volume_trend_ratio(&[make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105))]).is_none());
+        assert!(OhlcvBar::bar_volume_trend_ratio(&[make_ohlcv_bar(
+            dec!(100),
+            dec!(110),
+            dec!(90),
+            dec!(105)
+        )])
+        .is_none());
     }
 
     #[test]
@@ -19698,7 +23741,8 @@ mod tests {
         assert!(OhlcvBar::bar_close_acceleration(&[
             make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105)),
             make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(106)),
-        ]).is_none());
+        ])
+        .is_none());
     }
 
     #[test]
@@ -19829,7 +23873,7 @@ mod tests {
     #[test]
     fn test_high_low_midpoint_trend_rising() {
         let bars = vec![
-            make_ohlcv_bar(dec!(90), dec!(100), dec!(80), dec!(95)),  // mid=90
+            make_ohlcv_bar(dec!(90), dec!(100), dec!(80), dec!(95)), // mid=90
             make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105)), // mid=100
         ];
         let t = OhlcvBar::high_low_midpoint_trend(&bars).unwrap();
@@ -20924,7 +24968,12 @@ mod tests {
         let r = OhlcvBar::bar_close_range_ratio(&bars).unwrap();
         // 105 / (110+90+105) = 105/305
         let expected = 105.0 / 305.0;
-        assert!((r - expected).abs() < 1e-9, "expected {}, got {}", expected, r);
+        assert!(
+            (r - expected).abs() < 1e-9,
+            "expected {}, got {}",
+            expected,
+            r
+        );
     }
 
     #[test]
@@ -20953,7 +25002,12 @@ mod tests {
         let bars = vec![make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105))];
         let m = OhlcvBar::bar_hlc3_mean(&bars).unwrap();
         let expected = (110.0 + 90.0 + 105.0) / 3.0;
-        assert!((m - expected).abs() < 1e-9, "expected {}, got {}", expected, m);
+        assert!(
+            (m - expected).abs() < 1e-9,
+            "expected {}, got {}",
+            expected,
+            m
+        );
     }
 
     #[test]
@@ -20967,7 +25021,12 @@ mod tests {
         let bars = vec![make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105))];
         let m = OhlcvBar::bar_ohlc4_mean(&bars).unwrap();
         let expected = (100.0 + 110.0 + 90.0 + 105.0) / 4.0;
-        assert!((m - expected).abs() < 1e-9, "expected {}, got {}", expected, m);
+        assert!(
+            (m - expected).abs() < 1e-9,
+            "expected {}, got {}",
+            expected,
+            m
+        );
     }
 
     #[test]
@@ -21022,8 +25081,8 @@ mod tests {
     #[test]
     fn test_bar_up_streak_all_bullish() {
         let bars = vec![
-            make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105)),  // bullish: close>open
-            make_ohlcv_bar(dec!(100), dec!(115), dec!(88), dec!(108)),  // bullish
+            make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105)), // bullish: close>open
+            make_ohlcv_bar(dec!(100), dec!(115), dec!(88), dec!(108)), // bullish
         ];
         let s = OhlcvBar::bar_up_streak(&bars).unwrap();
         assert!((s - 2.0).abs() < 1e-9, "expected 2.0, got {}", s);
@@ -21037,8 +25096,8 @@ mod tests {
     #[test]
     fn test_bar_down_streak_all_bearish() {
         let bars = vec![
-            make_ohlcv_bar(dec!(110), dec!(115), dec!(90), dec!(100)),  // bearish: close<open
-            make_ohlcv_bar(dec!(108), dec!(112), dec!(88), dec!(98)),   // bearish
+            make_ohlcv_bar(dec!(110), dec!(115), dec!(90), dec!(100)), // bearish: close<open
+            make_ohlcv_bar(dec!(108), dec!(112), dec!(88), dec!(98)),  // bearish
         ];
         let s = OhlcvBar::bar_down_streak(&bars).unwrap();
         assert!((s - 2.0).abs() < 1e-9, "expected 2.0, got {}", s);
@@ -21198,7 +25257,7 @@ mod tests {
         // same bar twice, open=close so body={100,100}; engulf requires curr contains prev
         // make second bar with narrower body → no engulf
         let bars = vec![
-            make_ohlcv_bar(dec!(95), dec!(115), dec!(85), dec!(110)),  // large body
+            make_ohlcv_bar(dec!(95), dec!(115), dec!(85), dec!(110)), // large body
             make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105)), // smaller body
         ];
         let c = OhlcvBar::bar_engulfing_count(&bars).unwrap();
@@ -21389,7 +25448,12 @@ mod tests {
         let bar = make_ohlcv_bar(dec!(100), dec!(110), dec!(90), dec!(105));
         let t = OhlcvBar::bar_typical_price_mean(&[bar]).unwrap();
         let expected = (110.0 + 90.0 + 105.0) / 3.0;
-        assert!((t - expected).abs() < 1e-9, "expected {}, got {}", expected, t);
+        assert!(
+            (t - expected).abs() < 1e-9,
+            "expected {}, got {}",
+            expected,
+            t
+        );
     }
 
     #[test]
@@ -23470,7 +27534,9 @@ mod tests {
         let b2 = make_ohlcv_bar(dec!(100), dec!(115), dec!(85), dec!(110));
         let r = OhlcvBar::bar_wick_to_body_std(&[b1, b2]);
         // may return None if body is 0 for some bars
-        if let Some(v) = r { assert!(v >= 0.0); }
+        if let Some(v) = r {
+            assert!(v >= 0.0);
+        }
     }
 
     #[test]

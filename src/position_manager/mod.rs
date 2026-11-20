@@ -209,7 +209,9 @@ impl PositionManager {
             return Err(PositionError::AlreadyOpen);
         }
         if price.abs() < 1e-12 {
-            return Err(PositionError::RiskLimitExceeded("price is zero".to_string()));
+            return Err(PositionError::RiskLimitExceeded(
+                "price is zero".to_string(),
+            ));
         }
 
         // Kelly-like sizing: half-Kelly

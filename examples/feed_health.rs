@@ -110,10 +110,7 @@ fn main() -> Result<(), StreamError> {
             }
             let cell = if open {
                 Cell::Open
-            } else if h
-                .as_ref()
-                .is_some_and(|h| h.status == HealthStatus::Stale)
-            {
+            } else if h.as_ref().is_some_and(|h| h.status == HealthStatus::Stale) {
                 Cell::Stale
             } else if beat[i] {
                 Cell::Beat

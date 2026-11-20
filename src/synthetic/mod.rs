@@ -95,7 +95,10 @@ pub struct SyntheticConfig {
 
 impl Default for SyntheticConfig {
     fn default() -> Self {
-        Self { ticks_per_bar: 100, seed: 42 }
+        Self {
+            ticks_per_bar: 100,
+            seed: 42,
+        }
     }
 }
 
@@ -107,7 +110,9 @@ struct Lcg {
 
 impl Lcg {
     fn new(seed: u64) -> Self {
-        Self { state: seed.wrapping_add(1) }
+        Self {
+            state: seed.wrapping_add(1),
+        }
     }
 
     fn next_f64(&mut self) -> f64 {
@@ -145,10 +150,14 @@ impl SyntheticGenerator {
     /// `ticks_per_bar < 4`.
     pub fn generate(&mut self, bar: &OhlcvInput) -> Result<Vec<SyntheticTick>, StreamError> {
         if bar.high < bar.low {
-            return Err(StreamError::ConfigError { reason: "bar.high < bar.low".into() });
+            return Err(StreamError::ConfigError {
+                reason: "bar.high < bar.low".into(),
+            });
         }
         if bar.volume < 0.0 {
-            return Err(StreamError::ConfigError { reason: "bar.volume < 0".into() });
+            return Err(StreamError::ConfigError {
+                reason: "bar.volume < 0".into(),
+            });
         }
         let n = self.cfg.ticks_per_bar;
         if n < 4 {
@@ -167,7 +176,9 @@ impl SyntheticGenerator {
         let hi_idx = 1 + (self.rng.next_f64() * (n - 3) as f64) as usize;
         let lo_idx = {
             let mut idx = 1 + (self.rng.next_f64() * (n - 3) as f64) as usize;
-            while idx == hi_idx { idx = 1 + (self.rng.next_f64() * (n - 3) as f64) as usize; }
+            while idx == hi_idx {
+                idx = 1 + (self.rng.next_f64() * (n - 3) as f64) as usize;
+            }
             idx
         };
         prices[hi_idx] = bar.high;
@@ -175,7 +186,9 @@ impl SyntheticGenerator {
 
         // Brownian bridge fill for remaining positions.
         for i in 1..(n - 1) {
-            if i == hi_idx || i == lo_idx { continue; }
+            if i == hi_idx || i == lo_idx {
+                continue;
+            }
             let t = i as f64 / (n - 1) as f64;
             let bridge = bar.open + t * (bar.close - bar.open);
             let noise = (self.rng.next_f64() - 0.5) * range * 0.5;
@@ -188,14 +201,28 @@ impl SyntheticGenerator {
             .map(|w| (w[1] - w[0]).abs() + 1e-9)
             .collect();
         let w_sum: f64 = weights.iter().sum();
-        for w in &mut weights { *w /= w_sum; }
+        for w in &mut weights {
+            *w /= w_sum;
+        }
 
         let mut ticks = Vec::with_capacity(n);
         for i in 0..n {
             let ts = bar.open_time_ms
-                + if n > 1 { (i as u64 * duration_ms) / (n as u64 - 1) } else { 0 };
-            let vol = if i < weights.len() { weights[i] * bar.volume } else { 0.0 };
-            ticks.push(SyntheticTick { timestamp_ms: ts, price: prices[i], volume: vol });
+                + if n > 1 {
+                    (i as u64 * duration_ms) / (n as u64 - 1)
+                } else {
+                    0
+                };
+            let vol = if i < weights.len() {
+                weights[i] * bar.volume
+            } else {
+                0.0
+            };
+            ticks.push(SyntheticTick {
+                timestamp_ms: ts,
+                price: prices[i],
+                volume: vol,
+            });
         }
         Ok(ticks)
     }
@@ -217,7 +244,9 @@ pub struct Xorshift64 {
 impl Xorshift64 {
     /// Create from a seed.  A seed of 0 is replaced with 1.
     pub fn new(seed: u64) -> Self {
-        Self { state: if seed == 0 { 1 } else { seed } }
+        Self {
+            state: if seed == 0 { 1 } else { seed },
+        }
     }
 
     /// Return the next raw `u64`.
@@ -245,7 +274,9 @@ impl Xorshift64 {
     /// Poisson sample with rate `λ` (Knuth's algorithm for λ ≤ 30,
     /// Normal approximation for larger λ).
     pub fn next_poisson(&mut self, lambda: f64) -> u32 {
-        if lambda <= 0.0 { return 0; }
+        if lambda <= 0.0 {
+            return 0;
+        }
         if lambda > 30.0 {
             let n = (lambda + self.next_normal() * lambda.sqrt()).round();
             return n.max(0.0) as u32;
@@ -255,7 +286,9 @@ impl Xorshift64 {
         let mut p = 1.0_f64;
         loop {
             p *= self.next_f64();
-            if p <= l { break; }
+            if p <= l {
+                break;
+            }
             k += 1;
         }
         k
@@ -310,7 +343,11 @@ impl GeometricBrownianMotion {
     pub fn new(drift: f64, volatility: f64, initial_price: f64) -> Self {
         assert!(initial_price > 0.0, "initial_price must be positive");
         assert!(volatility >= 0.0, "volatility must be non-negative");
-        Self { drift, volatility, price: initial_price }
+        Self {
+            drift,
+            volatility,
+            price: initial_price,
+        }
     }
 }
 
@@ -441,9 +478,17 @@ impl OrnsteinUhlenbeck {
         volatility: f64,
         initial_price: f64,
     ) -> Self {
-        assert!(mean_reversion_speed >= 0.0, "mean_reversion_speed must be non-negative");
+        assert!(
+            mean_reversion_speed >= 0.0,
+            "mean_reversion_speed must be non-negative"
+        );
         assert!(volatility >= 0.0, "volatility must be non-negative");
-        Self { mean_reversion_speed, long_term_mean, volatility, price: initial_price }
+        Self {
+            mean_reversion_speed,
+            long_term_mean,
+            volatility,
+            price: initial_price,
+        }
     }
 }
 
@@ -526,11 +571,21 @@ impl HestonModel {
         assert!(initial_var >= 0.0, "initial_var must be non-negative");
         if 2.0 * kappa * theta < xi * xi {
             tracing::warn!(
-                kappa, theta, xi,
+                kappa,
+                theta,
+                xi,
                 "Heston Feller condition 2κθ > ξ² is violated; variance may hit zero"
             );
         }
-        Self { drift, price: initial_price, kappa, theta, xi, rho, variance: initial_var }
+        Self {
+            drift,
+            price: initial_price,
+            kappa,
+            theta,
+            xi,
+            rho,
+            variance: initial_var,
+        }
     }
 }
 
@@ -540,8 +595,8 @@ impl PriceModel for HestonModel {
         let z2 = rng.next_normal();
         let w_v = self.rho * z1 + (1.0 - self.rho * self.rho).max(0.0).sqrt() * z2;
         let v_sqrt = self.variance.max(0.0).sqrt();
-        let dv = self.kappa * (self.theta - self.variance) * dt
-            + self.xi * v_sqrt * dt.sqrt() * w_v;
+        let dv =
+            self.kappa * (self.theta - self.variance) * dt + self.xi * v_sqrt * dt.sqrt() * w_v;
         self.variance = (self.variance + dv).max(0.0);
         let vol = self.variance.max(0.0).sqrt();
         let log_return = (self.drift - 0.5 * self.variance) * dt + vol * dt.sqrt() * z1;
@@ -628,7 +683,11 @@ impl SyntheticMarketGenerator {
     /// - assigns a synthetic volume drawn from `Uniform(0.01, 5.0)`.
     ///
     /// Returns an empty `Vec` if `n == 0`.
-    pub fn generate_ticks<M: PriceModel>(&mut self, n: usize, model: &mut M) -> Vec<NormalizedTick> {
+    pub fn generate_ticks<M: PriceModel>(
+        &mut self,
+        n: usize,
+        model: &mut M,
+    ) -> Vec<NormalizedTick> {
         let mut ticks = Vec::with_capacity(n);
         let dt = self.tick_dt_years;
         for i in 0..n {
@@ -668,8 +727,7 @@ impl SyntheticMarketGenerator {
         timeframe: Timeframe,
     ) -> Vec<OhlcvBar> {
         let bar_duration_ms = timeframe.duration_ms();
-        let ticks_per_bar =
-            ((bar_duration_ms / self.tick_interval_ms.max(1)) as usize).max(1);
+        let ticks_per_bar = ((bar_duration_ms / self.tick_interval_ms.max(1)) as usize).max(1);
         let dt_per_tick = self.tick_dt_years;
         let mut bars = Vec::with_capacity(n_bars);
         let mut bar_start_ms = self.start_ts_ms;
@@ -744,7 +802,10 @@ mod tests {
 
     #[test]
     fn legacy_generate_tick_count() {
-        let cfg = SyntheticConfig { ticks_per_bar: 10, seed: 1 };
+        let cfg = SyntheticConfig {
+            ticks_per_bar: 10,
+            seed: 1,
+        };
         let mut gen = SyntheticGenerator::new(cfg);
         let bar = OhlcvInput {
             open_time_ms: 0,
@@ -761,7 +822,10 @@ mod tests {
 
     #[test]
     fn legacy_prices_within_range() {
-        let cfg = SyntheticConfig { ticks_per_bar: 20, seed: 42 };
+        let cfg = SyntheticConfig {
+            ticks_per_bar: 20,
+            seed: 42,
+        };
         let mut gen = SyntheticGenerator::new(cfg);
         let bar = OhlcvInput {
             open_time_ms: 0,
@@ -774,7 +838,11 @@ mod tests {
         };
         let ticks = gen.generate(&bar).unwrap_or_default();
         for t in &ticks {
-            assert!(t.price >= 90.0 && t.price <= 110.0, "price {} out of range", t.price);
+            assert!(
+                t.price >= 90.0 && t.price <= 110.0,
+                "price {} out of range",
+                t.price
+            );
         }
     }
 
@@ -783,8 +851,13 @@ mod tests {
         let cfg = SyntheticConfig::default();
         let mut gen = SyntheticGenerator::new(cfg);
         let bad = OhlcvInput {
-            open_time_ms: 0, close_time_ms: 60_000,
-            open: 100.0, high: 80.0, low: 90.0, close: 95.0, volume: 100.0,
+            open_time_ms: 0,
+            close_time_ms: 60_000,
+            open: 100.0,
+            high: 80.0,
+            low: 90.0,
+            close: 95.0,
+            volume: 100.0,
         };
         assert!(gen.generate(&bad).is_err());
     }
@@ -830,9 +903,7 @@ mod tests {
         let mut model = OrnsteinUhlenbeck::new(5.0, mean, 1.0, 200.0);
         let mut gen = SyntheticMarketGenerator::new(7);
         let ticks = gen.generate_ticks(500, &mut model);
-        let last_price = ticks.last()
-            .and_then(|t| t.price.to_f64())
-            .unwrap_or(0.0);
+        let last_price = ticks.last().and_then(|t| t.price.to_f64()).unwrap_or(0.0);
         assert!(
             last_price < mean * 3.0,
             "OU should revert toward mean {mean}, got {last_price}"

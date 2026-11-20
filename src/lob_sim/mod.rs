@@ -174,9 +174,12 @@ impl LobSimulator {
     ///   on the opposite side. A partial fill is `Ok(LobResult::Filled { remaining > 0, .. })`.
     pub fn process(&mut self, event: LobEvent) -> Result<LobResult, StreamError> {
         match event {
-            LobEvent::LimitOrder { id, side, price, quantity } => {
-                self.add_limit(id, side, price, quantity)
-            }
+            LobEvent::LimitOrder {
+                id,
+                side,
+                price,
+                quantity,
+            } => self.add_limit(id, side, price, quantity),
             LobEvent::MarketOrder { side, quantity } => self.match_market(side, quantity),
             LobEvent::CancelOrder { id } => self.cancel(id),
         }
@@ -229,12 +232,19 @@ impl LobSimulator {
             )));
         }
         if quantity == 0 {
-            return Err(StreamError::InvalidInput("Order quantity must be positive".to_owned()));
+            return Err(StreamError::InvalidInput(
+                "Order quantity must be positive".to_owned(),
+            ));
         }
 
         self.sequence += 1;
-        let order =
-            LimitOrder { id, side, price, quantity, sequence: self.sequence };
+        let order = LimitOrder {
+            id,
+            side,
+            price,
+            quantity,
+            sequence: self.sequence,
+        };
 
         let book = match side {
             Side::Bid => &mut self.bids,
@@ -287,7 +297,13 @@ impl LobSimulator {
                         break;
                     }
                     if let Some(level) = self.asks.get_mut(&price) {
-                        Self::fill_level(level, price, &mut remaining, &mut fills, &mut self.order_index);
+                        Self::fill_level(
+                            level,
+                            price,
+                            &mut remaining,
+                            &mut fills,
+                            &mut self.order_index,
+                        );
                     }
                     if self.asks.get(&price).map_or(true, |l| l.is_empty()) {
                         self.asks.remove(&price);
@@ -302,7 +318,13 @@ impl LobSimulator {
                         break;
                     }
                     if let Some(level) = self.bids.get_mut(&price) {
-                        Self::fill_level(level, price, &mut remaining, &mut fills, &mut self.order_index);
+                        Self::fill_level(
+                            level,
+                            price,
+                            &mut remaining,
+                            &mut fills,
+                            &mut self.order_index,
+                        );
                     }
                     if self.bids.get(&price).map_or(true, |l| l.is_empty()) {
                         self.bids.remove(&price);
@@ -331,7 +353,11 @@ impl LobSimulator {
                 None => break,
             };
             let fill_qty = (*remaining).min(front.quantity);
-            fills.push(Fill { maker_order_id: front.id, price, quantity: fill_qty });
+            fills.push(Fill {
+                maker_order_id: front.id,
+                price,
+                quantity: fill_qty,
+            });
             front.quantity -= fill_qty;
             *remaining -= fill_qty;
             if front.quantity == 0 {
@@ -357,8 +383,20 @@ mod tests {
 
     fn book_with_two_sides() -> LobSimulator {
         let mut sim = LobSimulator::new();
-        sim.process(LobEvent::LimitOrder { id: 1, side: Side::Bid, price: 100, quantity: 10 }).unwrap();
-        sim.process(LobEvent::LimitOrder { id: 2, side: Side::Ask, price: 101, quantity: 10 }).unwrap();
+        sim.process(LobEvent::LimitOrder {
+            id: 1,
+            side: Side::Bid,
+            price: 100,
+            quantity: 10,
+        })
+        .unwrap();
+        sim.process(LobEvent::LimitOrder {
+            id: 2,
+            side: Side::Ask,
+            price: 101,
+            quantity: 10,
+        })
+        .unwrap();
         sim
     }
 
@@ -378,7 +416,12 @@ mod tests {
     #[test]
     fn test_market_buy_fills_ask() {
         let mut sim = book_with_two_sides();
-        let result = sim.process(LobEvent::MarketOrder { side: Side::Bid, quantity: 5 }).unwrap();
+        let result = sim
+            .process(LobEvent::MarketOrder {
+                side: Side::Bid,
+                quantity: 5,
+            })
+            .unwrap();
         assert!(matches!(result, LobResult::Filled { remaining: 0, .. }));
         assert_eq!(sim.total_ask_quantity(), 5); // partial fill
     }
@@ -386,7 +429,12 @@ mod tests {
     #[test]
     fn test_market_sell_fills_bid() {
         let mut sim = book_with_two_sides();
-        let result = sim.process(LobEvent::MarketOrder { side: Side::Ask, quantity: 10 }).unwrap();
+        let result = sim
+            .process(LobEvent::MarketOrder {
+                side: Side::Ask,
+                quantity: 10,
+            })
+            .unwrap();
         assert!(matches!(result, LobResult::Filled { remaining: 0, .. }));
         assert_eq!(sim.total_bid_quantity(), 0);
     }
@@ -401,8 +449,19 @@ mod tests {
     #[test]
     fn test_duplicate_order_id_errors() {
         let mut sim = LobSimulator::new();
-        sim.process(LobEvent::LimitOrder { id: 42, side: Side::Bid, price: 100, quantity: 5 }).unwrap();
-        let err = sim.process(LobEvent::LimitOrder { id: 42, side: Side::Bid, price: 100, quantity: 5 });
+        sim.process(LobEvent::LimitOrder {
+            id: 42,
+            side: Side::Bid,
+            price: 100,
+            quantity: 5,
+        })
+        .unwrap();
+        let err = sim.process(LobEvent::LimitOrder {
+            id: 42,
+            side: Side::Bid,
+            price: 100,
+            quantity: 5,
+        });
         assert!(matches!(err, Err(StreamError::InvalidInput(_))));
     }
 
@@ -419,8 +478,19 @@ mod tests {
         // they are reported with the unfilled remainder rather than discarded
         // behind an error (the `remaining` field exists for exactly this case).
         let mut sim = LobSimulator::new();
-        sim.process(LobEvent::LimitOrder { id: 1, side: Side::Ask, price: 100, quantity: 5 }).unwrap();
-        let res = sim.process(LobEvent::MarketOrder { side: Side::Bid, quantity: 100 }).unwrap();
+        sim.process(LobEvent::LimitOrder {
+            id: 1,
+            side: Side::Ask,
+            price: 100,
+            quantity: 5,
+        })
+        .unwrap();
+        let res = sim
+            .process(LobEvent::MarketOrder {
+                side: Side::Bid,
+                quantity: 100,
+            })
+            .unwrap();
         match res {
             LobResult::Filled { fills, remaining } => {
                 assert_eq!(fills.iter().map(|f| f.quantity).sum::<u64>(), 5);
@@ -429,7 +499,10 @@ mod tests {
             other => panic!("expected partial fill, got {other:?}"),
         }
         // The book is now empty on the ask side: nothing at all can fill.
-        let err = sim.process(LobEvent::MarketOrder { side: Side::Bid, quantity: 100 });
+        let err = sim.process(LobEvent::MarketOrder {
+            side: Side::Bid,
+            quantity: 100,
+        });
         assert!(matches!(err, Err(StreamError::InsufficientLiquidity)));
     }
 
@@ -437,9 +510,26 @@ mod tests {
     fn test_price_time_priority() {
         let mut sim = LobSimulator::new();
         // Two bids at same price; first inserted should be matched first
-        sim.process(LobEvent::LimitOrder { id: 1, side: Side::Bid, price: 100, quantity: 5 }).unwrap();
-        sim.process(LobEvent::LimitOrder { id: 2, side: Side::Bid, price: 100, quantity: 5 }).unwrap();
-        let result = sim.process(LobEvent::MarketOrder { side: Side::Ask, quantity: 5 }).unwrap();
+        sim.process(LobEvent::LimitOrder {
+            id: 1,
+            side: Side::Bid,
+            price: 100,
+            quantity: 5,
+        })
+        .unwrap();
+        sim.process(LobEvent::LimitOrder {
+            id: 2,
+            side: Side::Bid,
+            price: 100,
+            quantity: 5,
+        })
+        .unwrap();
+        let result = sim
+            .process(LobEvent::MarketOrder {
+                side: Side::Ask,
+                quantity: 5,
+            })
+            .unwrap();
         if let LobResult::Filled { fills, .. } = result {
             assert_eq!(fills[0].maker_order_id, 1); // FIFO
         } else {

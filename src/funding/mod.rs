@@ -146,7 +146,11 @@ impl FundingTracker {
                 }
             })
             .collect();
-        result.sort_by(|a, b| b.1.abs().partial_cmp(&a.1.abs()).unwrap_or(std::cmp::Ordering::Equal));
+        result.sort_by(|a, b| {
+            b.1.abs()
+                .partial_cmp(&a.1.abs())
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
         result
     }
 }
@@ -249,7 +253,11 @@ fn ols_slope(y: &[f64]) -> f64 {
         num += dx * (yi - mean_y);
         den += dx * dx;
     }
-    if den == 0.0 { 0.0 } else { num / den }
+    if den == 0.0 {
+        0.0
+    } else {
+        num / den
+    }
 }
 
 // ─────────────────────────────────────────
@@ -273,7 +281,9 @@ mod tests {
     fn annualized_rate_calculation() {
         let tracker = FundingTracker::new();
         tracker.record(make_rate("BTCUSDT", 0.0001, 0));
-        let ann = tracker.annualized_rate("BTCUSDT").expect("should have rate");
+        let ann = tracker
+            .annualized_rate("BTCUSDT")
+            .expect("should have rate");
         assert!((ann - 0.1095).abs() < 1e-10);
     }
 
@@ -319,9 +329,9 @@ mod tests {
     #[test]
     fn high_funding_symbols_filter() {
         let tracker = FundingTracker::new();
-        tracker.record(make_rate("HIGH", 0.005, 0));   // above threshold
-        tracker.record(make_rate("LOW", 0.0001, 0));   // below threshold
-        tracker.record(make_rate("NEG", -0.006, 0));   // above threshold (negative)
+        tracker.record(make_rate("HIGH", 0.005, 0)); // above threshold
+        tracker.record(make_rate("LOW", 0.0001, 0)); // below threshold
+        tracker.record(make_rate("NEG", -0.006, 0)); // above threshold (negative)
 
         let high = tracker.high_funding_symbols(0.001);
         let symbols: Vec<&str> = high.iter().map(|(s, _)| s.as_str()).collect();

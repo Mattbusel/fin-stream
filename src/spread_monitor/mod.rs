@@ -61,8 +61,19 @@ impl SpreadMonitor {
     pub fn add_observation(&mut self, bid: f64, ask: f64, timestamp_ms: u64) -> SpreadObservation {
         let spread = ask - bid;
         let mid = (bid + ask) / 2.0;
-        let spread_bps = if mid > 0.0 { spread / mid * 10_000.0 } else { 0.0 };
-        let obs = SpreadObservation { timestamp_ms, bid, ask, spread, spread_bps, mid };
+        let spread_bps = if mid > 0.0 {
+            spread / mid * 10_000.0
+        } else {
+            0.0
+        };
+        let obs = SpreadObservation {
+            timestamp_ms,
+            bid,
+            ask,
+            spread,
+            spread_bps,
+            mid,
+        };
         if self.observations.len() >= self.window_size {
             self.observations.pop_front();
         }
@@ -86,12 +97,18 @@ impl SpreadMonitor {
 
     /// Minimum spread in basis points over the window.
     pub fn min_spread_bps(&self) -> f64 {
-        self.observations.iter().map(|o| o.spread_bps).fold(f64::INFINITY, f64::min)
+        self.observations
+            .iter()
+            .map(|o| o.spread_bps)
+            .fold(f64::INFINITY, f64::min)
     }
 
     /// Maximum spread in basis points over the window.
     pub fn max_spread_bps(&self) -> f64 {
-        self.observations.iter().map(|o| o.spread_bps).fold(f64::NEG_INFINITY, f64::max)
+        self.observations
+            .iter()
+            .map(|o| o.spread_bps)
+            .fold(f64::NEG_INFINITY, f64::max)
     }
 
     /// Standard deviation of spread_bps over the window.
@@ -101,7 +118,11 @@ impl SpreadMonitor {
             return 0.0;
         }
         let mean = self.avg_spread_bps();
-        let var: f64 = self.observations.iter().map(|o| (o.spread_bps - mean).powi(2)).sum::<f64>()
+        let var: f64 = self
+            .observations
+            .iter()
+            .map(|o| (o.spread_bps - mean).powi(2))
+            .sum::<f64>()
             / (n - 1) as f64;
         var.sqrt()
     }
@@ -148,7 +169,12 @@ pub fn decompose_spread(
     let adverse_selection = price_impact;
     let inventory_cost = inventory_cost_pct * total_spread;
     let order_processing = total_spread - adverse_selection - inventory_cost;
-    SpreadDecomposition { adverse_selection, inventory_cost, order_processing, total_spread }
+    SpreadDecomposition {
+        adverse_selection,
+        inventory_cost,
+        order_processing,
+        total_spread,
+    }
 }
 
 /// Effective spread: twice the signed distance from fill to mid, in basis points.
@@ -157,7 +183,7 @@ pub fn decompose_spread(
 pub fn effective_spread(fill_price: f64, mid: f64, side: &str) -> f64 {
     let signed = match side {
         "sell" => mid - fill_price,
-        _      => fill_price - mid,  // "buy"
+        _ => fill_price - mid, // "buy"
     };
     2.0 * signed.abs() / mid * 10_000.0
 }
@@ -166,18 +192,13 @@ pub fn effective_spread(fill_price: f64, mid: f64, side: &str) -> f64 {
 ///
 /// For a buy: 2 * (fill_price - future_mid) / mid_at_fill * 10_000.
 /// For a sell: 2 * (future_mid - fill_price) / mid_at_fill * 10_000.
-pub fn realized_spread(
-    fill_price: f64,
-    future_mid: f64,
-    side: &str,
-    mid_at_fill: f64,
-) -> f64 {
+pub fn realized_spread(fill_price: f64, future_mid: f64, side: &str, mid_at_fill: f64) -> f64 {
     if mid_at_fill <= 0.0 {
         return 0.0;
     }
     let signed = match side {
         "sell" => future_mid - fill_price,
-        _      => fill_price - future_mid,  // "buy"
+        _ => fill_price - future_mid, // "buy"
     };
     2.0 * signed / mid_at_fill * 10_000.0
 }
@@ -237,18 +258,25 @@ mod tests {
         let mut monitor = SpreadMonitor::new("TEST", 100);
         // bid=99, ask=101 => spread=2, mid=100 => bps = 2/100 * 10000 = 200 bps.
         let obs = monitor.add_observation(99.0, 101.0, 1000);
-        assert!((obs.spread_bps - 200.0).abs() < 1e-6, "Expected 200 bps, got {}", obs.spread_bps);
+        assert!(
+            (obs.spread_bps - 200.0).abs() < 1e-6,
+            "Expected 200 bps, got {}",
+            obs.spread_bps
+        );
     }
 
     #[test]
     fn test_avg_over_window() {
         let mut monitor = SpreadMonitor::new("X", 10);
         // 100 bps observation.
-        monitor.add_observation(99.5, 100.5, 1000);  // spread=1, mid=100 => 100 bps
-        // 200 bps observation.
-        monitor.add_observation(99.0, 101.0, 2000);  // spread=2, mid=100 => 200 bps
+        monitor.add_observation(99.5, 100.5, 1000); // spread=1, mid=100 => 100 bps
+                                                    // 200 bps observation.
+        monitor.add_observation(99.0, 101.0, 2000); // spread=2, mid=100 => 200 bps
         let avg = monitor.avg_spread_bps();
-        assert!((avg - 150.0).abs() < 0.1, "Expected avg ~150 bps, got {avg}");
+        assert!(
+            (avg - 150.0).abs() < 0.1,
+            "Expected avg ~150 bps, got {avg}"
+        );
     }
 
     #[test]
@@ -263,15 +291,19 @@ mod tests {
     fn test_decomposition_sums_to_total() {
         let d = decompose_spread(5.0, 0.3, 20.0);
         let sum = d.adverse_selection + d.inventory_cost + d.order_processing;
-        assert!((sum - d.total_spread).abs() < 1e-9, "Components should sum to total: {sum} vs {}", d.total_spread);
+        assert!(
+            (sum - d.total_spread).abs() < 1e-9,
+            "Components should sum to total: {sum} vs {}",
+            d.total_spread
+        );
     }
 
     #[test]
     fn test_spread_volatility_positive() {
         let mut monitor = SpreadMonitor::new("VOL", 100);
-        monitor.add_observation(99.0, 101.0, 1000);   // 200 bps
-        monitor.add_observation(99.5, 100.5, 2000);   // 100 bps
-        monitor.add_observation(98.0, 102.0, 3000);   // 400 bps
+        monitor.add_observation(99.0, 101.0, 1000); // 200 bps
+        monitor.add_observation(99.5, 100.5, 2000); // 100 bps
+        monitor.add_observation(98.0, 102.0, 3000); // 400 bps
         let vol = monitor.spread_volatility();
         assert!(vol > 0.0, "Spread volatility should be positive, got {vol}");
     }
@@ -287,10 +319,13 @@ mod tests {
 
     #[test]
     fn test_alert_fires_on_wide_spread() {
-        let mut alerts = SpreadAlerts { threshold_bps: 100.0, alert_count: 0 };
+        let mut alerts = SpreadAlerts {
+            threshold_bps: 100.0,
+            alert_count: 0,
+        };
         let mut monitor = SpreadMonitor::new("ALT", 10);
-        let narrow = monitor.add_observation(99.9, 100.1, 1000);  // 20 bps
-        let wide   = monitor.add_observation(98.0, 102.0, 2000);  // 400 bps
+        let narrow = monitor.add_observation(99.9, 100.1, 1000); // 20 bps
+        let wide = monitor.add_observation(98.0, 102.0, 2000); // 400 bps
         assert!(!alerts.check_alerts(&narrow));
         assert!(alerts.check_alerts(&wide));
         assert_eq!(alerts.alert_count, 1);

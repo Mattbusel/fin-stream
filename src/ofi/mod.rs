@@ -85,7 +85,9 @@ impl std::fmt::Display for Side {
 /// Nanosecond-precision timestamp for OFI events.
 ///
 /// Stored as nanoseconds since the Unix epoch (`i64`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+)]
 pub struct NanoTimestamp(pub i64);
 
 impl NanoTimestamp {
@@ -128,7 +130,13 @@ impl TopOfBook {
         ask_qty: Decimal,
         timestamp: NanoTimestamp,
     ) -> Self {
-        Self { bid_price, bid_qty, ask_price, ask_qty, timestamp }
+        Self {
+            bid_price,
+            bid_qty,
+            ask_price,
+            ask_qty,
+            timestamp,
+        }
     }
 
     /// Mid-price: `(bid + ask) / 2`.
@@ -171,8 +179,18 @@ impl OfiSignal {
             Side::Neutral
         };
         // tanh maps (-∞, ∞) → (-1, 1); we take abs for strength
-        let strength = if scale > 0.0 { (value / scale).tanh().abs() } else { 0.0 };
-        Self { value, direction, strength, timestamp, tick_count }
+        let strength = if scale > 0.0 {
+            (value / scale).tanh().abs()
+        } else {
+            0.0
+        };
+        Self {
+            value,
+            direction,
+            strength,
+            timestamp,
+            tick_count,
+        }
     }
 }
 
@@ -238,7 +256,10 @@ pub struct OrderFlowImbalance {
 impl OrderFlowImbalance {
     /// Constructs a new `OrderFlowImbalance` computer.
     pub fn new() -> Self {
-        Self { prev: None, tick_count: 0 }
+        Self {
+            prev: None,
+            tick_count: 0,
+        }
     }
 
     /// Updates with a new top-of-book snapshot and returns the current OFI tick value.
@@ -356,7 +377,12 @@ impl OfiAccumulator {
         }
 
         let rolling_ofi: f64 = self.window.iter().sum();
-        OfiSignal::from_raw(rolling_ofi, self.scale, self.last_timestamp, self.window.len())
+        OfiSignal::from_raw(
+            rolling_ofi,
+            self.scale,
+            self.last_timestamp,
+            self.window.len(),
+        )
     }
 
     /// Returns the current rolling OFI sum without consuming a new tick.
@@ -468,7 +494,11 @@ impl OfiMetricsComputer {
             0.0
         };
         let rolling_std = if n > 1 {
-            let var = self.history.iter().map(|x| (x - rolling_mean).powi(2)).sum::<f64>()
+            let var = self
+                .history
+                .iter()
+                .map(|x| (x - rolling_mean).powi(2))
+                .sum::<f64>()
                 / (n as f64 - 1.0);
             var.sqrt()
         } else {
@@ -482,9 +512,19 @@ impl OfiMetricsComputer {
 
         // Percentile rank: fraction of history strictly below current ofi
         let below = self.history.iter().filter(|&&v| v < ofi).count();
-        let percentile_rank = if n > 1 { below as f64 / (n as f64 - 1.0) } else { 0.5 };
+        let percentile_rank = if n > 1 {
+            below as f64 / (n as f64 - 1.0)
+        } else {
+            0.5
+        };
 
-        OfiMetrics { rolling_mean, rolling_std, zscore, percentile_rank, raw_ofi: ofi }
+        OfiMetrics {
+            rolling_mean,
+            rolling_std,
+            zscore,
+            percentile_rank,
+            raw_ofi: ofi,
+        }
     }
 
     /// Returns `true` when the lookback window is fully populated.
@@ -618,7 +658,13 @@ impl ToxicityEstimator {
         }
 
         // Classify volume as buy or sell based on OFI sign
-        let buy_fraction = if ofi > 0.0 { 1.0 } else if ofi < 0.0 { 0.0 } else { 0.5 };
+        let buy_fraction = if ofi > 0.0 {
+            1.0
+        } else if ofi < 0.0 {
+            0.0
+        } else {
+            0.5
+        };
         let buy_vol = volume * buy_fraction;
         let sell_vol = volume * (1.0 - buy_fraction);
 
@@ -650,8 +696,7 @@ impl ToxicityEstimator {
         if self.bucket_vpins.is_empty() {
             return None;
         }
-        let toxicity =
-            self.bucket_vpins.iter().sum::<f64>() / self.bucket_vpins.len() as f64;
+        let toxicity = self.bucket_vpins.iter().sum::<f64>() / self.bucket_vpins.len() as f64;
         let total = self.current_buy + self.current_sell;
         let imbalance = (self.current_buy - self.current_sell).abs();
         Some(VpinResult {
@@ -773,7 +818,10 @@ impl TradeIntensity {
                 "window_ms must be positive".to_owned(),
             ));
         }
-        Ok(Self { window_ms, timestamps: std::collections::VecDeque::new() })
+        Ok(Self {
+            window_ms,
+            timestamps: std::collections::VecDeque::new(),
+        })
     }
 
     /// Record a trade at `timestamp_ms`. Returns current trades-per-second.
@@ -790,7 +838,11 @@ impl TradeIntensity {
     pub fn trades_per_second(&self) -> f64 {
         let count = self.timestamps.len() as f64;
         let window_sec = self.window_ms as f64 / 1000.0;
-        if window_sec < f64::EPSILON { 0.0 } else { count / window_sec }
+        if window_sec < f64::EPSILON {
+            0.0
+        } else {
+            count / window_sec
+        }
     }
 
     /// Number of trades currently in the rolling window.
@@ -849,18 +901,29 @@ impl FlowClassifier {
         _side: TradeSide,
         volume: f64,
     ) -> (FlowKind, f64) {
-        let kind = if volume >= self.threshold { FlowKind::Institutional } else { FlowKind::Retail };
+        let kind = if volume >= self.threshold {
+            FlowKind::Institutional
+        } else {
+            FlowKind::Retail
+        };
         self.events.push_back((timestamp_ms, kind, volume));
         let cutoff = timestamp_ms - self.window_ms;
         while self.events.front().is_some_and(|e| e.0 < cutoff) {
             self.events.pop_front();
         }
-        let (inst_vol, total_vol) =
-            self.events.iter().fold((0.0_f64, 0.0_f64), |(iv, tv), e| {
-                let inst = if e.1 == FlowKind::Institutional { e.2 } else { 0.0 };
-                (iv + inst, tv + e.2)
-            });
-        let fraction = if total_vol > f64::EPSILON { inst_vol / total_vol } else { 0.0 };
+        let (inst_vol, total_vol) = self.events.iter().fold((0.0_f64, 0.0_f64), |(iv, tv), e| {
+            let inst = if e.1 == FlowKind::Institutional {
+                e.2
+            } else {
+                0.0
+            };
+            (iv + inst, tv + e.2)
+        });
+        let fraction = if total_vol > f64::EPSILON {
+            inst_vol / total_vol
+        } else {
+            0.0
+        };
         (kind, fraction)
     }
 }
@@ -1111,7 +1174,11 @@ mod tests {
             est.update(5.0, 2.0);
         }
         if let Some(r) = est.update(5.0, 2.0) {
-            assert!(r.toxicity > 0.5, "one-sided flow should produce high VPIN, got {}", r.toxicity);
+            assert!(
+                r.toxicity > 0.5,
+                "one-sided flow should produce high VPIN, got {}",
+                r.toxicity
+            );
         }
     }
 
@@ -1165,7 +1232,7 @@ mod tests {
     #[test]
     fn test_flow_classifier_fraction() {
         let mut fc = FlowClassifier::new(100.0, 10_000).unwrap();
-        fc.classify_trade(0, TradeSide::Buy, 200.0);   // institutional
+        fc.classify_trade(0, TradeSide::Buy, 200.0); // institutional
         fc.classify_trade(100, TradeSide::Sell, 50.0); // retail
         let (_, frac) = fc.classify_trade(200, TradeSide::Buy, 50.0); // retail
         assert!((frac - 200.0 / 300.0).abs() < 1e-9);

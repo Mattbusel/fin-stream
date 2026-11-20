@@ -51,7 +51,10 @@ pub struct DeltaEncoder {
 impl DeltaEncoder {
     /// Create a new delta encoder (no baseline set yet).
     pub fn new() -> Self {
-        Self { last_price: None, baseline: 0 }
+        Self {
+            last_price: None,
+            baseline: 0,
+        }
     }
 
     /// Encode a single tick into 8 bytes.
@@ -116,7 +119,10 @@ pub struct DeltaDecoder {
 impl DeltaDecoder {
     /// Create a new decoder. Call `set_baseline` before the first `decode` call.
     pub fn new(baseline: i64) -> Self {
-        Self { last_price: None, baseline }
+        Self {
+            last_price: None,
+            baseline,
+        }
     }
 
     /// Decode one 8-byte frame into a `CompactTick`.
@@ -147,7 +153,11 @@ impl DeltaDecoder {
             }
         };
 
-        Ok(CompactTick { price_ticks, volume, is_sell })
+        Ok(CompactTick {
+            price_ticks,
+            volume,
+            is_sell,
+        })
     }
 }
 
@@ -170,7 +180,11 @@ pub struct RleEncoder {
 impl RleEncoder {
     /// Create a new RLE encoder.
     pub fn new() -> Self {
-        Self { current_frame: None, run_count: 0, output: Vec::new() }
+        Self {
+            current_frame: None,
+            run_count: 0,
+            output: Vec::new(),
+        }
     }
 
     /// Feed an encoded 8-byte frame. Accumulates runs internally.
@@ -301,7 +315,11 @@ mod tests {
 
     #[test]
     fn test_roundtrip_single_tick() {
-        let ticks = vec![CompactTick { price_ticks: 5_000_000, volume: 42, is_sell: true }];
+        let ticks = vec![CompactTick {
+            price_ticks: 5_000_000,
+            volume: 42,
+            is_sell: true,
+        }];
         let (baseline, compressed) = compress_ticks(&ticks).unwrap();
         let decoded = decompress_ticks(baseline, &compressed).unwrap();
         assert_eq!(decoded, ticks);
@@ -327,10 +345,18 @@ mod tests {
     #[test]
     fn test_rle_repeated_ticks() {
         // 1000 identical ticks → 1 RLE run → 10 bytes vs 8000 bytes raw
-        let tick = CompactTick { price_ticks: 100_000, volume: 1, is_sell: false };
+        let tick = CompactTick {
+            price_ticks: 100_000,
+            volume: 1,
+            is_sell: false,
+        };
         let ticks = vec![tick; 1000];
         let (baseline, compressed) = compress_ticks(&ticks).unwrap();
-        assert!(compressed.len() <= 10, "expected 10 bytes, got {}", compressed.len());
+        assert!(
+            compressed.len() <= 10,
+            "expected 10 bytes, got {}",
+            compressed.len()
+        );
         let decoded = decompress_ticks(baseline, &compressed).unwrap();
         assert_eq!(decoded, ticks);
     }
@@ -351,7 +377,12 @@ mod tests {
     #[test]
     fn test_delta_overflow_errors() {
         let mut enc = DeltaEncoder::new();
-        enc.encode(CompactTick { price_ticks: 0, volume: 1, is_sell: false }).unwrap();
+        enc.encode(CompactTick {
+            price_ticks: 0,
+            volume: 1,
+            is_sell: false,
+        })
+        .unwrap();
         // Delta of i64::MAX won't fit in i32
         let err = enc.encode(CompactTick {
             price_ticks: i64::MAX,
@@ -364,11 +395,18 @@ mod tests {
     #[test]
     fn test_compression_ratio_target_10x_on_constant_stream() {
         // Constant stream: RLE collapses everything
-        let tick = CompactTick { price_ticks: 1_000_000, volume: 100, is_sell: false };
+        let tick = CompactTick {
+            price_ticks: 1_000_000,
+            volume: 100,
+            is_sell: false,
+        };
         let ticks = vec![tick; 10_000];
         let (_, compressed) = compress_ticks(&ticks).unwrap();
         let ratio = compression_ratio(10_000, compressed.len());
         // 10000 * 80 / 10 = 80_000 → ratio = 8000x for constant stream
-        assert!(ratio > 100.0, "expected huge ratio for constant stream, got {ratio:.1}");
+        assert!(
+            ratio > 100.0,
+            "expected huge ratio for constant stream, got {ratio:.1}"
+        );
     }
 }

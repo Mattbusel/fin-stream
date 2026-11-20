@@ -307,7 +307,14 @@ fn book_out_of_order_sequence_numbers_return_gap_error() {
         .apply(BookDelta::new("BTC-USD", BookSide::Bid, dec!(49800), dec!(1)).with_sequence(1))
         .unwrap_err();
     assert!(
-        matches!(err, fin_stream::StreamError::SequenceGap { expected: 4, got: 1, .. }),
+        matches!(
+            err,
+            fin_stream::StreamError::SequenceGap {
+                expected: 4,
+                got: 1,
+                ..
+            }
+        ),
         "expected SequenceGap {{ expected: 4, got: 1 }}, got: {err:?}"
     );
     // last_sequence unchanged after rejected delta.
@@ -331,7 +338,14 @@ fn book_duplicate_sequence_numbers_return_gap_error() {
         .apply(BookDelta::new("ETH-USD", BookSide::Ask, dec!(3000), dec!(8)).with_sequence(10))
         .unwrap_err();
     assert!(
-        matches!(err, fin_stream::StreamError::SequenceGap { expected: 11, got: 10, .. }),
+        matches!(
+            err,
+            fin_stream::StreamError::SequenceGap {
+                expected: 11,
+                got: 10,
+                ..
+            }
+        ),
         "expected SequenceGap {{ expected: 11, got: 10 }}, got: {err:?}"
     );
     // Quantity unchanged after rejected delta.
@@ -353,7 +367,14 @@ fn book_sequence_gap_returns_error_and_leaves_book_unchanged() {
         .apply(BookDelta::new("BTC-USD", BookSide::Ask, dec!(50100), dec!(0)).with_sequence(10))
         .unwrap_err();
     assert!(
-        matches!(err, fin_stream::StreamError::SequenceGap { expected: 6, got: 10, .. }),
+        matches!(
+            err,
+            fin_stream::StreamError::SequenceGap {
+                expected: 6,
+                got: 10,
+                ..
+            }
+        ),
         "expected SequenceGap {{ expected: 6, got: 10 }}, got: {err:?}"
     );
     // Level is NOT removed because the delta was rejected.
@@ -441,6 +462,10 @@ fn book_interleaved_bid_ask_deltas_consecutive_produce_correct_book() {
         .unwrap_err();
     assert!(matches!(
         err,
-        fin_stream::StreamError::SequenceGap { expected: 4, got: 10, .. }
+        fin_stream::StreamError::SequenceGap {
+            expected: 4,
+            got: 10,
+            ..
+        }
     ));
 }

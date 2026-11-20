@@ -295,19 +295,13 @@ impl HealthMonitor {
     /// The oldest `last_tick_ms` across all registered feeds, or `None` if no
     /// feed has received any tick yet.
     pub fn oldest_tick_ms(&self) -> Option<u64> {
-        self.feeds
-            .iter()
-            .filter_map(|e| e.last_tick_ms)
-            .min()
+        self.feeds.iter().filter_map(|e| e.last_tick_ms).min()
     }
 
     /// The most recent `last_tick_ms` across all registered feeds, or `None`
     /// if no feed has received any tick yet.
     pub fn newest_tick_ms(&self) -> Option<u64> {
-        self.feeds
-            .iter()
-            .filter_map(|e| e.last_tick_ms)
-            .max()
+        self.feeds.iter().filter_map(|e| e.last_tick_ms).max()
     }
 
     /// Sum of tick counts across all registered feeds.
@@ -336,20 +330,26 @@ impl HealthMonitor {
     /// `last_tick_ms`. Feeds that have never received a tick (`last_tick_ms == None`) are considered more stale than any feed that has. Returns `None`
     /// if no feeds are registered.
     pub fn most_stale_feed(&self) -> Option<FeedHealth> {
-        self.feeds.iter().fold(None, |acc: Option<FeedHealth>, entry| {
-            let feed = entry.clone();
-            match acc {
-                None => Some(feed),
-                Some(current) => {
-                    let more_stale = match (feed.last_tick_ms, current.last_tick_ms) {
-                        (None, _) => true,
-                        (Some(_), None) => false,
-                        (Some(a), Some(b)) => a < b,
-                    };
-                    if more_stale { Some(feed) } else { Some(current) }
+        self.feeds
+            .iter()
+            .fold(None, |acc: Option<FeedHealth>, entry| {
+                let feed = entry.clone();
+                match acc {
+                    None => Some(feed),
+                    Some(current) => {
+                        let more_stale = match (feed.last_tick_ms, current.last_tick_ms) {
+                            (None, _) => true,
+                            (Some(_), None) => false,
+                            (Some(a), Some(b)) => a < b,
+                        };
+                        if more_stale {
+                            Some(feed)
+                        } else {
+                            Some(current)
+                        }
+                    }
                 }
-            }
-        })
+            })
     }
 
     /// Fraction of known (non-unknown) feeds that are stale.
@@ -357,11 +357,18 @@ impl HealthMonitor {
     /// Excludes feeds in `Unknown` state from the denominator.
     /// Returns `0.0` when no non-unknown feeds are registered.
     pub fn stale_ratio_excluding_unknown(&self) -> f64 {
-        let known: Vec<_> = self.feeds.iter()
+        let known: Vec<_> = self
+            .feeds
+            .iter()
             .filter(|e| e.status != HealthStatus::Unknown)
             .collect();
-        if known.is_empty() { return 0.0; }
-        let stale = known.iter().filter(|e| e.status == HealthStatus::Stale).count();
+        if known.is_empty() {
+            return 0.0;
+        }
+        let stale = known
+            .iter()
+            .filter(|e| e.status == HealthStatus::Stale)
+            .count();
         stale as f64 / known.len() as f64
     }
 
@@ -589,7 +596,8 @@ impl HealthMonitor {
     /// "Most reliable" is defined as the feed that has processed the greatest
     /// number of heartbeats since registration or last reset.
     pub fn most_reliable_feed(&self) -> Option<FeedHealth> {
-        self.feeds.iter()
+        self.feeds
+            .iter()
             .max_by_key(|e| e.value().tick_count)
             .map(|e| e.value().clone())
     }
@@ -600,7 +608,8 @@ impl HealthMonitor {
     /// Useful for detecting feeds that were registered but have not yet
     /// started streaming data.
     pub fn feeds_never_seen(&self) -> Vec<FeedHealth> {
-        self.feeds.iter()
+        self.feeds
+            .iter()
             .filter(|e| e.value().last_tick_ms.is_none())
             .map(|e| e.value().clone())
             .collect()
@@ -626,7 +635,8 @@ impl HealthMonitor {
     /// Returns the `tick_count` for `feed_id`, or `None` if the feed is not
     /// registered.
     pub fn tick_count_for(&self, feed_id: &str) -> Option<u64> {
-        self.feeds.iter()
+        self.feeds
+            .iter()
             .find(|e| e.feed_id == feed_id)
             .map(|e| e.tick_count)
     }
@@ -641,7 +651,10 @@ impl HealthMonitor {
 
     /// Count of feeds whose `tick_count` exceeds `threshold`.
     pub fn feeds_above_tick_count(&self, threshold: u64) -> usize {
-        self.feeds.iter().filter(|e| e.tick_count > threshold).count()
+        self.feeds
+            .iter()
+            .filter(|e| e.tick_count > threshold)
+            .count()
     }
 
     /// Age in milliseconds of the feed with the oldest `last_tick_ms`
@@ -743,7 +756,6 @@ impl HealthMonitor {
             .map(|t| now_ms.saturating_sub(t))
             .min()
     }
-
 }
 
 #[cfg(test)]
@@ -808,7 +820,9 @@ mod tests {
         let errors = m.check_all(1_010_000); // 10s elapsed, threshold 5s
         assert_eq!(errors.len(), 1);
         assert_eq!(errors[0].0, "BTC-USD");
-        assert!(matches!(&errors[0].1, StreamError::StaleFeed { feed_id, .. } if feed_id == "BTC-USD"));
+        assert!(
+            matches!(&errors[0].1, StreamError::StaleFeed { feed_id, .. } if feed_id == "BTC-USD")
+        );
     }
 
     #[test]
@@ -1258,7 +1272,10 @@ mod tests {
         m.heartbeat("B", 1_000_000).unwrap();
         m.check_all(1_001_000);
         let healthy = m.healthy_feeds();
-        assert_eq!(healthy, vec!["A".to_string(), "B".to_string(), "C".to_string()]);
+        assert_eq!(
+            healthy,
+            vec!["A".to_string(), "B".to_string(), "C".to_string()]
+        );
     }
 
     // ── HealthMonitor::unknown_count / FeedHealth::is_healthy ─────────────────
@@ -1763,7 +1780,7 @@ mod tests {
         m.heartbeat("A", 1_000).unwrap();
         m.heartbeat("A", 2_000).unwrap(); // A: 2 ticks
         m.heartbeat("B", 1_000).unwrap(); // B: 1 tick
-        // avg = (2 + 1) / 2 = 1.5
+                                          // avg = (2 + 1) / 2 = 1.5
         assert!((m.average_tick_count() - 1.5).abs() < 1e-10);
     }
 
@@ -1778,8 +1795,8 @@ mod tests {
         m.heartbeat("A", 2_000).unwrap();
         m.heartbeat("A", 3_000).unwrap(); // A: 3 ticks
         m.heartbeat("B", 1_000).unwrap(); // B: 1 tick
-        // threshold=1: A(3) and B(1) → only A > 1
-        // Wait: "above" means > threshold
+                                          // threshold=1: A(3) and B(1) → only A > 1
+                                          // Wait: "above" means > threshold
         assert_eq!(m.feeds_above_tick_count(1), 1);
         assert_eq!(m.feeds_above_tick_count(0), 2);
         assert_eq!(m.feeds_above_tick_count(5), 0);
@@ -1848,7 +1865,7 @@ mod tests {
         m.register("B", None);
         m.heartbeat("A", 5_000).unwrap(); // age at t=10000: 5000
         m.heartbeat("B", 8_000).unwrap(); // age at t=10000: 2000
-        // avg = (5000 + 2000) / 2 = 3500
+                                          // avg = (5000 + 2000) / 2 = 3500
         let avg = m.avg_feed_age_ms(10_000).unwrap();
         assert!((avg - 3500.0).abs() < 1e-10, "got {avg}");
     }
@@ -1984,7 +2001,7 @@ mod tests {
         m.register("B", None);
         m.heartbeat("A", 1_000).unwrap(); // older tick
         m.heartbeat("B", 9_000).unwrap(); // newer tick
-        // "A" has the oldest tick → it is the most stale
+                                          // "A" has the oldest tick → it is the most stale
         let stale = m.most_stale_feed().unwrap();
         assert_eq!(stale.feed_id, "A");
     }
@@ -2119,7 +2136,7 @@ mod tests {
         m.register("A", None);
         m.register("B", None);
         m.heartbeat("A", 9_500).unwrap(); // healthy
-        // B has no heartbeat → unknown
+                                          // B has no heartbeat → unknown
         m.check_all(10_000);
         let ids = m.healthy_feed_ids();
         assert_eq!(ids, vec!["A".to_string()]);
@@ -2208,7 +2225,7 @@ mod tests {
     #[test]
     fn test_feeds_needing_check_returns_stale_and_unknown() {
         let m = HealthMonitor::new(5_000);
-        m.register("BTC", None);  // Unknown
+        m.register("BTC", None); // Unknown
         m.register("ETH", None);
         m.heartbeat("ETH", 0).unwrap();
         m.check_all(100); // ETH → Healthy

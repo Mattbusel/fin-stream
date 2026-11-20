@@ -82,7 +82,10 @@ impl TradeSignAggregator {
     /// Panics if `window == 0`.
     pub fn new(window: usize) -> Self {
         assert!(window > 0, "window must be > 0");
-        Self { window, buf: VecDeque::with_capacity(window) }
+        Self {
+            window,
+            buf: VecDeque::with_capacity(window),
+        }
     }
 
     /// Push a signed volume (`+` = buy, `-` = sell) into the window.
@@ -286,39 +289,57 @@ mod tests {
 
     #[test]
     fn test_ofi_positive_buy_pressure() {
-        let ofi = OrderFlowImbalance { buy_volume: 600.0, sell_volume: 400.0 };
+        let ofi = OrderFlowImbalance {
+            buy_volume: 600.0,
+            sell_volume: 400.0,
+        };
         let imb = ofi.imbalance();
         assert!((imb - 0.2).abs() < 1e-9, "imbalance={imb}");
     }
 
     #[test]
     fn test_ofi_negative_sell_pressure() {
-        let ofi = OrderFlowImbalance { buy_volume: 300.0, sell_volume: 700.0 };
+        let ofi = OrderFlowImbalance {
+            buy_volume: 300.0,
+            sell_volume: 700.0,
+        };
         let imb = ofi.imbalance();
         assert!((imb - (-0.4)).abs() < 1e-9, "imbalance={imb}");
     }
 
     #[test]
     fn test_ofi_zero_both_volumes() {
-        let ofi = OrderFlowImbalance { buy_volume: 0.0, sell_volume: 0.0 };
+        let ofi = OrderFlowImbalance {
+            buy_volume: 0.0,
+            sell_volume: 0.0,
+        };
         assert_eq!(ofi.imbalance(), 0.0);
     }
 
     #[test]
     fn test_ofi_equal_volumes() {
-        let ofi = OrderFlowImbalance { buy_volume: 500.0, sell_volume: 500.0 };
+        let ofi = OrderFlowImbalance {
+            buy_volume: 500.0,
+            sell_volume: 500.0,
+        };
         assert_eq!(ofi.imbalance(), 0.0);
     }
 
     #[test]
     fn test_ofi_all_buys() {
-        let ofi = OrderFlowImbalance { buy_volume: 1000.0, sell_volume: 0.0 };
+        let ofi = OrderFlowImbalance {
+            buy_volume: 1000.0,
+            sell_volume: 0.0,
+        };
         assert_eq!(ofi.imbalance(), 1.0);
     }
 
     #[test]
     fn test_ofi_all_sells() {
-        let ofi = OrderFlowImbalance { buy_volume: 0.0, sell_volume: 1000.0 };
+        let ofi = OrderFlowImbalance {
+            buy_volume: 0.0,
+            sell_volume: 1000.0,
+        };
         assert_eq!(ofi.imbalance(), -1.0);
     }
 
@@ -339,7 +360,7 @@ mod tests {
         agg.push(100.0);
         agg.push(200.0);
         agg.push(50.0); // evicts 100
-        // window: [200, 50] → net = 250
+                        // window: [200, 50] → net = 250
         assert!((agg.net_flow() - 250.0).abs() < 1e-9);
         assert_eq!(agg.len(), 2);
     }
@@ -365,7 +386,12 @@ mod tests {
     #[test]
     fn test_micro_price_pulls_toward_thin_side() {
         // More ask qty than bid qty → micro-price pulled toward bid (below mid)
-        let mp = MicroPriceEstimate { bid: 99.0, ask: 101.0, bid_qty: 100.0, ask_qty: 300.0 };
+        let mp = MicroPriceEstimate {
+            bid: 99.0,
+            ask: 101.0,
+            bid_qty: 100.0,
+            ask_qty: 300.0,
+        };
         let price = mp.micro_price();
         let mid = 100.0;
         assert!(price < mid, "micro-price={price} should be below mid={mid}");
@@ -373,14 +399,24 @@ mod tests {
 
     #[test]
     fn test_micro_price_equal_qty_is_mid() {
-        let mp = MicroPriceEstimate { bid: 99.0, ask: 101.0, bid_qty: 200.0, ask_qty: 200.0 };
+        let mp = MicroPriceEstimate {
+            bid: 99.0,
+            ask: 101.0,
+            bid_qty: 200.0,
+            ask_qty: 200.0,
+        };
         let price = mp.micro_price();
         assert!((price - 100.0).abs() < 1e-9, "micro-price={price}");
     }
 
     #[test]
     fn test_micro_price_zero_qty_returns_simple_mid() {
-        let mp = MicroPriceEstimate { bid: 99.0, ask: 101.0, bid_qty: 0.0, ask_qty: 0.0 };
+        let mp = MicroPriceEstimate {
+            bid: 99.0,
+            ask: 101.0,
+            bid_qty: 0.0,
+            ask_qty: 0.0,
+        };
         let price = mp.micro_price();
         assert!((price - 100.0).abs() < 1e-9, "micro-price={price}");
     }
@@ -398,17 +434,17 @@ mod tests {
     #[test]
     fn test_toxic_flow_none_price_moving() {
         let mut det = ToxicFlowDetector::new();
-        det.update(1, -0.05);  // buy but price fell
-        det.update(-1, 0.03);  // sell but price rose
+        det.update(1, -0.05); // buy but price fell
+        det.update(-1, 0.03); // sell but price rose
         assert_eq!(det.toxicity_score(), 0.0);
     }
 
     #[test]
     fn test_toxic_flow_mixed() {
         let mut det = ToxicFlowDetector::new();
-        det.update(1, 0.05);   // moving
+        det.update(1, 0.05); // moving
         det.update(-1, -0.05); // moving
-        det.update(1, 0.0);    // not moving (no price change)
+        det.update(1, 0.0); // not moving (no price change)
         let score = det.toxicity_score();
         assert!((score - 2.0 / 3.0).abs() < 1e-9, "score={score}");
     }
@@ -432,19 +468,28 @@ mod tests {
 
     #[test]
     fn test_speed_of_quote_ratio() {
-        let sq = SpeedOfQuote { quote_rate_per_ms: 50.0, trade_rate_per_ms: 5.0 };
+        let sq = SpeedOfQuote {
+            quote_rate_per_ms: 50.0,
+            trade_rate_per_ms: 5.0,
+        };
         assert!((sq.quote_to_trade_ratio() - 10.0).abs() < 1e-9);
     }
 
     #[test]
     fn test_speed_of_quote_zero_trade_rate() {
-        let sq = SpeedOfQuote { quote_rate_per_ms: 100.0, trade_rate_per_ms: 0.0 };
+        let sq = SpeedOfQuote {
+            quote_rate_per_ms: 100.0,
+            trade_rate_per_ms: 0.0,
+        };
         assert_eq!(sq.quote_to_trade_ratio(), 0.0);
     }
 
     #[test]
     fn test_speed_of_quote_equal_rates() {
-        let sq = SpeedOfQuote { quote_rate_per_ms: 10.0, trade_rate_per_ms: 10.0 };
+        let sq = SpeedOfQuote {
+            quote_rate_per_ms: 10.0,
+            trade_rate_per_ms: 10.0,
+        };
         assert!((sq.quote_to_trade_ratio() - 1.0).abs() < 1e-9);
     }
 }

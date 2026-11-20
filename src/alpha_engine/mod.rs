@@ -170,7 +170,11 @@ impl MeanReversionAlpha {
 
         let mx = x.iter().sum::<f64>() / m as f64;
         let my = y.iter().sum::<f64>() / m as f64;
-        let num: f64 = x.iter().zip(y.iter()).map(|(&xi, &yi)| (xi - mx) * (yi - my)).sum();
+        let num: f64 = x
+            .iter()
+            .zip(y.iter())
+            .map(|(&xi, &yi)| (xi - mx) * (yi - my))
+            .sum();
         let den: f64 = x.iter().map(|&xi| (xi - mx).powi(2)).sum();
 
         if den.abs() < 1e-12 {

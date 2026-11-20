@@ -93,7 +93,11 @@ impl AmihudIlliquidityCalc {
             .iter()
             .zip(volumes[..n].iter())
             .filter_map(|(&r, &v)| {
-                if v > 0.0 { Some(r.abs() / v * scale) } else { None }
+                if v > 0.0 {
+                    Some(r.abs() / v * scale)
+                } else {
+                    None
+                }
             })
             .sum();
         let count = returns[..n]
@@ -101,7 +105,11 @@ impl AmihudIlliquidityCalc {
             .zip(volumes[..n].iter())
             .filter(|(_, &v)| v > 0.0)
             .count();
-        if count == 0 { 0.0 } else { sum / count as f64 }
+        if count == 0 {
+            0.0
+        } else {
+            sum / count as f64
+        }
     }
 
     /// Compute a rolling Amihud illiquidity ratio with the given window size.
@@ -240,7 +248,10 @@ impl MicrostructureAnalyzer {
     /// Create a new analyzer with the given rolling window size.
     pub fn new(window: usize) -> Self {
         let window = window.max(2);
-        Self { window, trades: VecDeque::with_capacity(window + 1) }
+        Self {
+            window,
+            trades: VecDeque::with_capacity(window + 1),
+        }
     }
 
     /// Push a new trade observation.
@@ -250,7 +261,12 @@ impl MicrostructureAnalyzer {
     /// - `direction`: +1 buyer-initiated, -1 seller-initiated.
     /// - `mid`: prevailing mid-price at the time of the trade.
     pub fn push_trade(&mut self, price: f64, volume: f64, direction: f64, mid: f64) {
-        self.trades.push_back(TradeObs { price, volume, direction, mid });
+        self.trades.push_back(TradeObs {
+            price,
+            volume,
+            direction,
+            mid,
+        });
         if self.trades.len() > self.window {
             self.trades.pop_front();
         }
@@ -271,8 +287,15 @@ impl MicrostructureAnalyzer {
         let prices: Vec<f64> = self.trades.iter().map(|t| t.price).collect();
         let volumes: Vec<f64> = self.trades.iter().map(|t| t.volume).collect();
         // Compute log-returns from consecutive prices
-        let returns: Vec<f64> = prices.windows(2)
-            .filter_map(|w| if w[0] > 0.0 && w[1] > 0.0 { Some((w[1] / w[0]).ln()) } else { None })
+        let returns: Vec<f64> = prices
+            .windows(2)
+            .filter_map(|w| {
+                if w[0] > 0.0 && w[1] > 0.0 {
+                    Some((w[1] / w[0]).ln())
+                } else {
+                    None
+                }
+            })
             .collect();
         let vols: Vec<f64> = volumes[1..].to_vec(); // align with returns
         let ratio = AmihudIlliquidityCalc::compute(&returns, &vols);
@@ -288,7 +311,8 @@ impl MicrostructureAnalyzer {
         }
         let prices: Vec<f64> = self.trades.iter().map(|t| t.price).collect();
         let price_changes: Vec<f64> = prices.windows(2).map(|w| w[1] - w[0]).collect();
-        let signed_vols: Vec<f64> = self.trades
+        let signed_vols: Vec<f64> = self
+            .trades
             .iter()
             .skip(1) // align with price changes
             .map(|t| t.direction * t.volume)
@@ -303,7 +327,8 @@ impl MicrostructureAnalyzer {
         if self.trades.is_empty() {
             return None;
         }
-        let sum: f64 = self.trades
+        let sum: f64 = self
+            .trades
             .iter()
             .map(|t| EffectiveBidAskSpread::compute(t.price, t.mid))
             .sum();
@@ -380,7 +405,7 @@ mod tests {
     fn test_kyle_lambda_ols() {
         // Δp = 2 * Q → lambda should be ~2.0
         let price_changes = vec![2.0, 4.0, -2.0, -4.0, 6.0];
-        let signed_volume  = vec![1.0, 2.0, -1.0, -2.0, 3.0];
+        let signed_volume = vec![1.0, 2.0, -1.0, -2.0, 3.0];
         let lambda = KyleLambda::estimate(&price_changes, &signed_volume).unwrap();
         assert!((lambda - 2.0).abs() < 1e-6, "lambda={lambda}");
     }
@@ -395,7 +420,7 @@ mod tests {
     fn test_kyle_lambda_zero_volume_variance() {
         // All signed volumes identical → zero variance in X → None
         let price_changes = vec![1.0, 2.0, 3.0];
-        let signed_volume  = vec![5.0, 5.0, 5.0];
+        let signed_volume = vec![5.0, 5.0, 5.0];
         assert!(KyleLambda::estimate(&price_changes, &signed_volume).is_none());
     }
 

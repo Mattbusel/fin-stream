@@ -56,7 +56,10 @@ async fn filtered_ticks_arrive_with_exact_decimal_strings() {
     let (server, url) = start().await;
     let mut client = TickStreamServiceClient::connect(url).await.unwrap();
     let req = SubscribeTicksRequest {
-        filter: Some(TickFilter { symbol: "BTC-USD".into(), exchange: "coinbase".into() }),
+        filter: Some(TickFilter {
+            symbol: "BTC-USD".into(),
+            exchange: "coinbase".into(),
+        }),
     };
     let mut stream = client.subscribe_ticks(req).await.unwrap().into_inner();
     wait_for_subscriber(&server).await;
@@ -65,7 +68,11 @@ async fn filtered_ticks_arrive_with_exact_decimal_strings() {
     server.publish(tick(Exchange::Coinbase, "ETH-USD", 2)); // wrong symbol
     server.publish(tick(Exchange::Coinbase, "BTC-USD", 3)); // match
 
-    let got = timeout(Duration::from_secs(5), stream.message()).await.unwrap().unwrap().unwrap();
+    let got = timeout(Duration::from_secs(5), stream.message())
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
     assert_eq!(got.exchange, "Coinbase");
     assert_eq!(got.symbol, "BTC-USD");
     assert_eq!(got.price, "64250.50");
@@ -80,7 +87,10 @@ async fn unknown_exchange_filter_is_rejected() {
     let (_server, url) = start().await;
     let mut client = TickStreamServiceClient::connect(url).await.unwrap();
     let req = SubscribeTicksRequest {
-        filter: Some(TickFilter { symbol: String::new(), exchange: "deribit".into() }),
+        filter: Some(TickFilter {
+            symbol: String::new(),
+            exchange: "deribit".into(),
+        }),
     };
     let err = client.subscribe_ticks(req).await.unwrap_err();
     assert_eq!(err.code(), tonic::Code::InvalidArgument);

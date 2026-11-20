@@ -23,14 +23,23 @@ use futures_util::StreamExt;
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut args = std::env::args().skip(1);
-    let base = args.next().unwrap_or_else(|| "btc".to_string()).to_lowercase();
+    let base = args
+        .next()
+        .unwrap_or_else(|| "btc".to_string())
+        .to_lowercase();
     let mut bars_left: usize = match args.next() {
         Some(n) => n.parse()?,
         None => 3,
     };
 
     let streams = Streams::<PublicTrades>::builder()
-        .subscribe([(Coinbase, base.as_str(), "usd", MarketDataInstrumentKind::Spot, PublicTrades)])
+        .subscribe([(
+            Coinbase,
+            base.as_str(),
+            "usd",
+            MarketDataInstrumentKind::Spot,
+            PublicTrades,
+        )])
         .init()
         .await?;
     let mut trades = streams
@@ -65,7 +74,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 bar.close,
                 bar.volume,
                 bar.trade_count,
-                bar.vwap.map(|v| v.round_dp(2).to_string()).unwrap_or_default(),
+                bar.vwap
+                    .map(|v| v.round_dp(2).to_string())
+                    .unwrap_or_default(),
             );
             bars_left = bars_left.saturating_sub(1);
         }
@@ -73,6 +84,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             break;
         }
     }
-    println!("{trade_count} trades, {} late ticks dropped", bars.late_tick_count());
+    println!(
+        "{trade_count} trades, {} late ticks dropped",
+        bars.late_tick_count()
+    );
     Ok(())
 }

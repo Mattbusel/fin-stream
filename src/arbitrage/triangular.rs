@@ -16,8 +16,8 @@
 //! - Real-time WebSocket feed management (use `TriangularArbDetector::update_rate`)
 
 use dashmap::DashMap;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 
 // ─── Symbol ──────────────────────────────────────────────────────────────────
 
@@ -33,7 +33,10 @@ pub struct Symbol {
 impl Symbol {
     /// Constructs a new symbol.
     pub fn new(base: impl Into<String>, quote: impl Into<String>) -> Self {
-        Self { base: base.into(), quote: quote.into() }
+        Self {
+            base: base.into(),
+            quote: quote.into(),
+        }
     }
 
     /// Returns the canonical pair name "BASE/QUOTE".
@@ -138,7 +141,10 @@ impl TriangularArbDetector {
     ///
     /// - `min_profit_pct`: minimum net profit percentage (e.g. 0.05 = 5 bps).
     pub fn new(min_profit_pct: f64) -> Self {
-        Self { rates: Arc::new(DashMap::new()), min_profit_pct }
+        Self {
+            rates: Arc::new(DashMap::new()),
+            min_profit_pct,
+        }
     }
 
     /// Update the live rate for a currency pair.
@@ -161,9 +167,7 @@ impl TriangularArbDetector {
             let rates: Option<Vec<ExchangeRate>> = path
                 .legs
                 .iter()
-                .map(|(sym, _)| {
-                    self.rates.get(&sym.pair_name()).map(|r| r.clone())
-                })
+                .map(|(sym, _)| self.rates.get(&sym.pair_name()).map(|r| r.clone()))
                 .collect();
 
             let rates = match rates {
@@ -202,7 +206,7 @@ impl TriangularArbDetector {
         let mut amount = 1.0_f64;
         for (rate, dir) in rates.iter().zip(directions.iter()) {
             amount = match dir {
-                TradeDirection::Buy  => amount / rate.ask,
+                TradeDirection::Buy => amount / rate.ask,
                 TradeDirection::Sell => amount * rate.bid,
             };
             if !amount.is_finite() || amount <= 0.0 {
@@ -364,7 +368,11 @@ mod tests {
             make_rate("ETH", "BTC", 0.0399, 0.04),
             make_rate("ETH", "USD", 3100.0, 3101.0),
         ];
-        let dirs = vec![TradeDirection::Buy, TradeDirection::Buy, TradeDirection::Sell];
+        let dirs = vec![
+            TradeDirection::Buy,
+            TradeDirection::Buy,
+            TradeDirection::Sell,
+        ];
         let profit = TriangularArbDetector::compute_path_profit(&rates, &dirs);
         assert!(profit > 0.0, "profit={profit}");
     }
@@ -378,7 +386,11 @@ mod tests {
             make_rate("ETH", "BTC", 0.03999, 0.04001),
             make_rate("ETH", "USD", 1999.0, 2001.0),
         ];
-        let dirs = vec![TradeDirection::Buy, TradeDirection::Buy, TradeDirection::Sell];
+        let dirs = vec![
+            TradeDirection::Buy,
+            TradeDirection::Buy,
+            TradeDirection::Sell,
+        ];
         let profit = TriangularArbDetector::compute_path_profit(&rates, &dirs);
         assert!(profit < 0.0, "profit={profit}");
     }
@@ -386,7 +398,7 @@ mod tests {
     #[test]
     fn test_detector_update_and_scan_profitable() {
         let det = TriangularArbDetector::new(0.01); // 0.01% threshold
-        // Inject skewed prices: ETH/USD at 3100 while BTC=50000, ETH/BTC=0.04 (fair ETH/USD=2000)
+                                                    // Inject skewed prices: ETH/USD at 3100 while BTC=50000, ETH/BTC=0.04 (fair ETH/USD=2000)
         det.update_rate(make_rate("BTC", "USD", 50000.0, 50000.0));
         det.update_rate(make_rate("ETH", "BTC", 0.04, 0.04));
         det.update_rate(make_rate("ETH", "USD", 3100.0, 3100.0));

@@ -110,10 +110,7 @@ impl SyntheticPricer {
     /// Compute portfolio-level delta as the weighted sum of component deltas.
     ///
     /// Missing deltas are treated as 0.0.
-    pub fn compute_delta(
-        instrument: &SyntheticInstrument,
-        deltas: &HashMap<String, f64>,
-    ) -> f64 {
+    pub fn compute_delta(instrument: &SyntheticInstrument, deltas: &HashMap<String, f64>) -> f64 {
         instrument
             .components
             .iter()
@@ -127,10 +124,7 @@ impl SyntheticPricer {
     /// Compute portfolio-level beta as the weighted sum of component betas.
     ///
     /// Missing betas are treated as 0.0.
-    pub fn compute_beta(
-        instrument: &SyntheticInstrument,
-        betas: &HashMap<String, f64>,
-    ) -> f64 {
+    pub fn compute_beta(instrument: &SyntheticInstrument, betas: &HashMap<String, f64>) -> f64 {
         instrument
             .components
             .iter()

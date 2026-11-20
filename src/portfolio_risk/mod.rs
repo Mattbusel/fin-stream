@@ -146,7 +146,10 @@ impl RiskTracker {
             .map(|d| d.as_millis() as u64)
             .unwrap_or(0);
 
-        PortfolioSnapshot { positions, timestamp }
+        PortfolioSnapshot {
+            positions,
+            timestamp,
+        }
     }
 
     /// Historical VaR at the 95% confidence level from stored daily returns.

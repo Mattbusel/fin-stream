@@ -145,7 +145,11 @@ impl OrderBook {
         let spread_bps = match (self.best_bid(), self.best_ask()) {
             (Some(bid), Some(ask)) => {
                 let mid = (bid + ask) / 2.0;
-                if mid > 0.0 { (ask - bid) / mid * 10_000.0 } else { 0.0 }
+                if mid > 0.0 {
+                    (ask - bid) / mid * 10_000.0
+                } else {
+                    0.0
+                }
             }
             _ => 0.0,
         };
@@ -358,15 +362,39 @@ mod tests {
         let mut book = OrderBook::new("BTC-USD");
         // Bids (descending)
         book.bids = vec![
-            PriceLevel { price: 100.0, quantity: 50.0, order_count: 5 },
-            PriceLevel { price: 99.0, quantity: 30.0, order_count: 3 },
-            PriceLevel { price: 98.0, quantity: 20.0, order_count: 2 },
+            PriceLevel {
+                price: 100.0,
+                quantity: 50.0,
+                order_count: 5,
+            },
+            PriceLevel {
+                price: 99.0,
+                quantity: 30.0,
+                order_count: 3,
+            },
+            PriceLevel {
+                price: 98.0,
+                quantity: 20.0,
+                order_count: 2,
+            },
         ];
         // Asks (ascending)
         book.asks = vec![
-            PriceLevel { price: 101.0, quantity: 40.0, order_count: 4 },
-            PriceLevel { price: 102.0, quantity: 25.0, order_count: 2 },
-            PriceLevel { price: 103.0, quantity: 15.0, order_count: 1 },
+            PriceLevel {
+                price: 101.0,
+                quantity: 40.0,
+                order_count: 4,
+            },
+            PriceLevel {
+                price: 102.0,
+                quantity: 25.0,
+                order_count: 2,
+            },
+            PriceLevel {
+                price: 103.0,
+                quantity: 15.0,
+                order_count: 1,
+            },
         ];
         book.timestamp_ms = 1_000_000;
         book
@@ -385,14 +413,25 @@ mod tests {
     fn imbalance_bounds() {
         let book = make_book();
         let imb = book.bid_ask_imbalance();
-        assert!((-1.0..=1.0).contains(&imb), "imbalance must be in [-1, 1], got {imb}");
+        assert!(
+            (-1.0..=1.0).contains(&imb),
+            "imbalance must be in [-1, 1], got {imb}"
+        );
     }
 
     #[test]
     fn imbalance_bid_heavy() {
         let mut book = OrderBook::new("X");
-        book.bids = vec![PriceLevel { price: 100.0, quantity: 90.0, order_count: 1 }];
-        book.asks = vec![PriceLevel { price: 101.0, quantity: 10.0, order_count: 1 }];
+        book.bids = vec![PriceLevel {
+            price: 100.0,
+            quantity: 90.0,
+            order_count: 1,
+        }];
+        book.asks = vec![PriceLevel {
+            price: 101.0,
+            quantity: 10.0,
+            order_count: 1,
+        }];
         let imb = book.bid_ask_imbalance();
         assert!(imb > 0.0, "bid-heavy book should have positive imbalance");
         assert!((imb - 0.8).abs() < 1e-9);
@@ -401,8 +440,16 @@ mod tests {
     #[test]
     fn imbalance_ask_heavy() {
         let mut book = OrderBook::new("X");
-        book.bids = vec![PriceLevel { price: 100.0, quantity: 10.0, order_count: 1 }];
-        book.asks = vec![PriceLevel { price: 101.0, quantity: 90.0, order_count: 1 }];
+        book.bids = vec![PriceLevel {
+            price: 100.0,
+            quantity: 10.0,
+            order_count: 1,
+        }];
+        book.asks = vec![PriceLevel {
+            price: 101.0,
+            quantity: 90.0,
+            order_count: 1,
+        }];
         let imb = book.bid_ask_imbalance();
         assert!(imb < 0.0);
     }
@@ -413,7 +460,10 @@ mod tests {
         // Fill 60 units on ask: 40@101 + 20@102 → (40*101 + 20*102)/60 = (4040+2040)/60 = 6080/60
         let vwap = vwap_from_book(&book.asks, 60.0).unwrap();
         let expected = (40.0 * 101.0 + 20.0 * 102.0) / 60.0;
-        assert!((vwap - expected).abs() < 1e-9, "VWAP = {vwap}, expected {expected}");
+        assert!(
+            (vwap - expected).abs() < 1e-9,
+            "VWAP = {vwap}, expected {expected}"
+        );
     }
 
     #[test]

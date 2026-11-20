@@ -95,7 +95,11 @@ pub struct VpinConfig {
 
 impl Default for VpinConfig {
     fn default() -> Self {
-        Self { bucket_volume: 1000.0, n_buckets: 50, alert_threshold: 0.7 }
+        Self {
+            bucket_volume: 1000.0,
+            n_buckets: 50,
+            alert_threshold: 0.7,
+        }
     }
 }
 
@@ -174,7 +178,11 @@ impl VpinCalculator {
         while remaining > 0.0 {
             let space = self.cfg.bucket_volume - self.current_vol;
             let fill = remaining.min(space);
-            if is_buy { self.current_buy += fill; } else { self.current_sell += fill; }
+            if is_buy {
+                self.current_buy += fill;
+            } else {
+                self.current_sell += fill;
+            }
             self.current_vol += fill;
             remaining -= fill;
 
@@ -282,7 +290,9 @@ struct VpinBucket {
 
 impl VpinBucket {
     fn imbalance_fraction(&self) -> f64 {
-        if self.total_volume <= 0.0 { return 0.0; }
+        if self.total_volume <= 0.0 {
+            return 0.0;
+        }
         (self.buy_volume - self.sell_volume).abs() / self.total_volume
     }
 }
@@ -386,15 +396,24 @@ impl OrderFlowToxicityAnalyzer {
         let signed_vol = buy_vol - sell_vol;
 
         // PIN moment-matching rolling window
-        if self.buy_flow.len() == self.window { self.buy_flow.pop_front(); }
-        if self.sell_flow.len() == self.window { self.sell_flow.pop_front(); }
+        if self.buy_flow.len() == self.window {
+            self.buy_flow.pop_front();
+        }
+        if self.sell_flow.len() == self.window {
+            self.sell_flow.pop_front();
+        }
         self.buy_flow.push_back(buy_vol);
         self.sell_flow.push_back(sell_vol);
 
         // Kyle λ records
         let delta_price = self.last_price.map(|prev| price - prev).unwrap_or(0.0);
-        if self.flow_records.len() == self.window { self.flow_records.pop_front(); }
-        self.flow_records.push_back(FlowRecord { signed_volume: signed_vol, delta_price });
+        if self.flow_records.len() == self.window {
+            self.flow_records.pop_front();
+        }
+        self.flow_records.push_back(FlowRecord {
+            signed_volume: signed_vol,
+            delta_price,
+        });
         self.last_price = Some(price);
 
         // Amihud
@@ -405,7 +424,9 @@ impl OrderFlowToxicityAnalyzer {
                 0.0
             };
             let illiq = if volume > 0.0 { ret / volume } else { 0.0 };
-            if self.amihud_samples.len() == self.window { self.amihud_samples.pop_front(); }
+            if self.amihud_samples.len() == self.window {
+                self.amihud_samples.pop_front();
+            }
             self.amihud_samples.push_back(illiq);
         }
         self.last_price_for_amihud = Some(price);
@@ -415,7 +436,11 @@ impl OrderFlowToxicityAnalyzer {
         while remaining > 0.0 {
             let space = self.vpin_bucket_size - self.current_bucket.total_volume;
             let fill = remaining.min(space);
-            let buy_fill = if volume > 0.0 { fill * (buy_vol / volume) } else { fill * 0.5 };
+            let buy_fill = if volume > 0.0 {
+                fill * (buy_vol / volume)
+            } else {
+                fill * 0.5
+            };
             let sell_fill = fill - buy_fill;
             self.current_bucket.buy_volume += buy_fill;
             self.current_bucket.sell_volume += sell_fill;
@@ -438,7 +463,9 @@ impl OrderFlowToxicityAnalyzer {
     ///
     /// Returns `f64::NAN` until `window` ticks have been observed.
     pub fn pin_estimate(&self) -> f64 {
-        if self.buy_flow.len() < self.window { return f64::NAN; }
+        if self.buy_flow.len() < self.window {
+            return f64::NAN;
+        }
 
         let n = self.buy_flow.len() as f64;
         let mean_buy = self.buy_flow.iter().sum::<f64>() / n;
@@ -448,13 +475,14 @@ impl OrderFlowToxicityAnalyzer {
 
         let epsilon = mean_buy.min(mean_sell).max(1e-9);
         let excess_var = (var_buy - mean_buy).max(0.0);
-        let alpha_mu = (excess_var.sqrt()
-            + (mean_buy - epsilon).max(0.0)
-            + (mean_sell - epsilon).max(0.0))
-            / 2.0;
+        let alpha_mu =
+            (excess_var.sqrt() + (mean_buy - epsilon).max(0.0) + (mean_sell - epsilon).max(0.0))
+                / 2.0;
         let alpha_mu = alpha_mu.max(0.0);
         let denom = alpha_mu + 2.0 * epsilon;
-        if denom <= 0.0 { return 0.0; }
+        if denom <= 0.0 {
+            return 0.0;
+        }
         (alpha_mu / denom).clamp(0.0, 1.0)
     }
 
@@ -462,8 +490,14 @@ impl OrderFlowToxicityAnalyzer {
     ///
     /// Returns `f64::NAN` until at least one bucket has been completed.
     pub fn vpin(&self) -> f64 {
-        if self.completed_buckets.is_empty() { return f64::NAN; }
-        let sum: f64 = self.completed_buckets.iter().map(|b| b.imbalance_fraction()).sum();
+        if self.completed_buckets.is_empty() {
+            return f64::NAN;
+        }
+        let sum: f64 = self
+            .completed_buckets
+            .iter()
+            .map(|b| b.imbalance_fraction())
+            .sum();
         (sum / self.completed_buckets.len() as f64).clamp(0.0, 1.0)
     }
 
@@ -472,17 +506,30 @@ impl OrderFlowToxicityAnalyzer {
     /// Returns `f64::NAN` until `window` records have been accumulated, or if
     /// the variance of signed volume is essentially zero.
     pub fn kyle_lambda(&self) -> f64 {
-        if self.flow_records.len() < self.window { return f64::NAN; }
+        if self.flow_records.len() < self.window {
+            return f64::NAN;
+        }
         let n = self.flow_records.len() as f64;
-        let mean_x = self.flow_records.iter().map(|r| r.signed_volume).sum::<f64>() / n;
+        let mean_x = self
+            .flow_records
+            .iter()
+            .map(|r| r.signed_volume)
+            .sum::<f64>()
+            / n;
         let mean_y = self.flow_records.iter().map(|r| r.delta_price).sum::<f64>() / n;
-        let cov_xy: f64 = self.flow_records.iter()
+        let cov_xy: f64 = self
+            .flow_records
+            .iter()
             .map(|r| (r.signed_volume - mean_x) * (r.delta_price - mean_y))
             .sum();
-        let var_x: f64 = self.flow_records.iter()
+        let var_x: f64 = self
+            .flow_records
+            .iter()
             .map(|r| (r.signed_volume - mean_x).powi(2))
             .sum();
-        if var_x.abs() < 1e-18 { return f64::NAN; }
+        if var_x.abs() < 1e-18 {
+            return f64::NAN;
+        }
         cov_xy / var_x
     }
 
@@ -490,7 +537,9 @@ impl OrderFlowToxicityAnalyzer {
     ///
     /// Returns `f64::NAN` until at least 2 ticks have been processed.
     pub fn amihud_ratio(&self) -> f64 {
-        if self.amihud_samples.is_empty() { return f64::NAN; }
+        if self.amihud_samples.is_empty() {
+            return f64::NAN;
+        }
         let n = self.amihud_samples.len() as f64;
         self.amihud_samples.iter().sum::<f64>() / n
     }
@@ -538,7 +587,9 @@ fn decimal_to_f64(d: rust_decimal::Decimal) -> f64 {
 fn variance_f64(iter: impl Iterator<Item = f64> + Clone) -> f64 {
     let v: Vec<f64> = iter.collect();
     let n = v.len() as f64;
-    if n < 2.0 { return 0.0; }
+    if n < 2.0 {
+        return 0.0;
+    }
     let mean = v.iter().sum::<f64>() / n;
     v.iter().map(|x| (x - mean).powi(2)).sum::<f64>() / n
 }
@@ -571,31 +622,51 @@ mod tests {
 
     #[test]
     fn legacy_vpin_none_before_bucket() {
-        let cfg = VpinConfig { bucket_volume: 1000.0, n_buckets: 10, alert_threshold: 0.7 };
+        let cfg = VpinConfig {
+            bucket_volume: 1000.0,
+            n_buckets: 10,
+            alert_threshold: 0.7,
+        };
         let mut calc = VpinCalculator::new(cfg);
-        calc.update(TradeTick { price: 100.0, volume: 10.0 });
+        calc.update(TradeTick {
+            price: 100.0,
+            volume: 10.0,
+        });
         assert!(calc.vpin().is_none());
     }
 
     #[test]
     fn legacy_vpin_some_after_bucket() {
-        let cfg = VpinConfig { bucket_volume: 5.0, n_buckets: 10, alert_threshold: 0.9 };
+        let cfg = VpinConfig {
+            bucket_volume: 5.0,
+            n_buckets: 10,
+            alert_threshold: 0.9,
+        };
         let mut calc = VpinCalculator::new(cfg);
         for _ in 0..10 {
-            calc.update(TradeTick { price: 100.0, volume: 1.0 });
+            calc.update(TradeTick {
+                price: 100.0,
+                volume: 1.0,
+            });
         }
         assert!(calc.vpin().is_some());
     }
 
     #[test]
     fn legacy_alert_emitted() {
-        let cfg = VpinConfig { bucket_volume: 5.0, n_buckets: 5, alert_threshold: 0.1 };
+        let cfg = VpinConfig {
+            bucket_volume: 5.0,
+            n_buckets: 5,
+            alert_threshold: 0.1,
+        };
         let mut calc = VpinCalculator::new(cfg);
         let mut got_alert = false;
         for i in 0..30 {
             let price = 100.0 + i as f64 * 0.1;
             let alerts = calc.update(TradeTick { price, volume: 1.0 });
-            if !alerts.is_empty() { got_alert = true; }
+            if !alerts.is_empty() {
+                got_alert = true;
+            }
         }
         assert!(got_alert, "expected at least one alert with low threshold");
     }
@@ -615,12 +686,19 @@ mod tests {
     fn pin_valid_after_window_full() {
         let mut a = OrderFlowToxicityAnalyzer::new(10, 5, 5);
         for i in 0..10 {
-            let side = if i % 3 == 0 { TradeSide::Sell } else { TradeSide::Buy };
+            let side = if i % 3 == 0 {
+                TradeSide::Sell
+            } else {
+                TradeSide::Buy
+            };
             a.update(&make_tick("100", "1", side));
         }
         let pin = a.pin_estimate();
         assert!(pin.is_finite());
-        assert!((0.0..=1.0).contains(&pin), "PIN must be in [0,1], got {pin}");
+        assert!(
+            (0.0..=1.0).contains(&pin),
+            "PIN must be in [0,1], got {pin}"
+        );
     }
 
     #[test]
@@ -656,11 +734,18 @@ mod tests {
             if i > 0 {
                 price += 0.01 * qty as f64;
             }
-            a.update(&make_tick(&format!("{price:.2}"), &qty.to_string(), TradeSide::Buy));
+            a.update(&make_tick(
+                &format!("{price:.2}"),
+                &qty.to_string(),
+                TradeSide::Buy,
+            ));
         }
         let lambda = a.kyle_lambda();
         assert!(lambda.is_finite());
-        assert!((lambda - 0.01).abs() < 1e-9, "lambda should be 0.01 per unit, got {lambda}");
+        assert!(
+            (lambda - 0.01).abs() < 1e-9,
+            "lambda should be 0.01 per unit, got {lambda}"
+        );
     }
 
     #[test]

@@ -86,7 +86,11 @@ impl VpinCalculator {
                 .iter()
                 .map(|(b, s)| {
                     let total = b + s;
-                    if total == 0.0 { 0.0 } else { (b - s).abs() / total }
+                    if total == 0.0 {
+                        0.0
+                    } else {
+                        (b - s).abs() / total
+                    }
                 })
                 .sum::<f64>();
             result[i] = sum / window as f64;
@@ -129,10 +133,7 @@ impl OrderFlowImbalanceMetrics {
 
         // Build (x=signed_volume, y=price_change) pairs from consecutive trades.
         let n = trades.len() - 1;
-        let x: Vec<f64> = trades[..n]
-            .iter()
-            .map(|t| t.side as f64 * t.size)
-            .collect();
+        let x: Vec<f64> = trades[..n].iter().map(|t| t.side as f64 * t.size).collect();
         let y: Vec<f64> = (1..=n)
             .map(|i| trades[i].price - trades[i - 1].price)
             .collect();
@@ -142,7 +143,11 @@ impl OrderFlowImbalanceMetrics {
         let mean_y = y.iter().sum::<f64>() / n_f;
 
         let ss_xx: f64 = x.iter().map(|xi| (xi - mean_x).powi(2)).sum();
-        let ss_xy: f64 = x.iter().zip(y.iter()).map(|(xi, yi)| (xi - mean_x) * (yi - mean_y)).sum();
+        let ss_xy: f64 = x
+            .iter()
+            .zip(y.iter())
+            .map(|(xi, yi)| (xi - mean_x) * (yi - mean_y))
+            .sum();
 
         let beta = if ss_xx == 0.0 { 0.0 } else { ss_xy / ss_xx };
         let alpha = mean_y - beta * mean_x;
@@ -169,19 +174,24 @@ mod tests {
     use super::*;
 
     fn make_trade(price: f64, size: f64, side: i8, ts: u64) -> Trade {
-        Trade { price, size, side, timestamp_ms: ts }
+        Trade {
+            price,
+            size,
+            side,
+            timestamp_ms: ts,
+        }
     }
 
     fn sample_trades() -> Vec<Trade> {
         vec![
-            make_trade(100.0, 10.0,  1,  1000),
-            make_trade(100.1, 15.0, -1,  2000),
-            make_trade(100.2,  5.0,  1,  3000),
-            make_trade( 99.9, 20.0, -1,  4000),
-            make_trade(100.3, 12.0,  1,  5000),
-            make_trade(100.4,  8.0,  1,  6000),
-            make_trade(100.0, 18.0, -1,  7000),
-            make_trade( 99.8, 11.0, -1,  8000),
+            make_trade(100.0, 10.0, 1, 1000),
+            make_trade(100.1, 15.0, -1, 2000),
+            make_trade(100.2, 5.0, 1, 3000),
+            make_trade(99.9, 20.0, -1, 4000),
+            make_trade(100.3, 12.0, 1, 5000),
+            make_trade(100.4, 8.0, 1, 6000),
+            make_trade(100.0, 18.0, -1, 7000),
+            make_trade(99.8, 11.0, -1, 8000),
         ]
     }
 
@@ -190,27 +200,42 @@ mod tests {
     #[test]
     fn test_classify_trades_bucket_count() {
         let trades = sample_trades();
-        let config = VpinConfig { bucket_size: 30.0, window_buckets: 2 };
+        let config = VpinConfig {
+            bucket_size: 30.0,
+            window_buckets: 2,
+        };
         let buckets = VpinCalculator::classify_trades(&trades, &config);
         // Total volume = 99; 3 full buckets of 30 + 1 partial bucket
-        assert!(buckets.len() >= 3, "expected at least 3 buckets, got {}", buckets.len());
+        assert!(
+            buckets.len() >= 3,
+            "expected at least 3 buckets, got {}",
+            buckets.len()
+        );
     }
 
     #[test]
     fn test_classify_trades_volume_conservation() {
         let trades = sample_trades();
         let total_vol: f64 = trades.iter().map(|t| t.size).sum();
-        let config = VpinConfig { bucket_size: 20.0, window_buckets: 2 };
+        let config = VpinConfig {
+            bucket_size: 20.0,
+            window_buckets: 2,
+        };
         let buckets = VpinCalculator::classify_trades(&trades, &config);
         let bucket_vol: f64 = buckets.iter().map(|(b, s)| b + s).sum();
-        assert!((bucket_vol - total_vol).abs() < 1e-6,
-            "volume lost: total={total_vol}, bucketed={bucket_vol}");
+        assert!(
+            (bucket_vol - total_vol).abs() < 1e-6,
+            "volume lost: total={total_vol}, bucketed={bucket_vol}"
+        );
     }
 
     #[test]
     fn test_classify_trades_non_negative() {
         let trades = sample_trades();
-        let config = VpinConfig { bucket_size: 15.0, window_buckets: 3 };
+        let config = VpinConfig {
+            bucket_size: 15.0,
+            window_buckets: 3,
+        };
         let buckets = VpinCalculator::classify_trades(&trades, &config);
         for (b, s) in &buckets {
             assert!(*b >= 0.0 && *s >= 0.0, "negative volume: buy={b}, sell={s}");
@@ -257,7 +282,10 @@ mod tests {
         let buckets = vec![(10.0, 0.0); 5];
         let vpin = VpinCalculator::compute_vpin(&buckets, 3);
         for v in vpin.iter().filter(|v| !v.is_nan()) {
-            assert!((v - 1.0).abs() < 1e-9, "one-sided VPIN should be 1, got {v}");
+            assert!(
+                (v - 1.0).abs() < 1e-9,
+                "one-sided VPIN should be 1, got {v}"
+            );
         }
     }
 
@@ -277,7 +305,10 @@ mod tests {
         let nof = OrderFlowImbalanceMetrics::net_order_flow(&trades, 3000, 6000);
         // Trades at ts 3000..=6000: (5, side=1), (20, side=-1), (12, side=1), (8, side=1)
         let expected = 5.0 - 20.0 + 12.0 + 8.0;
-        assert!((nof - expected).abs() < 1e-9, "nof={nof}, expected={expected}");
+        assert!(
+            (nof - expected).abs() < 1e-9,
+            "nof={nof}, expected={expected}"
+        );
     }
 
     #[test]
@@ -294,13 +325,16 @@ mod tests {
         // (The old data rose by a constant 0.5 per trade whatever the volume, so
         // Δp had zero variance and the slope was correctly 0.)
         let trades = vec![
-            make_trade(100.0, 10.0,  1, 1000),
-            make_trade(100.5, 20.0,  1, 2000),
-            make_trade(101.5, 15.0,  1, 3000),
+            make_trade(100.0, 10.0, 1, 1000),
+            make_trade(100.5, 20.0, 1, 2000),
+            make_trade(101.5, 15.0, 1, 3000),
             make_trade(102.25, 25.0, 1, 4000),
         ];
         let (alpha, beta) = OrderFlowImbalanceMetrics::price_impact_regression(&trades);
-        assert!((beta - 0.05).abs() < 1e-9, "beta should be 0.05 for this buying pressure, got {beta}");
+        assert!(
+            (beta - 0.05).abs() < 1e-9,
+            "beta should be 0.05 for this buying pressure, got {beta}"
+        );
         assert!(alpha.abs() < 1e-9, "alpha={alpha}");
     }
 
@@ -317,7 +351,7 @@ mod tests {
         let trades = vec![
             make_trade(100.0, 10.0, 1, 1000),
             make_trade(100.0, 20.0, 1, 2000),
-            make_trade(100.0,  5.0, 1, 3000),
+            make_trade(100.0, 5.0, 1, 3000),
         ];
         let cd = OrderFlowImbalanceMetrics::cumulative_delta(&trades);
         assert_eq!(cd.len(), 3);

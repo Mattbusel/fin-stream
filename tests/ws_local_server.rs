@@ -37,15 +37,21 @@ async fn forwards_text_and_utf8_binary_frames() {
         let (tcp, _) = l.accept().await.unwrap();
         let mut ws = accept_async(tcp).await.unwrap();
         ws.send(Message::Text("one".into())).await.unwrap();
-        ws.send(Message::Binary(b"two".to_vec().into())).await.unwrap();
-        ws.send(Message::Binary(vec![0xff, 0xfe].into())).await.unwrap(); // not UTF-8
+        ws.send(Message::Binary(b"two".to_vec().into()))
+            .await
+            .unwrap();
+        ws.send(Message::Binary(vec![0xff, 0xfe].into()))
+            .await
+            .unwrap(); // not UTF-8
         ws.send(Message::Text("three".into())).await.unwrap();
         // Keep the socket open until the client goes away.
         while ws.next().await.is_some() {}
     });
 
     let (tx, mut rx) = mpsc::channel(16);
-    let cfg = ConnectionConfig::new(url, 16).unwrap().with_reconnect(fast_policy(3));
+    let cfg = ConnectionConfig::new(url, 16)
+        .unwrap()
+        .with_reconnect(fast_policy(3));
     let mut mgr = WsManager::new(cfg);
     let task = tokio::spawn(async move {
         let r = mgr.run(tx, None).await;
@@ -54,13 +60,24 @@ async fn forwards_text_and_utf8_binary_frames() {
 
     let mut got = Vec::new();
     for _ in 0..3 {
-        got.push(timeout(Duration::from_secs(5), rx.recv()).await.unwrap().unwrap());
+        got.push(
+            timeout(Duration::from_secs(5), rx.recv())
+                .await
+                .unwrap()
+                .unwrap(),
+        );
     }
     assert_eq!(got, ["one", "two", "three"]);
     drop(rx);
-    let (r, received) = timeout(Duration::from_secs(5), task).await.unwrap().unwrap();
+    let (r, received) = timeout(Duration::from_secs(5), task)
+        .await
+        .unwrap()
+        .unwrap();
     assert!(r.is_ok(), "{r:?}");
-    assert_eq!(received, 4, "the non-UTF-8 frame is counted but not forwarded");
+    assert_eq!(
+        received, 4,
+        "the non-UTF-8 frame is counted but not forwarded"
+    );
 }
 
 #[tokio::test]
@@ -82,18 +99,33 @@ async fn outbound_messages_reach_the_server_and_a_dropped_sender_is_harmless() {
 
     let (tx, mut rx) = mpsc::channel(16);
     let (out_tx, out_rx) = mpsc::channel(4);
-    let cfg = ConnectionConfig::new(url, 16).unwrap().with_reconnect(fast_policy(3));
+    let cfg = ConnectionConfig::new(url, 16)
+        .unwrap()
+        .with_reconnect(fast_policy(3));
     let mut mgr = WsManager::new(cfg);
     let task = tokio::spawn(async move { mgr.run(tx, Some(out_rx)).await });
 
-    out_tx.send(r#"{"op":"subscribe"}"#.to_string()).await.unwrap();
+    out_tx
+        .send(r#"{"op":"subscribe"}"#.to_string())
+        .await
+        .unwrap();
     drop(out_tx);
-    let seen = timeout(Duration::from_secs(5), seen_rx.recv()).await.unwrap().unwrap();
+    let seen = timeout(Duration::from_secs(5), seen_rx.recv())
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(seen, r#"{"op":"subscribe"}"#);
-    let ack = timeout(Duration::from_secs(5), rx.recv()).await.unwrap().unwrap();
+    let ack = timeout(Duration::from_secs(5), rx.recv())
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(ack, "ack");
     drop(rx);
-    assert!(timeout(Duration::from_secs(5), task).await.unwrap().unwrap().is_ok());
+    assert!(timeout(Duration::from_secs(5), task)
+        .await
+        .unwrap()
+        .unwrap()
+        .is_ok());
 }
 
 /// A feed that connects fine but is closed by the server every so often must keep
@@ -106,14 +138,18 @@ async fn established_connections_reset_the_reconnect_budget() {
         for i in 0..4 {
             let (tcp, _) = l.accept().await.unwrap();
             let mut ws = accept_async(tcp).await.unwrap();
-            ws.send(Message::Text(format!("session {i}").into())).await.unwrap();
+            ws.send(Message::Text(format!("session {i}").into()))
+                .await
+                .unwrap();
             ws.close(None).await.unwrap();
             while ws.next().await.is_some() {}
         }
     });
 
     let (tx, mut rx) = mpsc::channel(16);
-    let cfg = ConnectionConfig::new(url, 16).unwrap().with_reconnect(fast_policy(1));
+    let cfg = ConnectionConfig::new(url, 16)
+        .unwrap()
+        .with_reconnect(fast_policy(1));
     let mut mgr = WsManager::new(cfg);
     let task = tokio::spawn(async move { mgr.run(tx, None).await });
 
@@ -122,7 +158,10 @@ async fn established_connections_reset_the_reconnect_budget() {
         assert_eq!(msg.as_deref(), Some(format!("session {i}").as_str()));
     }
     drop(rx);
-    let _ = timeout(Duration::from_secs(5), task).await.unwrap().unwrap();
+    let _ = timeout(Duration::from_secs(5), task)
+        .await
+        .unwrap()
+        .unwrap();
 }
 
 /// A server that completes the handshake and then goes silent (no data, no pong)
@@ -153,7 +192,10 @@ async fn silent_connection_is_detected_and_replaced() {
     let msg = timeout(Duration::from_secs(5), rx.recv()).await.unwrap();
     assert_eq!(msg.as_deref(), Some("fresh"));
     drop(rx);
-    let _ = timeout(Duration::from_secs(5), task).await.unwrap().unwrap();
+    let _ = timeout(Duration::from_secs(5), task)
+        .await
+        .unwrap()
+        .unwrap();
 }
 
 #[tokio::test]
@@ -162,9 +204,13 @@ async fn gives_up_after_max_consecutive_failures() {
     let (l, url) = listener().await;
     drop(l);
     let (tx, _rx) = mpsc::channel(16);
-    let cfg = ConnectionConfig::new(url, 16).unwrap().with_reconnect(fast_policy(2));
+    let cfg = ConnectionConfig::new(url, 16)
+        .unwrap()
+        .with_reconnect(fast_policy(2));
     let mut mgr = WsManager::new(cfg);
-    let r = timeout(Duration::from_secs(10), mgr.run(tx, None)).await.unwrap();
+    let r = timeout(Duration::from_secs(10), mgr.run(tx, None))
+        .await
+        .unwrap();
     match r {
         Err(StreamError::ReconnectExhausted { attempts, .. }) => assert_eq!(attempts, 2),
         other => panic!("expected ReconnectExhausted, got {other:?}"),
